@@ -137,11 +137,16 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
     {
         var array = new SwiftArray<int>();
         var payload = *(IntPtr*)array.Payload.storage;
+
+        // Retain the payload to ensure it stays alive after the dispose
+        Arc.Retain(payload);
         var count = Arc.RetainCount(payload);
 
         array.Dispose();
 
         Assert.Equal(count - 1, Arc.RetainCount(payload));
+        // Release the payload after the assertion
+        Arc.Release(payload);
     }
 
     private static void PrimitiveArrayTest<T>(T value1, T value2, T overwriteValue) where T : unmanaged

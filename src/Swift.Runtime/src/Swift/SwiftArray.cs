@@ -46,13 +46,12 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
 
     // Swift array is a value type and doesn't contain an IntPtr payload
     private ArrayBuffer buffer;
-    bool _disposed = false;
     public unsafe void Dispose()
     {
-        if (!_disposed)
+        if (buffer.storage != IntPtr.Zero)
         {
             Arc.Release(*(IntPtr*)buffer.storage);
-            _disposed = true;
+            buffer.storage = IntPtr.Zero;
             GC.SuppressFinalize(this);
         }
     }
@@ -60,6 +59,7 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
     unsafe ~SwiftArray()
     {
         Arc.Release(*(IntPtr*)buffer.storage);
+        buffer.storage = IntPtr.Zero;
     }
     public static nuint PayloadSize => _payloadSize;
     public ArrayBuffer Payload => buffer;
