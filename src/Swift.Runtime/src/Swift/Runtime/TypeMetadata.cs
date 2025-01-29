@@ -311,8 +311,14 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         if (typeof(ISwiftObject).IsAssignableFrom(type))
         {
             var helper = typeof(SwiftObjectHelper<>).MakeGenericType(type);
-            result = (TypeMetadata)helper.GetMethod("GetTypeMetadata")!.Invoke(null, null)!;
-            return true;
+            var candidate = (TypeMetadata)helper.GetMethod("GetTypeMetadata")!.Invoke(null, null)!;
+
+            // GetTypeMetadata can return an IntPtr.Zero 
+            if (candidate.IsValid)
+            {
+                result = candidate;
+                return true;
+            }
         }
 
         // NB - all further methods here should finish by putting the type into the cache

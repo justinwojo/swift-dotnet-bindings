@@ -87,6 +87,11 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
         {
             return new ThisOnlyGetsUsedHere();
         }
+
+        static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<U>()
+        {
+            return ProtocolConformanceDescriptor.Zero;
+        }
     }
 
     [Fact]
@@ -120,5 +125,11 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
     public static void CannotGetOnUnknownInstance()
     {
         Assert.False(TypeMetadata.TryGetTypeMetadata<object>(out var md));
+    }
+
+    [Fact]
+    public static void FailsWhenMetadataIsNotValid()
+    {
+        Assert.False(TypeMetadata.TryGetTypeMetadata<AnyTypeMock>(out var md));
     }
 }

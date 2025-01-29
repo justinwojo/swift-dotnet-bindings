@@ -54,4 +54,14 @@ public struct AnyType : ISwiftObject
         return swiftDest;
     }
 
+    /// <summary>
+    /// Gets the protocol conformance descriptor for the given type
+    /// </summary>
+    /// <typeparam name="TProtocol"></typeparam>
+    /// <returns></returns>
+    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+        where TProtocol : class
+    {
+        return ProtocolConformanceDescriptor.Zero;
+    }
 }
