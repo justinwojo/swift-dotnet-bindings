@@ -8,9 +8,9 @@ namespace BindingsGeneration;
 /// </summary>
 public class NamedTypeSpec : TypeSpec
 {
-	/// <summary>
-	/// Constructs a new type spec from the given name. It's encouraged that the name be fully qualified.
-	/// </summary>
+    /// <summary>
+    /// Constructs a new type spec from the given name. It's encouraged that the name be fully qualified.
+    /// </summary>
     public NamedTypeSpec(string name)
         : base(TypeSpecKind.Named)
     {
@@ -30,18 +30,18 @@ public class NamedTypeSpec : TypeSpec
         Name = name;
     }
 
-	/// <summary>
-	/// Constructs a new type spec from the given name and generic arguments.
-	/// </summary>
+    /// <summary>
+    /// Constructs a new type spec from the given name and generic arguments.
+    /// </summary>
     public NamedTypeSpec(string name, params TypeSpec[] genericSpecialization)
         : this(name)
     {
         GenericParameters.AddRange(genericSpecialization);
     }
 
-	/// <summary>
-	/// Gets or sets an inner type for the type spec
-	/// </summary>
+    /// <summary>
+    /// Gets or sets an inner type for the type spec
+    /// </summary>
     public NamedTypeSpec? InnerType { get; set; }
 
     public bool IsProtocolList { get { return Name == "protocol"; } }
@@ -77,9 +77,9 @@ public class NamedTypeSpec : TypeSpec
         return false;
     }
 
-	/// <summary>
-	/// Returns true if the TypeSpec contains a module
-	/// </summary>
+    /// <summary>
+    /// Returns true if the TypeSpec contains a module
+    /// </summary>
     public bool HasModule()
     {
         // note that this will fail if the type is a protocol with associated types full path,
@@ -88,9 +88,9 @@ public class NamedTypeSpec : TypeSpec
         return Name.Contains(".");
     }
 
-	/// <summary>
-	/// Returns the module component if present, empty string otherwise.
-	/// </summary>
+    /// <summary>
+    /// Returns the module component if present, empty string otherwise.
+    /// </summary>
     public string Module
     {
         get
@@ -99,9 +99,9 @@ public class NamedTypeSpec : TypeSpec
         }
     }
 
-	/// <summary>
-	/// Returns the name of the type spec without a module (if present)
-	/// </summary>
+    /// <summary>
+    /// Returns the name of the type spec without a module (if present)
+    /// </summary>
     public string NameWithoutModule
     {
         get

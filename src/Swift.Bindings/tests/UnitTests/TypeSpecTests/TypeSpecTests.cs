@@ -129,7 +129,7 @@ public class TypeSpecTests : IClassFixture<TypeSpecTests.TestFixture>
         Assert.True(clos.ReturnType.IsEmptyTuple);
         Assert.Equal("() -> ()", clos.ToString());
     }
-    
+
     [Fact]
     public static void TestOneOnOne()
     {
@@ -176,74 +176,74 @@ public class TypeSpecTests : IClassFixture<TypeSpecTests.TestFixture>
     }
 
     [Fact]
-    public static void TestProtocolListAlphabetical1 ()
+    public static void TestProtocolListAlphabetical1()
     {
-        var specs = new NamedTypeSpec [] {
+        var specs = new NamedTypeSpec[] {
             new NamedTypeSpec ("🤡Foo"),
             new NamedTypeSpec ("💩Foo"),
         };
 
-        var protos = new ProtocolListTypeSpec (specs);
-        Assert.Equal ("💩Foo & 🤡Foo", protos.ToString ());
+        var protos = new ProtocolListTypeSpec(specs);
+        Assert.Equal("💩Foo & 🤡Foo", protos.ToString());
     }
 
     [Fact]
-    public static void TestProtocolListMatch ()
+    public static void TestProtocolListMatch()
     {
-        var specs1 = new NamedTypeSpec [] {
+        var specs1 = new NamedTypeSpec[] {
             new NamedTypeSpec ("Cfoo"),
             new NamedTypeSpec ("Afoo"),
             new NamedTypeSpec ("Dfoo"),
             new NamedTypeSpec ("Bfoo")
         };
 
-        var specs2 = new NamedTypeSpec [] {
+        var specs2 = new NamedTypeSpec[] {
             new NamedTypeSpec ("Afoo"),
             new NamedTypeSpec ("Dfoo"),
             new NamedTypeSpec ("Cfoo"),
             new NamedTypeSpec ("Bfoo")
         };
 
-        var protos1 = new ProtocolListTypeSpec (specs1);
-        var protos2 = new ProtocolListTypeSpec (specs2);
+        var protos1 = new ProtocolListTypeSpec(specs1);
+        var protos2 = new ProtocolListTypeSpec(specs2);
 
-        Assert.True (protos1.Equals (protos2));
+        Assert.True(protos1.Equals(protos2));
     }
 
     [Fact]
-    public static void TestProtocolListNotMatch ()
+    public static void TestProtocolListNotMatch()
     {
-        var specs1 = new NamedTypeSpec [] {
+        var specs1 = new NamedTypeSpec[] {
             new NamedTypeSpec ("Cfoo"),
             new NamedTypeSpec ("Afoo"),
             new NamedTypeSpec ("Dfoo"),
             new NamedTypeSpec ("Bfoo")
         };
 
-        var specs2 = new NamedTypeSpec [] {
+        var specs2 = new NamedTypeSpec[] {
             new NamedTypeSpec ("Afoo"),
             new NamedTypeSpec ("Efoo"),
             new NamedTypeSpec ("Cfoo"),
             new NamedTypeSpec ("Bfoo")
         };
 
-        var protos1 = new ProtocolListTypeSpec (specs1);
-        var protos2 = new ProtocolListTypeSpec (specs2);
+        var protos1 = new ProtocolListTypeSpec(specs1);
+        var protos2 = new ProtocolListTypeSpec(specs2);
 
-        Assert.False (protos1.Equals (protos2));
+        Assert.False(protos1.Equals(protos2));
     }
 
     [Fact]
-    public static void TestProtocolListNotMatchLength ()
+    public static void TestProtocolListNotMatchLength()
     {
-        var specs1 = new NamedTypeSpec [] {
+        var specs1 = new NamedTypeSpec[] {
             new NamedTypeSpec ("Cfoo"),
             new NamedTypeSpec ("Afoo"),
             new NamedTypeSpec ("Dfoo"),
             new NamedTypeSpec ("Bfoo")
         };
 
-        var specs2 = new NamedTypeSpec [] {
+        var specs2 = new NamedTypeSpec[] {
             new NamedTypeSpec ("Afoo"),
             new NamedTypeSpec ("Dfoo"),
             new NamedTypeSpec ("Cfoo"),
@@ -251,10 +251,10 @@ public class TypeSpecTests : IClassFixture<TypeSpecTests.TestFixture>
             new NamedTypeSpec ("Bfoo")
         };
 
-        var protos1 = new ProtocolListTypeSpec (specs1);
-        var protos2 = new ProtocolListTypeSpec (specs2);
+        var protos1 = new ProtocolListTypeSpec(specs1);
+        var protos2 = new ProtocolListTypeSpec(specs2);
 
-        Assert.NotEqual (protos1, protos2);
+        Assert.NotEqual(protos1, protos2);
     }
 
 }

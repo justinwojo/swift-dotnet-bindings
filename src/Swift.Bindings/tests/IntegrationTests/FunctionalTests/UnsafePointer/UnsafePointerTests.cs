@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Xunit;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Swift;
 using Swift.Runtime;
 using Swift.UnsafePointerTests;
+using Xunit;
 
 namespace BindingsGeneration.FunctionalTests
 {

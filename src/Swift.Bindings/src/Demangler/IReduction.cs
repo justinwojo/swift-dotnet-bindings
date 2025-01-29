@@ -6,7 +6,8 @@ namespace BindingsGeneration.Demangling;
 /// <summary>
 /// Represents the result of reducing a Node or tree of nodes
 /// </summary>
-public interface IReduction {
+public interface IReduction
+{
     /// <summary>
     /// Returns a the mangled symbol associated with a reduction
     /// </summary>
@@ -16,7 +17,8 @@ public interface IReduction {
 /// <summary>
 /// Represents an error in an attempted reduction
 /// </summary>
-public class ReductionError : IReduction {
+public class ReductionError : IReduction
+{
     /// <summary>
     /// Returns a the mangled symbol associated with a reduction
     /// </summary>
@@ -35,7 +37,8 @@ public class ReductionError : IReduction {
 /// <summary>
 /// Represents a reduction that reduces to a single type
 /// </summary>
-public class TypeSpecReduction : IReduction {
+public class TypeSpecReduction : IReduction
+{
     /// <summary>
     /// Returns a the mangled symbol associated with a reduction
     /// </summary>
@@ -49,7 +52,8 @@ public class TypeSpecReduction : IReduction {
 /// <summary>
 /// Represents a reduction for a metadata acessor function.
 /// </summary>
-public class MetadataAccessorReduction : IReduction {
+public class MetadataAccessorReduction : IReduction
+{
     /// <summary>
     /// Returns a the mangled symbol associated with a reduction
     /// </summary>
@@ -63,7 +67,8 @@ public class MetadataAccessorReduction : IReduction {
 /// <summary>
 /// Represents a reduction that reduces to a Swift function
 /// </summary>
-public class FunctionReduction : IReduction {
+public class FunctionReduction : IReduction
+{
     /// <summary>
     /// Returns a the mangled symbol associated with a reduction
     /// </summary>
@@ -79,13 +84,14 @@ public class FunctionReduction : IReduction {
 /// While they are identical in terms of content, having this as a separate type will make it easy to locate
 /// dispatch thunks.
 /// </summary>
-public class DispatchThunkFunctionReduction : FunctionReduction {
+public class DispatchThunkFunctionReduction : FunctionReduction
+{
     /// <summary>
     /// Factory method to create a DispatchThunkFunctionReduction from a FunctionReduction
     /// </summary>
     /// <param name="reduction">The FunctionReduction to copy</param>
     /// <returns>A DispatchThunkFunctionReduction that matches the give FunctionReduction</returns>
-    public static DispatchThunkFunctionReduction FromFunctionReduction (FunctionReduction reduction)
+    public static DispatchThunkFunctionReduction FromFunctionReduction(FunctionReduction reduction)
     {
         return new DispatchThunkFunctionReduction() { Symbol = reduction.Symbol, Function = reduction.Function };
     }
@@ -94,7 +100,8 @@ public class DispatchThunkFunctionReduction : FunctionReduction {
 /// <summary>
 /// Represents a reduction to a protocol witness table
 /// </summary>
-public class ProtocolWitnessTableReduction : IReduction {
+public class ProtocolWitnessTableReduction : IReduction
+{
     /// <summary>
     /// Returns a the mangled symbol associated with a reduction
     /// </summary>
@@ -112,14 +119,16 @@ public class ProtocolWitnessTableReduction : IReduction {
 /// <summary>
 /// Represents a reduction to a protocol conformance descriptor
 /// </summary>
-public class ProtocolConformanceDescriptorReduction : ProtocolWitnessTableReduction {
+public class ProtocolConformanceDescriptorReduction : ProtocolWitnessTableReduction
+{
     public required string Module { get; init; }
 }
 
 /// <summary>
 /// Represents a reduction to a provenance
 /// </summary>
-public class ProvenanceReduction : IReduction {
+public class ProvenanceReduction : IReduction
+{
     /// <summary>
     /// Returns a the mangled symbol associated with a reduction
     /// </summary>
@@ -128,22 +137,22 @@ public class ProvenanceReduction : IReduction {
     /// Returns the Provenance of reduction
     /// </summary>
     public required Provenance Provenance { get; init; }
-    
+
     /// <summary>
     /// Factory method to construct a top-level provenance reduction
     /// </summary>
     public static ProvenanceReduction TopLevel(string symbol, string moduleName) =>
-        new ProvenanceReduction() { Symbol = symbol, Provenance = Provenance.TopLevel (moduleName) };
-    
+        new ProvenanceReduction() { Symbol = symbol, Provenance = Provenance.TopLevel(moduleName) };
+
     /// <summary>
     /// Factory method to construct an instance provenance reduction
     /// </summary>
     public static ProvenanceReduction Instance(string symbol, NamedTypeSpec instance) =>
-        new ProvenanceReduction() { Symbol = symbol, Provenance = Provenance.Instance (instance) };
+        new ProvenanceReduction() { Symbol = symbol, Provenance = Provenance.Instance(instance) };
 
     /// <summary>
     /// Factory method to construct an extension provenance reduction
     /// </summary>
     public static ProvenanceReduction Extension(string symbol, NamedTypeSpec extensionOn) =>
-        new ProvenanceReduction() { Symbol = symbol, Provenance = Provenance.Extension (extensionOn) };
+        new ProvenanceReduction() { Symbol = symbol, Provenance = Provenance.Extension(extensionOn) };
 }

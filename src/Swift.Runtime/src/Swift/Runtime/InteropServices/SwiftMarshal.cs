@@ -8,7 +8,8 @@ namespace Swift.Runtime.InteropServices;
 /// <summary>
 /// Represents a class for marshaling data to and from Swift
 /// </summary>
-public static class SwiftMarshal {
+public static class SwiftMarshal
+{
     /// <summary>
     /// Marshals a value to a Swift destination
     /// </summary>
@@ -17,15 +18,19 @@ public static class SwiftMarshal {
     /// <param name="swiftDest">the destination for marshaling</param>
     /// <returns>A pointer to memory to pass in to Swift for marshaling. Note: this value may be different from the value passed in.</returns>
     /// <exception cref="NotSupportedException"></exception>
-    public static IntPtr MarshalToSwift<T>(T value, IntPtr swiftDest) {
-        if (value is ISwiftObject swiftValue) {
+    public static IntPtr MarshalToSwift<T>(T value, IntPtr swiftDest)
+    {
+        if (value is ISwiftObject swiftValue)
+        {
             return swiftValue.MarshalToSwift(new IntPtr(swiftDest));
         }
 
         var type = typeof(T);
-        if (type.IsPrimitive || typeof(nint).IsAssignableFrom(type) || typeof(nuint).IsAssignableFrom(type)) {
-            unsafe {
-                return new IntPtr(MarshalPrimitiveToSwift(value, (void *)swiftDest));
+        if (type.IsPrimitive || typeof(nint).IsAssignableFrom(type) || typeof(nuint).IsAssignableFrom(type))
+        {
+            unsafe
+            {
+                return new IntPtr(MarshalPrimitiveToSwift(value, (void*)swiftDest));
             }
         }
 
@@ -46,47 +51,75 @@ public static class SwiftMarshal {
     /// <param name="swiftDest">where in memory to marshal it</param>
     /// <returns>the resulting pointer for passing to a Swift method.</returns>
     /// <exception cref="NotSupportedException"></exception>
-    static unsafe void* MarshalPrimitiveToSwift<T>(T value, void *swiftDest) {
-        if (value is bool boolValue) {
+    static unsafe void* MarshalPrimitiveToSwift<T>(T value, void* swiftDest)
+    {
+        if (value is bool boolValue)
+        {
             *((byte*)swiftDest) = (byte)(boolValue ? 1 : 0);
             return swiftDest;
-        } else if (value is byte byteValue) {
+        }
+        else if (value is byte byteValue)
+        {
             *((byte*)swiftDest) = byteValue;
             return swiftDest;
-        } else if (value is sbyte sbyteValue) {
+        }
+        else if (value is sbyte sbyteValue)
+        {
             *((sbyte*)swiftDest) = sbyteValue;
             return swiftDest;
-        } else if (value is short shortValue) {
+        }
+        else if (value is short shortValue)
+        {
             *((short*)swiftDest) = shortValue;
             return swiftDest;
-        } else if (value is ushort ushortValue) {
+        }
+        else if (value is ushort ushortValue)
+        {
             *((ushort*)swiftDest) = ushortValue;
             return swiftDest;
-        } else if (value is int intValue) {
+        }
+        else if (value is int intValue)
+        {
             *((int*)swiftDest) = intValue;
             return swiftDest;
-        } else if (value is uint uintValue) {
+        }
+        else if (value is uint uintValue)
+        {
             *((uint*)swiftDest) = uintValue;
             return swiftDest;
-        } else if (value is long longValue) {
+        }
+        else if (value is long longValue)
+        {
             *((long*)swiftDest) = longValue;
             return swiftDest;
-        } else if (value is ulong ulongValue) {
+        }
+        else if (value is ulong ulongValue)
+        {
             *((ulong*)swiftDest) = ulongValue;
             return swiftDest;
-        } else if (value is float floatValue) {
+        }
+        else if (value is float floatValue)
+        {
             *((float*)swiftDest) = floatValue;
             return swiftDest;
-        } else if (value is double doubleValue) {
+        }
+        else if (value is double doubleValue)
+        {
             *((double*)swiftDest) = doubleValue;
             return swiftDest;
-        } else if (value is nint nintValue) {
+        }
+        else if (value is nint nintValue)
+        {
             *((nint*)swiftDest) = nintValue;
             return swiftDest;
-        } else if (value is nuint nuintValue) {
+        }
+        else if (value is nuint nuintValue)
+        {
             *((nuint*)swiftDest) = nuintValue;
             return swiftDest;
-        } else {
+        }
+        else
+        {
             throw new NotSupportedException($"Cannot marshal type {typeof(T)} to Swift");
         }
     }
@@ -98,14 +131,18 @@ public static class SwiftMarshal {
     /// <param name="swiftSource">Memory to read from</param>
     /// <returns>The C# type created by marshaling</returns>
     /// <exception cref="NotSupportedException"></exception>
-    public static T MarshalFromSwift<T>(SwiftHandle swiftSource) {
-        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))) {
+    public static T MarshalFromSwift<T>(SwiftHandle swiftSource)
+    {
+        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
+        {
             var helper = typeof(SwiftObjectHelper<>).MakeGenericType(typeof(T));
             return (T)helper.GetMethod("NewFromPayload")!.Invoke(null, new object[] { new SwiftHandle(swiftSource) })!;
         }
         var type = typeof(T);
-        if (type.IsPrimitive) {
-            unsafe {
+        if (type.IsPrimitive)
+        {
+            unsafe
+            {
                 return MarshalPrimitiveFromSwift<T>((void*)swiftSource);
             }
         }
@@ -125,34 +162,62 @@ public static class SwiftMarshal {
     /// <param name="swiftSource">Memory to read from</param>
     /// <returns>The marshaled type</returns>
     /// <exception cref="NotSupportedException"></exception>
-    public static unsafe T MarshalPrimitiveFromSwift<T>(void *swiftSource) {
-        if (typeof(T) == typeof(bool)) {
-            return (T)(object)(((*(byte *)swiftSource) & 1) != 0);
-        } else if (typeof(T) == typeof(byte)) {
+    public static unsafe T MarshalPrimitiveFromSwift<T>(void* swiftSource)
+    {
+        if (typeof(T) == typeof(bool))
+        {
+            return (T)(object)(((*(byte*)swiftSource) & 1) != 0);
+        }
+        else if (typeof(T) == typeof(byte))
+        {
             return (T)(object)(*(byte*)swiftSource);
-        } else if (typeof(T) == typeof(sbyte)) {
+        }
+        else if (typeof(T) == typeof(sbyte))
+        {
             return (T)(object)(*(sbyte*)swiftSource);
-        } else if (typeof(T) == typeof(short)) {
+        }
+        else if (typeof(T) == typeof(short))
+        {
             return (T)(object)(*(short*)swiftSource);
-        } else if (typeof(T) == typeof(ushort)) {
+        }
+        else if (typeof(T) == typeof(ushort))
+        {
             return (T)(object)(*(ushort*)swiftSource);
-        } else if (typeof(T) == typeof(int)) {
+        }
+        else if (typeof(T) == typeof(int))
+        {
             return (T)(object)(*(int*)swiftSource);
-        } else if (typeof(T) == typeof(uint)) {
+        }
+        else if (typeof(T) == typeof(uint))
+        {
             return (T)(object)(*(uint*)swiftSource);
-        } else if (typeof(T) == typeof(long)) {
+        }
+        else if (typeof(T) == typeof(long))
+        {
             return (T)(object)(*(long*)swiftSource);
-        } else if (typeof(T) == typeof(ulong)) {
+        }
+        else if (typeof(T) == typeof(ulong))
+        {
             return (T)(object)(*(ulong*)swiftSource);
-        } else if (typeof(T) == typeof(float)) {
+        }
+        else if (typeof(T) == typeof(float))
+        {
             return (T)(object)(*(float*)swiftSource);
-        } else if (typeof(T) == typeof(double)) {
+        }
+        else if (typeof(T) == typeof(double))
+        {
             return (T)(object)(*(double*)swiftSource);
-        } else if (typeof(T) == typeof(nint)) {
+        }
+        else if (typeof(T) == typeof(nint))
+        {
             return (T)(object)(*(nint*)swiftSource);
-        } else if (typeof(T) == typeof(nuint)) {
+        }
+        else if (typeof(T) == typeof(nuint))
+        {
             return (T)(object)(*(nuint*)swiftSource);
-        } else {
+        }
+        else
+        {
             throw new NotSupportedException($"Cannot marshal type {typeof(T)} from Swift");
         }
     }

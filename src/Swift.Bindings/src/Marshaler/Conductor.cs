@@ -1,16 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using System.Reflection;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 
 namespace BindingsGeneration
 {
-    using IModuleHandlerFactory = IFactory<BaseDecl, IModuleHandler>;
-    using ITypeHandlerFactory = IFactory<BaseDecl, ITypeHandler>;
+    using IArgumentHandlerFactory = IFactory<BaseDecl, IArgumentHandler>;
     using IFieldHandlerFactory = IFactory<BaseDecl, IFieldHandler>;
     using IMethodHandlerFactory = IFactory<BaseDecl, IMethodHandler>;
-    using IArgumentHandlerFactory = IFactory<BaseDecl, IArgumentHandler>;
+    using IModuleHandlerFactory = IFactory<BaseDecl, IModuleHandler>;
+    using ITypeHandlerFactory = IFactory<BaseDecl, ITypeHandler>;
 
     /// <summary>
     /// The Conductor class is responsible for managing handler factories and retrieving specific handlers for declarations.

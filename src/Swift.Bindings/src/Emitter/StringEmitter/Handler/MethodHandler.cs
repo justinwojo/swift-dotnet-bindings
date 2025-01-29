@@ -785,7 +785,7 @@ namespace BindingsGeneration
             if (!_requiresSwiftAsync)
                 return;
 
-                var text = $$"""
+            var text = $$"""
                 
                         private static unsafe delegate* unmanaged[Cdecl]<{{(_env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple ? "" : $"{_wrapperSignature.ReturnType}, ")}}IntPtr, void> s_{{_env.MethodDecl.Name}}Callback = &{{_env.MethodDecl.Name}}OnComplete;
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -805,7 +805,7 @@ namespace BindingsGeneration
                             }
                         }
                 """;
-                csWriter.WriteLine(text);
+            csWriter.WriteLine(text);
         }
 
         /// <summary>

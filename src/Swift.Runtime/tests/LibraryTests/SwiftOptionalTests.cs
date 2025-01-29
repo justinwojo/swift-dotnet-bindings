@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Xunit;
-using Swift;
-using Swift.Runtime;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Swift;
+using Swift.Runtime;
+using Xunit;
 
 namespace BindingsGeneration.Tests;
 

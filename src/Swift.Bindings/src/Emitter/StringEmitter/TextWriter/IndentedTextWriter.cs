@@ -8,7 +8,7 @@ namespace BindingsGeneration
     /// <summary>
     /// Represents an class for writing C# source code.
     /// </summary>
-    public class CSharpWriter: IndentedTextWriter
+    public class CSharpWriter : IndentedTextWriter
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="CSharpWriter"/> class.
@@ -22,7 +22,7 @@ namespace BindingsGeneration
     /// <summary>
     /// Represents an class for writing Swift source code.
     /// </summary>
-    public class SwiftWriter: IndentedTextWriter
+    public class SwiftWriter : IndentedTextWriter
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="SwiftWriter"/> class.

@@ -9,18 +9,18 @@ namespace BindingsGeneration;
 /// </summary>
 public class ClosureTypeSpec : TypeSpec
 {
-	/// <summary>
-	/// Constructs a new empty closure equivalent to ()->()
-	/// </summary>
+    /// <summary>
+    /// Constructs a new empty closure equivalent to ()->()
+    /// </summary>
     public ClosureTypeSpec()
         : base(TypeSpecKind.Closure)
     {
     }
 
-	/// <summary>
-	/// Returns a closure type spec with the given arguments and return type. If either is null, it will be
+    /// <summary>
+    /// Returns a closure type spec with the given arguments and return type. If either is null, it will be
     /// replaced with an empty tuple
-	/// </summary>
+    /// </summary>
     public ClosureTypeSpec(TypeSpec? arguments, TypeSpec? returnType)
         : this()
     {
@@ -30,19 +30,19 @@ public class ClosureTypeSpec : TypeSpec
 
     static ClosureTypeSpec voidVoid = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
 
-	/// <summary>
-	/// Returns a singleton closure of the form ()->()
-	/// </summary>
+    /// <summary>
+    /// Returns a singleton closure of the form ()->()
+    /// </summary>
     public static ClosureTypeSpec VoidVoid { get { return voidVoid; } }
 
-	/// <summary>
-	/// Gets or sets the arguments of the tuple
-	/// </summary>
+    /// <summary>
+    /// Gets or sets the arguments of the tuple
+    /// </summary>
     public TypeSpec Arguments { get; set; } = TupleTypeSpec.Empty;
 
-	/// <summary>
-	/// Gets or sets the return type of the tuple
-	/// </summary>
+    /// <summary>
+    /// Gets or sets the return type of the tuple
+    /// </summary>
     public TypeSpec ReturnType { get; set; } = TupleTypeSpec.Empty;
 
     /// <summary>
@@ -50,30 +50,30 @@ public class ClosureTypeSpec : TypeSpec
 	/// </summary>
     public bool Throws { get; set; }
 
-	/// <summary>
-	/// Returns true if the closure is asynchronous
-	/// </summary>
+    /// <summary>
+    /// Returns true if the closure is asynchronous
+    /// </summary>
     public bool IsAsync { get; set; }
 
-	/// <summary>
-	/// Returns true if the return type is <B>not</B> an empty tuple
-	/// </summary>
+    /// <summary>
+    /// Returns true if the return type is <B>not</B> an empty tuple
+    /// </summary>
     public bool HasReturn()
     {
         return !ReturnType.IsEmptyTuple;
     }
 
-	/// <summary>
-	/// Returns true if the tuple has arguments
-	/// </summary>
+    /// <summary>
+    /// Returns true if the tuple has arguments
+    /// </summary>
     public bool HasArguments()
     {
         return !Arguments.IsEmptyTuple;
     }
 
-	/// <summary>
-	/// Returns the arguments as is if they're a tuple, otherwise returns a tuple of arity 1 with the single argument
-	/// </summary>
+    /// <summary>
+    /// Returns the arguments as is if they're a tuple, otherwise returns a tuple of arity 1 with the single argument
+    /// </summary>
     public TupleTypeSpec ArgumentsAsTuple
     {
         get
@@ -84,9 +84,9 @@ public class ClosureTypeSpec : TypeSpec
         }
     }
 
-	/// <summary>
-	/// Returns the argument count
-	/// </summary>
+    /// <summary>
+    /// Returns the argument count
+    /// </summary>
     public int ArgumentCount()
     {
         if (Arguments is TupleTypeSpec tupe)
@@ -96,9 +96,9 @@ public class ClosureTypeSpec : TypeSpec
         return 1;
     }
 
-	/// <summary>
-	/// Returns an enumeration of the arguments
-	/// </summary>
+    /// <summary>
+    /// Returns an enumeration of the arguments
+    /// </summary>
     public IEnumerable<TypeSpec> EachArgument()
     {
         if (!HasArguments())
@@ -114,9 +114,9 @@ public class ClosureTypeSpec : TypeSpec
         }
     }
 
-	/// <summary>
-	/// Range checked argument accessor
-	/// </summary>
+    /// <summary>
+    /// Range checked argument accessor
+    /// </summary>
     public TypeSpec GetArgument(int index)
     {
         if (index < 0 || index >= ArgumentCount())
@@ -126,9 +126,9 @@ public class ClosureTypeSpec : TypeSpec
         return Arguments!;
     }
 
-	/// <summary>
-	/// Returns true if the closure is escaping
-	/// </summary>
+    /// <summary>
+    /// Returns true if the closure is escaping
+    /// </summary>
     public bool IsEscaping
     {
         get
@@ -137,9 +137,9 @@ public class ClosureTypeSpec : TypeSpec
         }
     }
 
-	/// <summary>
-	/// Returns true if the closure is an auto closure
-	/// </summary>
+    /// <summary>
+    /// Returns true if the closure is an auto closure
+    /// </summary>
     public bool IsAutoClosure
     {
         get

@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Xunit;
-using Swift.StructsTests;
-using Swift.Runtime;
 using System.Diagnostics;
+using Swift.Runtime;
+using Swift.StructsTests;
+using Xunit;
 
 namespace BindingsGeneration.FunctionalTests
 {
@@ -302,7 +302,7 @@ namespace BindingsGeneration.FunctionalTests
 
             foreach (var result in results)
                 Assert.Equal(expectedValue, result);
-            
+
             Assert.True(Math.Abs(stopwatch.Elapsed.TotalSeconds - seconds) <= 1);
 
             var tasks2 = new[]
