@@ -14,10 +14,10 @@ namespace Swift;
 
 /// <summary>
 /// Represents a Swift array payload.
-/// 
-/// The following diagram illustrates the hierarchy of a Swift array type. 
+///
+/// The following diagram illustrates the hierarchy of a Swift array type.
 /// The actual implementation may differ:
-/// 
+///
 ///    struct Array
 ///    +-----------------------------------------------------------------------+
 ///    |   struct ArrayBuffer                                                 |
@@ -39,15 +39,15 @@ public struct ArrayBuffer
 /// Represents a Swift array.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the array.</typeparam>
-public unsafe class SwiftArray<Element> : IDisposable, ISwiftObject
+public class SwiftArray<Element> : IDisposable, ISwiftObject
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata().Size;
     static nuint _elementSize = ElementTypeMetadata.Size;
 
     // Swift array is a value type and doesn't contain an IntPtr payload
-    public ArrayBuffer buffer;
+    private ArrayBuffer buffer;
     bool _disposed = false;
-    public void Dispose()
+    public unsafe void Dispose()
     {
         if (!_disposed)
         {
@@ -56,12 +56,13 @@ public unsafe class SwiftArray<Element> : IDisposable, ISwiftObject
             GC.SuppressFinalize(this);
         }
     }
-    
-    ~SwiftArray()
+
+    unsafe ~SwiftArray()
     {
         Arc.Release(*(IntPtr*)buffer.storage);
     }
     public static nuint PayloadSize => _payloadSize;
+    public ArrayBuffer Payload => buffer;
     public static nuint ElementSize => _elementSize;
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
@@ -92,9 +93,20 @@ public unsafe class SwiftArray<Element> : IDisposable, ISwiftObject
     }
 
     /// <summary>
+    /// Gets the protocol conformance descriptor for the given type.
+    /// </summary>
+    /// <typeparam name="TProtocol"></typeparam>
+    /// <returns></returns>
+    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+        where TProtocol : class
+    {
+        return ProtocolConformanceDescriptor.Zero;
+    }
+
+    /// <summary>
     /// Constructs a new SwiftArray from the given handle.
     /// </summary>
-    SwiftArray(SwiftHandle handle)
+    unsafe SwiftArray(SwiftHandle handle)
     {
         this.buffer = *(ArrayBuffer*)(handle);
     }
@@ -110,132 +122,114 @@ public unsafe class SwiftArray<Element> : IDisposable, ISwiftObject
     /// <summary>
     /// Gets the number of elements in the array.
     /// </summary>
-    public int Count
+    public unsafe int Count
     {
         get
         {
-            unsafe
-            {
-                return (int)SwiftArrayPInvokes.Count(buffer, ElementTypeMetadata);
-            }
+            return (int)SwiftArrayPInvokes.Count(buffer, ElementTypeMetadata);
         }
     }
 
     /// <summary>
     /// Appends the given element to the array.
     /// </summary>
-    public void Append(Element item)
+    public unsafe void Append(Element item)
     {
-        unsafe
+        IntPtr T0Payload = IntPtr.Zero;
+        var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+        try
         {
-            IntPtr T0Payload = IntPtr.Zero;
-            var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            try
-            {
-                T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-                SwiftMarshal.MarshalToSwift(item, (IntPtr)T0Payload);
+            T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
+            SwiftMarshal.MarshalToSwift(item, (IntPtr)T0Payload);
 
-                fixed (void* _payloadPtr = &buffer)
-                {
-                    SwiftArrayPInvokes.Append(T0Payload, metadata, new SwiftSelf(_payloadPtr));
-                }
-            }
-            finally
+            fixed (void* _payloadPtr = &buffer)
             {
-                NativeMemory.Free((void*)T0Payload);
+                SwiftArrayPInvokes.Append(T0Payload, metadata, new SwiftSelf(_payloadPtr));
             }
+        }
+        finally
+        {
+            NativeMemory.Free((void*)T0Payload);
         }
     }
 
     /// <summary>
     /// Inserts the given element at the given index.
     /// </summary>
-    public void Insert(int index, Element item)
+    public unsafe void Insert(int index, Element item)
     {
         if (index < 0 || index >= Count)
             throw new ArgumentOutOfRangeException(nameof(index));
 
-        unsafe
+        IntPtr T0Payload = IntPtr.Zero;
+        var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+        try
         {
-            IntPtr T0Payload = IntPtr.Zero;
-            var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            try
+            T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
+            SwiftMarshal.MarshalToSwift(item, (IntPtr)T0Payload);
+            fixed (void* _payloadPtr = &buffer)
             {
-                T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-                SwiftMarshal.MarshalToSwift(item, (IntPtr)T0Payload);
-                fixed (void* _payloadPtr = &buffer)
-                {
-                    SwiftArrayPInvokes.Insert(new SwiftHandle(T0Payload), (nint)index, metadata, new SwiftSelf(_payloadPtr));
-                }
+                SwiftArrayPInvokes.Insert(new SwiftHandle(T0Payload), (nint)index, metadata, new SwiftSelf(_payloadPtr));
             }
-            finally
-            {
-                NativeMemory.Free((void*)T0Payload);
-            }
+        }
+        finally
+        {
+            NativeMemory.Free((void*)T0Payload);
         }
     }
 
     /// <summary>
     /// Removes the element at the given index.
     /// </summary>
-    public void Remove(int index)
+    public unsafe void Remove(int index)
     {
         if (index < 0 || index >= Count)
             throw new ArgumentOutOfRangeException(nameof(index));
 
-        unsafe
+        IntPtr T0Payload = IntPtr.Zero;
+        var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+        try
         {
-            IntPtr T0Payload = IntPtr.Zero;
-            var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            try
-            {
-                T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-                SwiftMarshal.MarshalToSwift(index, (IntPtr)T0Payload);
+            T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
+            SwiftMarshal.MarshalToSwift(index, (IntPtr)T0Payload);
 
-                fixed (void* _payloadPtr = &buffer)
-                {
-                    SwiftArrayPInvokes.Remove(new SwiftIndirectResult((void*)T0Payload), (nint)index, metadata, new SwiftSelf(_payloadPtr));
-                }
-            }
-            finally
+            fixed (void* _payloadPtr = &buffer)
             {
-                NativeMemory.Free((void*)T0Payload);
+                SwiftArrayPInvokes.Remove(new SwiftIndirectResult((void*)T0Payload), (nint)index, metadata, new SwiftSelf(_payloadPtr));
             }
+        }
+        finally
+        {
+            NativeMemory.Free((void*)T0Payload);
         }
     }
 
     /// <summary>
     /// Removes all elements from the array.
     /// </summary>
-    public void RemoveAll()
+    public unsafe void RemoveAll()
     {
-        unsafe
+        var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+
+        fixed (void* _payloadPtr = &buffer)
         {
-            var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            
-            fixed (void* _payloadPtr = &buffer)
-            {
-                SwiftArrayPInvokes.RemoveAll(1, metadata, new SwiftSelf(_payloadPtr));
-            }
+            SwiftArrayPInvokes.RemoveAll(1, metadata, new SwiftSelf(_payloadPtr));
         }
     }
 
     /// <summary>
     /// Gets or sets the element at the given index.
     /// </summary>
-    public Element this[int index]
+    public unsafe Element this[int index]
     {
         get
         {
             if (index < 0 || index >= Count)
                 throw new IndexOutOfRangeException();
 
-            unsafe
-            {
-                IntPtr T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-                SwiftArrayPInvokes.Get(new SwiftIndirectResult((void*)T0Payload), (nint)index, buffer, ElementTypeMetadata);
-                return SwiftMarshal.MarshalFromSwift<Element>(new SwiftHandle((IntPtr)T0Payload));
-            }
+            IntPtr T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
+            SwiftArrayPInvokes.Get(new SwiftIndirectResult((void*)T0Payload), (nint)index, buffer, ElementTypeMetadata);
+            return SwiftMarshal.MarshalFromSwift<Element>(new SwiftHandle((IntPtr)T0Payload));
         }
         set
         {
@@ -243,15 +237,12 @@ public unsafe class SwiftArray<Element> : IDisposable, ISwiftObject
                 throw new IndexOutOfRangeException();
 
             var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            unsafe
-            {
-                IntPtr T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-                SwiftMarshal.MarshalToSwift(value, T0Payload);
+            IntPtr T0Payload = (IntPtr)NativeMemory.Alloc(ElementSize);
+            SwiftMarshal.MarshalToSwift(value, T0Payload);
 
-                fixed (void* _payloadPtr = &buffer)
-                {
-                    SwiftArrayPInvokes.Set(new SwiftHandle(T0Payload), (nint)index, metadata, new SwiftSelf(_payloadPtr));
-                }
+            fixed (void* _payloadPtr = &buffer)
+            {
+                SwiftArrayPInvokes.Set(new SwiftHandle(T0Payload), (nint)index, metadata, new SwiftSelf(_payloadPtr));
             }
         }
     }

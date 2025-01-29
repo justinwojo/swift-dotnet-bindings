@@ -136,7 +136,7 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
     public unsafe void ArrayDispose()
     {
         var array = new SwiftArray<int>();
-        var payload = *(IntPtr*)array.buffer.storage;
+        var payload = *(IntPtr*)array.Payload.storage;
         var count = Arc.RetainCount(payload);
 
         array.Dispose();
