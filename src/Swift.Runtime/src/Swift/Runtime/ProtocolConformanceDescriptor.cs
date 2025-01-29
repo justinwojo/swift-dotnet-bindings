@@ -85,7 +85,7 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
     /// <c>true</c> if the <see cref="ProtocolConformanceDescriptor"/> was found; otherwise, <c>false</c>.
     /// </returns>
     public static bool TryGet<TType, TProtocol>([NotNullWhen(true)] out ProtocolConformanceDescriptor? result)
-        where TProtocol : class
+        where TProtocol : ISwiftProtocol
     {
         var type = typeof(TType);
 
@@ -100,6 +100,20 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
                 result = candidate;
                 return true;
             }
+        }
+        else if (type.IsPrimitive)
+        {
+            var typeMetadata = TypeMetadata.GetTypeMetadataOrThrow<TType>();
+            ProtocolDescriptor.TryGet<TProtocol>(out var descriptor);
+            if (descriptor.HasValue)
+            {
+                result = GetProtocolConformanceDescriptor(typeMetadata, descriptor.Value);
+                if (result.HasValue && result.Value.IsValid)
+                {
+                    return true;
+                }
+            }
+
         }
 
         result = null;
@@ -141,4 +155,10 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
             NativeLibrary.Free(libraryHandle);
         }
     }
+
+    private static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor(TypeMetadata metadata, ProtocolDescriptor descriptor)
+        => swift_conformsToProtocol(metadata, descriptor);
+
+    [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    private static extern ProtocolConformanceDescriptor swift_conformsToProtocol(TypeMetadata metadata, ProtocolDescriptor descriptor);
 }
