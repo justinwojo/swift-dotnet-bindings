@@ -23,6 +23,11 @@ public interface ISwiftObject
     /// Marshals this object to a Swift destination
     /// </summary>
     unsafe IntPtr MarshalToSwift(IntPtr swiftDest);
+
+    /// <summary>
+    /// Gets the protocol conformance descriptor for the given type
+    /// </summary>
+    public static abstract ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class;
 }
 
 /// <summary>  
@@ -47,5 +52,15 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
     public static ISwiftObject NewFromPayload(SwiftHandle payload)
     {
         return T.NewFromPayload(payload);
+    }
+}
+
+public struct ProtocolConformanceDescriptorHelper<TType, TProtocol>
+    where TType : ISwiftObject
+    where TProtocol : class
+{
+    public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor()
+    {
+        return TType.GetProtocolConformanceDescriptor<TProtocol>();
     }
 }
