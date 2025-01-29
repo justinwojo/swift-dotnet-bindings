@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Xunit;
-using Swift;
-using Swift.Runtime;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Swift;
+using Swift.Runtime;
+using Xunit;
 
 namespace BindingsGeneration.Tests;
 
@@ -145,46 +145,46 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
     }
 
     private static void PrimitiveArrayTest<T>(T value1, T value2, T overwriteValue) where T : unmanaged
-        {
-            var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<T>>();
-            Assert.True(metadata.Size > 0);
+    {
+        var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<T>>();
+        Assert.True(metadata.Size > 0);
 
-            var array = new SwiftArray<T>();
-            Assert.Equal(0, array.Count);
+        var array = new SwiftArray<T>();
+        Assert.Equal(0, array.Count);
 
-            array.Append(value1);
-            Assert.Equal(1, array.Count);
-            Assert.Equal(value1, array[0]);
+        array.Append(value1);
+        Assert.Equal(1, array.Count);
+        Assert.Equal(value1, array[0]);
 
-            array.Append(value2);
-            Assert.Equal(2, array.Count);
-            Assert.Equal(value2, array[1]);
+        array.Append(value2);
+        Assert.Equal(2, array.Count);
+        Assert.Equal(value2, array[1]);
 
-            array[0] = overwriteValue;
-            Assert.Equal(overwriteValue, array[0]);
+        array[0] = overwriteValue;
+        Assert.Equal(overwriteValue, array[0]);
 
-            array.Insert(1, value1);
-            Assert.Equal(3, array.Count);
+        array.Insert(1, value1);
+        Assert.Equal(3, array.Count);
 
-            array.Remove(1);
-            Assert.Equal(2, array.Count);
+        array.Remove(1);
+        Assert.Equal(2, array.Count);
 
-            Assert.Equal(overwriteValue, array[0]);
-            Assert.Equal(value2, array[1]);
+        Assert.Equal(overwriteValue, array[0]);
+        Assert.Equal(value2, array[1]);
 
-            array.RemoveAll();
-            Assert.Equal(0, array.Count);
-        }
+        array.RemoveAll();
+        Assert.Equal(0, array.Count);
+    }
 
-        [Fact] public void ArrayTestSByte()  => PrimitiveArrayTest<sbyte>(42, 17, 100);
-        [Fact] public void ArrayTestByte()   => PrimitiveArrayTest<byte>(42, 17, 100);
-        [Fact] public void ArrayTestShort()  => PrimitiveArrayTest<short>(42, 17, 100);
-        [Fact] public void ArrayTestUShort() => PrimitiveArrayTest<ushort>(42, 17, 100);
-        [Fact] public void ArrayTestInt()    => PrimitiveArrayTest<int>(42, 17, 100);
-        [Fact] public void ArrayTestUInt()   => PrimitiveArrayTest<uint>(42, 17, 100);
-        [Fact] public void ArrayTestLong()   => PrimitiveArrayTest<long>(42, 17, 100);
-        [Fact] public void ArrayTestULong()  => PrimitiveArrayTest<ulong>(42, 17, 100);
-        [Fact] public void ArrayTestFloat()  => PrimitiveArrayTest<float>(4.2f, 1.7f, 10.0f);
-        [Fact] public void ArrayTestDouble() => PrimitiveArrayTest<double>(4.2, 1.7, 10.0);
-        [Fact] public void ArrayTestBool()   => PrimitiveArrayTest<bool>(true, false, true);
+    [Fact] public void ArrayTestSByte() => PrimitiveArrayTest<sbyte>(42, 17, 100);
+    [Fact] public void ArrayTestByte() => PrimitiveArrayTest<byte>(42, 17, 100);
+    [Fact] public void ArrayTestShort() => PrimitiveArrayTest<short>(42, 17, 100);
+    [Fact] public void ArrayTestUShort() => PrimitiveArrayTest<ushort>(42, 17, 100);
+    [Fact] public void ArrayTestInt() => PrimitiveArrayTest<int>(42, 17, 100);
+    [Fact] public void ArrayTestUInt() => PrimitiveArrayTest<uint>(42, 17, 100);
+    [Fact] public void ArrayTestLong() => PrimitiveArrayTest<long>(42, 17, 100);
+    [Fact] public void ArrayTestULong() => PrimitiveArrayTest<ulong>(42, 17, 100);
+    [Fact] public void ArrayTestFloat() => PrimitiveArrayTest<float>(4.2f, 1.7f, 10.0f);
+    [Fact] public void ArrayTestDouble() => PrimitiveArrayTest<double>(4.2, 1.7, 10.0);
+    [Fact] public void ArrayTestBool() => PrimitiveArrayTest<bool>(true, false, true);
 }
