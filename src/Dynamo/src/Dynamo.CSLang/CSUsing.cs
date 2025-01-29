@@ -8,13 +8,14 @@ namespace Dynamo.CSLang;
 /// <summary>
 /// This represents a single 'using` statement in C#.
 /// </summary>
-public class CSUsing : SimpleLineElement {
+public class CSUsing : SimpleLineElement
+{
     /// <summary>
     /// Creates a new using statement for the specified package.
     /// </summary>
     /// <param name="package">The namespace of the package</param>
-    public CSUsing (string package)
-        : base ($"using {package};", indent: false, prependIndents: false, allowSplit: false)
+    public CSUsing(string package)
+        : base($"using {package};", indent: false, prependIndents: false, allowSplit: false)
     {
         Package = package;
     }
@@ -28,30 +29,31 @@ public class CSUsing : SimpleLineElement {
 /// <summary>
 /// Represents a collection of using statements in C#.
 /// </summary>
-public class CSUsingPackages : CodeElementCollection<CSUsing> {
+public class CSUsingPackages : CodeElementCollection<CSUsing>
+{
     /// <summary>
     /// Constructs a new empty collection of using statements.
     /// </summary>
-    public CSUsingPackages () : base () { }
+    public CSUsingPackages() : base() { }
 
     /// <summary>
     /// Constructs a new collection of using statements with the specified using statements.
     /// </summary>
     /// <param name="use">the CSUsing statements to add</param>
-    public CSUsingPackages (params CSUsing [] use)
-        : this ()
+    public CSUsingPackages(params CSUsing[] use)
+        : this()
     {
-        AddRange (use);
+        AddRange(use);
     }
 
     /// <summary>
     /// Constructs a new collection of using statements with the specified namespaces
     /// </summary>
     /// <param name="use">The namespaces to add</param>
-    public CSUsingPackages (params string [] use)
-        : this ()
+    public CSUsingPackages(params string[] use)
+        : this()
     {
-        AddRange (use.Select (s => new CSUsing (s)));
+        AddRange(use.Select(s => new CSUsing(s)));
     }
 
     /// <summary>
@@ -60,9 +62,9 @@ public class CSUsingPackages : CodeElementCollection<CSUsing> {
     /// </summary>
     /// <param name="use">A new package to add</param>
     /// <returns>The modified collection</returns>
-    public CSUsingPackages And (CSUsing use)
+    public CSUsingPackages And(CSUsing use)
     {
-        Add (use);
+        Add(use);
         return this;
     }
 
@@ -72,17 +74,18 @@ public class CSUsingPackages : CodeElementCollection<CSUsing> {
     /// </summary>
     /// <param name="namespace">the namespace to add</param>
     /// <returns>The modified collection</returns>
-    public CSUsingPackages And (string @namespace) { return And (new CSUsing (@namespace)); }
+    public CSUsingPackages And(string @namespace) { return And(new CSUsing(@namespace)); }
 
     /// <summary>
     /// Adds a using statement if it is not already present in the collection.
     /// </summary>
     /// <param name="">the namespace to add</param>
-    public void AddIfNotPresent (string @namespace)
+    public void AddIfNotPresent(string @namespace)
     {
-        var target = new CSUsing (@namespace);
-        if (!this.Exists (use => use.Contents == target.Contents)) {
-            Add (target);
+        var target = new CSUsing(@namespace);
+        if (!this.Exists(use => use.Contents == target.Contents))
+        {
+            Add(target);
         }
     }
 
@@ -90,9 +93,9 @@ public class CSUsingPackages : CodeElementCollection<CSUsing> {
     /// Adds a using statement using the provided Type if it is not already present in the collection.
     /// </summary>
     /// <param name="type">A type whose namespace will be used in a using statement</param>
-    public void AddIfNotPresent (Type type)
+    public void AddIfNotPresent(Type type)
     {
-        AddIfNotPresent (type.Namespace!);
+        AddIfNotPresent(type.Namespace!);
     }
 }
 

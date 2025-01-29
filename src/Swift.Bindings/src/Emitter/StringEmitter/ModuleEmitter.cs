@@ -9,7 +9,7 @@ namespace BindingsGeneration
     /// <summary>
     /// Represents an string-based C# emitter.
     /// </summary>
-    public partial class StringCSharpEmitter : ICSharpEmitter
+    public partial class StringEmitter : IEmitter
     {
         // Private properties
         private readonly string _outputDirectory;
@@ -18,9 +18,9 @@ namespace BindingsGeneration
         private readonly Conductor _conductor;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="StringCSharpEmitter"/> class.
+        /// Initializes a new instance of the <see cref="StringEmitter"/> class.
         /// </summary>
-        public StringCSharpEmitter(string outputDirectory, ITypeDatabase typeDatabase, int verbose = 0)
+        public StringEmitter(string outputDirectory, ITypeDatabase typeDatabase, int verbose = 0)
         {
             _outputDirectory = outputDirectory;
             _typeDatabase = typeDatabase;
@@ -36,17 +36,24 @@ namespace BindingsGeneration
         {
             if (_conductor.TryGetModuleHandler(moduleDecl, out var moduleHandler))
             {
-                var sw = new StringWriter();
-                IndentedTextWriter writer = new(sw);
+                var csStringWriter = new StringWriter();
+                CSharpWriter csWriter = new(csStringWriter);
+                var swiftStringWriter = new StringWriter();
+                SwiftWriter swiftWriter = new(swiftStringWriter);
                 var @namespace = $"Swift.{moduleDecl.Name}";
 
                 var env = moduleHandler.Marshal(moduleDecl, _typeDatabase);
-                moduleHandler.Emit(writer, env, _conductor);
+                moduleHandler.Emit(csWriter, swiftWriter, env, _conductor);
 
                 string csOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.cs");
                 using (StreamWriter outputFile = new(csOutputPath))
                 {
-                    outputFile.Write(sw.ToString());
+                    outputFile.Write(csStringWriter.ToString());
+                }
+                string swiftOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.swift");
+                using (StreamWriter outputFile = new(swiftOutputPath))
+                {
+                    outputFile.Write(swiftStringWriter.ToString());
                 }
             }
             else

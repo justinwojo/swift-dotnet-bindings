@@ -6,7 +6,7 @@ namespace BindingsGeneration
     /// <summary>
     /// Represents an interface for emitting C# source code.
     /// </summary>
-    public interface ICSharpEmitter
+    public interface IEmitter
     {
         /// <summary>
         /// Emits a C# module based on the module declaration.

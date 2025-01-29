@@ -7,7 +7,9 @@ namespace Swift.Runtime;
 /// SwiftRuntimeException is thrown when an error is encountered in the runtime handling of Swift types,
 /// marshaling or other runtime operations.
 /// </summary>
-public class SwiftRuntimeException : Exception {
-    public SwiftRuntimeException(string message) : base(message) {
+public class SwiftRuntimeException : Exception
+{
+    public SwiftRuntimeException(string message) : base(message)
+    {
     }
 }

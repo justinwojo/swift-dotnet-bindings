@@ -55,66 +55,66 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits the code for the specified environment.
         /// </summary>
-        /// <param name="writer">The IndentedTextWriter instance.</param>
+        /// <param name="csWriter">The IndentedTextWriter instance.</param>
         /// <param name="env">The environment.</param>
         /// <param name="conductor">The conductor instance.</param>
         /// <param name="typeDatabase">The type database instance.</param>
-        public void Emit(IndentedTextWriter writer, IEnvironment env, Conductor conductor)
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var moduleEnv = (ModuleEnvironment)env;
             var moduleDecl = moduleEnv.ModuleDecl;
 
             var generatedNamespace = $"Swift.{moduleDecl.Name}";
 
-            writer.WriteLine($"using System;");
-            writer.WriteLine($"using System.Runtime.CompilerServices;");
-            writer.WriteLine($"using System.Runtime.InteropServices;");
-            writer.WriteLine($"using System.Runtime.InteropServices.Swift;");
-            writer.WriteLine($"using Swift;");
-            writer.WriteLine($"using Swift.Runtime;");
-            writer.WriteLine($"using Swift.Runtime.InteropServices;");
-            writer.WriteLine();
-            writer.WriteLine($"namespace {generatedNamespace}");
-            writer.WriteLine("{");
-            writer.Indent++;
+            csWriter.WriteLine($"using System;");
+            csWriter.WriteLine($"using System.Runtime.CompilerServices;");
+            csWriter.WriteLine($"using System.Runtime.InteropServices;");
+            csWriter.WriteLine($"using System.Runtime.InteropServices.Swift;");
+            csWriter.WriteLine($"using Swift;");
+            csWriter.WriteLine($"using Swift.Runtime;");
+            csWriter.WriteLine($"using Swift.Runtime.InteropServices;");
+            csWriter.WriteLine();
+            csWriter.WriteLine($"namespace {generatedNamespace}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
 
             // Emit top-level fields and pinvokes
             if (moduleDecl.Methods.Any() || moduleDecl.Fields.Any())
             {
-                writer.WriteLine($"public class {moduleDecl.Name}");
-                writer.WriteLine("{");
-                writer.Indent++;
+                csWriter.WriteLine($"public class {moduleDecl.Name}");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
                 foreach (FieldDecl fieldDecl in moduleDecl.Fields)
                 {
                     string accessModifier = fieldDecl.Visibility == Visibility.Public ? "public" : "private";
                     var fieldTypeRecord = moduleEnv.TypeDatabase.GetTypeRecordOrThrow(fieldDecl.SwiftTypeSpec);
-                    writer.WriteLine($"{accessModifier} {fieldTypeRecord.CSTypeIdentifier} {fieldDecl.Name};");
+                    csWriter.WriteLine($"{accessModifier} {fieldTypeRecord.CSTypeIdentifier} {fieldDecl.Name};");
                 }
-                writer.WriteLine();
+                csWriter.WriteLine();
                 foreach (MethodDecl methodDecl in moduleDecl.Methods)
                 {
                     if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
                     {
                         var methodEnv = methodHandler.Marshal(methodDecl, env.TypeDatabase);
-                        methodHandler.Emit(writer, methodEnv, conductor);
+                        methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor);
                     }
                     else
                     {
                         Console.WriteLine($"No handler found for method {methodDecl.Name}");
                     }
-                    // EmitMethod(writer, moduleDecl, moduleDecl, methodDecl);
-                    writer.WriteLine();
+                    // EmitMethod(csWriter, swiftWriter, moduleDecl, moduleDecl, methodDecl);
+                    csWriter.WriteLine();
                 }
-                writer.Indent--;
-                writer.WriteLine("}");
-                writer.WriteLine();
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
             }
 
             // Emit top-level types
-            base.HandleBaseDecl(writer, moduleDecl.Types, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase);
 
-            writer.Indent--;
-            writer.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
 
         }
     }

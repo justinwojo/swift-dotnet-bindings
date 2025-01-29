@@ -24,4 +24,5 @@ InitializeDotNetCli true # Install
 __dotnetDir=${_InitializeDotNetCli}
 
 dotnetPath=${__dotnetDir}/dotnet
+
 ${dotnetPath} "$@"

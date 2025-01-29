@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 using System.Security.Cryptography.X509Certificates;
-using Xunit;
 using BindingsGeneration.Demangling;
 using Xamarin;
+using Xunit;
 
 namespace BindingsGeneration.Tests
 {
@@ -36,7 +36,7 @@ namespace BindingsGeneration.Tests
                 Assert.False(String.IsNullOrEmpty(_dylibPath));
                 Assert.True(File.Exists(_dylibPath));
             }
-            
+
             [Fact]
             public static void HasAbis()
             {
@@ -83,14 +83,14 @@ namespace BindingsGeneration.Tests
             [Fact]
             public static void NoHighErrors()
             {
-                var abis = MachO.GetArchitectures (_dylibPath);
-                var demanglingResults = DemanglingResults.FromFile (_dylibPath, abis[0]);
-                var highErrors = demanglingResults.Errors.Where (e => e.Severity == Demangling.ReductionErrorSeverity.High).ToArray ();
-                var highError = demanglingResults.Errors.FirstOrDefault (err => err.Severity == Demangling.ReductionErrorSeverity.High);
-                Assert.True (highError is null, HighErrorToMessage (highError));
+                var abis = MachO.GetArchitectures(_dylibPath);
+                var demanglingResults = DemanglingResults.FromFile(_dylibPath, abis[0]);
+                var highErrors = demanglingResults.Errors.Where(e => e.Severity == Demangling.ReductionErrorSeverity.High).ToArray();
+                var highError = demanglingResults.Errors.FirstOrDefault(err => err.Severity == Demangling.ReductionErrorSeverity.High);
+                Assert.True(highError is null, HighErrorToMessage(highError));
             }
 
-            static string HighErrorToMessage (ReductionError err)
+            static string HighErrorToMessage(ReductionError err)
             {
                 if (err is null)
                     return "no error";

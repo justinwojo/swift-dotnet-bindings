@@ -106,234 +106,234 @@ public class TypeSpecParserTests : IClassFixture<TypeSpecParserTests.TestFixture
     [Fact]
     public static void TestFuncIntInt()
     {
-        var close = TypeSpecParser.Parse ("Swift.Int -> Swift.Int") as ClosureTypeSpec;
-        Assert.NotNull (close);
+        var close = TypeSpecParser.Parse("Swift.Int -> Swift.Int") as ClosureTypeSpec;
+        Assert.NotNull(close);
         var ns = close.Arguments as NamedTypeSpec;
-        Assert.NotNull (ns);
-        Assert.Equal ("Swift.Int", ns.Name);
+        Assert.NotNull(ns);
+        Assert.Equal("Swift.Int", ns.Name);
         ns = close.ReturnType as NamedTypeSpec;
-        Assert.NotNull (ns);
-        Assert.Equal ("Swift.Int", ns.Name);
+        Assert.NotNull(ns);
+        Assert.Equal("Swift.Int", ns.Name);
     }
 
 
     [Fact]
     public static void TestFuncVoidVoid()
     {
-        var close = TypeSpecParser.Parse ("() -> ()") as ClosureTypeSpec;
-        Assert.NotNull (close);
+        var close = TypeSpecParser.Parse("() -> ()") as ClosureTypeSpec;
+        Assert.NotNull(close);
         var ts = close.Arguments as TupleTypeSpec;
-        Assert.NotNull (ts);
-        Assert.Empty (ts.Elements);
+        Assert.NotNull(ts);
+        Assert.Empty(ts.Elements);
         ts = close.ReturnType as TupleTypeSpec;
-        Assert.NotNull (ts);
-        Assert.Empty (ts.Elements);
+        Assert.NotNull(ts);
+        Assert.Empty(ts.Elements);
     }
 
     [Fact]
     public static void TestArrayOfInt()
     {
-        var ns = TypeSpecParser.Parse ("Swift.Array<Swift.Int>") as NamedTypeSpec;
-        Assert.NotNull (ns);
-        Assert.Equal ("Swift.Array", ns.Name);
-        Assert.True (ns.ContainsGenericParameters);
-        Assert.Single (ns.GenericParameters);
-        ns = ns.GenericParameters [0] as NamedTypeSpec;
-        Assert.NotNull (ns);
-        Assert.Equal ("Swift.Int", ns.Name);
+        var ns = TypeSpecParser.Parse("Swift.Array<Swift.Int>") as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("Swift.Array", ns.Name);
+        Assert.True(ns.ContainsGenericParameters);
+        Assert.Single(ns.GenericParameters);
+        ns = ns.GenericParameters[0] as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("Swift.Int", ns.Name);
     }
 
     [Fact]
     public static void TestDictionaryOfIntString()
     {
-        var ns = TypeSpecParser.Parse ("Swift.Dictionary<Swift.Int, Swift.String>") as NamedTypeSpec;
-        Assert.NotNull (ns);
-        Assert.Equal ("Swift.Dictionary", ns.Name);
-        Assert.True (ns.ContainsGenericParameters);
-        Assert.Equal (2, ns.GenericParameters.Count);
-        var ns1 = ns.GenericParameters [0] as NamedTypeSpec;
-        Assert.NotNull (ns1);
-        Assert.Equal ("Swift.Int", ns1.Name);
-        ns1 = ns.GenericParameters [1] as NamedTypeSpec;
-        Assert.NotNull (ns1);
-        Assert.Equal ("Swift.String", ns1.Name);
+        var ns = TypeSpecParser.Parse("Swift.Dictionary<Swift.Int, Swift.String>") as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("Swift.Dictionary", ns.Name);
+        Assert.True(ns.ContainsGenericParameters);
+        Assert.Equal(2, ns.GenericParameters.Count);
+        var ns1 = ns.GenericParameters[0] as NamedTypeSpec;
+        Assert.NotNull(ns1);
+        Assert.Equal("Swift.Int", ns1.Name);
+        ns1 = ns.GenericParameters[1] as NamedTypeSpec;
+        Assert.NotNull(ns1);
+        Assert.Equal("Swift.String", ns1.Name);
     }
 
     [Fact]
-    public static void TestWithAttributes ()
+    public static void TestWithAttributes()
     {
-        var tupled = TypeSpecParser.Parse ("(Builtin.RawPointer, (@convention[thin] (Builtin.RawPointer, inout Builtin.UnsafeValueBuffer, inout SomeModule.Foo, @thick SomeModule.Foo.Type) -> ())?)")
+        var tupled = TypeSpecParser.Parse("(Builtin.RawPointer, (@convention[thin] (Builtin.RawPointer, inout Builtin.UnsafeValueBuffer, inout SomeModule.Foo, @thick SomeModule.Foo.Type) -> ())?)")
             as TupleTypeSpec;
-        Assert.NotNull (tupled);
-        var ns = tupled.Elements [1] as NamedTypeSpec;
-        Assert.True (ns.ContainsGenericParameters);
-        Assert.Equal ("Swift.Optional", ns.Name);
+        Assert.NotNull(tupled);
+        var ns = tupled.Elements[1] as NamedTypeSpec;
+        Assert.True(ns.ContainsGenericParameters);
+        Assert.Equal("Swift.Optional", ns.Name);
         var close = ns.GenericParameters[0] as ClosureTypeSpec;
-        Assert.Single (close.Attributes);
+        Assert.Single(close.Attributes);
     }
 
     [Fact]
     public static void TestEmbeddedClass()
     {
-        var ns = TypeSpecParser.Parse ("Swift.Dictionary<Swift.String, T>.Index") as NamedTypeSpec;
-        Assert.NotNull (ns);
-        Assert.NotNull (ns.InnerType);
-        Assert.Equal ("Index", ns.InnerType.Name);
-        Assert.Equal ("Swift.Dictionary<Swift.String, T>.Index", ns.ToString ());
+        var ns = TypeSpecParser.Parse("Swift.Dictionary<Swift.String, T>.Index") as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.NotNull(ns.InnerType);
+        Assert.Equal("Index", ns.InnerType.Name);
+        Assert.Equal("Swift.Dictionary<Swift.String, T>.Index", ns.ToString());
     }
 
     [Fact]
-    public static void TestProtocolListAlphabetical ()
+    public static void TestProtocolListAlphabetical()
     {
-        var specs = new NamedTypeSpec [] {
+        var specs = new NamedTypeSpec[] {
             new NamedTypeSpec ("Cfoo"),
             new NamedTypeSpec ("Afoo"),
             new NamedTypeSpec ("Dfoo"),
             new NamedTypeSpec ("Bfoo")
         };
 
-        var protos = new ProtocolListTypeSpec (specs);
-        Assert.Equal ("Afoo & Bfoo & Cfoo & Dfoo", protos.ToString ());
+        var protos = new ProtocolListTypeSpec(specs);
+        Assert.Equal("Afoo & Bfoo & Cfoo & Dfoo", protos.ToString());
     }
 
     [Fact]
-    public static void TestProtocolListParseSimple ()
+    public static void TestProtocolListParseSimple()
     {
-        var protocolListType = TypeSpecParser.Parse ("c & b & a") as ProtocolListTypeSpec;
-        Assert.NotNull (protocolListType);
-        Assert.Equal (3, protocolListType.Protocols.Count);
-        Assert.Equal ("a & b & c", protocolListType.ToString ());
+        var protocolListType = TypeSpecParser.Parse("c & b & a") as ProtocolListTypeSpec;
+        Assert.NotNull(protocolListType);
+        Assert.Equal(3, protocolListType.Protocols.Count);
+        Assert.Equal("a & b & c", protocolListType.ToString());
     }
 
     [Fact]
-    public static void TestProtocolListParseNoSpacesBecauseWhyNot ()
+    public static void TestProtocolListParseNoSpacesBecauseWhyNot()
     {
-        var protocolListType = TypeSpecParser.Parse ("c&b&a") as ProtocolListTypeSpec;
-        Assert.NotNull (protocolListType);
-        Assert.Equal (3, protocolListType.Protocols.Count);
-        Assert.Equal ("a & b & c", protocolListType.ToString ());
+        var protocolListType = TypeSpecParser.Parse("c&b&a") as ProtocolListTypeSpec;
+        Assert.NotNull(protocolListType);
+        Assert.Equal(3, protocolListType.Protocols.Count);
+        Assert.Equal("a & b & c", protocolListType.ToString());
     }
 
     [Fact]
-    public static void TestReplaceInNameSuccess ()
+    public static void TestReplaceInNameSuccess()
     {
-        var inType = TypeSpecParser.Parse ("Foo.Bar");
-        var replaced = inType.ReplaceName ("Foo.Bar", "Slarty.Bartfast") as NamedTypeSpec;
-        Assert.NotNull (replaced);
-        Assert.Equal ("Slarty.Bartfast", replaced.Name);
+        var inType = TypeSpecParser.Parse("Foo.Bar");
+        var replaced = inType.ReplaceName("Foo.Bar", "Slarty.Bartfast") as NamedTypeSpec;
+        Assert.NotNull(replaced);
+        Assert.Equal("Slarty.Bartfast", replaced.Name);
     }
 
     [Fact]
-    public static void TestReplaceInNameFail ()
+    public static void TestReplaceInNameFail()
     {
-        var inType = TypeSpecParser.Parse ("Foo.Bar");
-        var same = inType.ReplaceName ("Blah", "Slarty.Bartfast") as NamedTypeSpec;
-        Assert.Equal (same, inType);
+        var inType = TypeSpecParser.Parse("Foo.Bar");
+        var same = inType.ReplaceName("Blah", "Slarty.Bartfast") as NamedTypeSpec;
+        Assert.Equal(same, inType);
     }
 
     [Fact]
-    public static void TestReplaceInTupleSuccess ()
+    public static void TestReplaceInTupleSuccess()
     {
-        var inType = TypeSpecParser.Parse ("(Swift.Int, Foo.Bar, Foo.Bar)");
-        var replaced = inType.ReplaceName ("Foo.Bar", "Slarty.Bartfast") as TupleTypeSpec;
-        Assert.NotNull (replaced);
-        var name = replaced.Elements [1] as NamedTypeSpec;
-        Assert.NotNull (name);
-        Assert.Equal ("Slarty.Bartfast", name.Name);
-        name = replaced.Elements [2] as NamedTypeSpec;
-        Assert.NotNull (name);
-        Assert.Equal ("Slarty.Bartfast", name.Name);
+        var inType = TypeSpecParser.Parse("(Swift.Int, Foo.Bar, Foo.Bar)");
+        var replaced = inType.ReplaceName("Foo.Bar", "Slarty.Bartfast") as TupleTypeSpec;
+        Assert.NotNull(replaced);
+        var name = replaced.Elements[1] as NamedTypeSpec;
+        Assert.NotNull(name);
+        Assert.Equal("Slarty.Bartfast", name.Name);
+        name = replaced.Elements[2] as NamedTypeSpec;
+        Assert.NotNull(name);
+        Assert.Equal("Slarty.Bartfast", name.Name);
     }
 
     [Fact]
-    public static void TestReplaceInTupleFail ()
+    public static void TestReplaceInTupleFail()
     {
-        var inType = TypeSpecParser.Parse ("(Swift.Int, Foo.Bar, Foo.Bar)");
-        var same = inType.ReplaceName ("Blah", "Slarty.Bartfast") as TupleTypeSpec;
-        Assert.Equal (same, inType);
+        var inType = TypeSpecParser.Parse("(Swift.Int, Foo.Bar, Foo.Bar)");
+        var same = inType.ReplaceName("Blah", "Slarty.Bartfast") as TupleTypeSpec;
+        Assert.Equal(same, inType);
     }
 
 
     [Fact]
-    public static void TestReplaceInClosureSuccess ()
+    public static void TestReplaceInClosureSuccess()
     {
-        var inType = TypeSpecParser.Parse ("(Swift.Int, Foo.Bar) -> Foo.Bar");
-        var replaced = inType.ReplaceName ("Foo.Bar", "Slarty.Bartfast") as ClosureTypeSpec;
-        Assert.NotNull (replaced);
+        var inType = TypeSpecParser.Parse("(Swift.Int, Foo.Bar) -> Foo.Bar");
+        var replaced = inType.ReplaceName("Foo.Bar", "Slarty.Bartfast") as ClosureTypeSpec;
+        Assert.NotNull(replaced);
         var args = replaced.Arguments as TupleTypeSpec;
-        Assert.NotNull (args);
-        Assert.Equal (2, args.Elements.Count);
-        var name = args.Elements [1] as NamedTypeSpec;
-        Assert.Equal ("Slarty.Bartfast", name.Name);
+        Assert.NotNull(args);
+        Assert.Equal(2, args.Elements.Count);
+        var name = args.Elements[1] as NamedTypeSpec;
+        Assert.Equal("Slarty.Bartfast", name.Name);
         name = replaced.ReturnType as NamedTypeSpec;
-        Assert.Equal ("Slarty.Bartfast", name.Name);
+        Assert.Equal("Slarty.Bartfast", name.Name);
     }
 
     [Fact]
-    public static void TestReplaceInClosureFail ()
+    public static void TestReplaceInClosureFail()
     {
-        var inType = TypeSpecParser.Parse ("(Swift.Int, Foo.Bar) -> Foo.Bar");
-        var same = inType.ReplaceName ("Blah", "Slarty.Bartfast") as ClosureTypeSpec;
-        Assert.NotNull (same);
-        Assert.Equal (same, inType);
+        var inType = TypeSpecParser.Parse("(Swift.Int, Foo.Bar) -> Foo.Bar");
+        var same = inType.ReplaceName("Blah", "Slarty.Bartfast") as ClosureTypeSpec;
+        Assert.NotNull(same);
+        Assert.Equal(same, inType);
     }
 
     [Fact]
-    public static void TestReplaceInProtoListSuccess ()
+    public static void TestReplaceInProtoListSuccess()
     {
-        var inType = TypeSpecParser.Parse ("Swift.Equatable & Foo.Bar");
-        var replaced = inType.ReplaceName ("Foo.Bar", "Slarty.Bartfast") as ProtocolListTypeSpec;
-        Assert.NotNull (replaced);
-        var name = replaced.Protocols.Keys.FirstOrDefault (n => n.Name == "Slarty.Bartfast");
-        Assert.NotNull (name);
+        var inType = TypeSpecParser.Parse("Swift.Equatable & Foo.Bar");
+        var replaced = inType.ReplaceName("Foo.Bar", "Slarty.Bartfast") as ProtocolListTypeSpec;
+        Assert.NotNull(replaced);
+        var name = replaced.Protocols.Keys.FirstOrDefault(n => n.Name == "Slarty.Bartfast");
+        Assert.NotNull(name);
     }
 
     [Fact]
-    public static void TestReplaceInProtoListFail ()
+    public static void TestReplaceInProtoListFail()
     {
-        var inType = TypeSpecParser.Parse ("Swift.Equatable & Foo.Bar");
-        var same = inType.ReplaceName ("Blah", "Slarty.Bartfast") as ProtocolListTypeSpec;
-        Assert.Equal (same, inType);
+        var inType = TypeSpecParser.Parse("Swift.Equatable & Foo.Bar");
+        var same = inType.ReplaceName("Blah", "Slarty.Bartfast") as ProtocolListTypeSpec;
+        Assert.Equal(same, inType);
     }
 
     [Fact]
-    public static void TestWeirdClosureIssue ()
+    public static void TestWeirdClosureIssue()
     {
-        var inType = TypeSpecParser.Parse ("@escaping[] (_onAnimation:Swift.Bool)->Swift.Void");
-        Assert.True (inType is ClosureTypeSpec);
+        var inType = TypeSpecParser.Parse("@escaping[] (_onAnimation:Swift.Bool)->Swift.Void");
+        Assert.True(inType is ClosureTypeSpec);
         var closSpec = inType as ClosureTypeSpec;
-        Assert.True (closSpec.IsEscaping);
-        var textRep = closSpec.ToString ();
-        var firstIndex = textRep.IndexOf ("_onAnimation");
-        var lastIndex = textRep.LastIndexOf ("_onAnimation");
-        Assert.True (firstIndex == lastIndex);
+        Assert.True(closSpec.IsEscaping);
+        var textRep = closSpec.ToString();
+        var firstIndex = textRep.IndexOf("_onAnimation");
+        var lastIndex = textRep.LastIndexOf("_onAnimation");
+        Assert.True(firstIndex == lastIndex);
     }
 
     [Fact]
-    public static void TestAsyncClosure ()
+    public static void TestAsyncClosure()
     {
-        var inType = TypeSpecParser.Parse ("() async -> ()") as ClosureTypeSpec;
-        Assert.NotNull (inType);
-        Assert.True (inType.IsAsync);
-        Assert.False (inType.Throws);
+        var inType = TypeSpecParser.Parse("() async -> ()") as ClosureTypeSpec;
+        Assert.NotNull(inType);
+        Assert.True(inType.IsAsync);
+        Assert.False(inType.Throws);
     }
 
     [Fact]
-    public static void TestAsyncThrowsClosure ()
+    public static void TestAsyncThrowsClosure()
     {
-        var inType = TypeSpecParser.Parse ("() async throws -> ()") as ClosureTypeSpec;
-        Assert.NotNull (inType);
-        Assert.True (inType.IsAsync);
-        Assert.True (inType.Throws);
+        var inType = TypeSpecParser.Parse("() async throws -> ()") as ClosureTypeSpec;
+        Assert.NotNull(inType);
+        Assert.True(inType.IsAsync);
+        Assert.True(inType.Throws);
     }
 
     [Fact]
-    public static void TestThrowsClosure ()
+    public static void TestThrowsClosure()
     {
-        var inType = TypeSpecParser.Parse ("() throws -> ()") as ClosureTypeSpec;
-        Assert.NotNull (inType);
-        Assert.False (inType.IsAsync);
-        Assert.True (inType.Throws);
+        var inType = TypeSpecParser.Parse("() throws -> ()") as ClosureTypeSpec;
+        Assert.NotNull(inType);
+        Assert.False(inType.IsAsync);
+        Assert.True(inType.Throws);
     }
 
     [Fact]
@@ -365,31 +365,31 @@ public class TypeSpecParserTests : IClassFixture<TypeSpecParserTests.TestFixture
     {
         Assert.Throws<Exception>(() => { TypeSpecParser.Parse("().Foo"); });
     }
-    
+
     [Fact]
     public static void TestProtoListFail()
     {
         Assert.Throws<Exception>(() => { TypeSpecParser.Parse("Foo & ()"); });
     }
-    
+
     [Fact]
     public static void TestAttributeFail()
     {
         Assert.Throws<Exception>(() => { TypeSpecParser.Parse("@&Foo"); });
     }
-    
+
     [Fact]
     public static void TestListFail()
     {
         Assert.Throws<Exception>(() => { TypeSpecParser.Parse("Swift.Foo<A, &>"); });
     }
-    
+
     [Fact]
     public static void TestArrayFail1()
     {
         Assert.Throws<Exception>(() => { TypeSpecParser.Parse("[&]"); });
     }
-    
+
     [Fact]
     public static void TestArrayFail2()
     {

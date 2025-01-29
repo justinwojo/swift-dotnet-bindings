@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Xunit;
 using Swift.GenericTests;
 using Swift.Runtime;
+using Xunit;
 
 namespace BindingsGeneration.FunctionalTests
 {

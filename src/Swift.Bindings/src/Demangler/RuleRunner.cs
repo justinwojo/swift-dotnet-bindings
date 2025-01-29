@@ -6,7 +6,8 @@ namespace BindingsGeneration.Demangling;
 /// <summary>
 /// RuleRunner contains a a collection of rules that get run to reduce nodes
 /// </summary>
-internal class RuleRunner {
+internal class RuleRunner
+{
     List<MatchRule> rules = new List<MatchRule>();
 
     /// <summary>
@@ -27,8 +28,8 @@ internal class RuleRunner {
     /// <returns></returns>
     public IReduction RunRules(Node node, string mangledName)
     {
-        var rule = rules.FirstOrDefault (r => r.Matches(node));
-        
+        var rule = rules.FirstOrDefault(r => r.Matches(node));
+
         if (rule is null)
             return new ReductionError() { Symbol = mangledName, Message = $"No rule for node {node.Kind}" };
         return rule.Reducer(node, mangledName);

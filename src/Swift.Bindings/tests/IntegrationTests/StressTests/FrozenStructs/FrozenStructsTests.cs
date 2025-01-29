@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Xunit;
 using Swift.FrozenStructsTests;
+using Xunit;
 
 namespace BindingsGeneration.StressTests
 {
@@ -40,7 +40,7 @@ namespace BindingsGeneration.StressTests
             Assert.Equal(5405857218178297237, f0_s2.hashValue());
             Assert.Equal(-5199645484972017144, result);
         }
-    
+
         [Fact]
         public static void TestSwiftStruct1()
         {
@@ -55,7 +55,7 @@ namespace BindingsGeneration.StressTests
             Assert.Equal(619381321311063739, f1_s2.hashValue());
             Assert.Equal(-5789188411070459345, result);
         }
-    
+
         [Fact]
         public static void TestSwiftStruct2()
         {
@@ -66,7 +66,7 @@ namespace BindingsGeneration.StressTests
             F2_S4 f2_s4 = new F2_S4(16, 17);
             F2_S5 f2_s5 = new F2_S5(18.0f);
             long result = Swift.FrozenStructsTests.FrozenStructsTests.swiftFunc2(1467471118999515177, -1109, 1443466834, new F2_S0(unchecked((nint)8641951469425609828), unchecked((nuint)3263825339460718643)), 6, 42857709, new F2_S1(6855376760105631967, 2087467091, 25810, 2495195821026007124, 62146), new F2_S2(new F2_S2_S0(new F2_S2_S0_S0(unchecked((nint)561009218247569242)))), 46110, 7547287, new F2_S3(34), new F2_S4(203178131, unchecked((nuint)8676866947888134131)), new F2_S5(7890213), 5623254678629817168);
-            
+
             Assert.Equal(-2644299808654375646, f2_s0.hashValue());
             Assert.Equal(-5946857472632060272, f2_s1.hashValue());
             Assert.Equal(-2996592682669871081, f2_s2_s0_s0.hashValue());
@@ -90,7 +90,7 @@ namespace BindingsGeneration.StressTests
             F3_S6 f3_s6 = new F3_S6(f3_s6_s0, 33, 34);
             F3_S7 f3_s7 = new F3_S7(35);
             long result = Swift.FrozenStructsTests.FrozenStructsTests.swiftFunc3(unchecked((nint)3764414362291906102), new F3_S0(23, new F3_S0_S0(unchecked((nint)3007367655161186204), 549733154), 38928730), new F3_S1(338326426991485790, 7517271), 4025506815523052, unchecked((nint)431338169919855088), new F3_S2(7888763), new F3_S3(57, unchecked((nint)8933588466514096604)), new F3_S4(unchecked((nuint)7769316271655125502), 1663231, 27333), new F3_S5(887161443, 4368322322535461551), 32477, 948591564, new F3_S6(new F3_S6_S0(7033, 124), 67, 221), unchecked((nint)6195032215974632640), new F3_S7(4076570630190469380));
-            
+
             Assert.Equal(2183680504548519170, f3_s0_s0.hashValue());
             Assert.Equal(6464181192521079681, f3_s0.hashValue());
             Assert.Equal(-3914014010231380795, f3_s1.hashValue());
@@ -103,7 +103,7 @@ namespace BindingsGeneration.StressTests
             Assert.Equal(-1699583181824442426, f3_s7.hashValue());
             Assert.Equal(-8840537967093155898, result);
         }
-    
+
         [Fact]
         public static void TestSwiftStruct4()
         {
@@ -114,7 +114,7 @@ namespace BindingsGeneration.StressTests
             F4_S2 f4_s2 = new F4_S2(f4_s2_s0, 42);
             F4_S3 f4_s3 = new F4_S3(43, 44, 45);
             long result = Swift.FrozenStructsTests.FrozenStructsTests.swiftFunc4(unchecked((nint)7962207922494873063), new F4_S0(16887, 11193, 20997), unchecked((nuint)938043702598629976), 8692646626431098135, -16, 1244033228990732, new F4_S1(new F4_S1_S0(274421021), 7037264), 154, 1187166500, 1096514224, 7283010216047805604, new F4_S2(new F4_S2_S0(unchecked((nint)3285810526807361976)), unchecked((nint)2934841899954168407)), 3384, unchecked((nint)4857017836321530071), new F4_S3(9030480386017125399, 5466901523025762626, 3430278619936831574), 234522698);
-            
+
             Assert.Equal(-5555791715238606502, f4_s0.hashValue());
             Assert.Equal(7917312046649396258, f4_s1_s0.hashValue());
             Assert.Equal(7787216292523950588, f4_s1.hashValue());
@@ -129,11 +129,11 @@ namespace BindingsGeneration.StressTests
         {
             F5_S0 f5_s0 = new F5_S0(46);
             long result = Swift.FrozenStructsTests.FrozenStructsTests.swiftFunc5(unchecked((nuint)425569624776371773), 8077063517132296390, 126, new F5_S0(unchecked((nuint)8032431538406335990)));
-            
+
             Assert.Equal(-8984750220696046997, f5_s0.hashValue());
             Assert.Equal(5832440388901373477, result);
         }
-    
+
         [Fact]
         public static void TestSwiftStruct6()
         {
@@ -145,7 +145,7 @@ namespace BindingsGeneration.StressTests
             F6_S4 f6_s4 = new F6_S4(57);
             F6_S5 f6_s5 = new F6_S5(58);
             long result = Swift.FrozenStructsTests.FrozenStructsTests.swiftFunc6(7742402881449217499, new F6_S0(158138445, unchecked((nint)4280990415451108676), 220), new F6_S1(unchecked((nint)7698928046973811162), 478730), unchecked((nuint)7348396082620937303), 76, 638113630, new F6_S2(new F6_S2_S0(55341051405503), 61378), 8235930, -20241, new F6_S3(318363825012010, 3586735152618866, 6630554942616673404), 46432, 744827194985602, 1973021571, new F6_S4(103), new F6_S5(-5345));
-            
+
             Assert.Equal(1692306587549742161, f6_s0.hashValue());
             Assert.Equal(-1484226257450236447, f6_s1.hashValue());
             Assert.Equal(-6229230135174619697, f6_s2_s0.hashValue());
@@ -162,7 +162,7 @@ namespace BindingsGeneration.StressTests
             F7_S0 f7_s0 = new F7_S0(59, 60);
             F7_S1 f7_s1 = new F7_S1(61);
             long result = Swift.FrozenStructsTests.FrozenStructsTests.swiftFunc7(6953928391541094904, unchecked((nint)2531714261502554653), 224, new F7_S0(14482, unchecked((nint)4704842847707480837)), new F7_S1(148), 659764805);
-            
+
             Assert.Equal(1770792034096671794, f7_s0.hashValue());
             Assert.Equal(-5808605251665550904, f7_s1.hashValue());
             Assert.Equal(5963731324167739917, result);
@@ -177,7 +177,7 @@ namespace BindingsGeneration.StressTests
             Assert.Equal(962290567653668427, f8_s0.hashValue());
             Assert.Equal(1919194302322813426, result);
         }
-    
+
         [Fact]
         public static void TestSwiftStruct9()
         {
@@ -189,7 +189,7 @@ namespace BindingsGeneration.StressTests
             Assert.Equal(5462998930071304245, f9_s1.hashValue());
             Assert.Equal(-5878079645235476214, result);
         }
-        
+
         [Fact]
         public static void TestSwiftStruct10()
         {
@@ -199,7 +199,7 @@ namespace BindingsGeneration.StressTests
             F10_S3 f10_s3 = new F10_S3(72.0f);
             F10_S4 f10_s4 = new F10_S4(73);
             long result = Swift.FrozenStructsTests.FrozenStructsTests.swiftFunc10(57914, 11968, new F10_S0(155502634291755209, 2096010440), 1373054541331378384, 2401784, -16, 9038689080810964859, 521869082023571496, 8919173990791765137, 4890513, 1113752036, 1477591037, 1463349953238439103, 7521124889381630793, new F10_S1(620783, 33, unchecked((nuint)1209731409858919135)), 1560688600815438014, new F10_S2(unchecked((nuint)2244178273746563479), 4252696983313269084), new F10_S3(6539550), new F10_S4(1264398289929487498));
-            
+
             Assert.Equal(-1058509415045616378, f10_s0.hashValue());
             Assert.Equal(6725059428863802130, f10_s1.hashValue());
             Assert.Equal(716752888238966276, f10_s2.hashValue());

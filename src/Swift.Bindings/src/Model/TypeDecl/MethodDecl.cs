@@ -34,6 +34,11 @@ namespace BindingsGeneration
         public required bool Throws { get; set; }
 
         /// <summary>
+        /// Indicates if the method is async.
+        /// </summary>
+        public required bool IsAsync { get; set; }
+
+        /// <summary>
         /// Generic parameters of the method.
         /// </summary>
         public required List<GenericArgumentDecl> GenericParameters { get; set; }

@@ -48,18 +48,18 @@ public class ProtocolListTypeSpec : TypeSpec
         }
     }
 
-	/// <summary>
-	/// Returns an empty protocol list type
-	/// </summary>
+    /// <summary>
+    /// Returns an empty protocol list type
+    /// </summary>
     public ProtocolListTypeSpec()
         : base(TypeSpecKind.ProtocolList)
     {
         Protocols = new SortedList<NamedTypeSpec, bool>(new SpecComparer());
     }
 
-	/// <summary>
-	/// Returns a new protocol list from the specified named type specs.
-	/// </summary>
+    /// <summary>
+    /// Returns a new protocol list from the specified named type specs.
+    /// </summary>
     public ProtocolListTypeSpec(IEnumerable<NamedTypeSpec> protos)
         : this()
     {
@@ -67,9 +67,9 @@ public class ProtocolListTypeSpec : TypeSpec
             Protocols.Add(proto, false);
     }
 
-	/// <summary>
-	/// Returns a list of the protocols contained in the protocol list
-	/// </summary>
+    /// <summary>
+    /// Returns a list of the protocols contained in the protocol list
+    /// </summary>
     public SortedList<NamedTypeSpec, bool> Protocols { get; private set; }
 
     protected override bool LLEquals(TypeSpec? other, bool partialNameMatch)
@@ -89,8 +89,8 @@ public class ProtocolListTypeSpec : TypeSpec
         return string.Join(" & ", Protocols.Keys);
     }
 
-	/// <summary>
-	/// Returns true if the closure is escaping
-	/// </summary>
+    /// <summary>
+    /// Returns true if the closure is escaping
+    /// </summary>
     public override bool HasDynamicSelf => false;
 }

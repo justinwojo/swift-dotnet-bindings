@@ -55,11 +55,11 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits the code for the specified environment.
         /// </summary>
-        /// <param name="writer">The IndentedTextWriter instance.</param>
+        /// <param name="csWriter">The IndentedTextWriter instance.</param>
         /// <param name="env">The environment.</param>
         /// <param name="conductor">The conductor instance.</param>
         /// <param name="typeDatabase">The type database instance.</param>
-        public void Emit(IndentedTextWriter writer, IEnvironment env, Conductor conductor)
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var structEnv = (TypeEnvironment)env;
             var structDecl = (StructDecl)structEnv.TypeDecl;
@@ -68,7 +68,7 @@ namespace BindingsGeneration
             // Retrieve type info from the type database
             var typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(moduleDecl.Name, structDecl.FullyQualifiedNameWithoutModule);
 
-            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(writer, env.TypeDatabase, moduleDecl, structDecl);
+            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl);
 
             SwiftTypeInfo? swiftTypeInfo = typeRecord?.SwiftTypeInfo;
 
@@ -78,18 +78,18 @@ namespace BindingsGeneration
                 {
                     // Apply struct layout attributes
                     // TODO: refactor to use type metadata
-                    writer.WriteLine($"[StructLayout(LayoutKind.Sequential, Size = {swiftTypeInfo.Value.ValueWitnessTable->Size})]");
+                    csWriter.WriteLine($"[StructLayout(LayoutKind.Sequential, Size = {swiftTypeInfo.Value.ValueWitnessTable->Size})]");
                 }
             }
-            writer.WriteLine($"public unsafe struct {structDecl.Name} : {typeof(ISwiftObject).Name} {{");
-            writer.Indent++;
+            csWriter.WriteLine($"public unsafe struct {structDecl.Name} : {typeof(ISwiftObject).Name} {{");
+            csWriter.Indent++;
 
             // Emit each field in the struct
             foreach (var fieldDecl in structDecl.Fields)
             {
                 string accessModifier = fieldDecl.Visibility == Visibility.Public ? "public" : "private";
                 var fieldRecord = env.TypeDatabase.GetTypeRecordOrThrow(fieldDecl.SwiftTypeSpec);
-                writer.WriteLine($"{accessModifier} {fieldRecord.CSTypeIdentifier} {fieldDecl.Name};");
+                csWriter.WriteLine($"{accessModifier} {fieldRecord.CSTypeIdentifier} {fieldDecl.Name};");
 
                 // TODO: Fix memory access violation
                 // // Verify field against Swift type information
@@ -98,15 +98,15 @@ namespace BindingsGeneration
                 //     Console.WriteLine("Field record does not match the field declaration");
                 // }
             }
-            writer.WriteLine();
+            csWriter.WriteLine();
 
             ISwiftObjectMethodWriter.WriteFrozenStructImplementation();
 
-            base.HandleBaseDecl(writer, structDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(writer, structDecl.Methods, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase);
 
-            writer.Indent--;
-            writer.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
         }
 
         /// <summary>
@@ -188,55 +188,55 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits the code for the specified environment.
         /// </summary>
-        /// <param name="writer">The IndentedTextWriter instance.</param>
+        /// <param name="csWriter">The IndentedTextWriter instance.</param>
         /// <param name="env">The environment.</param>
         /// <param name="conductor">The conductor instance.</param>
         /// <param name="typeDatabase">The type database instance.</param>
-        public void Emit(IndentedTextWriter writer, IEnvironment env, Conductor conductor)
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var structEnv = (TypeEnvironment)env;
             var structDecl = (StructDecl)structEnv.TypeDecl;
             var moduleDecl = structDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(structDecl.ModuleDecl));
 
-            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(writer, env.TypeDatabase, moduleDecl, structDecl);
+            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl);
 
-            writer.WriteLine($"public unsafe class {structDecl.Name} : IDisposable, {typeof(ISwiftObject).Name}");
-            writer.WriteLine("{");
-            writer.Indent++;
+            csWriter.WriteLine($"public unsafe class {structDecl.Name} : IDisposable, {typeof(ISwiftObject).Name}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
 
-            WritePrivateFields(writer, structDecl);
-            WriteDisposeMethod(writer);
-            WriteFinalizer(writer, structDecl);
-            WritePayloadSize(writer);
-            WritePayload(writer);
+            WritePrivateFields(csWriter, structDecl);
+            WriteDisposeMethod(csWriter);
+            WriteFinalizer(csWriter, structDecl);
+            WritePayloadSize(csWriter);
+            WritePayload(csWriter);
 
             ISwiftObjectMethodWriter.WriteNonFrozenStructImplementation();
 
-            writer.WriteLine();
+            csWriter.WriteLine();
 
-            base.HandleBaseDecl(writer, structDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(writer, structDecl.Methods, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase);
 
-            writer.Indent--;
-            writer.WriteLine("}");
-            writer.WriteLine();
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
         }
 
         /// <summary>
         /// Writes the private fields for the class.
         /// </summary>
-        private static void WritePrivateFields(IndentedTextWriter writer, StructDecl structDecl)
+        private static void WritePrivateFields(CSharpWriter csWriter, StructDecl structDecl)
         {
-            writer.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{structDecl.Name}>.GetTypeMetadata().Size;");
-            writer.WriteLine("SwiftHandle _payload = SwiftHandle.Zero;");
-            writer.WriteLine("bool _disposed = false;");
-            writer.WriteLine();
+            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{structDecl.Name}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine("SwiftHandle _payload = SwiftHandle.Zero;");
+            csWriter.WriteLine("bool _disposed = false;");
+            csWriter.WriteLine();
         }
 
         /// <summary>
         /// Writes the Dispose method for the class.
         /// </summary>
-        private static void WriteDisposeMethod(IndentedTextWriter writer)
+        private static void WriteDisposeMethod(CSharpWriter csWriter)
         {
             var text = $$"""
             public void Dispose()
@@ -251,14 +251,14 @@ namespace BindingsGeneration
             }
             """;
 
-            writer.WriteLines(text);
-            writer.WriteLine();
+            csWriter.WriteLines(text);
+            csWriter.WriteLine();
         }
 
         /// <summary>
         /// Writes the finalizer for the class.
         /// </summary>
-        private static void WriteFinalizer(IndentedTextWriter writer, StructDecl structDecl)
+        private static void WriteFinalizer(CSharpWriter csWriter, StructDecl structDecl)
         {
             var text = $$"""
             ~{{structDecl.Name}}()
@@ -268,26 +268,26 @@ namespace BindingsGeneration
             }
             """;
 
-            writer.WriteLines(text);
-            writer.WriteLine();
+            csWriter.WriteLines(text);
+            csWriter.WriteLine();
         }
 
         /// <summary>
         /// Writes the payload size accessor for the class.
         /// </summary>
-        private static void WritePayloadSize(IndentedTextWriter writer)
+        private static void WritePayloadSize(CSharpWriter csWriter)
         {
-            writer.WriteLine("public static nuint PayloadSize => _payloadSize;");
-            writer.WriteLine();
+            csWriter.WriteLine("public static nuint PayloadSize => _payloadSize;");
+            csWriter.WriteLine();
         }
 
         /// <summary>
         /// Writes the payload accessor for the class.
         /// </summary>
-        private static void WritePayload(IndentedTextWriter writer)
+        private static void WritePayload(CSharpWriter csWriter)
         {
-            writer.WriteLine("public SwiftHandle Payload => _payload;");
-            writer.WriteLine();
+            csWriter.WriteLine("public SwiftHandle Payload => _payload;");
+            csWriter.WriteLine();
         }
     }
 
@@ -340,24 +340,24 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits the necessary code for the specified environment.
         /// </summary>
-        /// <param name="writer">The IndentedTextWriter instance.</param>
+        /// <param name="csWriter">The IndentedTextWriter instance.</param>
         /// <param name="env">The environment.</param>
         /// <param name="conductor">The conductor instance.</param>
         /// <param name="typeDatabase">The type database instance.</param>
-        public void Emit(IndentedTextWriter writer, IEnvironment env, Conductor conductor)
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var classEnv = (TypeEnvironment)env;
             var classDecl = (ClassDecl)classEnv.TypeDecl;
 
-            writer.WriteLine($"public unsafe class {classDecl.Name} {{");
-            writer.Indent++;
+            csWriter.WriteLine($"public unsafe class {classDecl.Name} {{");
+            csWriter.Indent++;
 
-            base.HandleBaseDecl(writer, classDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(writer, classDecl.Methods, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase);
 
-            writer.Indent--;
-            writer.WriteLine("}");
-            writer.WriteLine();
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
         }
     }
 
@@ -371,9 +371,9 @@ namespace BindingsGeneration
         private readonly ModuleDecl _moduleDecl;
         private readonly StructDecl _structDecl;
 
-        public ISwiftObjectMethodWriter(IndentedTextWriter writer, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, StructDecl structDecl)
+        public ISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, StructDecl structDecl)
         {
-            _writer = writer;
+            _writer = csWriter;
             _typeDatabase = typeDatabase;
             _moduleDecl = moduleDecl;
             _structDecl = structDecl;
@@ -387,6 +387,7 @@ namespace BindingsGeneration
             WriteGetTypeMetadata();
             WriteNewFromPayloadNonFrozenStruct();
             WriteMarshalToSwiftNonFrozenStruct();
+            WriteGetProtocolConformanceDescriptor();
         }
 
         /// <summary>
@@ -397,6 +398,7 @@ namespace BindingsGeneration
             WriteGetTypeMetadata();
             WriteNewFromPayloadFrozenStruct();
             WriteMarshalToSwiftFrozenStruct();
+            WriteGetProtocolConformanceDescriptor();
         }
 
         /// <summary>
@@ -510,6 +512,23 @@ namespace BindingsGeneration
 
             _writer.WriteLines(text);
             _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the GetProtocolConformanceDescriptor method for the struct.
+        /// </summary>
+        private void WriteGetProtocolConformanceDescriptor()
+        {
+            var text = $$"""
+            static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<U>()
+            {
+                throw new NotImplementedException();
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+
         }
     }
 }

@@ -8,5 +8,6 @@ namespace BindingsGeneration.Demangling;
 /// Attribute used to mark an enum element as defining a context element
 /// </Summary>
 [AttributeUsage(AttributeTargets.Field, AllowMultiple = false)]
-public class ContextAttribute : Attribute {
+public class ContextAttribute : Attribute
+{
 }

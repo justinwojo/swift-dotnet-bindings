@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Newtonsoft.Json;
+using BindingsGeneration.Demangling;
 using Microsoft.CodeAnalysis.CSharp;
+using Newtonsoft.Json;
 
 namespace BindingsGeneration
 {
@@ -108,6 +109,11 @@ namespace BindingsGeneration
         /// Types declared in the module.
         /// </summary>
         private readonly Dictionary<NamedTypeSpec, TypeDecl> _moduleTypes = new();
+
+        /// <summary>
+        /// The Swift demangler.
+        /// </summary>
+        private readonly Swift5Demangler demangler = new();
 
         /// <summary>
         /// Closed generic types encountered during parsing method signatures.
@@ -359,6 +365,11 @@ namespace BindingsGeneration
         {
             // Extract parameter names from the signature
             var paramNames = ExtractParameterNames(node.PrintedName);
+            string mangledName = node.Kind == "Constructor" ? PatchMangledName(node.MangledName) : node.MangledName;
+
+            // TODO: https://github.com/dotnet/runtimelab/issues/2954
+            var reduction = demangler.Run(mangledName);
+            FunctionReduction? functionReduction = reduction as FunctionReduction;
 
             var methodDecl = new MethodDecl
             {
@@ -366,14 +377,15 @@ namespace BindingsGeneration
                 FullyQualifiedName = parentDecl.FullyQualifiedName,
                 // Constructors for structs are named with a trailing 'C' instead of 'c'
                 // because a constructor wrapper is missing in the library.
-                MangledName = node.Kind == "Constructor" ? PatchMangledName(node.MangledName) : node.MangledName,
+                MangledName = mangledName,
                 MethodType = node.@static ?? false ? MethodType.Static : MethodType.Instance,
                 IsConstructor = node.Kind == "Constructor",
                 CSSignature = new List<ArgumentDecl>(),
                 GenericParameters = GenericSignatureParser.ParseGenericSignature(node.GenericSig, node.sugared_genericSig),
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
-                Throws = node.throwing ?? false
+                Throws = node.throwing ?? false,
+                IsAsync = functionReduction?.Function?.IsAsync ?? false
             };
 
             for (int i = 0; i < node.Children.Count(); i++)

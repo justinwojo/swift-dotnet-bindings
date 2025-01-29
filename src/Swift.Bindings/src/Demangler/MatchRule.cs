@@ -16,7 +16,8 @@ namespace BindingsGeneration.Demangling;
 /// If a match occurs, a reducer function can be run on the node.
 /// </summary>
 [DebuggerDisplay("{ToString()}")]
-internal class MatchRule {
+internal class MatchRule
+{
     /// <summary>
     /// The name of this rule - useful for debugging
     /// </summary>
@@ -30,14 +31,18 @@ internal class MatchRule {
     /// <summary>
     /// A convenience accessor to match on a single NodeKind
     /// </summary>
-    public NodeKind NodeKind {
-        get {
-            if (NodeKindList.Count != 1) {
+    public NodeKind NodeKind
+    {
+        get
+        {
+            if (NodeKindList.Count != 1)
+            {
                 throw new InvalidOperationException($"NodeKind is invalid when NodeKindList has {NodeKindList.Count} entries.");
             }
             return NodeKindList[0];
         }
-        set {
+        set
+        {
             NodeKindList = new List<NodeKind> { value };
         }
     }
@@ -60,7 +65,7 @@ internal class MatchRule {
     /// <summary>
     /// A reducer to apply if the node matches
     /// </summary>
-    public required Func<Node, string, IReduction> Reducer { get; init; } = (node, mangledName) => new ReductionError () { Message = "Call of empty reduction rule", Symbol = mangledName };
+    public required Func<Node, string, IReduction> Reducer { get; init; } = (node, mangledName) => new ReductionError() { Message = "Call of empty reduction rule", Symbol = mangledName };
 
     /// <summary>
     /// Returns true if and only if the given node matches this rule
@@ -93,16 +98,16 @@ internal class MatchRule {
         // Only care about the content type not its value
         switch (MatchContentType)
         {
-        case MatchNodeContentType.AlwaysMatch:
-            return true;
-        case MatchNodeContentType.Index:
-            return n.HasIndex;
-        case MatchNodeContentType.Text:
-            return n.HasText;
-        case MatchNodeContentType.None:
-            return !n.HasIndex && !n.HasText;
-        default:
-            throw new InvalidOperationException ($"Unknown match instruction {MatchContentType} in match rule.");
+            case MatchNodeContentType.AlwaysMatch:
+                return true;
+            case MatchNodeContentType.Index:
+                return n.HasIndex;
+            case MatchNodeContentType.Text:
+                return n.HasText;
+            case MatchNodeContentType.None:
+                return !n.HasIndex && !n.HasText;
+            default:
+                throw new InvalidOperationException($"Unknown match instruction {MatchContentType} in match rule.");
         }
     }
 
@@ -111,7 +116,7 @@ internal class MatchRule {
     /// </summary>
     /// <param name="n"></param>
     /// <returns></returns>
-    bool ChildrenMatches (Node n)
+    bool ChildrenMatches(Node n)
     {
         // if the rule says the child count matters, apply
         if (MatchChildCount && n.Children.Count != ChildRules.Count)
@@ -119,11 +124,12 @@ internal class MatchRule {
 
         // match up to the minimum of each list
         // if MatchChileCount is true, min is the size of both lists
-        int minimumChildCount = Math.Min (n.Children.Count, ChildRules.Count);
-        for (var i = 0; i < minimumChildCount; i++) {
-            var childRule = ChildRules [i];
+        int minimumChildCount = Math.Min(n.Children.Count, ChildRules.Count);
+        for (var i = 0; i < minimumChildCount; i++)
+        {
+            var childRule = ChildRules[i];
             // recurse
-            if (!childRule.Matches (n.Children [i]))
+            if (!childRule.Matches(n.Children[i]))
                 return false;
         }
         return true;
@@ -133,8 +139,9 @@ internal class MatchRule {
     /// Returns a reducer to serve as a placeholder for a reducer that shouldn't be run.
     /// This is best used in ChildRules of match rules which get matched but don't run a reducer.
     /// </summary>
-    public static Func<Node, string?, IReduction> ErrorReducer = (n, s) => {
-        return new ReductionError () { Message = $"Undefined reduction error for Node {n.Kind}", Symbol = s ?? "" };
+    public static Func<Node, string?, IReduction> ErrorReducer = (n, s) =>
+    {
+        return new ReductionError() { Message = $"Undefined reduction error for Node {n.Kind}", Symbol = s ?? "" };
     };
 
     /// <summary>

@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 using System;
 using System.Collections.Generic;
-using System.Text;
 using System.Linq;
+using System.Text;
 
 namespace BindingsGeneration;
 
@@ -12,23 +12,23 @@ namespace BindingsGeneration;
 /// </summary>
 public class TypeSpecAttribute
 {
-	/// <summary>
-	/// Constructs a new TypeSpecAttribute with the given name. The name doesn't include the '@'
-	/// </summary>
+    /// <summary>
+    /// Constructs a new TypeSpecAttribute with the given name. The name doesn't include the '@'
+    /// </summary>
     public TypeSpecAttribute(string name)
     {
         Name = name;
         Parameters = new List<string>();
     }
 
-	/// <summary>
-	/// Gets or sets the name of the attribute. Does not include the '@'
-	/// </summary>
+    /// <summary>
+    /// Gets or sets the name of the attribute. Does not include the '@'
+    /// </summary>
     public string Name { get; set; }
 
-	/// <summary>
-	/// A list of optional parameters for the attribute
-	/// </summary>
+    /// <summary>
+    /// A list of optional parameters for the attribute
+    /// </summary>
     public List<string> Parameters { get; private set; }
 
     /// <summary>

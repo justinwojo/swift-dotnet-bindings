@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 using System;
-using System.IO;
 using System.Collections.Generic;
+using System.IO;
 
 
 namespace BindingsGeneration;
@@ -22,7 +22,8 @@ namespace BindingsGeneration;
 /// typespeclist: typespec [',' typespec]*
 /// attribute @name['(' parameters ')']
 /// </summary>
-public class TypeSpecParser {
+public class TypeSpecParser
+{
     TextReader reader;
     TypeSpecTokenizer tokenizer;
 
@@ -44,7 +45,7 @@ public class TypeSpecParser {
         // The typespec language is very simple and doesn't need anything more
         var token = tokenizer.Peek();
         TypeSpec? type = null;
-        List<TypeSpecAttribute> attrs = new ();
+        List<TypeSpecAttribute> attrs = new();
         var inout = false;
         var isAny = false;
         string? typeLabel = null;
@@ -55,82 +56,101 @@ public class TypeSpecParser {
         // Prefix
 
         // parse any attributes
-        if (token.Kind == TypeTokenKind.At) {
+        if (token.Kind == TypeTokenKind.At)
+        {
             attrs = ParseAttributes();
             token = tokenizer.Peek();
         }
 
         // looks like it's inout, consume and continue
-        if (token.Kind == TypeTokenKind.TypeName && token.Value == "inout") {
+        if (token.Kind == TypeTokenKind.TypeName && token.Value == "inout")
+        {
             inout = true;
-            tokenizer.Next ();
-            token = tokenizer.Peek ();
+            tokenizer.Next();
+            token = tokenizer.Peek();
         }
 
         // any, consume and continute
-        if (token.Kind == TypeTokenKind.TypeName && token.Value == "any") {
+        if (token.Kind == TypeTokenKind.TypeName && token.Value == "any")
+        {
             isAny = true;
-            tokenizer.Next ();
-            token = tokenizer.Peek ();
+            tokenizer.Next();
+            token = tokenizer.Peek();
         }
 
         // label, consume and continue
-        if (token.Kind == TypeTokenKind.TypeLabel) {
+        if (token.Kind == TypeTokenKind.TypeLabel)
+        {
             typeLabel = token.Value;
-            tokenizer.Next ();
-            token = tokenizer.Peek ();
+            tokenizer.Next();
+            token = tokenizer.Peek();
         }
 
         // meat of the type
 
-        if (token.Kind == TypeTokenKind.LeftParenthesis) { // tuple
-            tokenizer.Next ();
-            TupleTypeSpec tuple = ParseTuple ();
-            type = tuple.Elements.Count == 1 ? tuple.Elements [0] : tuple;
+        if (token.Kind == TypeTokenKind.LeftParenthesis)
+        { // tuple
+            tokenizer.Next();
+            TupleTypeSpec tuple = ParseTuple();
+            type = tuple.Elements.Count == 1 ? tuple.Elements[0] : tuple;
             typeLabel = type.TypeLabel;
             type.TypeLabel = null;
-        } else if (token.Kind == TypeTokenKind.TypeName) { // name
-            tokenizer.Next ();
-            var tokenValue = token.Value.StartsWith ("ObjectiveC.", StringComparison.Ordinal) ?
-                            "Foundation" + token.Value.Substring ("ObjectiveC".Length) : token.Value;
+        }
+        else if (token.Kind == TypeTokenKind.TypeName)
+        { // name
+            tokenizer.Next();
+            var tokenValue = token.Value.StartsWith("ObjectiveC.", StringComparison.Ordinal) ?
+                            "Foundation" + token.Value.Substring("ObjectiveC".Length) : token.Value;
             if (tokenValue == "Swift.Void")
                 type = TupleTypeSpec.Empty;
             else
                 type = new NamedTypeSpec(tokenValue);
-        } else if (token.Kind == TypeTokenKind.LeftBracket) { // array
-            tokenizer.Next ();
-            type = ParseArrayOrDictionary ();
-        } else { // illegal
+        }
+        else if (token.Kind == TypeTokenKind.LeftBracket)
+        { // array
+            tokenizer.Next();
+            type = ParseArrayOrDictionary();
+        }
+        else
+        { // illegal
             throw new Exception($"Unexpected token {token.Value}.");
         }
 
-        if (tokenizer.NextIs("async")) {
+        if (tokenizer.NextIs("async"))
+        {
             tokenizer.Next();
             asyncClosure = true;
             expectClosure = true;
         }
 
-        if (tokenizer.NextIs("throws")) {
+        if (tokenizer.NextIs("throws"))
+        {
             tokenizer.Next();
             throwsClosure = true;
             expectClosure = true;
         }
 
-        if (tokenizer.Peek().Kind == TypeTokenKind.Arrow) {
+        if (tokenizer.Peek().Kind == TypeTokenKind.Arrow)
+        {
             tokenizer.Next();
             type = ParseClosure(type, throwsClosure, asyncClosure);
             expectClosure = false;
             throwsClosure = false;
             asyncClosure = false;
-        } else if (expectClosure) {
+        }
+        else if (expectClosure)
+        {
             var errorCase = asyncClosure && throwsClosure ? "'async throws'" : asyncClosure ? "'async'" : "'throws'";
-            throw new Exception($"Unexpected token {tokenizer.Peek ().Value} after {errorCase} in a closure.");
-        } else if (tokenizer.Peek().Kind == TypeTokenKind.LeftAngle) {
+            throw new Exception($"Unexpected token {tokenizer.Peek().Value} after {errorCase} in a closure.");
+        }
+        else if (tokenizer.Peek().Kind == TypeTokenKind.LeftAngle)
+        {
             tokenizer.Next();
-            type = Genericize (type);
+            type = Genericize(type);
         }
 
-        if (tokenizer.Peek().Kind == TypeTokenKind.Period) {
+        if (tokenizer.Peek().Kind == TypeTokenKind.Period)
+        {
             tokenizer.Next();
             var currType = type as NamedTypeSpec;
             if (currType is null)
@@ -143,31 +163,38 @@ public class TypeSpecParser {
 
         // Postfix
 
-        if (tokenizer.Peek ().Kind == TypeTokenKind.Ampersand) {
-            if (type is NamedTypeSpec ns) {
-                type = ParseProtocolList (ns);
-            } else {
+        if (tokenizer.Peek().Kind == TypeTokenKind.Ampersand)
+        {
+            if (type is NamedTypeSpec ns)
+            {
+                type = ParseProtocolList(ns);
+            }
+            else
+            {
                 throw new Exception($"In parsing a protocol list type, expected a NamedTypeSpec but got a {type.GetType().Name}");
             }
         }
 
         // this handles arbitrary nested optionals (eg, Int?????????)
-        while (tokenizer.Peek ().Kind == TypeTokenKind.QuestionMark) {
-            tokenizer.Next ();
-            type = WrapAsBoundGeneric (type, "Swift.Optional");
+        while (tokenizer.Peek().Kind == TypeTokenKind.QuestionMark)
+        {
+            tokenizer.Next();
+            type = WrapAsBoundGeneric(type, "Swift.Optional");
         }
 
-        if (tokenizer.Peek ().Kind == TypeTokenKind.ExclamationPoint) {
-            tokenizer.Next ();
-            type = WrapAsBoundGeneric (type, "Swift.ImplicitlyUnwrappedOptional");
+        if (tokenizer.Peek().Kind == TypeTokenKind.ExclamationPoint)
+        {
+            tokenizer.Next();
+            type = WrapAsBoundGeneric(type, "Swift.ImplicitlyUnwrappedOptional");
         }
 
         type.IsInOut = inout;
         type.IsAny = isAny;
         type.TypeLabel = typeLabel;
 
-        if (type != null && attrs != null) {
-            type.Attributes.AddRange (attrs);
+        if (type != null && attrs != null)
+        {
+            type.Attributes.AddRange(attrs);
         }
 
         return type;
@@ -185,17 +212,21 @@ public class TypeSpecParser {
         // The spec says that it could be ( parameters ), [ parameters ], or { parameters }
         // but the reflection code should make certain that it's [ parameters ].
         List<TypeSpecAttribute> attrs = new List<TypeSpecAttribute>();
-        while (true) {
-            if (tokenizer.Peek().Kind != TypeTokenKind.At) {
+        while (true)
+        {
+            if (tokenizer.Peek().Kind != TypeTokenKind.At)
+            {
                 return attrs;
             }
             tokenizer.Next();
-            if (tokenizer.Peek().Kind != TypeTokenKind.TypeName) {
+            if (tokenizer.Peek().Kind != TypeTokenKind.TypeName)
+            {
                 throw new Exception($"Unexpected token {tokenizer.Peek().Value}, expected a name while parsing an attribute.");
             }
-            string name = tokenizer.Next ().Value;
+            string name = tokenizer.Next().Value;
             TypeSpecAttribute attr = new TypeSpecAttribute(name);
-            if (tokenizer.Peek().Kind == TypeTokenKind.LeftBracket) {
+            if (tokenizer.Peek().Kind == TypeTokenKind.LeftBracket)
+            {
                 tokenizer.Next();
                 ParseAttributeParameters(attr.Parameters);
             }
@@ -206,7 +237,7 @@ public class TypeSpecParser {
     /// <summary>
     /// Parses a comma separated list of parameters ending with a right bracket
     /// </summary>
-    void ParseAttributeParameters (List<string> parameters)
+    void ParseAttributeParameters(List<string> parameters)
     {
         // Attribute parameters are funny
         // The contents between the brackets vary.
@@ -214,17 +245,21 @@ public class TypeSpecParser {
         // Therefore this code is likely to break, but since I'm responsible for
         // generating the text of the attributes parsed here, I can try to ensure
         // that it will always fit the pattern.
-        while (true) {
-            if (tokenizer.Peek().Kind == TypeTokenKind.RightBracket) {
+        while (true)
+        {
+            if (tokenizer.Peek().Kind == TypeTokenKind.RightBracket)
+            {
                 tokenizer.Next();
                 return;
             }
             var value = tokenizer.Next();
-            if (value.Kind != TypeTokenKind.TypeName) {
+            if (value.Kind != TypeTokenKind.TypeName)
+            {
                 throw new Exception($"Unexpected token {value.Value} while parsing attribute parameter.");
             }
             parameters.Add(value.Value);
-            if (tokenizer.Peek().Kind == TypeTokenKind.Comma) {
+            if (tokenizer.Peek().Kind == TypeTokenKind.Comma)
+            {
                 tokenizer.Next();
             }
         }
@@ -235,9 +270,10 @@ public class TypeSpecParser {
     /// <summary>
     TypeSpec ParseProtocolList(NamedTypeSpec first)
     {
-        var protocols = new List<NamedTypeSpec> ();
+        var protocols = new List<NamedTypeSpec>();
         protocols.Add(first);
-        while (true) {
+        while (true)
+        {
             if (tokenizer.Peek().Kind != TypeTokenKind.Ampersand)
                 break;
             tokenizer.Next();
@@ -246,25 +282,28 @@ public class TypeSpecParser {
                 throw new Exception($"Unexpected token '{nextName.Value}' with kind {nextName.Kind} while parsing a protocol list");
             protocols.Add(new NamedTypeSpec(nextName.Value));
         }
-        return new ProtocolListTypeSpec (protocols);
+        return new ProtocolListTypeSpec(protocols);
     }
 
     /// <summary>
     /// Parses a comman separated list of tokens with the specified terminating token.
     /// Used for parsing generics and tuples.
     /// </summary>
-    void ConsumeList (List<TypeSpec> elements, TypeTokenKind terminator, string typeImParsing)
+    void ConsumeList(List<TypeSpec> elements, TypeTokenKind terminator, string typeImParsing)
     {
-        while (true) {
-            if (tokenizer.Peek().Kind == terminator) {
+        while (true)
+        {
+            if (tokenizer.Peek().Kind == terminator)
+            {
                 tokenizer.Next();
                 return;
             }
-            var next = Parse ();
+            var next = Parse();
             if (next is null)
                 throw new Exception($"Unexpected end while parsing a {typeImParsing}");
             elements.Add(next);
-            if (tokenizer.Peek().Kind == TypeTokenKind.Comma) {
+            if (tokenizer.Peek().Kind == TypeTokenKind.Comma)
+            {
                 tokenizer.Next();
             }
         }
@@ -275,7 +314,7 @@ public class TypeSpecParser {
     /// </summary>
     TypeSpec Genericize(TypeSpec type)
     {
-        ConsumeList (type.GenericParameters, TypeTokenKind.RightAngle, "generic parameter list");
+        ConsumeList(type.GenericParameters, TypeTokenKind.RightAngle, "generic parameter list");
         return type;
     }
 
@@ -295,7 +334,7 @@ public class TypeSpecParser {
     /// </summary>
     TupleTypeSpec ParseTuple()
     {
-        TupleTypeSpec tuple = new TupleTypeSpec ();
+        TupleTypeSpec tuple = new TupleTypeSpec();
         ConsumeList(tuple.Elements, TypeTokenKind.RightParenthesis, "tuple");
         return tuple;
     }
@@ -306,23 +345,28 @@ public class TypeSpecParser {
     /// </summary>
     NamedTypeSpec ParseArrayOrDictionary()
     {
-        var keyType = Parse ();
+        var keyType = Parse();
         TypeSpec? valueType = null;
         if (keyType is null)
             throw new Exception("Unexpected end while parsing an array or dictionary.");
-        if (tokenizer.Peek().Kind == TypeTokenKind.Colon) {
+        if (tokenizer.Peek().Kind == TypeTokenKind.Colon)
+        {
             tokenizer.Next();
             valueType = Parse();
             if (valueType is null)
                 throw new Exception("Unexpected end while parsing a dictionary value type.");
-        } else if (tokenizer.Peek().Kind != TypeTokenKind.RightBracket)
+        }
+        else if (tokenizer.Peek().Kind != TypeTokenKind.RightBracket)
             throw new Exception("Expected a right bracket after an array or dictionary.");
 
         tokenizer.Next();
 
-        if (valueType is null) {
+        if (valueType is null)
+        {
             return WrapAsBoundGeneric(keyType, "Swift.Array");
-        } else {
+        }
+        else
+        {
             var dictionary = new NamedTypeSpec("Swift.Dictionary");
             dictionary.GenericParameters.Add(keyType);
             dictionary.GenericParameters.Add(valueType);
@@ -338,7 +382,7 @@ public class TypeSpecParser {
         var returnType = Parse();
         if (returnType is null)
             throw new Exception("Unexpected end while parsing a closure.");
-        var closure = new ClosureTypeSpec ();
+        var closure = new ClosureTypeSpec();
         closure.Arguments = arg;
         closure.ReturnType = returnType;
         closure.Throws = throws;
@@ -350,9 +394,9 @@ public class TypeSpecParser {
     /// Parse a string representing a Swift type specification into a TypeSpec.
     /// Returns null on empty string and throws on a parse error.
     /// </summary>
-    public static TypeSpec? Parse (string typeName)
+    public static TypeSpec? Parse(string typeName)
     {
-        TypeSpecParser parser = new TypeSpecParser (new StringReader (typeName));
-        return parser.Parse ();
+        TypeSpecParser parser = new TypeSpecParser(new StringReader(typeName));
+        return parser.Parse();
     }
 }

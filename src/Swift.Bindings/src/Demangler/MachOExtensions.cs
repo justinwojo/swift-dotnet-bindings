@@ -22,9 +22,12 @@ public static class MachoExtensions
     public static IEnumerable<NListEntry> PublicSymbols(this IEnumerable<MachOFile> allFiles, Abi abi)
     {
         var files = allFiles.WithAbi(abi);
-        foreach (var file in files) {
-            foreach (var symbols in file.load_commands.OfType<SymTabLoadCommand>()) {
-                foreach(var publicSym in symbols.PublicSymbols) {
+        foreach (var file in files)
+        {
+            foreach (var symbols in file.load_commands.OfType<SymTabLoadCommand>())
+            {
+                foreach (var publicSym in symbols.PublicSymbols)
+                {
                     yield return publicSym;
                 }
             }

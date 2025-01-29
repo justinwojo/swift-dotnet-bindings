@@ -9,7 +9,8 @@ namespace Swift.Runtime;
 /// <summary>
 /// Arc is a class containing p/invokes for Swift Automatic Reference Counting and memory management.
 /// </summary>
-public static class Arc {
+public static class Arc
+{
     /// <summary>
     /// Retain a heap-allocated Swift object
     /// </summary>
@@ -73,7 +74,7 @@ public static class Arc {
             throw new ArgumentNullException(nameof(p));
         if (swift_isDeallocating(p))
         {
-            throw new Exception(string.Format ("Attempt to release a Swift object that has been deinitialized {0}", p.ToString($"X{IntPtr.Size * 2}")));
+            throw new Exception(string.Format("Attempt to release a Swift object that has been deinitialized {0}", p.ToString($"X{IntPtr.Size * 2}")));
         }
         swift_release(p);
         return p;

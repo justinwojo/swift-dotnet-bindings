@@ -24,7 +24,7 @@ namespace BindingsGeneration
         /// <param name="writer">The IndentedTextWriter instance.</param>
         /// <param name="env">The environment.</param>
         /// <param name="conductor">The conductor instance.</param>
-        void Emit(IndentedTextWriter writer, IEnvironment env, Conductor conductor);
+        void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor);
     }
 
     /// <summary>
@@ -74,7 +74,7 @@ namespace BindingsGeneration
         /// <param name="decl">The list of base declarations.</param>
         /// <param name="conductor">The conductor instance.</param>
         /// <param name="typeDatabase">The type database instance.</param>
-        protected virtual void HandleBaseDecl(IndentedTextWriter writer, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase)
+        protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase)
         {
             foreach (var baseDecl in decl)
             {
@@ -83,7 +83,7 @@ namespace BindingsGeneration
                     if (conductor.TryGetTypeHandler(structDecl, out var handler))
                     {
                         var env = handler.Marshal(structDecl, typeDatabase);
-                        handler.Emit(writer, env, conductor);
+                        handler.Emit(csWriter, swiftWriter, env, conductor);
                     }
                     else
                     {
@@ -95,7 +95,7 @@ namespace BindingsGeneration
                     if (conductor.TryGetTypeHandler(classDecl, out var handler))
                     {
                         var env = handler.Marshal(classDecl, typeDatabase);
-                        handler.Emit(writer, env, conductor);
+                        handler.Emit(csWriter, swiftWriter, env, conductor);
                     }
                     else
                     {
@@ -107,7 +107,7 @@ namespace BindingsGeneration
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
                         var env = handler.Marshal(methodDecl, typeDatabase);
-                        handler.Emit(writer, env, conductor);
+                        handler.Emit(csWriter, swiftWriter, env, conductor);
                     }
                     else
                     {
@@ -120,7 +120,7 @@ namespace BindingsGeneration
                     throw new NotImplementedException($"Unsupported declaration type: {declType}");
                 }
 
-                writer.WriteLine();
+                csWriter.WriteLine();
             }
         }
     }

@@ -4,7 +4,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Swift.Runtime 
+namespace Swift.Runtime
 {
     /// <summary>
     /// Includes the native methods for loading dynamic libraries.

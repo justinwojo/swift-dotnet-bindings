@@ -9,41 +9,42 @@ namespace Dynamo;
 /// Interface for writing code to a file or other output. Code writers track
 /// position in line and indentation level.
 /// </summary>
-public interface ICodeWriter {
+public interface ICodeWriter
+{
     /// <summary>
     /// Start a new line, optionally prepending indents.
     /// </summary>
     /// <param name="prependIndents"></param>
-    void BeginNewLine (bool prependIndents);
+    void BeginNewLine(bool prependIndents);
 
     /// <summary>
     /// Ends the current line.
     /// </summary>
-    void EndLine ();
+    void EndLine();
 
     /// <summary>
     /// Write a single character to the output.
     /// </summary>
     /// <param name="c">The character to write</param>
     /// <param name="allowSplit">If true, allows the writer to insert a line break, splitting the current line</param>
-    void Write (char c, bool allowSplit);
+    void Write(char c, bool allowSplit);
 
     /// <summary>
     /// Write a string to the output.
     /// </summary>
     /// <param name="text">The text to write</param>
     /// <param name="allowSplit">If true, allows the writer to insert a line break, splitting the current line.</param>
-    void Write (string text, bool allowSplit);
+    void Write(string text, bool allowSplit);
 
     /// <summary>
     /// Increase the current indentation level.
     /// </summary>
-    void Indent ();
+    void Indent();
 
     /// <summary>
     /// Decrease the current indentation level.
     /// </summary>
-    void Exdent ();
+    void Exdent();
 
     /// <summary>
     /// Returns the current indentation level.

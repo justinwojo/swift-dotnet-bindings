@@ -1,9 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Xunit;
-using Swift.StructsTests;
+using System.Diagnostics;
 using Swift.Runtime;
+using Swift.StructsTests;
+using Xunit;
 
 namespace BindingsGeneration.FunctionalTests
 {
@@ -279,6 +280,41 @@ namespace BindingsGeneration.FunctionalTests
         public void TestStaticMethodThrowingError()
         {
             Assert.Throws<SwiftRuntimeException>(() => StructWithThrowingMethods.sum(0, 0));
+        }
+
+        [Fact]
+        public async Task TestAsyncStruct()
+        {
+            int expectedValue = 42;
+            ulong seconds = 5;
+            TimerStruct timerStruct = new TimerStruct(expectedValue);
+            var tasks = new[]
+            {
+                timerStruct.waitFor(seconds - 1),
+                timerStruct.waitFor(seconds - 2),
+                timerStruct.waitFor(seconds - 3),
+                timerStruct.waitFor(seconds - 4),
+                timerStruct.waitFor(seconds - 5)
+            };
+            var stopwatch = Stopwatch.StartNew();
+            var results = await Task.WhenAll(tasks);
+            stopwatch.Stop();
+
+            foreach (var result in results)
+                Assert.Equal(expectedValue, result);
+
+            Assert.True(Math.Abs(stopwatch.Elapsed.TotalSeconds - seconds) <= 1);
+
+            var tasks2 = new[]
+            {
+                timerStruct.waitFor5Seconds(),
+                TimerStruct.waitFor5SecondsStatic()
+            };
+
+            stopwatch = Stopwatch.StartNew();
+            await Task.WhenAll(tasks2);
+            stopwatch.Stop();
+            Assert.True(Math.Abs(stopwatch.Elapsed.TotalSeconds - seconds) <= 1);
         }
     }
 }

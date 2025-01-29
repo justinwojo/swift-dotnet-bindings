@@ -28,6 +28,20 @@ public static class NameProvider
         return $"PInvoke_{methodDecl.Name}";
     }
 
+
+    /// <summary>
+    /// Provides the mangled name of the PInvoke method.
+    /// </summary>
+    /// <param name="methodDecl">The method declaration.</param>
+    /// <returns>The mangled name of the PInvoke method.</returns>
+    public static string GetMangledName(MethodDecl methodDecl)
+    {
+        if (methodDecl.IsAsync)
+            return $"{methodDecl.MangledName}_async";
+
+        return methodDecl.MangledName;
+    }
+
     /// <summary>
     /// Provides the mapping of generic type parameters.
     /// </summary>

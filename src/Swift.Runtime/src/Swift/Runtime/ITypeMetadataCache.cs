@@ -18,7 +18,7 @@ public interface ITypeMetadataCache
     /// <param name="type">The type to look up in the cache</param>
     /// <param name="metadata">The resulting metadata if found</param>
     /// <returns>true if the lookup was successful, false otherwise</returns>
-    bool TryGet(Type type, [NotNullWhen(true)]out TypeMetadata? metadata);
+    bool TryGet(Type type, [NotNullWhen(true)] out TypeMetadata? metadata);
 
     /// <summary>
     /// Gets the TypeMetadata for the given Type type or if it is not present,
