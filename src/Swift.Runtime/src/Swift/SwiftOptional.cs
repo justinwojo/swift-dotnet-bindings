@@ -81,7 +81,8 @@ public class SwiftOptional<T> : ISwiftObject
     /// </summary>
     /// <typeparam name="TProtocol"></typeparam>
     /// <returns></returns>
-    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+        where TProtocol : class
     {
         // TODO: https://github.com/dotnet/runtimelab/issues/2963
         throw new NotImplementedException();
