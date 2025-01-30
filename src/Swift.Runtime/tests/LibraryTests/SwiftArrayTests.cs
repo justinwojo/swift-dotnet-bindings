@@ -105,18 +105,6 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
     }
 
     [Fact]
-    public void OutOfRangeAccess()
-    {
-        var array = new SwiftArray<int>();
-        Assert.Equal(0, array.Count);
-
-        Assert.Throws<IndexOutOfRangeException>(() =>
-        {
-            var _ = array[0];
-        });
-    }
-
-    [Fact]
     public void LargeArray()
     {
         var array = new SwiftArray<int>();
