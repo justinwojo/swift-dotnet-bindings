@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Swift;
 using Swift.Runtime;
 using Xunit;
 
@@ -49,7 +48,7 @@ public class ProtocolConformanceDescriptorTests : IClassFixture<ProtocolConforma
     [Fact]
     public static void RetrievesProtocolConformanceDescriptorUsingStaticAccessor()
     {
-        var result = ProtocolConformanceDescriptor.TryGet<int, IHashable>(out var descriptor);
+        var result = ProtocolConformanceDescriptor.TryGet<SwiftIntMock, ISwiftHashableMock>(out var descriptor);
         Assert.True(result);
         Assert.NotNull(descriptor);
         Assert.True(descriptor!.Value.IsValid);
@@ -58,29 +57,7 @@ public class ProtocolConformanceDescriptorTests : IClassFixture<ProtocolConforma
     [Fact]
     public static void FailsToRetrieveProtocolConformanceDescriptorUsingStaticAccessorWhenTypeDoesNotConformToProtocol()
     {
-        var result = ProtocolConformanceDescriptor.TryGet<TypeNotImplementingAnyProtocols, IHashable>(out var _);
+        var result = ProtocolConformanceDescriptor.TryGet<TypeNotImplementingAnyProtocols, ISwiftHashableMock>(out var _);
         Assert.False(result);
     }
-
-    static void RetrieveIHashableConformanceProtocolDescriptor<T>()
-    {
-        ProtocolConformanceDescriptor.TryGet<T, IHashable>(out var conformanceDescriptor);
-        Assert.True(conformanceDescriptor.HasValue && conformanceDescriptor.Value.IsValid);
-    }
-
-    static void RetrieveIHashableConformanceProtocolDescriptorBool()
-    {
-        Assert.Throws<Exception>(() => ProtocolConformanceDescriptor.TryGet<bool, IHashable>(out var conformanceDescriptor));
-    }
-
-    [Fact] public void ConformanceDescriptorTestSByte() => RetrieveIHashableConformanceProtocolDescriptor<sbyte>();
-    [Fact] public void ConformanceDescriptorTestByte() => RetrieveIHashableConformanceProtocolDescriptor<byte>();
-    [Fact] public void ConformanceDescriptorTestShort() => RetrieveIHashableConformanceProtocolDescriptor<short>();
-    [Fact] public void ConformanceDescriptorTestUShort() => RetrieveIHashableConformanceProtocolDescriptor<ushort>();
-    [Fact] public void ConformanceDescriptorTestInt() => RetrieveIHashableConformanceProtocolDescriptor<int>();
-    [Fact] public void ConformanceDescriptorTestUInt() => RetrieveIHashableConformanceProtocolDescriptor<uint>();
-    [Fact] public void ConformanceDescriptorTestLong() => RetrieveIHashableConformanceProtocolDescriptor<long>();
-    [Fact] public void ConformanceDescriptorTestULong() => RetrieveIHashableConformanceProtocolDescriptor<ulong>();
-    [Fact] public void ConformanceDescriptorTestFloat() => RetrieveIHashableConformanceProtocolDescriptor<float>();
-    [Fact] public void ConformanceDescriptorTestDouble() => RetrieveIHashableConformanceProtocolDescriptor<double>();
 }

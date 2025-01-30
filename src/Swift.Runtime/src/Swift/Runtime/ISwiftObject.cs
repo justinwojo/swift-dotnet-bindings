@@ -27,12 +27,7 @@ public interface ISwiftObject
     /// <summary>
     /// Gets the protocol conformance descriptor for the given type
     /// </summary>
-    public static abstract ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : ISwiftProtocol;
-}
-
-public interface ISwiftProtocol
-{
-    public static abstract ProtocolDescriptor GetProtocolDescriptor();
+    public static abstract ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class;
 }
 
 /// <summary>
@@ -62,19 +57,10 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
 
 public struct ProtocolConformanceDescriptorHelper<TType, TProtocol>
     where TType : ISwiftObject
-    where TProtocol : ISwiftProtocol
+    where TProtocol : class
 {
     public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor()
     {
         return TType.GetProtocolConformanceDescriptor<TProtocol>();
-    }
-}
-
-public struct ProtocolDescriptorHelper<TProtocol>
-    where TProtocol : class, ISwiftProtocol
-{
-    public static ProtocolDescriptor GetProtocolDescriptor()
-    {
-        return TProtocol.GetProtocolDescriptor();
     }
 }

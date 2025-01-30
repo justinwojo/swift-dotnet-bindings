@@ -60,6 +60,7 @@ public struct AnyType : ISwiftObject
     /// <typeparam name="TProtocol"></typeparam>
     /// <returns></returns>
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+        where TProtocol : class
     {
         return ProtocolConformanceDescriptor.Zero;
     }

@@ -85,7 +85,8 @@ public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
     /// <c>true</c> if the table was found; otherwise, <c>false</c>.
     /// </returns>
 
-    public static bool TryGet<TType, TProtocol>([NotNullWhen(true)] out ProtocolWitnessTable? result) where TProtocol : ISwiftProtocol
+    public static bool TryGet<TType, TProtocol>([NotNullWhen(true)] out ProtocolWitnessTable? result)
+        where TProtocol : class
     {
         if (!TypeMetadata.TryGetTypeMetadata<TType>(out var metadata))
         {
@@ -116,7 +117,7 @@ public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
     /// Thrown if the protocol witness table cannot be obtained for the specified type and protocol.
     /// </exception>
     public static ProtocolWitnessTable GetOrThrow<TType, TProtocol>()
-        where TProtocol : ISwiftProtocol
+        where TProtocol : class
     {
         if (!TryGet<TType, TProtocol>(out var result))
         {

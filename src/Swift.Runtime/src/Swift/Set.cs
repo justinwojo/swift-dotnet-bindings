@@ -42,36 +42,35 @@ public struct Variant
 public class SwiftSet<Element> : IDisposable, ISwiftObject
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata().Size;
+
     static nuint _elementSize = ElementTypeMetadata.Size;
 
-    // Swift set is a value type and doesn't contain an IntPtr payload
-    private Variant variant;
+    private Variant _variant;
+
     public unsafe void Dispose()
     {
-        if (variant.rawValue != IntPtr.Zero)
+        if (_variant.rawValue != IntPtr.Zero)
         {
-            Arc.Release(*(IntPtr*)variant.rawValue);
-            variant.rawValue = IntPtr.Zero;
+            Arc.Release(*(IntPtr*)_variant.rawValue);
+            _variant.rawValue = IntPtr.Zero;
             GC.SuppressFinalize(this);
         }
     }
 
     unsafe ~SwiftSet()
     {
-        Arc.Release(*(IntPtr*)variant.rawValue);
-        variant.rawValue = IntPtr.Zero;
+        Arc.Release(*(IntPtr*)_variant.rawValue);
+        _variant.rawValue = IntPtr.Zero;
     }
+
+    public static ProtocolWitnessTable IHashableWitnessTable => ProtocolWitnessTable.Zero;
+
     public static nuint PayloadSize => _payloadSize;
-    public Variant Payload => variant;
+
+    public Variant Payload => _variant;
+
     public static nuint ElementSize => _elementSize;
-    public static ProtocolWitnessTable IHashableWitnessTable
-    {
-        get
-        {
-            ProtocolWitnessTable.TryGet<Element, IHashable>(out var witnessTable);
-            return witnessTable.HasValue ? witnessTable.Value : ProtocolWitnessTable.Zero;
-        }
-    }
+
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftSet<Element>), _ => SwiftSetPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, ElementTypeMetadata));
@@ -92,7 +91,7 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
         var metadata = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
         unsafe
         {
-            fixed (void* _payloadPtr = &variant)
+            fixed (void* _payloadPtr = &_variant)
             {
                 metadata.ValueWitnessTable->InitializeWithCopy((void*)swiftDest, (void*)_payloadPtr, metadata);
             }
@@ -115,7 +114,7 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
     /// </summary>
     unsafe SwiftSet(SwiftHandle handle)
     {
-        this.variant = *(Variant*)(handle);
+        this._variant = *(Variant*)(handle);
     }
 
     /// <summary>
@@ -123,7 +122,7 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
     /// </summary>
     public SwiftSet()
     {
-        variant = SwiftSetPInvokes.Init(ElementTypeMetadata, IHashableWitnessTable);
+        _variant = SwiftSetPInvokes.Init(ElementTypeMetadata, IHashableWitnessTable);
     }
 
     /// <summary>
@@ -133,7 +132,7 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
     {
         get
         {
-            return (int)SwiftSetPInvokes.Count(variant, ElementTypeMetadata, IHashableWitnessTable);
+            return (int)SwiftSetPInvokes.Count(_variant, ElementTypeMetadata, IHashableWitnessTable);
         }
     }
 }
