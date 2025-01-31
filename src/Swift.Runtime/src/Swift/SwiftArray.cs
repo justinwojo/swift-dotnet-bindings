@@ -29,11 +29,15 @@ namespace Swift;
 ///    |   +--------------------------------------------------------------+   |
 ///    +-----------------------------------------------------------------------+
 /// </summary>
-[StructLayout(LayoutKind.Sequential, Size = 8)]
 public struct ArrayBuffer
 {
     public IntPtr storage;
 }
+
+/// <summary>
+/// Represents a Swift collection protocol.
+/// </summary>
+public interface ISwiftCollection { }
 
 /// <summary>
 /// Represents a Swift array.
@@ -46,6 +50,16 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
     static nuint _elementSize = ElementTypeMetadata.Size;
 
     private ArrayBuffer _buffer;
+
+    private static Dictionary<Type, string> _protocolConformanceSymbols;
+
+    static SwiftArray()
+    {
+        _protocolConformanceSymbols = new Dictionary<Type, string>
+        {
+            { typeof(ISwiftCollection), "$sSayxGSlsMc" }
+        };
+    }
 
     public unsafe void Dispose()
     {
@@ -105,7 +119,11 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
         where TProtocol : class
     {
-        return ProtocolConformanceDescriptor.Zero;
+        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+        {
+            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type SwiftArray and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+        }
+        return ProtocolConformanceDescriptor.LoadFromSymbol("/usr/lib/swift/libswiftCore.dylib", symbolName);
     }
 
     /// <summary>
