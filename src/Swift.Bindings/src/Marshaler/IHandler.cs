@@ -15,13 +15,15 @@ namespace BindingsGeneration
         /// Marshals the specified base declaration.
         /// </summary>
         /// <param name="baseDecl">The base declaration.</param>
+        /// <param name="typeDatabase">The type database instance.</param>
         /// <returns>The environment corresponding to the base declaration.</returns>
         IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase);
 
         /// <summary>
         /// Emits the necessary code for the specified environment.
         /// </summary>
-        /// <param name="writer">The IndentedTextWriter instance.</param>
+        /// <param name="csWriter">The csWriter instance.</param>
+        /// <param name="swiftWriter">The swiftWriter instance.</param>
         /// <param name="env">The environment.</param>
         /// <param name="conductor">The conductor instance.</param>
         void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor);
@@ -100,6 +102,18 @@ namespace BindingsGeneration
                     else
                     {
                         Console.WriteLine($"No handler found for method {classDecl.Name}");
+                    }
+                }
+                else if (baseDecl is ProtocolDecl protocolDecl)
+                {
+                    if (conductor.TryGetTypeHandler(protocolDecl, out var handler))
+                    {
+                        var env = handler.Marshal(protocolDecl, typeDatabase);
+                        handler.Emit(csWriter, swiftWriter, env, conductor);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"No handler found for method {protocolDecl.Name}");
                     }
                 }
                 else if (baseDecl is MethodDecl methodDecl)

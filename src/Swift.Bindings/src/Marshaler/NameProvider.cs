@@ -7,10 +7,8 @@ namespace BindingsGeneration;
 /// <summary>
 /// Represents a generic parameter name mapping.
 /// </summary>
-/// <param name="PlaceholderName">The name of the generic type parameter e.g. T0.</param>
-/// <param name="MetadataName">The name of the metadata type parameter.</param>
-/// <param name="PayloadName">The name of the payload type parameter. </param>
-public record struct GenericParameterCSName(string PlaceholderName, string MetadataName, string PayloadName);
+/// <param name="TypeParameter">The name of the generic type parameter e.g. T0.</param>
+public record struct GenericParameterCSName(string TypeParameter);
 
 /// <summary>
 /// Provides methods for generating names.
@@ -43,6 +41,16 @@ public static class NameProvider
     }
 
     /// <summary>
+    /// Provides the name of the interface based on a protocol name.
+    /// </summary>
+    /// <param name="protocolName">The protocol name.</param>
+    /// <returns>The name of the interface.</returns>
+    public static string GetInterfaceName(string protocolName)
+    {
+        return $"ISwift{protocolName}";
+    }
+
+    /// <summary>
     /// Provides the mapping of generic type parameters.
     /// </summary>
     /// <param name="methodDecl">The method declaration.</param>
@@ -51,8 +59,10 @@ public static class NameProvider
         methodDecl.GenericParameters
             .Select((param, i) => (param, i))
             .ToDictionary(x => x.param.TypeName, x => new GenericParameterCSName(
-                PlaceholderName: $"T{x.i}",
-                MetadataName: $"T{x.i}Metadata",
-                PayloadName: $"T{x.i}Payload"
+                TypeParameter: $"T{x.i}"
             ));
+
+    public static string GetMetadataName(string typeName) => $"{typeName}Metadata";
+    public static string GetPayloadName(string argumentName) => $"{argumentName}Payload";
+    public static string GetProtocolWitnessTableName(string typeName, string protocolName) => $"{typeName}{protocolName}PWT";
 }
