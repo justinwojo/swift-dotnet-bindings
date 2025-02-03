@@ -33,6 +33,7 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
     static void SmokeTest()
     {
         var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<int>>();
+        // sizeof(ArrayBuffer)
         Assert.Equal((nuint)8, metadata.Size);
 
         var array = new SwiftArray<int>();

@@ -170,7 +170,7 @@ public struct StructBuilder
     }
 }
 
-@frozen 
+@frozen
 public struct StructWithThrowingInit
 {
     public var x: Int
@@ -224,11 +224,11 @@ public func createNonFrozenStruct(a: Int, b: Int) -> NonFrozenStruct
 
 public struct TimerStruct {
     let returnValue: Int32
-    
+
     public init(returnValue: Int32) {
         self.returnValue = returnValue
     }
-    
+
     public func waitFor(seconds: UInt64) async -> Int32 {
         do {
             try await Task.sleep(nanoseconds: seconds * 1_000_000_000)
@@ -248,3 +248,12 @@ public struct TimerStruct {
     }
 }
 
+public func getArray(a: Int32, b: Int32) -> Array<Int32>
+{
+    return [a, b]
+}
+
+public func sumArray(array: Array<Int32>) -> Int32
+{
+    return array.reduce(0, +)
+}
