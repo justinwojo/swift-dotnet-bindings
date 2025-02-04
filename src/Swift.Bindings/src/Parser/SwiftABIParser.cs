@@ -55,6 +55,7 @@ namespace BindingsGeneration
         public required string? sugared_genericSig { get; set; }
         public required bool? throwing { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
+        public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
     }
 
     /// <summary>
@@ -286,6 +287,10 @@ namespace BindingsGeneration
                     decl = CreateClassDecl(node, parentDecl, moduleDecl);
                     break;
 
+                case "Protocol":
+                    decl = CreateProtocolDecl(node, parentDecl, moduleDecl);
+                    break;
+
                 default:
                     if (_verbose > 1)
                         Console.WriteLine($"Unsupported declaration type '{node.DeclKind} {node.Name}' encountered.");
@@ -308,6 +313,16 @@ namespace BindingsGeneration
             return decl;
         }
 
+        private ProtocolConformance HandleConformance(Node node, string typeName)
+        {
+            var reduction = demangler.Run(node.MangledName) as TypeSpecReduction ?? throw new InvalidOperationException($"Invalid demangling result for '{node.MangledName}'.");
+            var protocolTypeSpec = reduction.TypeSpec as NamedTypeSpec ?? throw new InvalidOperationException($"TypeSpec '{reduction.TypeSpec}' is not a NamedTypeSpec");
+
+            var conformance = new ProtocolConformance(new NamedTypeSpec(typeName), protocolTypeSpec);
+
+            return conformance;
+        }
+
         /// <summary>
         /// Creates a struct declaration from a node.
         /// </summary>
@@ -317,14 +332,16 @@ namespace BindingsGeneration
         /// <returns>The struct declaration.</returns>
         private StructDecl CreateStructDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, bool hasFrozenAttribute)
         {
+            var fullyQualifiedName = ExtractFullyQualifiedName(parentDecl.FullyQualifiedName, node.Name);
             return new StructDecl
             {
                 Name = ExtractUniqueName(node.Name),
-                FullyQualifiedName = ExtractFullyQualifiedName(parentDecl.FullyQualifiedName, node.Name),
+                FullyQualifiedName = fullyQualifiedName,
                 MangledName = node.MangledName,
                 Fields = new List<FieldDecl>(),
                 Methods = new List<MethodDecl>(),
                 Types = new List<TypeDecl>(),
+                Conformances = [.. node.Conformances.Select(x => HandleConformance(x, fullyQualifiedName))],
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
@@ -341,7 +358,31 @@ namespace BindingsGeneration
         /// <returns>The class declaration.</returns>
         private ClassDecl CreateClassDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
+            var fullyQualifiedName = ExtractFullyQualifiedName(parentDecl.FullyQualifiedName, node.Name);
             return new ClassDecl
+            {
+                Name = ExtractUniqueName(node.Name),
+                FullyQualifiedName = fullyQualifiedName,
+                MangledName = node.MangledName,
+                Fields = new List<FieldDecl>(),
+                Methods = new List<MethodDecl>(),
+                Types = new List<TypeDecl>(),
+                Conformances = [.. node.Conformances.Select(x => HandleConformance(x, fullyQualifiedName))],
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            };
+        }
+
+        /// <summary>
+        /// Creates a protocol declaration from a node.
+        /// </summary>
+        /// <param name="node">The node representing the protocol declaration.</param>
+        /// <param name="parentDecl">The parent declaration.</param>
+        /// <param name="moduleDecl">The module declaration.</param>
+        /// <returns>The protocol declaration.</returns>
+        private ProtocolDecl CreateProtocolDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        {
+            return new ProtocolDecl
             {
                 Name = ExtractUniqueName(node.Name),
                 FullyQualifiedName = ExtractFullyQualifiedName(parentDecl.FullyQualifiedName, node.Name),

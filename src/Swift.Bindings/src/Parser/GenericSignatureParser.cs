@@ -35,7 +35,7 @@ public class GenericSignatureParser
             new GenericArgumentDecl(
                 typeName,
                 paramMap[typeName],
-                constraints.Where(c => c.TargetType.StartsWith(typeName)).ToList()
+                constraints.Where(c => c.TargetType.NameWithoutModule.StartsWith(typeName)).ToList()
             )
         ).ToList();
     }
@@ -59,25 +59,41 @@ public class GenericSignatureParser
     /// </summary>
     /// <param name="signature">The generic signature to extract constraints from.</param>
     /// <returns>A list of constraints.</returns>
-    private static List<Conformance> ExtractConstraints(string signature)
+    private static List<ProtocolConformance> ExtractConstraints(string signature)
     {
         var whereIndex = signature.IndexOf("where", StringComparison.OrdinalIgnoreCase);
         if (whereIndex == -1)
-            return new List<Conformance>();
+            return new List<ProtocolConformance>();
 
-        return signature[(whereIndex + "where".Length)..].Split(',').Select(ParseConstraint).ToList();
+        var constraintsSection = signature[(whereIndex + "where".Length)..];
+        var constraints = constraintsSection.Split(',');
+
+        var parsedConstraints = constraints
+            .Select(ParseConstraint)
+            .Where(constraint => constraint is not null)
+            .Cast<ProtocolConformance>();
+
+        return [.. parsedConstraints];
     }
 
     /// <summary>
     /// Parses a constraint clause into a Conformance object.
     /// </summary>
     /// <param name="clause">The constraint clause to parse.</param>
-    /// <returns>A Conformance object.</returns>
-    private static Conformance ParseConstraint(string clause)
+    /// <returns>A Conformance object. Null if the constraint refers to the associated type.</returns>
+    private static ProtocolConformance? ParseConstraint(string clause)
     {
         var parts = clause.Split(new[] { ":", "==" }, StringSplitOptions.TrimEntries);
-        return parts[0].Contains('.')
-            ? new AssociatedTypeConformance(parts[0].Split('.')[0], parts[1], parts[0].Split('.')[1])
-            : new ProtocolConformance(parts[0], parts[1]);
+        if (parts.Length != 2)
+        {
+            throw new InvalidOperationException($"Invalid constraint clause: {clause}");
+        }
+
+        var target = parts[0];
+        var protocol = parts[1];
+
+        if (!target.Contains(".")) return new ProtocolConformance(new NamedTypeSpec(target), new NamedTypeSpec(protocol));
+
+        return null;
     }
 }

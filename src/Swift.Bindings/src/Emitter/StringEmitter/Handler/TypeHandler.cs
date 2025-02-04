@@ -38,27 +38,17 @@ namespace BindingsGeneration
         {
         }
 
-        /// <summary>
-        /// Marshals the specified struct declaration.
-        /// </summary>
-        /// <param name="structDecl">The struct declaration.</param>
-        /// <param name="typeDatabase">The type database instance.</param>
-        public IEnvironment Marshal(BaseDecl decl, ITypeDatabase typeDatabase)
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
         {
-            if (decl is not StructDecl structDecl)
+            if (baseDecl is not StructDecl structDecl)
             {
-                throw new ArgumentException("The provided decl must be a StructDecl.", nameof(decl));
+                throw new ArgumentException("The provided decl must be a StructDecl.", nameof(baseDecl));
             }
             return new TypeEnvironment(structDecl, typeDatabase);
         }
 
-        /// <summary>
-        /// Emits the code for the specified environment.
-        /// </summary>
-        /// <param name="csWriter">The IndentedTextWriter instance.</param>
-        /// <param name="env">The environment.</param>
-        /// <param name="conductor">The conductor instance.</param>
-        /// <param name="typeDatabase">The type database instance.</param>
+        /// <inheritdoc/>
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var structEnv = (TypeEnvironment)env;
@@ -170,28 +160,18 @@ namespace BindingsGeneration
         {
         }
 
-        /// <summary>
-        /// Marshals the specified struct declaration.
-        /// </summary>
-        /// <param name="structDecl">The struct declaration.</param>
-        /// <param name="typeDatabase">The type database instance.</param>
-        public IEnvironment Marshal(BaseDecl decl, ITypeDatabase typeDatabase)
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
         {
-            if (decl is not StructDecl structDecl)
+            if (baseDecl is not StructDecl structDecl)
             {
-                throw new ArgumentException("The provided decl must be a StructDecl.", nameof(decl));
+                throw new ArgumentException("The provided decl must be a StructDecl.", nameof(baseDecl));
 
             }
             return new TypeEnvironment(structDecl, typeDatabase);
         }
 
-        /// <summary>
-        /// Emits the code for the specified environment.
-        /// </summary>
-        /// <param name="csWriter">The IndentedTextWriter instance.</param>
-        /// <param name="env">The environment.</param>
-        /// <param name="conductor">The conductor instance.</param>
-        /// <param name="typeDatabase">The type database instance.</param>
+        /// <inheritdoc/>
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var structEnv = (TypeEnvironment)env;
@@ -323,27 +303,17 @@ namespace BindingsGeneration
         {
         }
 
-        /// <summary>
-        /// Marshals the specified class declaration.
-        /// </summary>
-        /// <param name="classDecl">The class declaration.</param>
-        /// <param name="typeDatabase">The type database instance.</param>
-        public IEnvironment Marshal(BaseDecl decl, ITypeDatabase typeDatabase)
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
         {
-            if (decl is not ClassDecl classDecl)
+            if (baseDecl is not ClassDecl classDecl)
             {
-                throw new ArgumentException("The provided decl must be a ClassDecl.", nameof(decl));
+                throw new ArgumentException("The provided decl must be a ClassDecl.", nameof(baseDecl));
             }
             return new TypeEnvironment(classDecl, typeDatabase);
         }
 
-        /// <summary>
-        /// Emits the necessary code for the specified environment.
-        /// </summary>
-        /// <param name="csWriter">The IndentedTextWriter instance.</param>
-        /// <param name="env">The environment.</param>
-        /// <param name="conductor">The conductor instance.</param>
-        /// <param name="typeDatabase">The type database instance.</param>
+        /// <inheritdoc/>
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var classEnv = (TypeEnvironment)env;
@@ -519,16 +489,126 @@ namespace BindingsGeneration
         /// </summary>
         private void WriteGetProtocolConformanceDescriptor()
         {
+            WriteStaticConstructor();
+            var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
             var text = $$"""
-            static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<U>()
+            static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+                where TProtocol : class
             {
-                throw new NotImplementedException();
+                if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+                {
+                    throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_structDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                }
+
+                return ProtocolConformanceDescriptor.LoadFromSymbol("{{libPath}}", symbolName);
             }
             """;
 
             _writer.WriteLines(text);
             _writer.WriteLine();
+        }
 
+        /// <summary>
+        /// Writes the static constructor for the struct.
+        /// </summary>
+        private void WriteStaticConstructor()
+        {
+            var text = $$"""
+            private static Dictionary<Type, string> _protocolConformanceSymbols;
+
+            static {{_structDecl.Name}}()
+            {
+                _protocolConformanceSymbols = new Dictionary<Type, string>
+                {
+                    {{GenerateGetProtocolConformanceDictionaryEntries()}}
+                };
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        private string GenerateGetProtocolConformanceDictionaryEntries()
+        {
+            var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            var entries = new List<string>();
+            var protocolConformanceDescriptors = DemangledSymbolsRegister.Instance.GetData(libPath).ProtocolConformanceDescriptors;
+
+            foreach (var conformance in _structDecl.Conformances.Where(c => c.ProtocolSpec.Module == _moduleDecl.Name)) // Process only protocol conformances from current module for now
+            {
+                var protocol = NameProvider.GetInterfaceName(conformance.ProtocolSpec.NameWithoutModule);
+                var typeRecord = _typeDatabase.GetTypeRecordOrThrow(_moduleDecl.Name, _structDecl.FullyQualifiedNameWithoutModule);
+                var protocolConformanceSymbol = protocolConformanceDescriptors.GetValueOrDefault((new NamedTypeSpec(_structDecl.FullyQualifiedName), conformance.ProtocolSpec)); // TODO: Get rid of TypeSpec https://github.com/dotnet/runtimelab/issues/2889
+
+                entries.Add($"{{typeof({protocol}), \"{protocolConformanceSymbol}\"}}");
+            }
+
+            return string.Join(",\n", entries);
+        }
+    }
+
+    /// <summary>
+    /// Factory class for creating instances of ProtocolHandler.
+    /// </summary>
+    public class ProtocolHandlerFactory : IFactory<BaseDecl, ITypeHandler>
+    {
+        /// <summary>
+        /// Determines if the factory handles the specified declaration.
+        /// </summary>
+        /// <param name="decl">The base declaration.</param>
+        public bool Handles(BaseDecl decl)
+        {
+            return decl is ProtocolDecl;
+        }
+
+        /// <summary>
+        /// Constructs a new instance of ProtocolHandler.
+        /// </summary>
+        public ITypeHandler Construct()
+        {
+            return new ProtocolHandler();
+        }
+    }
+
+    /// <summary>
+    /// Handler class for protocol declarations.
+    /// </summary>
+    public class ProtocolHandler : BaseHandler, ITypeHandler
+    {
+        public ProtocolHandler()
+        {
+        }
+
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
+        {
+            if (baseDecl is not ProtocolDecl protocolDecl)
+            {
+                throw new ArgumentException("The provided decl must be a ProtocolDecl.", nameof(baseDecl));
+            }
+            return new TypeEnvironment(protocolDecl, typeDatabase);
+        }
+
+        /// <inheritdoc/>
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        {
+            var protocolEnv = (TypeEnvironment)env;
+            var protocolDecl = (ProtocolDecl)protocolEnv.TypeDecl;
+
+            var interfaceName = NameProvider.GetInterfaceName(protocolDecl.Name);
+
+            csWriter.WriteLine($"public interface {interfaceName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // TODO: Implement protocol methods and properties
+            // base.HandleBaseDecl(writer, protocolDecl.Types, conductor, env.TypeDatabase);
+            // base.HandleBaseDecl(writer, protocolDecl.Methods, conductor, env.TypeDatabase);
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
         }
     }
 }

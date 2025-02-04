@@ -24,10 +24,12 @@ namespace BindingsGeneration
         private readonly List<ITypeHandlerFactory> _typeHandlerFactories = [
             new NonFrozenStructHandlerFactory(),
             new FrozenStructHandlerFactory(),
+            new ProtocolHandlerFactory(),
             new ClassHandlerFactory(),
         ];
         private readonly List<IFieldHandlerFactory> _fieldHandlerFactories = [];
         private readonly List<IMethodHandlerFactory> _methodHandlerFactories = [
+            new ConstructorHandlerFactory(),
             new MethodHandlerFactory(),
         ];
         private readonly List<IArgumentHandlerFactory> _argumentHandlerFactories = [];

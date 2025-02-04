@@ -5,6 +5,73 @@ using System.CodeDom.Compiler;
 
 namespace BindingsGeneration
 {
+    /// <summary>
+    /// Factory class for creating instances of ConstructorHandler.
+    /// </summary>
+    public class ConstructorHandlerFactory : IFactory<BaseDecl, IMethodHandler>
+    {
+        /// <summary>
+        /// Determines if the factory handles the specified declaration.
+        /// </summary>
+        /// <param name="decl">The base declaration.</param>
+        public bool Handles(BaseDecl decl)
+        {
+            return decl is MethodDecl methodDecl && methodDecl.IsConstructor;
+        }
+
+        /// <summary>
+        /// Constructs a new instance of ConstructorHandler.
+        /// </summary>
+        public IMethodHandler Construct()
+        {
+            return new ConstructorHandler();
+        }
+    }
+
+    /// <summary>
+    /// Handler class for constructor declarations.
+    /// </summary>
+    public class ConstructorHandler : BaseHandler, IMethodHandler
+    {
+        public ConstructorHandler()
+        {
+        }
+
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
+        {
+            if (baseDecl is not MethodDecl methodDecl)
+            {
+                throw new ArgumentException("The provided decl must be a MethodDecl.", nameof(baseDecl));
+            }
+            return new MethodEnvironment(methodDecl, typeDatabase);
+        }
+
+        /// <inheritdoc/>
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        {
+            var methodEnv = (MethodEnvironment)env;
+            var signatureHandler = new SignatureHandler(methodEnv);
+
+            if (methodEnv.MethodDecl.IsGeneric)
+            {
+                // TODO: This should revert writing the entire struct: https://github.com/dotnet/runtimelab/issues/2890
+                Console.WriteLine($"Constructor {methodEnv.MethodDecl.Name} has unsupported generic parameters");
+                return;
+            }
+
+            if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
+            {
+                Console.WriteLine($"Method {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
+                return;
+            }
+
+            var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
+            wrapperEmitter.EmitConstructor(csWriter);
+            PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
+            csWriter.WriteLine();
+        }
+    }
 
     /// <summary>
     /// Represents a method handler factory.
@@ -39,36 +106,21 @@ namespace BindingsGeneration
         {
         }
 
-        /// <summary>
-        /// Marshals the method declaration.
-        /// </summary>
-        /// <param name="methodDecl">The method declaration.</param>
-        /// <param name="typeDatabase">The type database instance.</param>
-        public IEnvironment Marshal(BaseDecl decl, ITypeDatabase typeDatabase)
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
         {
-            if (decl is not MethodDecl methodDecl)
+            if (baseDecl is not MethodDecl methodDecl)
             {
-                throw new ArgumentException("The provided decl must be a MethodDecl.", nameof(decl));
+                throw new ArgumentException("The provided decl must be a MethodDecl.", nameof(baseDecl));
             }
             return new MethodEnvironment(methodDecl, typeDatabase);
         }
 
-        /// <summary>
-        /// Emits the method declaration.
-        /// </summary>
-        /// <param name="csWriter">The IndentedTextWriter instance.</param>
-        /// <param name="env">The environment.</param>
-        /// <param name="conductor">The conductor instance.</param>
+        /// <inheritdoc/>
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var methodEnv = (MethodEnvironment)env;
             var signatureHandler = new SignatureHandler(methodEnv);
-
-            if (methodEnv.MethodDecl.GenericParameters.Any(x => x.Constraints.Count > 0))
-            {
-                Console.WriteLine($"Method {methodEnv.MethodDecl.Name} has unsupported generic constraints");
-                return;
-            }
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
             {
@@ -77,7 +129,7 @@ namespace BindingsGeneration
             }
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
-            wrapperEmitter.Emit(csWriter, swiftWriter);
+            wrapperEmitter.EmitMethod(csWriter, swiftWriter);
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
             csWriter.WriteLine();
         }
@@ -145,8 +197,8 @@ namespace BindingsGeneration
             var argument = _env.MethodDecl.CSSignature.First();
             if (argument.IsGeneric)
             {
-                var placeholderName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].PlaceholderName;
-                SetReturnType(placeholderName);
+                var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
+                SetReturnType(csTypeParamName);
             }
             else
             {
@@ -164,8 +216,8 @@ namespace BindingsGeneration
             {
                 if (argument.IsGeneric)
                 {
-                    var placeholderName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].PlaceholderName;
-                    AddParameter(placeholderName, argument.Name);
+                    var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
+                    AddParameter(csTypeParamName, argument.Name);
                 }
                 else
                 {
@@ -264,7 +316,7 @@ namespace BindingsGeneration
             {
                 if (argument.IsGeneric)
                 {
-                    var payloadName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].PayloadName;
+                    var payloadName = NameProvider.GetPayloadName(argument.Name);
                     AddParameter("IntPtr", payloadName);
                 }
                 else if (MarshallingHelpers.ArgumentIsMarshalledAsCSStruct(argument, _env.TypeDatabase))
@@ -286,8 +338,24 @@ namespace BindingsGeneration
         {
             foreach (var genericParameter in _env.MethodDecl.GenericParameters)
             {
-                var metadataName = _env.GenericTypeMapping[genericParameter.TypeName].MetadataName;
+                var metadataName = NameProvider.GetMetadataName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter);
                 AddParameter("TypeMetadata", metadataName);
+            }
+        }
+
+        /// <summary>
+        /// Handles the protocol conformances of the generic parameters of the method.
+        /// </summary>
+        public void HandleProtocolConformance()
+        {
+            foreach (var genericParameter in _env.MethodDecl.GenericParameters)
+            {
+                var conformances = genericParameter.Constraints.Where(c => c is ProtocolConformance).OrderBy(c => c.ProtocolSpec.NameWithoutModule);
+                foreach (var conformance in conformances)
+                {
+                    var pwtName = NameProvider.GetProtocolWitnessTableName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter, conformance.ProtocolSpec.NameWithoutModule);
+                    AddParameter("ProtocolWitnessTable", pwtName);
+                }
             }
         }
 
@@ -376,6 +444,7 @@ namespace BindingsGeneration
                 pInvokeSignature.HandleSwiftAsync();
                 pInvokeSignature.HandleArguments();
                 pInvokeSignature.HandleGenericMetadata();
+                pInvokeSignature.HandleProtocolConformance();
                 pInvokeSignature.HandleSwiftSelf();
                 pInvokeSignature.HandleSwiftError();
                 _pInvokeSignature = pInvokeSignature.Build();
@@ -454,40 +523,44 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits the wrapper.
-        /// </summary>
-        /// <param name="writer"></param>
-        internal void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter)
-        {
-            if (_env.MethodDecl.IsConstructor)
-            {
-                EmitConstructor(csWriter);
-            }
-            else
-            {
-                EmitMethod(csWriter, swiftWriter);
-            }
-        }
-
-        /// <summary>
         /// Emits the constructor wrapper.
         /// </summary>
         /// <param name="writer">The IndentedTextWriter instance.</param>
-        private void EmitConstructor(CSharpWriter csWriter)
+        internal void EmitConstructor(CSharpWriter csWriter)
         {
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
+            EmitSwiftSelf(csWriter);
+            EmitIndirectResultConstructor(csWriter);
+            EmitPInvokeCall(csWriter);
+            EmitSwiftError(csWriter);
+            EmitReturnConstructor(csWriter);
+            EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the method wrapper.
+        /// </summary>
+        /// <param name="writer">The IndentedTextWriter instance.</param>
+        internal void EmitMethod(CSharpWriter csWriter, SwiftWriter swiftWriter)
+        {
+            EmitAsyncWrapper(csWriter);
+
+            EmitSignatureMethod(csWriter);
+            EmitBodyStart(csWriter);
+            EmitAsync(csWriter, swiftWriter);
 
             EmitDeclarationsForAllocations(csWriter);
 
             EmitTryBlockStart(csWriter);
 
             EmitSwiftSelf(csWriter);
-            EmitIndirectResultConstructor(csWriter);
+            EmitIndirectResultMethod(csWriter);
             EmitGenericArguments(csWriter);
+            EmitProtocolWitnessTables(csWriter);
             EmitPInvokeCall(csWriter);
             EmitSwiftError(csWriter);
-            EmitReturnConstructor(csWriter);
+            EmitReturnMethod(csWriter);
 
             EmitTryBlockEnd(csWriter);
 
@@ -503,39 +576,9 @@ namespace BindingsGeneration
         {
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
             {
-                var (typeName, metadataName, payloadName) = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()];
+                var payloadName = NameProvider.GetPayloadName(argument.Name);
                 csWriter.WriteLine($"IntPtr {payloadName} = IntPtr.Zero;");
             }
-        }
-
-        /// <summary>
-        /// Emits the method wrapper.
-        /// </summary>
-        /// <param name="writer">The IndentedTextWriter instance.</param>
-        private void EmitMethod(CSharpWriter csWriter, SwiftWriter swiftWriter)
-        {
-            EmitAsyncWrapper(csWriter);
-
-            EmitSignatureMethod(csWriter);
-            EmitBodyStart(csWriter);
-            EmitAsync(csWriter, swiftWriter);
-
-            EmitDeclarationsForAllocations(csWriter);
-
-            EmitTryBlockStart(csWriter);
-
-            EmitSwiftSelf(csWriter);
-            EmitIndirectResultMethod(csWriter);
-            EmitGenericArguments(csWriter);
-            EmitPInvokeCall(csWriter);
-            EmitSwiftError(csWriter);
-            EmitReturnMethod(csWriter);
-
-            EmitTryBlockEnd(csWriter);
-
-            EmitFinally(csWriter);
-
-            EmitBodyEnd(csWriter);
         }
 
         /// <summary>
@@ -652,15 +695,42 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitGenericArguments(CSharpWriter csWriter)
         {
+            foreach (var genericParameter in _env.MethodDecl.GenericParameters)
+            {
+                var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
+                var metadataName = NameProvider.GetMetadataName(csTypeParamName);
+
+                csWriter.WriteLine($"var {metadataName} = TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>();");
+            }
+
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
             {
-                var (typeName, metadataName, payloadName) = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()];
+                var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
+                var metadataName = NameProvider.GetMetadataName(csTypeParamName);
+                var payloadName = NameProvider.GetPayloadName(argument.Name);
+
                 var text = $$"""
-                var {{metadataName}} = TypeMetadata.GetTypeMetadataOrThrow<{{typeName}}>();
                 {{payloadName}} = (IntPtr)NativeMemory.Alloc({{metadataName}}.Size);
                 SwiftMarshal.MarshalToSwift({{argument.Name}}, {{payloadName}});
                 """;
                 csWriter.WriteLines(text);
+            }
+            csWriter.WriteLine();
+        }
+
+
+        private void EmitProtocolWitnessTables(CSharpWriter csWriter)
+        {
+            foreach (var genericParameter in _env.MethodDecl.GenericParameters)
+            {
+                var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
+                var conformances = genericParameter.Constraints.Where(c => c is ProtocolConformance).OrderBy(c => c.ProtocolSpec.NameWithoutModule);
+                foreach (var conformance in conformances)
+                {
+                    var pwtName = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ProtocolSpec.NameWithoutModule);
+                    var protocolName = NameProvider.GetInterfaceName(conformance.ProtocolSpec.NameWithoutModule);
+                    csWriter.WriteLine($"var {pwtName} = ProtocolWitnessTable.GetOrThrow<{csTypeParamName}, {protocolName}>();");
+                }
             }
             csWriter.WriteLine();
         }
@@ -746,7 +816,7 @@ namespace BindingsGeneration
         {
             var genericParams = _env.MethodDecl.IsGeneric switch
             {
-                true => $"<{string.Join(", ", _env.MethodDecl.GenericParameters.Select(p => _env.GenericTypeMapping[p.TypeName].PlaceholderName))}>",
+                true => $"<{string.Join(", ", _env.MethodDecl.GenericParameters.Select(p => _env.GenericTypeMapping[p.TypeName].TypeParameter))}>",
                 false => ""
             };
             csWriter.WriteLine($"public {_env.ParentDecl.Name}{genericParams}({_wrapperSignature.ParametersString()})");
@@ -760,7 +830,7 @@ namespace BindingsGeneration
         {
             var genericParams = _env.MethodDecl.IsGeneric switch
             {
-                true => $"<{string.Join(", ", _env.MethodDecl.GenericParameters.Select(p => _env.GenericTypeMapping[p.TypeName].PlaceholderName))}>",
+                true => $"<{string.Join(", ", _env.MethodDecl.GenericParameters.Select(p => _env.GenericTypeMapping[p.TypeName].TypeParameter))}>",
                 false => ""
             };
 
@@ -818,7 +888,7 @@ namespace BindingsGeneration
 
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
             {
-                var (_, _, payloadName) = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()];
+                var payloadName = NameProvider.GetPayloadName(argument.Name);
                 csWriter.WriteLine($"NativeMemory.Free((void*){payloadName});");
             }
 
