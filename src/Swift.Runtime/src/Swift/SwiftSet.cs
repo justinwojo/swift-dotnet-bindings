@@ -36,6 +36,11 @@ public struct Variant
 }
 
 /// <summary>
+/// Represents a Swift hashable protocol.
+/// </summary>
+public interface ISwiftHashable { }
+
+/// <summary>
 /// Represents a Swift set.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the set.</typeparam>
@@ -46,6 +51,16 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
     static nuint _elementSize = ElementTypeMetadata.Size;
 
     private Variant _variant;
+
+    private static Dictionary<Type, string> _protocolConformanceSymbols;
+
+    static SwiftSet()
+    {
+        _protocolConformanceSymbols = new Dictionary<Type, string>
+        {
+            { typeof(ISwiftCollection), "$sShyxGSlsMc" }
+        };
+    }
 
     public unsafe void Dispose()
     {
@@ -59,11 +74,12 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
 
     unsafe ~SwiftSet()
     {
-        Arc.Release(*(IntPtr*)_variant.rawValue);
-        _variant.rawValue = IntPtr.Zero;
+        if (_variant.rawValue != IntPtr.Zero)
+        {
+            Arc.Release(*(IntPtr*)_variant.rawValue);
+            _variant.rawValue = IntPtr.Zero;
+        }
     }
-
-    public static ProtocolWitnessTable IHashableWitnessTable => ProtocolWitnessTable.Zero;
 
     public static nuint PayloadSize => _payloadSize;
 
@@ -73,7 +89,8 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        return TypeMetadata.Cache.GetOrAdd(typeof(SwiftSet<Element>), _ => SwiftSetPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, ElementTypeMetadata));
+        var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
+        return TypeMetadata.Cache.GetOrAdd(typeof(SwiftSet<Element>), _ => SwiftSetPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, ElementTypeMetadata, witnessTable));
     }
 
     static TypeMetadata ElementTypeMetadata
@@ -105,8 +122,13 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
     /// <typeparam name="TProtocol"></typeparam>
     /// <returns></returns>
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+        where TProtocol : class
     {
-        return ProtocolConformanceDescriptor.Zero;
+        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+        {
+            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type SwiftSet and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+        }
+        return ProtocolConformanceDescriptor.LoadFromSymbol("/usr/lib/swift/libswiftCore.dylib", symbolName);
     }
 
     /// <summary>
@@ -122,7 +144,8 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
     /// </summary>
     public SwiftSet()
     {
-        _variant = SwiftSetPInvokes.Init(ElementTypeMetadata, IHashableWitnessTable);
+        var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
+        _variant = SwiftSetPInvokes.Init(ElementTypeMetadata, witnessTable);
     }
 
     /// <summary>
@@ -132,7 +155,8 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
     {
         get
         {
-            return (int)SwiftSetPInvokes.Count(_variant, ElementTypeMetadata, IHashableWitnessTable);
+            var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
+            return (int)SwiftSetPInvokes.Count(_variant, ElementTypeMetadata, witnessTable);
         }
     }
 }
@@ -140,7 +164,7 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
 internal static class SwiftSetPInvokes
 {
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sShMa")]
-    public static extern TypeMetadata PInvoke_getMetadata(TypeMetadataRequest request, TypeMetadata typeMetadata);
+    public static extern TypeMetadata PInvoke_getMetadata(TypeMetadataRequest request, TypeMetadata typeMetadata, ProtocolWitnessTable witnessTable);
 
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sS2hyxGycfC")]
     public static extern Variant Init(TypeMetadata typeMetadata, ProtocolWitnessTable witnessTable);

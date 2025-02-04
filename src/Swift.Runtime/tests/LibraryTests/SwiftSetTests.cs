@@ -29,19 +29,21 @@ public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
         }
     }
 
-    static void SmokeTest<T>()
+    [Fact]
+    static void SmokeTest()
     {
-        var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftSet<T>>();
-        Assert.True(metadata.Size > 0);
+        var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftSet<SwiftIntMock>>();
+        // sizeof (Variant)
+        Assert.True(metadata.Size == 8);
 
-        var set = new SwiftSet<T>();
+        var set = new SwiftSet<SwiftIntMock>();
         Assert.Equal(0, set.Count);
     }
 
     [Fact]
     public unsafe void SetDispose()
     {
-        var array = new SwiftSet<int>();
+        var array = new SwiftSet<SwiftIntMock>();
         var payload = *(IntPtr*)array.Payload.rawValue;
 
         // Retain the payload to ensure it stays alive after the dispose
@@ -54,16 +56,4 @@ public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
         // Release the payload after the assertion
         Arc.Release(payload);
     }
-
-    [Fact] public void SetTestSByte() => SmokeTest<sbyte>();
-    [Fact] public void SetTestByte() => SmokeTest<byte>();
-    [Fact] public void SetTestShort() => SmokeTest<short>();
-    [Fact] public void SetTestUShort() => SmokeTest<ushort>();
-    [Fact] public void SetTestInt() => SmokeTest<int>();
-    [Fact] public void SetTestUInt() => SmokeTest<uint>();
-    [Fact] public void SetTestLong() => SmokeTest<long>();
-    [Fact] public void SetTestULong() => SmokeTest<ulong>();
-    [Fact] public void SetTestFloat() => SmokeTest<float>();
-    [Fact] public void SetTestDouble() => SmokeTest<double>();
-    [Fact] public void SetTestBool() => SmokeTest<bool>();
 }
