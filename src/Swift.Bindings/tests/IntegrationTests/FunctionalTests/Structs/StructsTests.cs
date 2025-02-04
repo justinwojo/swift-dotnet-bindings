@@ -2,9 +2,15 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Swift;
+using Swift;
 using Swift.Runtime;
+using Swift.Runtime.InteropServices;
 using Swift.StructsTests;
 using Xunit;
+
 
 namespace BindingsGeneration.FunctionalTests
 {
@@ -316,5 +322,38 @@ namespace BindingsGeneration.FunctionalTests
             stopwatch.Stop();
             Assert.True(Math.Abs(stopwatch.Elapsed.TotalSeconds - seconds) <= 1);
         }
+
+        [Fact]
+        public void TestSwiftArray()
+        {
+            var array = GetArray(42, 17);
+            Assert.Equal(2, array.Count);
+            Assert.Equal(42, array[0]);
+            Assert.Equal(17, array[1]);
+            int sum = SumArray(array);
+            Assert.Equal(42 + 17, sum);
+        }
+
+        // TODO: Remove helper methods when https://github.com/dotnet/runtimelab/issues/2970
+        private static unsafe SwiftArray<int> GetArray(int a, int b)
+        {
+            ArrayBuffer buffer = PInvoke_GetArray(a, b);
+            return SwiftMarshal.MarshalFromSwift<SwiftArray<int>>((SwiftHandle)new IntPtr(&buffer));
+        }
+
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("Structs/libStructsTests.dylib", EntryPoint = "$s12StructsTests8getArray1a1bSays5Int32VGAF_AFtF")]
+        private static extern ArrayBuffer PInvoke_GetArray(int a, int b);
+
+        private static unsafe int SumArray(SwiftArray<int> array)
+        {
+            ArrayBuffer buffer = new ArrayBuffer();
+            SwiftMarshal.MarshalToSwift<SwiftArray<int>>(array, new IntPtr(&buffer));
+            return PInvoke_SumArray(buffer);
+        }
+
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("Structs/libStructsTests.dylib", EntryPoint = "$s12StructsTests8sumArray5arrays5Int32VSayAEG_tF")]
+        private static extern int PInvoke_SumArray(ArrayBuffer array);
     }
 }
