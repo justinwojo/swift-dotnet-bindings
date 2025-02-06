@@ -163,12 +163,15 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
 
 internal static class SwiftSetPInvokes
 {
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sShMa")]
     public static extern TypeMetadata PInvoke_getMetadata(TypeMetadataRequest request, TypeMetadata typeMetadata, ProtocolWitnessTable witnessTable);
 
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sS2hyxGycfC")]
-    public static extern Variant Init(TypeMetadata typeMetadata, ProtocolWitnessTable witnessTable);
+    public static extern Variant Init(TypeMetadata elementTypeMetadata, ProtocolWitnessTable witnessTable);
 
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh5countSivg")]
     public static extern nint Count(Variant handle, TypeMetadata elementMetadata, ProtocolWitnessTable witnessTable);
 }

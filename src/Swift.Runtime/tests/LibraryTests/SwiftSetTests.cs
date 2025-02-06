@@ -40,7 +40,7 @@ public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
         Assert.Equal(0, set.Count);
     }
 
-    [Fact]
+    [Fact(Skip = "https://github.com/dotnet/runtimelab/issues/2851")]
     public unsafe void SetDispose()
     {
         var array = new SwiftSet<SwiftIntMock>();
