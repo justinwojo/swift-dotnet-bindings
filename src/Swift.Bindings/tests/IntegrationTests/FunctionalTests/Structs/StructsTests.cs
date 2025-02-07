@@ -364,6 +364,10 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, set.Count);
             int sum = SumSet(set);
             Assert.Equal(42 + 17, sum);
+
+            set = new SwiftSet<SwiftIntMock>();
+            sum = SumSet(set);
+            Assert.Equal(0, sum);
         }
 
         // TODO: Remove helper methods when https://github.com/dotnet/runtimelab/issues/2970
