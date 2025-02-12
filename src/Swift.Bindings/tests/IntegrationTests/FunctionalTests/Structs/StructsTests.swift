@@ -247,13 +247,3 @@ public struct TimerStruct {
         try? await Task.sleep(nanoseconds: 5_000_000_000)
     }
 }
-
-public func getArray(a: Int32, b: Int32) -> Array<Int32>
-{
-    return [a, b]
-}
-
-public func sumArray(array: Array<Int32>) -> Int32
-{
-    return array.reduce(0, +)
-}
