@@ -323,5 +323,29 @@ namespace BindingsGeneration.FunctionalTests
             stopwatch.Stop();
             Assert.True(Math.Abs(stopwatch.Elapsed.TotalSeconds - seconds) <= 1);
         }
+
+        [Fact]
+        public void TestFrozenStructProperties()
+        {
+            var struct1 = new PropertiesTestStruct(letValue: 10, varValue: 20, multiplier: 3);
+
+            Assert.Equal(10, struct1.letProperty);
+
+            Assert.Equal(20, struct1.varProperty);
+
+            Assert.Equal(30, struct1.computedProperty);
+        }
+
+        [Fact]
+        public void TestNonFrozenStructProperties()
+        {
+            var struct1 = new NonFrozenPropertiesTestStruct(letValue: 10, varValue: 20, multiplier: 3);
+
+            Assert.Equal(10, struct1.letProperty);
+
+            Assert.Equal(20, struct1.varProperty);
+
+            Assert.Equal(30, struct1.computedProperty);
+        }
     }
 }

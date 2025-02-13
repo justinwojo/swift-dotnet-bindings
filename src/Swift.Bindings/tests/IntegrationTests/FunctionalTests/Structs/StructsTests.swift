@@ -247,3 +247,42 @@ public struct TimerStruct {
         try? await Task.sleep(nanoseconds: 5_000_000_000)
     }
 }
+
+@frozen
+public struct PropertiesTestStruct {
+    public let letProperty: Int32
+    public var computedPropertyAmongStorageProperties: Double {
+        return Double(letProperty) * Double(multiplier)
+    } // This property is added to make sure the layout is correct
+    public var varProperty: Double
+    private let multiplier: Float
+    
+    public init(letValue: Int32, varValue: Double, multiplier: Float) {
+        self.letProperty = letValue
+        self.varProperty = varValue
+        self.multiplier = multiplier
+    }
+    
+    public var computedProperty: Double {
+        return Double(letProperty) * Double(multiplier)
+    }
+}
+
+public struct NonFrozenPropertiesTestStruct {
+    public let letProperty: Int32
+    public var computedPropertyAmongStorageProperties: Double {
+        return Double(letProperty) * Double(multiplier)
+    } // This property is added to make sure the layout is correct
+    public var varProperty: Double
+    private let multiplier: Float
+    
+    public init(letValue: Int32, varValue: Double, multiplier: Float) {
+        self.letProperty = letValue
+        self.varProperty = varValue
+        self.multiplier = multiplier
+    }
+    
+    public var computedProperty: Double {
+        return Double(letProperty) * Double(multiplier)
+    }
+}
