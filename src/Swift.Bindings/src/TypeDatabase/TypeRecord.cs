@@ -6,6 +6,36 @@ using Swift.Runtime;
 namespace BindingsGeneration;
 
 /// <summary>
+/// Represents type's flags.
+/// </summary>
+[Flags]
+public enum TypeRecordFlags
+{
+    None = 0,
+    // This flag is used in tooling to determine whether the type should be enregistered.
+    // A type marked as "frozen" on the Swift side doesn't change its layout.
+    // However, if it contains a non-frozen struct as a property, it is considered an opaque at compile-time;
+    // otherwise, the layout is considered as known at compile-time and enregistration if possible.
+    Frozen = 1 << 0,
+    // This flag is used in tooling to determine whether a type requires memory management,
+    // ensuring that the finalizer can handle memory if needed.
+    // The 'RequiresMemoryManagement' flag indicates that the type is allocated on the heap (as in the case of classes)
+    // or that it contains a heap-allocated property (for example, a struct with a reference property).
+    RequiresMemoryManagement = 1 << 1,
+}
+
+/// <summary>
+/// Represents a type kind.
+/// </summary>
+public enum TypeRecordKind
+{
+    Struct,
+    Enum,
+    Class,
+    Protocol,
+}
+
+/// <summary>
 /// Represents a type within a module, including metadata for interfacing with Swift.
 /// </summary>
 public record TypeRecord
@@ -31,12 +61,12 @@ public record TypeRecord
     public SwiftTypeInfo? SwiftTypeInfo { get; init; }
 
     /// <summary>
-    /// Indicates if the type is blittable.
+    /// Type flags.
     /// </summary>
-    public required bool IsBlittable { get; init; }
+    public required TypeRecordFlags Flags { get; init; }
 
     /// <summary>
-    /// Indicates if the type is frozen.
+    /// The kind of type.
     /// </summary>
-    public required bool IsFrozen { get; init; }
+    public required TypeRecordKind Kind { get; init; }
 }

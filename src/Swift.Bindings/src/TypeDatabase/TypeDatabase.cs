@@ -131,7 +131,7 @@ namespace BindingsGeneration
                 string csharpTypeIdentifier = entityNode?.Attributes?["managedTypeName"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'managedTypeName' attribute.");
                 string @namespace = entityNode?.Attributes?["managedNameSpace"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'managedNameSpace' attribute.");
                 string frozen = typeDeclarationNode?.Attributes?["frozen"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'frozen' attribute.");
-                string blittable = typeDeclarationNode?.Attributes?["blittable"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'blittable' attribute.");
+                string requiresMemoryManagement = typeDeclarationNode?.Attributes?["requiresMemoryManagement"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'requiresMemoryManagement' attribute.");
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
@@ -143,8 +143,9 @@ namespace BindingsGeneration
                     CSharpTypeName = csharpTypeName,
                     SwiftTypeName = swiftTypeName,
                     MetadataAccessor = swiftMangledName,
-                    IsBlittable = blittable.ToLower() == "true",
-                    IsFrozen = frozen.ToLower() == "true",
+                    Flags = (frozen.ToLower() == "true" ? TypeRecordFlags.Frozen : TypeRecordFlags.None) |
+                            (requiresMemoryManagement.ToLower() == "true" ? TypeRecordFlags.RequiresMemoryManagement : TypeRecordFlags.None),
+                    Kind = TypeRecordKind.Struct,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);

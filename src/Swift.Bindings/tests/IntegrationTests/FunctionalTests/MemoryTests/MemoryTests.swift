@@ -128,3 +128,60 @@ public struct NestedNestedVType
         refTypeTest1Ptr.deallocate()
     }
 }
+
+@frozen
+public struct FrozenStruct {
+    public var a: Int32
+
+    public init (testPayload1: Int32) {
+        self.a = testPayload1
+    }
+}
+
+@frozen
+public struct FrozenStructRequiresMemoryManagement {
+    public var a: RefType
+    public var b: Int32
+
+    public init (b: Int32) {
+        self.a = RefType(test: UnsafeMutablePointer<Int64>.allocate(capacity: 1))
+        self.b = b
+    }
+}
+
+@frozen
+public struct NestedFrozenStructRequiresMemoryManagement {
+    public var a: FrozenStructRequiresMemoryManagement
+    public var b: Int32
+
+    public init (b: Int32) {
+        self.a = FrozenStructRequiresMemoryManagement(b: b)
+        self.b = b
+    }
+}
+
+public struct NonFrozenStruct {
+    public var a: Int32
+
+    public init (a: Int32) {
+        self.a = a
+    }
+}
+
+public struct NonFrozenStructRequiresMemoryManagement {
+    public var a: RefType
+    public var b: Int32
+
+    public init (b: Int32) {
+        self.a = RefType(test: UnsafeMutablePointer<Int64>.allocate(capacity: 1))
+        self.b = b
+    }
+}
+
+public func PassThroughFrozenStructRequiresMemoryManagement(a: FrozenStructRequiresMemoryManagement) -> FrozenStructRequiresMemoryManagement {
+    return a
+}
+
+public func PassThroughNonFrozenStructRequiresMemoryManagement(a: NonFrozenStructRequiresMemoryManagement) -> NonFrozenStructRequiresMemoryManagement {
+    return a
+}

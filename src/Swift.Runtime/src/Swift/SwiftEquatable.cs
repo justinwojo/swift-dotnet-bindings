@@ -40,31 +40,18 @@ namespace Swift.Runtime
             var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
             var equatablePwt = ProtocolWitnessTable.GetOrThrow<T, IEquatable<T>>();
 
-            IntPtr lhsPayload = IntPtr.Zero;
-            IntPtr rhsPayload = IntPtr.Zero;
+            byte* lhsPayload = stackalloc byte[(int)metadata.Size];
+            byte* rhsPayload = stackalloc byte[(int)metadata.Size];
 
-            try
-            {
-                lhsPayload = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                rhsPayload = (IntPtr)NativeMemory.Alloc(metadata.Size);
+            SwiftMarshal.MarshalToSwift(lhs, (IntPtr)lhsPayload);
+            SwiftMarshal.MarshalToSwift(rhs, (IntPtr)rhsPayload);
 
-                SwiftMarshal.MarshalToSwift(lhs, lhsPayload);
-                SwiftMarshal.MarshalToSwift(rhs, rhsPayload);
-
-                return PInvoke_SwiftEquals(
-                    lhsPayload,
-                    rhsPayload,
-                    new SwiftSelf((void*)metadata.Handle),
-                    metadata,
-                    equatablePwt);
-            }
-            finally
-            {
-                if (lhsPayload != IntPtr.Zero)
-                    NativeMemory.Free((void*)lhsPayload);
-                if (rhsPayload != IntPtr.Zero)
-                    NativeMemory.Free((void*)rhsPayload);
-            }
+            return PInvoke_SwiftEquals(
+                (IntPtr)lhsPayload,
+                (IntPtr)rhsPayload,
+                new SwiftSelf((void*)metadata.Handle),
+                metadata,
+                equatablePwt);
         }
     }
 }

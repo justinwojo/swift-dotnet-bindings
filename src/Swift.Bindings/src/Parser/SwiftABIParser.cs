@@ -362,7 +362,6 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
-                IsBlittable = false,
                 MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName)
             };
         }
