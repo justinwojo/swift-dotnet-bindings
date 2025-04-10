@@ -17,12 +17,12 @@ public interface ISwiftObject
     /// <summary>
     /// Creates a new Swift object from a given payload
     /// </summary>
-    public static abstract ISwiftObject NewFromPayload(SwiftHandle payload);
+    public static abstract ISwiftObject NewFromPayload(IntPtr payload);
 
     /// <summary>
     /// Marshals this object to a Swift destination
     /// </summary>
-    unsafe IntPtr MarshalToSwift(IntPtr swiftDest);
+    public int MarshalToSwift(ref Span<byte> swiftDestSpan);
 
     /// <summary>
     /// Gets the protocol conformance descriptor for the given type
@@ -41,7 +41,16 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
     /// <returns>the TypeMetadata for T</returns>
     public static TypeMetadata GetTypeMetadata()
     {
-        return TypeMetadata.Cache.GetOrAdd(typeof(T), _ => T.GetTypeMetadata());
+        return TypeMetadata.Cache.GetOrAdd(typeof(T), _ =>
+        {
+            TypeMetadata metadata = T.GetTypeMetadata();
+            if (!metadata.IsValid)
+            {
+                throw new InvalidOperationException($"Failed to retrieve type metadata for {typeof(T)}");
+            }
+
+            return metadata;
+        });
     }
 
     /// <summary>
@@ -49,7 +58,7 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
     /// </summary>
     /// <param name="payload"></param>
     /// <returns>a new ISwiftObject</returns>
-    public static ISwiftObject NewFromPayload(SwiftHandle payload)
+    public static ISwiftObject NewFromPayload(IntPtr payload)
     {
         return T.NewFromPayload(payload);
     }

@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Swift;
 using BindingsGeneration.Tests;
 using Swift;
+using Swift.MemoryTests;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
 using Xunit;
@@ -55,7 +56,8 @@ namespace BindingsGeneration.FunctionalTests
         {
             Bindings.VType vType = new Bindings.VType();
             GC.SuppressFinalize(vType);
-            IntPtr payload = (IntPtr)vType.Payload;
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
 
             // Check the initial count
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
@@ -67,7 +69,7 @@ namespace BindingsGeneration.FunctionalTests
             var metadata = SwiftObjectHelper<Bindings.VType>.GetTypeMetadata();
 
             // Creates a copy of the vType
-            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.ValueWitnessTable->Size);
+            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.Size);
             metadata.ValueWitnessTable->InitializeWithCopy((void*)payloadCopy, (void*)payload, metadata);
 
             // Check the copy ref is the same
@@ -78,13 +80,13 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, Arc.RetainCount(payloadCopy.At(0)));
 
             Arc.Release(payload.At(0));
-            // Check the count after release
+            // // Check the count after release
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
             Assert.Equal(1, Arc.RetainCount(payloadCopy.At(0)));
 
             Arc.Release(payload.At(0));
 
-            // Check deinit is called
+            // // Check deinit is called
             Assert.Equal(1, vType.refTypeTest);
 
             NativeMemory.Free((void*)payloadCopy);
@@ -95,7 +97,8 @@ namespace BindingsGeneration.FunctionalTests
         {
             Bindings.VType vType = new Bindings.VType();
             GC.SuppressFinalize(vType);
-            IntPtr payload = (IntPtr)vType.Payload;
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
 
             // Check the initial count
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
@@ -134,7 +137,8 @@ namespace BindingsGeneration.FunctionalTests
         {
             Bindings.VType vType = new Bindings.VType();
             GC.SuppressFinalize(vType);
-            IntPtr payload = (IntPtr)vType.Payload;
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
 
             // Check the initial count
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
@@ -145,7 +149,7 @@ namespace BindingsGeneration.FunctionalTests
 
             var metadata = SwiftObjectHelper<Bindings.VType>.GetTypeMetadata();
 
-            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.ValueWitnessTable->Size);
+            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.Size);
             metadata.ValueWitnessTable->InitializeWithCopy((void*)payloadCopy, (void*)payload, metadata);
 
             // Check the copy ref is the same
@@ -155,7 +159,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, Arc.RetainCount(payload.At(0)));
             Assert.Equal(2, Arc.RetainCount(payloadCopy.At(0)));
 
-            IntPtr payloadCopyCopy = (IntPtr)NativeMemory.Alloc(metadata.ValueWitnessTable->Size);
+            IntPtr payloadCopyCopy = (IntPtr)NativeMemory.Alloc(metadata.Size);
             metadata.ValueWitnessTable->InitializeWithCopy((void*)payloadCopyCopy, (void*)payloadCopy, metadata);
 
             // Check the copy ref is the same
@@ -197,7 +201,8 @@ namespace BindingsGeneration.FunctionalTests
         {
             Bindings.NestedVType vType = new Bindings.NestedVType();
             GC.SuppressFinalize(vType);
-            IntPtr payload = (IntPtr)vType.Payload;
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
 
             // Check the initial count
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
@@ -212,7 +217,7 @@ namespace BindingsGeneration.FunctionalTests
             var metadata = SwiftObjectHelper<Bindings.NestedVType>.GetTypeMetadata();
 
             // Creates a copy of the vType
-            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.ValueWitnessTable->Size);
+            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.Size);
             metadata.ValueWitnessTable->InitializeWithCopy((void*)payloadCopy, (void*)payload, metadata);
 
             // Check the copy ref is the same
@@ -248,7 +253,8 @@ namespace BindingsGeneration.FunctionalTests
         {
             Bindings.NestedVType vType = new Bindings.NestedVType();
             GC.SuppressFinalize(vType);
-            IntPtr payload = (IntPtr)vType.Payload;
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
 
             // Check the initial count
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
@@ -298,7 +304,8 @@ namespace BindingsGeneration.FunctionalTests
         {
             Bindings.NestedVType vType = new Bindings.NestedVType();
             GC.SuppressFinalize(vType);
-            IntPtr payload = (IntPtr)vType.Payload;
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
 
             // Check the initial count
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
@@ -312,7 +319,7 @@ namespace BindingsGeneration.FunctionalTests
 
             var metadata = SwiftObjectHelper<Bindings.NestedVType>.GetTypeMetadata();
 
-            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.ValueWitnessTable->Size);
+            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.Size);
             metadata.ValueWitnessTable->InitializeWithCopy((void*)payloadCopy, (void*)payload, metadata);
 
             // Check the copy ref is the same
@@ -325,7 +332,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, Arc.RetainCount(payload.At(2)));
             Assert.Equal(2, Arc.RetainCount(payloadCopy.At(2)));
 
-            IntPtr payloadCopyCopy = (IntPtr)NativeMemory.Alloc(metadata.ValueWitnessTable->Size);
+            IntPtr payloadCopyCopy = (IntPtr)NativeMemory.Alloc(metadata.Size);
             metadata.ValueWitnessTable->InitializeWithCopy((void*)payloadCopyCopy, (void*)payloadCopy, metadata);
 
             // Check the copy ref is the same
@@ -381,7 +388,8 @@ namespace BindingsGeneration.FunctionalTests
         {
             Bindings.NestedNestedVType vType = new Bindings.NestedNestedVType();
             GC.SuppressFinalize(vType);
-            IntPtr payload = (IntPtr)vType.Payload;
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
 
             // Check the initial count
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
@@ -399,7 +407,7 @@ namespace BindingsGeneration.FunctionalTests
             var metadata = SwiftObjectHelper<Bindings.NestedNestedVType>.GetTypeMetadata();
 
             // Creates a copy of the vType
-            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.ValueWitnessTable->Size);
+            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.Size);
             metadata.ValueWitnessTable->InitializeWithCopy((void*)payloadCopy, (void*)payload, metadata);
 
             // Check the copy ref is the same
@@ -443,7 +451,8 @@ namespace BindingsGeneration.FunctionalTests
         {
             Bindings.NestedNestedVType vType = new Bindings.NestedNestedVType();
             GC.SuppressFinalize(vType);
-            IntPtr payload = (IntPtr)vType.Payload;
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
 
             // Check the initial count
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
@@ -504,7 +513,8 @@ namespace BindingsGeneration.FunctionalTests
         {
             Bindings.NestedNestedVType vType = new Bindings.NestedNestedVType();
             GC.SuppressFinalize(vType);
-            IntPtr payload = (IntPtr)vType.Payload;
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
 
             // Check the initial count
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
@@ -521,7 +531,7 @@ namespace BindingsGeneration.FunctionalTests
 
             var metadata = SwiftObjectHelper<Bindings.NestedNestedVType>.GetTypeMetadata();
 
-            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.ValueWitnessTable->Size);
+            IntPtr payloadCopy = (IntPtr)NativeMemory.Alloc(metadata.Size);
             metadata.ValueWitnessTable->InitializeWithCopy((void*)payloadCopy, (void*)payload, metadata);
 
             // Check the copy ref is the same
@@ -537,7 +547,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, Arc.RetainCount(payload.At(4)));
             Assert.Equal(2, Arc.RetainCount(payloadCopy.At(4)));
 
-            IntPtr payloadCopyCopy = (IntPtr)NativeMemory.Alloc(metadata.ValueWitnessTable->Size);
+            IntPtr payloadCopyCopy = (IntPtr)NativeMemory.Alloc(metadata.Size);
             metadata.ValueWitnessTable->InitializeWithCopy((void*)payloadCopyCopy, (void*)payloadCopy, metadata);
 
             // Check the copy ref is the same
@@ -616,142 +626,362 @@ namespace BindingsGeneration.FunctionalTests
         public unsafe void TestDisposeInvokesDestroy()
         {
             var frozenRequiresMemoryManagement = new Bindings.FrozenStructRequiresMemoryManagement(42);
-            var bufferPayload = frozenRequiresMemoryManagement.Payload;
-            var payload = *(IntPtr*)&bufferPayload;
 
             // Check the initial count
-            Assert.Equal(1, Arc.RetainCount(payload));
+            Assert.Equal(1, Arc.RetainCount(frozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0)));
             // Check the metadata flags for a class
-            Assert.Equal(0x3, payload.At(1));
+            Assert.Equal(0x3, frozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0).At(1));
 
             // Retain the payload count
-            Arc.Retain(payload);
-            Assert.Equal(2, Arc.RetainCount(payload));
+            Arc.Retain(frozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0));
+            Assert.Equal(2, Arc.RetainCount(frozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0)));
 
             // Dispose the frozenRequiresMemoryManagement
-            frozenRequiresMemoryManagement.Dispose();
-            Assert.Equal(1, Arc.RetainCount(payload));
+            Assert.False(frozenRequiresMemoryManagement.Payload.IsClosed);
+            Assert.False(frozenRequiresMemoryManagement.Payload.IsInvalid);
+            var handle = *(Bindings.FrozenStructRequiresMemoryManagement.Buffer*)frozenRequiresMemoryManagement.Payload.DangerousGetHandle();
+            frozenRequiresMemoryManagement.Payload.Dispose();
+            Assert.True(frozenRequiresMemoryManagement.Payload.IsClosed);
+            Assert.True(frozenRequiresMemoryManagement.Payload.IsInvalid);
+            Assert.Equal(1, Arc.RetainCount(new IntPtr(&handle).At(0)));
 
-            var nonfrozenRequiresMemoryManagement = new Bindings.NonFrozenStructRequiresMemoryManagement(42);
-            payload = nonfrozenRequiresMemoryManagement.Payload;
+            var nestedFrozenRequiresMemoryManagement = new Bindings.NestedFrozenStructRequiresMemoryManagement(42);
 
             // Check the initial count
-            Assert.Equal(1, Arc.RetainCount(payload.At(0)));
+            Assert.Equal(1, Arc.RetainCount(nestedFrozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0)));
             // Check the metadata flags for a class
-            Assert.Equal(0x3, payload.At(0).At(1));
+            Assert.Equal(0x3, nestedFrozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0).At(1));
 
             // Retain the payload count
-            Arc.Retain(payload.At(0));
-            Assert.Equal(2, Arc.RetainCount(payload.At(0)));
+            Arc.Retain(nestedFrozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0));
+            Assert.Equal(2, Arc.RetainCount(nestedFrozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0)));
 
-            nonfrozenRequiresMemoryManagement.Dispose();
-            Assert.Equal(1, Arc.RetainCount(payload.At(0)));
-            Assert.Equal(SwiftHandle.Zero, nonfrozenRequiresMemoryManagement.Payload);
+            // Dispose the NestedFrozenRequiresMemoryManagement
+            Assert.False(nestedFrozenRequiresMemoryManagement.Payload.IsClosed);
+            Assert.False(nestedFrozenRequiresMemoryManagement.Payload.IsInvalid);
+            var nestedHandle = *(Bindings.NestedFrozenStructRequiresMemoryManagement.Buffer*)nestedFrozenRequiresMemoryManagement.Payload.DangerousGetHandle();
+            nestedFrozenRequiresMemoryManagement.Payload.Dispose();
+            Assert.True(nestedFrozenRequiresMemoryManagement.Payload.IsClosed);
+            Assert.True(nestedFrozenRequiresMemoryManagement.Payload.IsInvalid);
+            Assert.Equal(1, Arc.RetainCount(new IntPtr(&nestedHandle).At(0)));
+
+            var nonfrozenRequiresMemoryManagement = new Bindings.NonFrozenStructRequiresMemoryManagement(42);
+
+            // Check the initial count
+            Assert.Equal(1, Arc.RetainCount(nonfrozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0)));
+            // Check the metadata flags for a class
+            Assert.Equal(0x3, nonfrozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0).At(1));
+
+            // Retain the payload count
+            Arc.Retain(nonfrozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0));
+            Assert.Equal(2, Arc.RetainCount(nonfrozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0)));
+
+            Assert.False(nonfrozenRequiresMemoryManagement.Payload.IsClosed);
+            Assert.False(nonfrozenRequiresMemoryManagement.Payload.IsInvalid);
+            // Memory is allocated from C# side and released in Dispose
+            // Take the payload to check the retain count
+            var nonFrozenHandle = nonfrozenRequiresMemoryManagement.Payload.DangerousGetHandle().At(0);
+            nonfrozenRequiresMemoryManagement.Payload.Dispose();
+            Assert.True(nonfrozenRequiresMemoryManagement.Payload.IsClosed);
+            Assert.True(nonfrozenRequiresMemoryManagement.Payload.IsInvalid);
+            // Check the count after destroy
+            Assert.Equal(1, Arc.RetainCount(nonFrozenHandle));
+            Assert.Equal(IntPtr.Zero, nonfrozenRequiresMemoryManagement.Payload.DangerousGetHandle());
         }
 
         [Fact]
-        public unsafe void TestParameterByValueInvokesInitWithCopy()
+        public unsafe void TestSwiftMarshalFrozenStruct()
         {
-            var frozenStructRequiresMemoryManagement = new Bindings.FrozenStructRequiresMemoryManagement(42);
-            // Check the payload
-            Assert.Equal(42, frozenStructRequiresMemoryManagement.b);
+            var vtype = new Bindings.FrozenStructRequiresMemoryManagement(42);
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(0)));
 
-            // Check the initial count
-            var bufferPayload = frozenStructRequiresMemoryManagement.Payload;
-            var payload = (IntPtr*)&bufferPayload;
-            Assert.Equal(1, Arc.RetainCount(*payload));
+            var metadata = SwiftObjectHelper<Bindings.FrozenStructRequiresMemoryManagement>.GetTypeMetadata();
+            Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];
+            IntPtr payloadPtr = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));
 
-            var frozenStructRequiresMemoryManagementCopy = Bindings.MemoryTests.PassThroughFrozenStructRequiresMemoryManagement(frozenStructRequiresMemoryManagement);
-            // Check the payload
-            Assert.Equal(42, frozenStructRequiresMemoryManagementCopy.b);
+            // Marshal the object to Swift
+            SwiftMarshal.MarshalToSwift(vtype, ref payloadSpan);
+            Assert.Equal(2, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(0)));
 
-            // Check the references are not the same
-            var bufferPayloadCopy = frozenStructRequiresMemoryManagementCopy.Payload;
-            var payloadCopy = (IntPtr*)&bufferPayloadCopy;
-            Assert.NotEqual((IntPtr)payload, (IntPtr)payloadCopy);
+            // Marshal back from Swift
+            var copy = SwiftMarshal.MarshalFromSwift<Bindings.FrozenStructRequiresMemoryManagement>(payloadPtr);
+            Assert.Equal(2, Arc.RetainCount(copy.Payload.DangerousGetHandle().At(0)));
 
-            // Check the payloads are the same
-            Assert.Equal(*payload, *payloadCopy);
-
-            // Check the count after copy
-            Assert.Equal(2, Arc.RetainCount(*payload));
-            Assert.Equal(2, Arc.RetainCount(*payloadCopy));
-
-            var nonFrozenStructRequiresMemoryManagement = new Bindings.NonFrozenStructRequiresMemoryManagement(42);
-            // Check the payload
-            Assert.Equal(42, nonFrozenStructRequiresMemoryManagement.b);
-
-            // Check the initial count
-            Assert.Equal(1, Arc.RetainCount(((IntPtr)nonFrozenStructRequiresMemoryManagement.Payload).At(0)));
-
-            var nonFrozenStructRequiresMemoryManagementCopy = Bindings.MemoryTests.PassThroughNonFrozenStructRequiresMemoryManagement(nonFrozenStructRequiresMemoryManagement);
-            // Check the payload
-            Assert.Equal(42, nonFrozenStructRequiresMemoryManagementCopy.b);
-
-            // Check the references are not the same
-            Assert.NotEqual((IntPtr)nonFrozenStructRequiresMemoryManagement.Payload, (IntPtr)nonFrozenStructRequiresMemoryManagementCopy.Payload);
-
-            // Check the payloads are the same
-            Assert.Equal(((IntPtr)nonFrozenStructRequiresMemoryManagement.Payload).At(0), ((IntPtr)nonFrozenStructRequiresMemoryManagementCopy.Payload).At(0));
-
-            // Check the count after copy
-            Assert.Equal(2, Arc.RetainCount(((IntPtr)nonFrozenStructRequiresMemoryManagement.Payload).At(0)));
-            Assert.Equal(2, Arc.RetainCount(((IntPtr)nonFrozenStructRequiresMemoryManagementCopy.Payload).At(0)));
+            // Dispose the copy and verify retain count
+            copy.Payload.Dispose();
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(0)));
         }
 
+        [Fact]
+        public unsafe void TestSwiftMarshalMethodsNestedFrozenStruct()
+        {
+            var vtype = new Bindings.NestedFrozenStructRequiresMemoryManagement(42);
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(0)));
+
+            var metadata = SwiftObjectHelper<Bindings.NestedFrozenStructRequiresMemoryManagement>.GetTypeMetadata();
+            Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];
+            IntPtr payloadPtr = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));
+
+            // Marshal the object to Swift
+            SwiftMarshal.MarshalToSwift(vtype, ref payloadSpan);
+            Assert.Equal(2, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(0)));
+
+            // Marshal back from Swift
+            var copy = SwiftMarshal.MarshalFromSwift<Bindings.NestedFrozenStructRequiresMemoryManagement>(payloadPtr);
+            Assert.Equal(2, Arc.RetainCount(copy.Payload.DangerousGetHandle().At(0)));
+
+            // Dispose the copy and verify retain count
+            copy.Payload.Dispose();
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(0)));
+        }
 
         [Fact]
-        public unsafe void TestDisposeInvokesDestroyThreads()
+        public unsafe void TestSwiftMarshalMethodsNonFrozenStruct()
         {
-            var frozenRequiresMemoryManagement = new Bindings.FrozenStructRequiresMemoryManagement(42);
-            var bufferPayload = frozenRequiresMemoryManagement.Payload;
-            var payload = *(IntPtr*)&bufferPayload;
+            var vtype = new Bindings.NonFrozenStructRequiresMemoryManagement(42);
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(0)));
 
-            // Check the initial count
-            Assert.Equal(1, Arc.RetainCount(payload));
-            // Check the metadata flags for a class
-            Assert.Equal(0x3, payload.At(1));
+            var metadata = SwiftObjectHelper<Bindings.NonFrozenStructRequiresMemoryManagement>.GetTypeMetadata();
+            IntPtr payloadPtr = (IntPtr)NativeMemory.Alloc(metadata.Size);
+            Span<byte> payloadSpan = new Span<byte>((byte*)payloadPtr, (int)metadata.Size);
 
-            // Retain the payload count
-            Arc.Retain(payload);
-            Assert.Equal(2, Arc.RetainCount(payload));
+            // Marshal the object to Swift
+            SwiftMarshal.MarshalToSwift(vtype, ref payloadSpan);
+            Assert.Equal(2, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(0)));
 
-            var nonfrozenRequiresMemoryManagement = new Bindings.NonFrozenStructRequiresMemoryManagement(42);
-            IntPtr nonfrozenPayload = nonfrozenRequiresMemoryManagement.Payload;
+            // Marshal back from Swift
+            var copy = SwiftMarshal.MarshalFromSwift<Bindings.NonFrozenStructRequiresMemoryManagement>(payloadPtr);
+            Assert.Equal(2, Arc.RetainCount(copy.Payload.DangerousGetHandle().At(0)));
 
-            // Check the initial count
-            Assert.Equal(1, Arc.RetainCount(nonfrozenPayload.At(0)));
-            // Check the metadata flags for a class
-            Assert.Equal(0x3, nonfrozenPayload.At(0).At(1));
+            // Dispose the copy and verify retain count
+            copy.Payload.Dispose();
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(0)));
+        }
 
-            // Retain the payload count
-            Arc.Retain(nonfrozenPayload.At(0));
-            Assert.Equal(2, Arc.RetainCount(nonfrozenPayload.At(0)));
+        [Fact]
+        public unsafe void TestPassThroughEmbeddedStruct()
+        {
+            EmbeddedStruct vtype = new EmbeddedStruct();
+            Assert.Equal(1, vtype.x.x);
+            Assert.Equal(2, vtype.x.y);
+            Assert.Equal(3, vtype.y);
 
-            var threads = new List<Thread>();
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
+            EmbeddedStruct copy = Bindings.MemoryTests.PassThroughEmbeddedStruct(vtype);
+
+            Assert.Equal(1, copy.x.x);
+            Assert.Equal(2, copy.x.y);
+            Assert.Equal(3, copy.y);
+
+            Assert.Equal(2, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
+            Assert.Equal(2, Arc.RetainCount(copy.Payload.DangerousGetHandle().At(1)));
+
+            copy.Payload.Dispose();
+
+            Assert.True(copy.Payload.IsClosed);
+            Assert.True(copy.Payload.IsInvalid);
+
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
+        }
+
+        [Fact]
+        public unsafe void TestSwiftMarshalEmbeddedStruct()
+        {
+            EmbeddedStruct vtype = new EmbeddedStruct();
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
+
+            var metadata = SwiftObjectHelper<EmbeddedStruct>.GetTypeMetadata();
+            Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];
+            IntPtr payloadPtr = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));
+
+            // Marshal the object to Swift
+            SwiftMarshal.MarshalToSwift(vtype, ref payloadSpan);
+            Assert.Equal(2, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
+
+            // Marshal back from Swift
+            var copy = SwiftMarshal.MarshalFromSwift<EmbeddedStruct>(payloadPtr);
+            Assert.Equal(2, Arc.RetainCount(copy.Payload.DangerousGetHandle().At(1)));
+
+            // Dispose the copy and verify retain count
+            copy.Payload.Dispose();
+            Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
+        }
+
+        class FrozenStructExtension : FrozenStructRequiresMemoryManagement
+        {
+            public FrozenStructExtension() : base(42)
+            {
+            }
+
+            public void CallDispose()
+            {
+                bool success = false;
+                this.Payload.DangerousAddRef(ref success);
+#pragma warning disable CS8500
+                unsafe
+                {
+                    var handle = this.Payload;
+                    PInvoke_CallDispose(&Callback, &handle);
+
+                    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
+                    static void Callback(SwiftSelf context)
+                    {
+                        SwiftSafeHandle<FrozenStructExtension> pContext = *(SwiftSafeHandle<FrozenStructExtension>*)context.Value;
+                        pContext.Dispose();
+                    }
+                }
+
+                Assert.False(Payload.IsClosed);
+                Assert.False(Payload.IsInvalid);
+
+                Assert.Equal(1, Arc.RetainCount(Payload.DangerousGetHandle().At(0)));
+                Assert.Equal(42, b);
+
+#pragma warning restore CS8500
+                if (success)
+                    this.Payload.DangerousRelease();
+            }
+
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("MemoryTests/libMemoryTests.dylib", EntryPoint = "$s11MemoryTests020FrozenStructRequiresA10ManagementV11callDispose8callbackyyyc_tF")]
+            private unsafe static extern void PInvoke_CallDispose(delegate* unmanaged[Swift]<SwiftSelf, void> callback, void* context);
+        }
+
+        [Fact]
+        public unsafe void TestSafeHandleDispose()
+        {
+            FrozenStructExtension frozenRequiresMemoryManagement = new FrozenStructExtension();
+            Assert.Equal(42, frozenRequiresMemoryManagement.b);
+
+            frozenRequiresMemoryManagement.CallDispose();
+            Assert.True(frozenRequiresMemoryManagement.Payload.IsClosed);
+        }
+
+        [Fact]
+        public async Task ConcurrentFrozenStructDispose()
+        {
             for (int i = 0; i < 10; i++)
             {
-                threads.Add(new Thread(() =>
+                var resource = new Bindings.FrozenStructRequiresMemoryManagement(42);
+                var barrier = new Barrier(4);
+
+                var getterTask = Task.Run(() =>
                 {
-                    // Dispose the frozenRequiresMemoryManagement
-                    frozenRequiresMemoryManagement.Dispose();
-                    // Dispose the nonfrozenRequiresMemoryManagement
-                    nonfrozenRequiresMemoryManagement.Dispose();
-                }));
-            }
+                    barrier.SignalAndWait();
+                    try
+                    {
+                        Assert.Equal(42, resource.b);
+                    }
+                    catch (ObjectDisposedException ex)
+                    {
+                        Assert.IsType<ObjectDisposedException>(ex);
+                    }
+                });
 
-            foreach (var thread in threads)
+                var methodTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    try
+                    {
+                        Assert.Equal(42, resource.getValue());
+                    }
+                    catch (ObjectDisposedException ex)
+                    {
+                        Assert.IsType<ObjectDisposedException>(ex);
+                    }
+                });
+
+                var passThroughTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    try
+                    {
+                        var copy = Bindings.MemoryTests.PassThroughFrozenStruct(resource);
+                        var genericCopy = Bindings.MemoryTests.PassThroughGeneric<FrozenStructRequiresMemoryManagement>(resource);
+                        copy.Payload.Dispose();
+                        genericCopy.Payload.Dispose();
+                    }
+                    catch (ObjectDisposedException ex)
+                    {
+                        Assert.IsType<ObjectDisposedException>(ex);
+                    }
+                });
+
+
+                var disposeTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    resource.Payload.Dispose();
+                });
+
+                await Task.WhenAll(methodTask, getterTask, passThroughTask, disposeTask);
+
+                Assert.True(resource.Payload.IsClosed);
+                Assert.True(resource.Payload.IsInvalid);
+            }
+        }
+
+        [Fact]
+        public async Task ConcurrentNonFrozenStruct()
+        {
+            for (int i = 0; i < 10; i++)
             {
-                thread.Start();
-            }
+                var resource = new Bindings.NonFrozenStructRequiresMemoryManagement(42);
+                var barrier = new Barrier(4);
 
-            foreach (var thread in threads)
-            {
-                thread.Join();
-            }
+                var getterTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    try
+                    {
+                        Assert.Equal(42, resource.b);
+                    }
+                    catch (ObjectDisposedException ex)
+                    {
+                        Assert.IsType<ObjectDisposedException>(ex);
+                    }
+                });
 
-            // Check the count after destroy
-            Assert.Equal(1, Arc.RetainCount(payload));
+                var methodTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    try
+                    {
+                        Assert.Equal(42, resource.getValue());
+                    }
+                    catch (ObjectDisposedException ex)
+                    {
+                        Assert.IsType<ObjectDisposedException>(ex);
+                    }
+                });
+
+                var passThroughTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    try
+                    {
+                        var copy = Bindings.MemoryTests.PassThroughNonFrozenStruct(resource);
+                        var genericCopy = Bindings.MemoryTests.PassThroughGeneric<NonFrozenStructRequiresMemoryManagement>(resource);
+                        copy.Payload.Dispose();
+                        genericCopy.Payload.Dispose();
+                    }
+                    catch (ObjectDisposedException ex)
+                    {
+                        Assert.IsType<ObjectDisposedException>(ex);
+                    }
+                });
+
+                var disposeTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    resource.Payload.Dispose();
+                });
+
+                await Task.WhenAll(methodTask, getterTask, passThroughTask, disposeTask);
+
+                Assert.True(resource.Payload.IsClosed);
+                Assert.True(resource.Payload.IsInvalid);
+            }
         }
     }
 }

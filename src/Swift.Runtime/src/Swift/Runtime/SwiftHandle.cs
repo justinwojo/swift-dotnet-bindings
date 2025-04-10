@@ -3,81 +3,32 @@
 
 using System;
 using System.Collections.Generic;
+using System.Reflection.Metadata;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 #nullable enable
 
 namespace Swift.Runtime;
 
 /// <summary>
-/// Represents an opaque handle to a Swift object
+/// Represents an opaque raw handle to a Swift object.
+/// Used internally in private constructors to prevent conflicts with public IntPtr constructors.
 /// </summary>
-public readonly struct SwiftHandle : IEquatable<SwiftHandle>
+public struct SwiftHandle
 {
-    readonly IntPtr handle;
-
-    public IntPtr Handle => handle;
-
     /// <summary>
-    /// Returns an SwiftHandle with a zero value
+    /// The handle to the Swift native object
     /// </summary>
-    public readonly static SwiftHandle Zero = default(SwiftHandle);
+    public IntPtr Handle { get; }
 
     /// <summary>
     /// Constructs a SwiftHandle from the given IntPtr
     /// </summary>
     public SwiftHandle(IntPtr handle)
     {
-        this.handle = handle;
+        Handle = handle;
     }
-
-    /// <summary>
-    /// Returns true if the SwiftHandle and the IntPtr are the same
-    /// </summary>
-    public static bool operator ==(SwiftHandle left, IntPtr right)
-    {
-        return left.handle == right;
-    }
-
-    /// <summary>
-    /// Returns true if both SwiftHandles are the same
-    /// </summary>
-    public static bool operator ==(SwiftHandle left, SwiftHandle right)
-    {
-        return left.handle == right.handle;
-    }
-
-    /// <summary>
-    /// Returns true if the IntPtr and the SwiftHandle are the same
-    /// </summary>
-    public static bool operator ==(IntPtr left, SwiftHandle right)
-    {
-        return left == right.Handle;
-    }
-
-    /// <summary>
-    /// Returns true if the SwiftHandle and the IntPtr are different
-    /// </summary>
-    public static bool operator !=(SwiftHandle left, IntPtr right)
-    {
-        return left.handle != right;
-    }
-
-    /// <summary>
-    /// Returns true if the IntPtr and the SwiftHandle are different
-    /// </summary>
-    public static bool operator !=(IntPtr left, SwiftHandle right)
-    {
-        return left != right.Handle;
-    }
-
-    /// <summary>
-    /// Returns true if the SwiftHandles are different
-    /// </summary>
-    public static bool operator !=(SwiftHandle left, SwiftHandle right)
-    {
-        return left.handle != right.Handle;
-    }
-
 
     /// <summary>
     /// Implicit conversion from SwiftHandle to IntPtr
@@ -90,58 +41,70 @@ public readonly struct SwiftHandle : IEquatable<SwiftHandle>
     /// <summary>
     /// Explicit conversion from IntPtr to SwiftHandle
     /// </summary>
-    public static explicit operator SwiftHandle(IntPtr value)
+    public static implicit operator SwiftHandle(IntPtr value)
     {
         return new SwiftHandle(value);
     }
+}
+
+/// <summary>
+/// Represents an opaque handle to a Swift object of type T.
+/// Used to manage native memory associated with a Swift object of type T.
+/// </summary>
+public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where T : ISwiftObject
+{
+    /// <summary>
+    /// Returns a SwiftSafeHandle with a zero value
+    /// </summary>
+    public readonly static SwiftSafeHandle<T> Zero = new SwiftSafeHandle<T>(IntPtr.Zero);
 
     /// <summary>
-    /// Explicit conversion from SwiftHandle to void*
+    /// Constructs a SwiftSafeHandle from the given IntPtr
     /// </summary>
-    public unsafe static explicit operator void*(SwiftHandle value)
+    public SwiftSafeHandle(IntPtr handle)
+        : base(ownsHandle: true)
     {
-        return (void*)(IntPtr)value;
+        SetHandle(handle);
     }
 
     /// <summary>
-    /// Explicit conversion from void* to SwiftHandle
+    /// Releases the handle to the Swift object
     /// </summary>
-    public unsafe static explicit operator SwiftHandle(void* value)
+    protected override unsafe bool ReleaseHandle()
     {
-        return new SwiftHandle((IntPtr)value);
+        TypeMetadata metadata = SwiftObjectHelper<T>.GetTypeMetadata();
+        metadata.ValueWitnessTable->Destroy((void*)handle, metadata);
+
+        NativeMemory.Free((void*)handle);
+        handle = IntPtr.Zero;
+
+        return true;
+    }
+}
+
+/// <summary>
+/// Represents a buffer for a Swift object used for lowering.
+/// </summary>
+public unsafe ref struct PayloadBuffer<T> : IDisposable where T : unmanaged
+{
+    private readonly SafeHandle _payload;
+
+    private bool _shouldDispose;
+
+    public T Buffer => *(T*)_payload.DangerousGetHandle();
+
+    public PayloadBuffer(SafeHandle payload)
+    {
+        _payload = payload;
+        _payload.DangerousAddRef(ref _shouldDispose);
     }
 
-    /// <summary>
-    /// Compare this SwiftHandle to the given object, returns true if they're the same.
-    /// </summary>
-    public override bool Equals(object? o)
+    public void Dispose()
     {
-        if (o is SwiftHandle nh)
-            return nh.handle == this.handle;
-        return false;
-    }
-
-    /// <summary>
-    /// Generate a hashcode for the SwiftHandle
-    /// </summary>
-    public override int GetHashCode()
-    {
-        return handle.GetHashCode();
-    }
-
-    /// <summary>
-    /// Returns true if this matches the give SwiftHandle
-    /// </summary>
-    public bool Equals(SwiftHandle other)
-    {
-        return other.handle == handle;
-    }
-
-    /// <summary>
-    /// Generates a string representation of this SwiftHandle
-    /// </summary>
-    public override string ToString()
-    {
-        return "0x" + handle.ToString("x");
+        if (_shouldDispose)
+        {
+            _payload.DangerousRelease();
+            _shouldDispose = false;
+        }
     }
 }

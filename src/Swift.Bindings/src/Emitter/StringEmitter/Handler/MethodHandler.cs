@@ -170,8 +170,8 @@ namespace BindingsGeneration
         public string CallString() => $"{Type} {Name}";
         public string SignatureString() => Type switch
         {
-            "AsyncCallback" => $"{modifier} IntPtr {Name}",
-            "AsyncContext" => $"{modifier} IntPtr {Name}",
+            "AsyncCallback" => $"{modifier} void* {Name}",
+            "AsyncContext" => $"{modifier} void* {Name}",
             "AsyncTask" => $"{modifier} IntPtr {Name}",
             _ => $"{modifier} {Type} {Name}"
         };
@@ -195,10 +195,10 @@ namespace BindingsGeneration
         {
             return parameter switch
             {
-                { Type: "SwiftHandle" } => $"{parameter.Name}.Payload",
-                { Type: var type } when type.EndsWith(".Buffer") => $"{parameter.Name}.Payload",
-                { Type: "AsyncCallback" } => $"(IntPtr){parameter.Name}",
-                { Type: "AsyncContext" } => "IntPtr.Zero",
+                { Type: "SafeHandle" } => $"{parameter.Name}.Payload",
+                { Type: var type } when type.EndsWith(".Buffer") => $"{parameter.Name}Disposable.Buffer",
+                { Type: "AsyncCallback" } => $"{parameter.Name}",
+                { Type: "AsyncContext" } => "null",
                 { Type: "AsyncTask" } => $"GCHandle.ToIntPtr({parameter.Name})",
                 { modifier: "out" } => $"out var {parameter.Name}",
                 _ => parameter.Name
@@ -399,7 +399,7 @@ namespace BindingsGeneration
                 TypeRecord argumentTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argument.SwiftTypeSpec);
                 if (!MarshallingHelpers.IsTypeFrozen(argumentTypeRecord))
                 {
-                    AddParameter("SwiftHandle", argument.Name);
+                    AddParameter("SafeHandle", argument.Name);
                     continue;
                 }
 
@@ -613,6 +613,7 @@ namespace BindingsGeneration
         {
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
+            EmitSafeHandleAddRef(csWriter);
             EmitSwiftSelf(csWriter);
             EmitIndirectResultConstructor(csWriter);
             EmitPInvokeCall(csWriter);
@@ -631,8 +632,11 @@ namespace BindingsGeneration
             EmitSignatureMethod(csWriter);
             EmitBodyStart(csWriter);
             EmitAsync(csWriter, swiftWriter);
+            EmitSafeHandleAddRef(csWriter);
 
             EmitDeclarationsForAllocations(csWriter);
+
+            EmitTryBlockStart(csWriter);
 
             EmitSwiftSelf(csWriter);
             EmitIndirectResultMethod(csWriter);
@@ -643,6 +647,8 @@ namespace BindingsGeneration
             EmitSwiftError(csWriter);
             EmitReturnMethod(csWriter);
 
+            EmitTryBlockEnd(csWriter);
+            EmitFinally(csWriter);
             EmitBodyEnd(csWriter);
         }
 
@@ -651,6 +657,14 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitDeclarationsForAllocations(CSharpWriter csWriter)
         {
+            foreach (var genericParameter in _env.MethodDecl.GenericParameters)
+            {
+                var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
+                var metadataName = NameProvider.GetMetadataName(csTypeParamName);
+
+                csWriter.WriteLine($"TypeMetadata {metadataName} = TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>();");
+            }
+
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
             {
                 var payloadName = NameProvider.GetPayloadName(argument.Name);
@@ -673,13 +687,13 @@ namespace BindingsGeneration
             {
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                 if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
-                    csWriter.WriteLine($"var self = new SwiftSelf<Buffer>(_payload);");
+                    csWriter.WriteLine($"var self = new SwiftSelf<{structDecl.Name}.Buffer>(*({structDecl.Name}.Buffer*)_payload.DangerousGetHandle());");
                 else
-                    csWriter.WriteLine($"var self = new SwiftSelf<{_env.ParentDecl.Name}>(this);");
+                    csWriter.WriteLine($"var self = new SwiftSelf<{structDecl.Name}>(this);");
             }
             else
             {
-                csWriter.WriteLine("var self = new SwiftSelf((void*)_payload);");
+                csWriter.WriteLine("var self = new SwiftSelf((void*)_payload.DangerousGetHandle());");
             }
 
             csWriter.WriteLine();
@@ -777,8 +791,8 @@ namespace BindingsGeneration
             }
 
             var text = $$"""
-            _payload = (SwiftHandle)NativeMemory.Alloc(_payloadSize);
-            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload);
+            _payload = new SwiftSafeHandle<{{_env.ParentDecl.Name}}>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             """;
 
             csWriter.WriteLines(text);
@@ -799,8 +813,8 @@ namespace BindingsGeneration
 
             var text = $$"""
             var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{_wrapperSignature.ReturnType}}>();
-            var payload = (SwiftHandle)NativeMemory.Alloc(returnMetadata.Size);
-            var swiftIndirectResult = new SwiftIndirectResult((void*)payload);
+            var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+            var swiftIndirectResult = new SwiftIndirectResult(payload);
             """;
 
             csWriter.WriteLines(text);
@@ -817,7 +831,73 @@ namespace BindingsGeneration
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
                 {
                     var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
-                    csWriter.WriteLine($"var {bufferName} = {argumentDecl.Name}.Payload;");
+                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
+                    csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Emits the SafeHandle add reference.
+        /// Frozen structs are passed as lowered buffers, so explicit retain is needed.
+        /// Non-frozen structs are passed as SafeHandle, so reference counting is managed automatically.
+        /// Generics are copied prior to the call via MarshalToSwift, no ref counting is needed on a copy. InitWithCopy is called to create a copy.
+        /// </summary>
+        private void EmitSafeHandleAddRef(CSharpWriter csWriter)
+        {
+            if (_env.MethodDecl.MethodType != MethodType.Static && !_env.MethodDecl.IsConstructor)
+            {
+                if (_env.ParentDecl is StructDecl structDecl)
+                {
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                    if (MarshallingHelpers.RequiresMemoryManagement(typeRecord) || !MarshallingHelpers.IsTypeFrozen(typeRecord))
+                    {
+                        csWriter.WriteLine($"var success = false;");
+                        csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                    }
+                }
+            }
+
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a)))
+            {
+                TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
+                if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+                {
+                    csWriter.WriteLine($"using PayloadBuffer<{typeRecord.CSharpTypeName}.Buffer> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Emits the SafeHandle release.
+        /// Frozen structs are passed as lowered buffers, so explicit release is needed.
+        /// Non-frozen structs are passed as SafeHandle, so reference counting is managed automatically.
+        /// Generics are copied prior to the call via MarshalToSwift, no ref counting is needed on a copy; Destroy is called on the copy.
+        /// </summary>
+        private void EmitSafeHandleRelease(CSharpWriter csWriter)
+        {
+            if (_env.MethodDecl.MethodType != MethodType.Static && !_env.MethodDecl.IsConstructor)
+            {
+                if (_env.ParentDecl is StructDecl structDecl)
+                {
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                    if (MarshallingHelpers.RequiresMemoryManagement(typeRecord) || !MarshallingHelpers.IsTypeFrozen(typeRecord))
+                    {
+                        csWriter.WriteLine($"if (success)");
+                        csWriter.WriteLine($"   _payload.DangerousRelease();");
+                    }
+                }
+            }
+
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (argumentDecl.IsGeneric)
+                {
+                    var csTypeParamName = _env.GenericTypeMapping[argumentDecl.SwiftTypeSpec.ToString()].TypeParameter;
+                    var metadataName = NameProvider.GetMetadataName(csTypeParamName);
+                    var payloadName = NameProvider.GetPayloadName(argumentDecl.Name);
+                    csWriter.WriteLine($"{metadataName}.ValueWitnessTable->Destroy((void *){payloadName}, {metadataName});");
+                    continue;
                 }
             }
         }
@@ -827,14 +907,6 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitGenericArguments(CSharpWriter csWriter)
         {
-            foreach (var genericParameter in _env.MethodDecl.GenericParameters)
-            {
-                var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
-                var metadataName = NameProvider.GetMetadataName(csTypeParamName);
-
-                csWriter.WriteLine($"var {metadataName} = TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>();");
-            }
-
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
             {
                 var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
@@ -842,9 +914,9 @@ namespace BindingsGeneration
                 var payloadName = NameProvider.GetPayloadName(argument.Name);
 
                 var text = $$"""
-                byte* {{payloadName}}Ptr = stackalloc byte[(int){{metadataName}}.Size];
-                {{payloadName}} = (IntPtr){{payloadName}}Ptr;
-                SwiftMarshal.MarshalToSwift({{argument.Name}}, {{payloadName}});
+                Span<byte> {{payloadName}}Span = stackalloc byte[(int){{metadataName}}.Size];
+                {{payloadName}} = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference({{payloadName}}Span));
+                SwiftMarshal.MarshalToSwift({{argument.Name}}, ref {{payloadName}}Span);
                 """;
                 csWriter.WriteLines(text);
             }
@@ -914,7 +986,12 @@ namespace BindingsGeneration
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 {
-                    csWriter.WriteLine($"_payload = result;");
+                    csWriter.WriteLine($@"
+                        unsafe {{
+                            IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({_env.ParentDecl.Name}.Buffer));
+                            *({_env.ParentDecl.Name}.Buffer*)bufferPtr = result;
+                            _payload = new SwiftSafeHandle<{structDecl.Name}>(bufferPtr);
+                        }}");
                     return;
                 }
             }
@@ -940,7 +1017,7 @@ namespace BindingsGeneration
 
             if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
             {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg)}>((SwiftHandle)new IntPtr(&result));");
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg)}>(new IntPtr(&result));");
                 return;
             }
 
@@ -951,7 +1028,7 @@ namespace BindingsGeneration
                 {
                     csWriter.WriteLine($$"""
                         unsafe {
-                            return SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>((SwiftHandle)new IntPtr(&result));
+                            return SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(new IntPtr(&result));
                         }
                         """);
                     return;
@@ -960,7 +1037,7 @@ namespace BindingsGeneration
 
             if (_requiresIndirectResult)
             {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>((SwiftHandle)swiftIndirectResult.Value);");
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(new IntPtr(swiftIndirectResult.Value));");
                 return;
             }
 
@@ -985,7 +1062,7 @@ namespace BindingsGeneration
                 false => ""
             };
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} {_env.ParentDecl.Name}{genericParams}({_wrapperSignature.ParametersString()})");
+            csWriter.WriteLine($"{accessModifier} unsafe {_env.ParentDecl.Name}{genericParams}({_wrapperSignature.ParametersString()})");
         }
 
         /// <summary>
@@ -1003,7 +1080,7 @@ namespace BindingsGeneration
             bool containsBoundGenerics = _env.MethodDecl.CSSignature.Any(_env.BoundGenericsHandler.IsBoundGeneric);
 
             var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl ? "static " : "";
-            var unsafeKeyword = _requiresIndirectResult || _requiresSwiftAsync || _env.MethodDecl.IsGeneric || containsBoundGenerics ? "unsafe " : "";
+            var unsafeKeyword = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _env.MethodDecl.IsGeneric || containsBoundGenerics ? "unsafe " : "";
 
             var returnType = _wrapperSignature.ReturnType;
             if (_requiresSwiftAsync)
@@ -1027,13 +1104,9 @@ namespace BindingsGeneration
             var returnType = _env.MethodDecl.CSSignature.First();
             TypeRecord returnTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
             var voidReturn = returnType.SwiftTypeSpec.IsEmptyTuple;
-            var requiresInitWithCopy = !voidReturn && (!MarshallingHelpers.IsTypeFrozen(returnTypeRecord) || _env.BoundGenericsHandler.IsBoundGeneric(returnType));
+            var requiresInitWithCopy = !voidReturn && (MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord) || returnType.IsGeneric);
 
-            var copyExpression = $$"""
-                var metadata = SwiftObjectHelper<{{_wrapperSignature.ReturnType}}>.GetTypeMetadata();
-                byte* payload = stackalloc byte[(int)metadata.Size];
-                SwiftMarshal.MarshalToSwift(result, (IntPtr)payload);
-            """;
+            var marshallFromSwiftArgument = "new IntPtr(&rawResult)";
 
             var text = $$"""
                         private static unsafe delegate* unmanaged[Cdecl]<{{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType}, ")}}IntPtr, void> s_{{_env.MethodDecl.Name}}Callback = &{{_env.MethodDecl.Name}}OnComplete;
@@ -1043,8 +1116,11 @@ namespace BindingsGeneration
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
                             {
-                                {{(voidReturn ? "" : $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>((SwiftHandle)new IntPtr(&rawResult));")}}
-                                {{(requiresInitWithCopy ? copyExpression : "")}}
+                                {{(voidReturn ? "" : $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({marshallFromSwiftArgument});")}}
+                                {{(requiresInitWithCopy ? $"var metadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();" : "")}}
+                                {{(requiresInitWithCopy ? $"Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];" : "")}}
+                                {{(requiresInitWithCopy ? $"IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));" : "")}}
+                                {{(requiresInitWithCopy ? $"SwiftMarshal.MarshalToSwift(result, ref payloadSpan);" : "")}}
                                 if (handle.Target is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} tcs)
                                 {
                                     tcs.TrySetResult({{(voidReturn ? "" : "result")}});
@@ -1067,6 +1143,34 @@ namespace BindingsGeneration
         {
             csWriter.WriteLine("{");
             csWriter.Indent++;
+        }
+
+        /// <summary>
+        /// Emits the finally block.
+        /// </summary>
+        private void EmitFinally(CSharpWriter csWriter)
+        {
+            csWriter.WriteLine("finally");
+            EmitBodyStart(csWriter);
+            EmitSafeHandleRelease(csWriter);
+            EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the try block start.
+        /// </summary>
+        private void EmitTryBlockStart(CSharpWriter csWriter)
+        {
+            csWriter.WriteLine("try");
+            EmitBodyStart(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the try block end.
+        /// </summary>
+        private void EmitTryBlockEnd(CSharpWriter csWriter)
+        {
+            EmitBodyEnd(csWriter);
         }
 
         /// <summary>

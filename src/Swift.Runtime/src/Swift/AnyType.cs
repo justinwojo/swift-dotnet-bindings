@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
 using Swift.Runtime;
 
 #nullable enable
@@ -12,21 +13,21 @@ namespace Swift;
 /// </summary>
 public struct AnyType : ISwiftObject
 {
-    private SwiftHandle _payload = SwiftHandle.Zero;
+    private SwiftSafeHandle<AnyType> _payload = SwiftSafeHandle<AnyType>.Zero;
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        return TypeMetadata.Zero;
+        throw new InvalidOperationException("Cannot get type metadata for AnyType");
     }
     public AnyType(SwiftHandle payload)
     {
-        _payload = payload;
+        _payload = new SwiftSafeHandle<AnyType>(payload);
     }
-    public SwiftHandle Payload => _payload;
+    public SwiftSafeHandle<AnyType> Payload => _payload;
 
     /// <summary>
     /// Creates a new SwiftOptional from a Swift payload
     /// </summary>
-    static ISwiftObject ISwiftObject.NewFromPayload(SwiftHandle payload)
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
         return new AnyType(payload);
     }
@@ -34,24 +35,11 @@ public struct AnyType : ISwiftObject
     /// <summary>
     /// Marshals this object to a Swift destination
     /// </summary>
-    /// <param name="swiftDest"></param>
+    /// <param name="swiftDestSpan"></param>
     /// <returns></returns>
-    IntPtr ISwiftObject.MarshalToSwift(IntPtr swiftDest)
+    int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
-        var metadata = SwiftObjectHelper<AnyType>.GetTypeMetadata();
-        if (!metadata.IsValid)
-        {
-            throw new InvalidOperationException("Cannot marshal AnyType to Swift without metadata");
-        }
-        if (_payload == SwiftHandle.Zero)
-        {
-            throw new InvalidOperationException("Cannot marshal AnyType to Swift without payload");
-        }
-        unsafe
-        {
-            metadata.ValueWitnessTable->InitializeWithCopy((void*)swiftDest, (void*)_payload, metadata);
-        }
-        return swiftDest;
+        throw new InvalidOperationException("Cannot marshal AnyType to Swift");
     }
 
     /// <summary>

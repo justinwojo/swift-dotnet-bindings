@@ -4,6 +4,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Swift;
@@ -21,15 +22,15 @@ public interface ISwiftHashable { }
 /// Represents a Swift set.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the set.</typeparam>
-public class SwiftSet<Element> : IDisposable, ISwiftObject
+public class SwiftSet<Element> : ISwiftObject
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata().Size;
 
-    static nuint _elementSize = ElementTypeMetadata.Size;
+    private SwiftSafeHandle<SwiftSet<Element>> _payload;
 
-    private SwiftHandle _variant;
+    public SwiftSafeHandle<SwiftSet<Element>> Payload => _payload;
 
-    private bool _disposed = false;
+    public unsafe PayloadBuffer<IntPtr> PayloadBuffer => new PayloadBuffer<IntPtr>(_payload);
 
     private static Dictionary<Type, string> _protocolConformanceSymbols;
 
@@ -40,40 +41,6 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
             { typeof(ISwiftCollection), "$sShyxGSlsMc" }
         };
     }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!_disposed)
-        {
-            var metadata = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
-
-            unsafe
-            {
-                fixed (void* payload = &_variant)
-                {
-                    metadata.ValueWitnessTable->Destroy(payload, metadata);
-                }
-            }
-            _disposed = true;
-        }
-    }
-
-    ~SwiftSet()
-    {
-        Dispose(disposing: false);
-    }
-
-    public static nuint PayloadSize => _payloadSize;
-
-    public SwiftHandle Payload => _variant;
-
-    public static nuint ElementSize => _elementSize;
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
@@ -86,22 +53,37 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
         get => TypeMetadata.GetTypeMetadataOrThrow<Element>();
     }
 
-    static ISwiftObject ISwiftObject.NewFromPayload(SwiftHandle handle)
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
         return new SwiftSet<Element>(handle);
     }
 
-    IntPtr ISwiftObject.MarshalToSwift(IntPtr swiftDest)
+    int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
+        if ((int)metadata.Size > swiftDestSpan.Length)
+        {
+            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+        }
         unsafe
         {
-            fixed (void* _payloadPtr = &_variant)
+            fixed (void* swiftDest = swiftDestSpan)
             {
-                metadata.ValueWitnessTable->InitializeWithCopy((void*)swiftDest, (void*)_payloadPtr, metadata);
+                // Ensure the payload is valid before making copy
+                bool success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                    return (int)metadata.Size;
+                }
+                finally
+                {
+                    if (success)
+                        _payload.DangerousRelease();
+                }
             }
         }
-        return swiftDest;
     }
 
     /// <summary>
@@ -122,29 +104,37 @@ public class SwiftSet<Element> : IDisposable, ISwiftObject
     /// <summary>
     /// Constructs a new SwiftSet from the given handle.
     /// </summary>
-    unsafe SwiftSet(SwiftHandle handle)
+    unsafe SwiftSet(IntPtr handle)
     {
-        _variant = *(SwiftHandle*)handle;
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+        *(IntPtr*)bufferPtr = *(IntPtr*)handle;
+        _payload = new SwiftSafeHandle<SwiftSet<Element>>(bufferPtr);
     }
 
     /// <summary>
     /// Constructs a new empty SwiftSet.
     /// </summary>
-    public SwiftSet()
+    public unsafe SwiftSet()
     {
         var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
-        _variant = SwiftSetPInvokes.Init(ElementTypeMetadata, witnessTable);
+        var result = SwiftSetPInvokes.Init(ElementTypeMetadata, witnessTable);
+
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+        *(IntPtr*)bufferPtr = result;
+        _payload = new SwiftSafeHandle<SwiftSet<Element>>(bufferPtr);
     }
 
     /// <summary>
     /// Gets the number of elements in the set.
     /// </summary>
-    public unsafe int Count
+    public int Count
     {
         get
         {
+            using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
             var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
-            return (int)SwiftSetPInvokes.Count(_variant, ElementTypeMetadata, witnessTable);
+            int result = (int)SwiftSetPInvokes.Count(disposable.Buffer, ElementTypeMetadata, witnessTable);
+            return result;
         }
     }
 }
@@ -157,9 +147,9 @@ internal static class SwiftSetPInvokes
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sS2hyxGycfC")]
-    public static extern SwiftHandle Init(TypeMetadata elementTypeMetadata, ProtocolWitnessTable witnessTable);
+    public static extern IntPtr Init(TypeMetadata elementTypeMetadata, ProtocolWitnessTable witnessTable);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh5countSivg")]
-    public static extern nint Count(SwiftHandle handle, TypeMetadata elementMetadata, ProtocolWitnessTable witnessTable);
+    public static extern nint Count(IntPtr handle, TypeMetadata elementMetadata, ProtocolWitnessTable witnessTable);
 }

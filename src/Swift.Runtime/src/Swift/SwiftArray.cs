@@ -4,6 +4,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Swift;
@@ -21,15 +22,17 @@ public interface ISwiftCollection { }
 /// Represents a Swift array.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the array.</typeparam>
-public class SwiftArray<Element> : IDisposable, ISwiftObject
+public class SwiftArray<Element> : ISwiftObject
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata().Size;
 
     static nuint _elementSize = ElementTypeMetadata.Size;
 
-    private SwiftHandle _buffer;
+    private SwiftSafeHandle<SwiftArray<Element>> _payload;
 
-    private bool _disposed = false;
+    public SwiftSafeHandle<SwiftArray<Element>> Payload => _payload;
+
+    public unsafe PayloadBuffer<IntPtr> PayloadBuffer => new PayloadBuffer<IntPtr>(_payload);
 
     private static Dictionary<Type, string> _protocolConformanceSymbols;
 
@@ -41,40 +44,6 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
         };
     }
 
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!_disposed)
-        {
-            var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-
-            unsafe
-            {
-                fixed (void* payload = &_buffer)
-                {
-                    metadata.ValueWitnessTable->Destroy(payload, metadata);
-                }
-            }
-            _disposed = true;
-        }
-    }
-
-    ~SwiftArray()
-    {
-        Dispose(disposing: false);
-    }
-
-    public static nuint PayloadSize => _payloadSize;
-
-    public SwiftHandle Payload => _buffer;
-
-    public static nuint ElementSize => _elementSize;
-
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftArray<Element>), _ => SwiftArrayPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, ElementTypeMetadata));
@@ -85,22 +54,37 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
         get => TypeMetadata.GetTypeMetadataOrThrow<Element>();
     }
 
-    static ISwiftObject ISwiftObject.NewFromPayload(SwiftHandle handle)
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
         return new SwiftArray<Element>(handle);
     }
 
-    IntPtr ISwiftObject.MarshalToSwift(IntPtr swiftDest)
+    int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+        if ((int)metadata.Size > swiftDestSpan.Length)
+        {
+            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+        }
         unsafe
         {
-            fixed (void* _payloadPtr = &_buffer)
+            fixed (void* swiftDest = swiftDestSpan)
             {
-                metadata.ValueWitnessTable->InitializeWithCopy((void*)swiftDest, (void*)_payloadPtr, metadata);
+                // Ensure the payload is valid before making copy
+                bool success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                    return (int)metadata.Size;
+                }
+                finally
+                {
+                    if (success)
+                        _payload.DangerousRelease();
+                }
             }
         }
-        return swiftDest;
     }
 
     /// <summary>
@@ -121,27 +105,34 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
     /// <summary>
     /// Constructs a new SwiftArray from the given handle.
     /// </summary>
-    unsafe SwiftArray(SwiftHandle handle)
+    unsafe SwiftArray(IntPtr handle)
     {
-        _buffer = *(SwiftHandle*)handle;
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+        *(IntPtr*)bufferPtr = *(IntPtr*)handle;
+        _payload = new SwiftSafeHandle<SwiftArray<Element>>(bufferPtr);
     }
 
     /// <summary>
     /// Constructs a new empty SwiftArray.
     /// </summary>
-    public SwiftArray()
+    public unsafe SwiftArray()
     {
-        _buffer = SwiftArrayPInvokes.Init(ElementTypeMetadata);
+        IntPtr result = SwiftArrayPInvokes.Init(ElementTypeMetadata);
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
+        *(IntPtr*)bufferPtr = result;
+        _payload = new SwiftSafeHandle<SwiftArray<Element>>(bufferPtr);
     }
 
     /// <summary>
     /// Gets the number of elements in the array.
     /// </summary>
-    public unsafe int Count
+    public int Count
     {
         get
         {
-            return (int)SwiftArrayPInvokes.Count(_buffer, ElementTypeMetadata);
+            using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
+            int result = (int)SwiftArrayPInvokes.Count(disposable.Buffer, ElementTypeMetadata);
+            return result;
         }
     }
 
@@ -150,21 +141,20 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
     /// </summary>
     public unsafe void Append(Element item)
     {
-        IntPtr payload = IntPtr.Zero;
         var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
         try
         {
-            payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-            SwiftMarshal.MarshalToSwift(item, payload);
-
-            fixed (void* bufferPtr = &_buffer)
-            {
-                SwiftArrayPInvokes.Append(payload, metadata, new SwiftSelf(bufferPtr));
-            }
+            Span<byte> span = stackalloc byte[(int)_elementSize];
+            IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+            SwiftMarshal.MarshalToSwift(item, ref span);
+            SwiftArrayPInvokes.Append(payload, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
         }
         finally
         {
-            NativeMemory.Free((void*)payload);
+            if (success)
+                _payload.DangerousRelease();
         }
     }
 
@@ -173,20 +163,20 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
     /// </summary>
     public unsafe void Insert(int index, Element item)
     {
-        IntPtr payload = IntPtr.Zero;
-        var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
         try
         {
-            payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-            SwiftMarshal.MarshalToSwift(item, payload);
-            fixed (void* bufferPtr = &_buffer)
-            {
-                SwiftArrayPInvokes.Insert(new SwiftHandle(payload), (nint)index, metadata, new SwiftSelf(bufferPtr));
-            }
+            var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+            Span<byte> span = stackalloc byte[(int)_elementSize];
+            IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+            SwiftMarshal.MarshalToSwift(item, ref span);
+            SwiftArrayPInvokes.Insert(payload, index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
         }
         finally
         {
-            NativeMemory.Free((void*)payload);
+            if (success)
+                _payload.DangerousRelease();
         }
     }
 
@@ -195,21 +185,18 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
     /// </summary>
     public unsafe void Remove(int index)
     {
-        IntPtr payload = IntPtr.Zero;
-        var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
         try
         {
-            payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-            SwiftMarshal.MarshalToSwift(index, payload);
-
-            fixed (void* bufferPtr = &_buffer)
-            {
-                SwiftArrayPInvokes.Remove(new SwiftIndirectResult((void*)payload), (nint)index, metadata, new SwiftSelf(bufferPtr));
-            }
+            var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+            byte* payload = stackalloc byte[(int)_elementSize];
+            SwiftArrayPInvokes.Remove(new SwiftIndirectResult(payload), index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
         }
         finally
         {
-            NativeMemory.Free((void*)payload);
+            if (success)
+                _payload.DangerousRelease();
         }
     }
 
@@ -218,11 +205,17 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
     /// </summary>
     public unsafe void RemoveAll()
     {
-        var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-
-        fixed (void* bufferPtr = &_buffer)
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
+        try
         {
-            SwiftArrayPInvokes.RemoveAll(1, metadata, new SwiftSelf(bufferPtr));
+            var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+            SwiftArrayPInvokes.RemoveAll(1, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
+        }
+        finally
+        {
+            if (success)
+                _payload.DangerousRelease();
         }
     }
 
@@ -233,26 +226,19 @@ public class SwiftArray<Element> : IDisposable, ISwiftObject
     {
         get
         {
-            if (index < 0 || index >= Count)
-                throw new IndexOutOfRangeException();
-
-            IntPtr payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-            SwiftArrayPInvokes.Get(new SwiftIndirectResult((void*)payload), (nint)index, _buffer, ElementTypeMetadata);
-            return SwiftMarshal.MarshalFromSwift<Element>(new SwiftHandle(payload));
+            using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
+            void* payload = NativeMemory.Alloc(_elementSize);
+            SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), index, disposable.Buffer, ElementTypeMetadata);
+            return SwiftMarshal.MarshalFromSwift<Element>((IntPtr)payload);
         }
         set
         {
-            if (index < 0 || index >= Count)
-                throw new IndexOutOfRangeException();
-
+            using PayloadBuffer<IntPtr> _ = PayloadBuffer;
             var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            IntPtr payload = (IntPtr)NativeMemory.Alloc(ElementSize);
-            SwiftMarshal.MarshalToSwift(value, payload);
-
-            fixed (void* bufferPtr = &_buffer)
-            {
-                SwiftArrayPInvokes.Set(new SwiftHandle(payload), (nint)index, metadata, new SwiftSelf(bufferPtr));
-            }
+            Span<byte> span = stackalloc byte[(int)_elementSize];
+            IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+            SwiftMarshal.MarshalToSwift(value, ref span);
+            SwiftArrayPInvokes.Set(payload, index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
         }
     }
 }
@@ -265,33 +251,33 @@ internal static class SwiftArrayPInvokes
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sS2ayxGycfC")]
-    public static extern SwiftHandle Init(TypeMetadata typeMetadata);
+    public static extern IntPtr Init(TypeMetadata typeMetadata);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSayxSicig")]
-    public static unsafe extern void Get(SwiftIndirectResult result, nint index, SwiftHandle handle, TypeMetadata elementMetadata);
+    public static extern void Get(SwiftIndirectResult result, nint index, IntPtr handle, TypeMetadata elementMetadata);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSayxSicis")]
-    public static unsafe extern void Set(SwiftHandle value, nint index, TypeMetadata elementMetadata, SwiftSelf self);
+    public static extern void Set(IntPtr value, nint index, TypeMetadata elementMetadata, SwiftSelf self);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa5countSivg")]
-    public static extern nint Count(SwiftHandle handle, TypeMetadata elementMetadata);
+    public static extern nint Count(IntPtr handle, TypeMetadata elementMetadata);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa6appendyyxnF")]
-    public static unsafe extern void Append(IntPtr value, TypeMetadata metadata, SwiftSelf self);
+    public static extern void Append(IntPtr value, TypeMetadata metadata, SwiftSelf self);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa9removeAll15keepingCapacityySb_tF")]
-    public static unsafe extern void RemoveAll(byte keepCapacity, TypeMetadata metadata, SwiftSelf self);
+    public static extern void RemoveAll(byte keepCapacity, TypeMetadata metadata, SwiftSelf self);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa6remove2atxSi_tF")]
-    public static unsafe extern void Remove(SwiftIndirectResult result, nint index, TypeMetadata metadata, SwiftSelf self);
+    public static extern void Remove(SwiftIndirectResult result, nint index, TypeMetadata metadata, SwiftSelf self);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa6insert_2atyxn_SitF")]
-    public static unsafe extern void Insert(SwiftHandle value, nint index, TypeMetadata metadata, SwiftSelf self);
+    public static extern void Insert(IntPtr value, nint index, TypeMetadata metadata, SwiftSelf self);
 }

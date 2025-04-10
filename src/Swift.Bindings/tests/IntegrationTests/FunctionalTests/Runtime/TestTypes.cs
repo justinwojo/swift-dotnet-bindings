@@ -28,12 +28,12 @@ struct SwiftIntMock : ISwiftObject
         return TypeMetadata.GetTypeMetadataOrThrow<nint>();
     }
 
-    static ISwiftObject ISwiftObject.NewFromPayload(SwiftHandle payload)
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
         throw new NotImplementedException();
     }
 
-    nint ISwiftObject.MarshalToSwift(nint swiftDest)
+    int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         throw new NotImplementedException();
     }

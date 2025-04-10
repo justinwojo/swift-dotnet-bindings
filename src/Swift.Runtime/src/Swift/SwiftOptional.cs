@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
@@ -44,7 +45,7 @@ public class SwiftOptional<T> : ISwiftObject
     /// <summary>
     /// Creates a new SwiftOptional from a Swift payload
     /// </summary>
-    static ISwiftObject ISwiftObject.NewFromPayload(SwiftHandle payload)
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
         var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
         var instance = new SwiftOptional<T>();
@@ -61,19 +62,24 @@ public class SwiftOptional<T> : ISwiftObject
     /// <summary>
     /// Marshals this object to a Swift destination
     /// </summary>
-    /// <param name="swiftDest"></param>
+    /// <param name="swiftDestSpan"></param>
     /// <returns></returns>
-    IntPtr ISwiftObject.MarshalToSwift(IntPtr swiftDest)
+    int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
+        if ((int)metadata.Size > swiftDestSpan.Length)
+        {
+            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+        }
         unsafe
         {
             fixed (byte* payload = _payload)
+            fixed (void* swiftDest = swiftDestSpan)
             {
-                metadata.ValueWitnessTable->InitializeWithCopy((void*)swiftDest, payload, metadata);
+                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, payload, metadata);
+                return (int)metadata.Size;
             }
         }
-        return swiftDest;
     }
 
     /// <summary>
@@ -99,7 +105,10 @@ public class SwiftOptional<T> : ISwiftObject
             fixed (byte* payload = instance._payload)
             {
                 var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
-                SwiftMarshal.MarshalToSwift(value, new IntPtr(payload));
+                // The additional byte is a discriminator for the enum case
+                // https://github.com/swiftlang/swift/blob/8c8ed346edac36f07ece5518f40e35c05e4aa13a/stdlib/public/core/Optional.swift#L121
+                Span<byte> payloadSpan = new Span<byte>(payload, (int)metadata.Size - 1);
+                SwiftMarshal.MarshalToSwift(value, ref payloadSpan);
                 metadata.ValueWitnessTable->DestructiveInjectEnumTag(payload, (uint)SwiftOptionalCases.Some, metadata);
                 return instance;
             }
@@ -159,8 +168,7 @@ public class SwiftOptional<T> : ISwiftObject
                 _payload.CopyTo(payload);
                 fixed (byte* payloadPtr = payload)
                 {
-                    metadata.ValueWitnessTable->DestructiveProjectEnumData(payloadPtr, metadata);
-                    return SwiftMarshal.MarshalFromSwift<T>((SwiftHandle)new IntPtr(payloadPtr));
+                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(payloadPtr));
                 }
             }
         }

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -22,6 +23,7 @@ public interface ISwiftContiguousBytes { }
 
 /// <summary>
 /// Represents Foundation.Data type.
+/// https://developer.apple.com/documentation/foundation/data
 /// </summary>
 public struct Data : ISwiftObject
 {
@@ -47,24 +49,29 @@ public struct Data : ISwiftObject
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataVMa")]
-    public static unsafe extern TypeMetadata PInvoke_getMetadata();
+    public static extern TypeMetadata PInvoke_getMetadata();
 
-    static unsafe ISwiftObject ISwiftObject.NewFromPayload(SwiftHandle handle)
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
         return new Data(handle);
     }
 
-    IntPtr ISwiftObject.MarshalToSwift(IntPtr swiftDest)
+    int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         var metadata = SwiftObjectHelper<Data>.GetTypeMetadata();
+        if ((int)metadata.Size > swiftDestSpan.Length)
+        {
+            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+        }
         unsafe
         {
             fixed (void* _payloadPtr = &this)
+            fixed (void* swiftDest = swiftDestSpan)
             {
-                metadata.ValueWitnessTable->InitializeWithCopy((void*)swiftDest, (void*)_payloadPtr, metadata);
+                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, _payloadPtr, metadata);
+                return (int)metadata.Size;
             }
         }
-        return swiftDest;
     }
 
     /// <summary>
@@ -85,7 +92,7 @@ public struct Data : ISwiftObject
     /// <summary>
     /// Constructs a new Data from the given handle.
     /// </summary>
-    unsafe Data(SwiftHandle handle)
+    unsafe Data(IntPtr handle)
     {
         this = *(Data*)handle;
     }

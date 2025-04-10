@@ -35,18 +35,21 @@ struct SwiftIntMock : ISwiftObject
         return TypeMetadata.GetTypeMetadataOrThrow<nint>();
     }
 
-    static ISwiftObject ISwiftObject.NewFromPayload(SwiftHandle payload)
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
-        return new SwiftIntMock((int)payload.Handle);
+        return new SwiftIntMock((int)payload);
     }
 
-    nint ISwiftObject.MarshalToSwift(nint swiftDest)
+    int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         unsafe
         {
-            *(int*)swiftDest = Value;
+            fixed (void* swiftDest = swiftDestSpan)
+            {
+                *(int*)swiftDest = Value;
+                return 4;
+            }
         }
-        return swiftDest;
     }
 }
 
@@ -62,12 +65,12 @@ struct AnyTypeMock : ISwiftObject
         return TypeMetadata.Zero;
     }
 
-    static ISwiftObject ISwiftObject.NewFromPayload(SwiftHandle payload)
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
         throw new NotImplementedException();
     }
 
-    nint ISwiftObject.MarshalToSwift(nint swiftDest)
+    int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         throw new NotImplementedException();
     }

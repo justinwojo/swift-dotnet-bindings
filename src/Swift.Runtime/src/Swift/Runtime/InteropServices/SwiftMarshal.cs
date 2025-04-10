@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 namespace Swift.Runtime.InteropServices;
 
 #nullable enable
@@ -15,22 +18,30 @@ public static class SwiftMarshal
     /// </summary>
     /// <typeparam name="T">The type of the value being marshaled</typeparam>
     /// <param name="value">The value to marshal</param>
-    /// <param name="swiftDest">the destination for marshaling</param>
-    /// <returns>A pointer to memory to pass in to Swift for marshaling. Note: this value may be different from the value passed in.</returns>
-    /// <exception cref="NotSupportedException"></exception>
-    public static IntPtr MarshalToSwift<T>(T value, IntPtr swiftDest)
+    /// <param name="swiftDestSpan">the destination for marshaling</param>
+    /// <returns>the number of bytes written to the destination</returns>
+    public static int MarshalToSwift<T>(T value, ref Span<byte> swiftDestSpan)
     {
         if (value is ISwiftObject swiftValue)
         {
-            return swiftValue.MarshalToSwift(new IntPtr(swiftDest));
+            return swiftValue.MarshalToSwift(ref swiftDestSpan);
         }
 
         var type = typeof(T);
-        if (type.IsPrimitive || typeof(nint).IsAssignableFrom(type) || typeof(nuint).IsAssignableFrom(type))
+        if ((type.IsPrimitive || typeof(nint).IsAssignableFrom(type) || typeof(nuint).IsAssignableFrom(type)) && !typeof(char).IsAssignableFrom(type))
         {
             unsafe
             {
-                return new IntPtr(MarshalPrimitiveToSwift(value, (void*)swiftDest));
+                int size = Unsafe.SizeOf<T>();
+                if (size > swiftDestSpan.Length)
+                {
+                    throw new ArgumentException($"Span size does not match type size, Expected: {size}, Actual: {swiftDestSpan.Length}");
+                }
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    MarshalPrimitiveToSwift(value, swiftDest);
+                    return size;
+                }
             }
         }
 
@@ -51,72 +62,59 @@ public static class SwiftMarshal
     /// <param name="swiftDest">where in memory to marshal it</param>
     /// <returns>the resulting pointer for passing to a Swift method.</returns>
     /// <exception cref="NotSupportedException"></exception>
-    static unsafe void* MarshalPrimitiveToSwift<T>(T value, void* swiftDest)
+    static unsafe void MarshalPrimitiveToSwift<T>(T value, void* swiftDest)
     {
         if (value is bool boolValue)
         {
             *((byte*)swiftDest) = (byte)(boolValue ? 1 : 0);
-            return swiftDest;
         }
         else if (value is byte byteValue)
         {
             *((byte*)swiftDest) = byteValue;
-            return swiftDest;
         }
         else if (value is sbyte sbyteValue)
         {
             *((sbyte*)swiftDest) = sbyteValue;
-            return swiftDest;
         }
         else if (value is short shortValue)
         {
             *((short*)swiftDest) = shortValue;
-            return swiftDest;
         }
         else if (value is ushort ushortValue)
         {
             *((ushort*)swiftDest) = ushortValue;
-            return swiftDest;
         }
         else if (value is int intValue)
         {
             *((int*)swiftDest) = intValue;
-            return swiftDest;
         }
         else if (value is uint uintValue)
         {
             *((uint*)swiftDest) = uintValue;
-            return swiftDest;
         }
         else if (value is long longValue)
         {
             *((long*)swiftDest) = longValue;
-            return swiftDest;
         }
         else if (value is ulong ulongValue)
         {
             *((ulong*)swiftDest) = ulongValue;
-            return swiftDest;
         }
         else if (value is float floatValue)
         {
             *((float*)swiftDest) = floatValue;
-            return swiftDest;
         }
         else if (value is double doubleValue)
         {
             *((double*)swiftDest) = doubleValue;
-            return swiftDest;
         }
         else if (value is nint nintValue)
         {
             *((nint*)swiftDest) = nintValue;
-            return swiftDest;
         }
         else if (value is nuint nuintValue)
         {
             *((nuint*)swiftDest) = nuintValue;
-            return swiftDest;
         }
         else
         {
@@ -131,19 +129,19 @@ public static class SwiftMarshal
     /// <param name="swiftSource">Memory to read from</param>
     /// <returns>The C# type created by marshaling</returns>
     /// <exception cref="NotSupportedException"></exception>
-    public static T MarshalFromSwift<T>(SwiftHandle swiftSource)
+    public static T MarshalFromSwift<T>(IntPtr swiftSource)
     {
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
         {
             var helper = typeof(SwiftObjectHelper<>).MakeGenericType(typeof(T));
-            return (T)helper.GetMethod("NewFromPayload")!.Invoke(null, new object[] { new SwiftHandle(swiftSource) })!;
+            return (T)helper.GetMethod("NewFromPayload")!.Invoke(null, new object[] { swiftSource })!;
         }
         var type = typeof(T);
         if (type.IsPrimitive)
         {
             unsafe
             {
-                return MarshalPrimitiveFromSwift<T>((void*)swiftSource);
+                return MarshalPrimitiveFromSwift<T>(swiftSource);
             }
         }
 
@@ -162,7 +160,7 @@ public static class SwiftMarshal
     /// <param name="swiftSource">Memory to read from</param>
     /// <returns>The marshaled type</returns>
     /// <exception cref="NotSupportedException"></exception>
-    public static unsafe T MarshalPrimitiveFromSwift<T>(void* swiftSource)
+    public static unsafe T MarshalPrimitiveFromSwift<T>(IntPtr swiftSource)
     {
         if (typeof(T) == typeof(bool))
         {

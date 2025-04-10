@@ -78,12 +78,12 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
             return TypeMetadata.Zero;
         }
 
-        IntPtr ISwiftObject.MarshalToSwift(IntPtr swiftDest)
+        int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
-            return swiftDest;
+            return 0;
         }
 
-        static ISwiftObject ISwiftObject.NewFromPayload(SwiftHandle payload)
+        static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
         {
             return new ThisOnlyGetsUsedHere();
         }
