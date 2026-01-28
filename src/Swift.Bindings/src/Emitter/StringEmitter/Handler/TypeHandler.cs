@@ -1063,8 +1063,10 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase)
         {
-            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec);
-            var csharpTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var csharpTypeName = boundGenericsHandler.IsBoundGeneric(propertyDecl)
+                ? boundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl)
+                : typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
 
             // Determine accessors
             var hasGetter = propertyDecl.Accessors.OfType<GetAccessorDecl>().Any();
@@ -1108,6 +1110,8 @@ namespace BindingsGeneration
                 return;
             }
 
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
             // Get return type
             var returnType = "void";
             if (methodDecl.CSSignature.Count > 0)
@@ -1115,8 +1119,7 @@ namespace BindingsGeneration
                 var returnArg = methodDecl.CSSignature[0];
                 if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
                 {
-                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(returnArg.SwiftTypeSpec);
-                    returnType = typeRecord.CSharpTypeName.FullyQualifiedName;
+                    returnType = GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler);
                 }
             }
 
@@ -1125,8 +1128,7 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
-                var argTypeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
-                var argTypeName = argTypeRecord.CSharpTypeName.FullyQualifiedName;
+                var argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler);
                 var argName = string.IsNullOrEmpty(arg.Name) ? $"arg{i}" : arg.Name;
                 parameters.Add($"{argTypeName} {argName}");
             }
@@ -1145,6 +1147,32 @@ namespace BindingsGeneration
             }
 
             csWriter.WriteLine($"{returnType} {methodDecl.Name}({string.Join(", ", parameters)});");
+        }
+
+        /// <summary>
+        /// Gets the C# type name for a Swift type specification, handling bound generics.
+        /// </summary>
+        private static string GetCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
+        {
+            // Handle bound generics (e.g., Optional<T>, Array<T>)
+            if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            {
+                // Create a temporary property to use the BoundGenericsHandler
+                var tempProperty = new PropertyDecl
+                {
+                    Name = "_temp",
+                    SwiftTypeSpec = typeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                };
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+            }
+
+            // For non-generic types, use the standard lookup
+            return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
         }
     }
 

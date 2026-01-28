@@ -76,5 +76,8 @@
         <entity managedNameSpace="Swift" managedTypeName="SwiftDictionary">
             <typedeclaration kind="struct" name="Dictionary" module="Swift" mangledName="sSD" frozen="true" requiresMemoryManagement="true" />
         </entity>
+        <entity managedNameSpace="Swift" managedTypeName="SwiftOptional">
+            <typedeclaration kind="struct" name="Optional" module="Swift" mangledName="$sSq" frozen="true" requiresMemoryManagement="true" />
+        </entity>
     </entities>
 </swifttypedatabase>
