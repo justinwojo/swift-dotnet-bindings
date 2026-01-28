@@ -446,7 +446,7 @@ namespace BindingsGeneration
         {
             if (_env.MethodDecl.IsAsync)
             {
-                AddParameter("AsyncCallback", $"s_{_env.MethodDecl.Name}Callback");
+                AddParameter("AsyncCallback", NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl));
                 AddParameter("AsyncContext", "context");
                 AddParameter("AsyncTask", "handle");
             }
@@ -1312,7 +1312,7 @@ namespace BindingsGeneration
             }
 
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} {staticKeyword}{unsafeKeyword}{returnType} {_env.MethodDecl.Name}{genericParams}({_wrapperSignature.ParametersString()})");
+            csWriter.WriteLine($"{accessModifier} {staticKeyword}{unsafeKeyword}{returnType} {_env.CSharpMethodName}{genericParams}({_wrapperSignature.ParametersString()})");
         }
 
         /// <summary>
@@ -1331,10 +1331,12 @@ namespace BindingsGeneration
 
             var marshallFromSwiftArgument = "new IntPtr(&rawResult)";
 
+            var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl);
+            var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(_env.MethodDecl);
             var text = $$"""
-                        private static unsafe delegate* unmanaged[Cdecl]<{{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType}, ")}}IntPtr, void> s_{{_env.MethodDecl.Name}}Callback = &{{_env.MethodDecl.Name}}OnComplete;
+                        private static unsafe delegate* unmanaged[Cdecl]<{{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType}, ")}}IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{_env.MethodDecl.Name}}OnComplete({{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType} rawResult, ")}}IntPtr task)
+                        private static void {{callbackMethodName}}({{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType} rawResult, ")}}IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try

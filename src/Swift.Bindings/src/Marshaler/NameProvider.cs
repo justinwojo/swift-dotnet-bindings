@@ -112,4 +112,42 @@ public static class NameProvider
     /// Gets the C# variable name for the buffer of a bound generic type.
     /// </summary>
     public static string GetBoundGenericBufferName(string typeName) => $"{typeName}Buffer";
+
+    /// <summary>
+    /// Gets the name of the async callback delegate field for a method.
+    /// Uses a hash to ensure uniqueness for method overloads.
+    /// </summary>
+    public static string GetAsyncCallbackFieldName(MethodDecl methodDecl)
+    {
+        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        return $"s_{methodDecl.Name}Callback_{mangledHash}";
+    }
+
+    /// <summary>
+    /// Gets the name of the async callback method for a method.
+    /// Uses a hash to ensure uniqueness for method overloads.
+    /// </summary>
+    public static string GetAsyncCallbackMethodName(MethodDecl methodDecl)
+    {
+        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        return $"{methodDecl.Name}OnComplete_{mangledHash}";
+    }
+
+    /// <summary>
+    /// Gets the C# method name, resolving any collisions with property names.
+    /// In Swift, a type can have both a property and a method with the same name,
+    /// but C# does not allow this. Methods that collide with properties are suffixed.
+    /// </summary>
+    /// <param name="methodName">The original method name.</param>
+    /// <param name="propertyNames">Set of property names in the same type.</param>
+    /// <returns>A method name that doesn't collide with any property names.</returns>
+    public static string GetMethodName(string methodName, IReadOnlySet<string>? propertyNames)
+    {
+        if (propertyNames != null && propertyNames.Contains(methodName))
+        {
+            // Append "Method" suffix to disambiguate from property
+            return $"{methodName}Method";
+        }
+        return methodName;
+    }
 }

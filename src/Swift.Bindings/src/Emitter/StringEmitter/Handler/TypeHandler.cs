@@ -191,8 +191,11 @@ namespace BindingsGeneration
             SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
             ISwiftObjectMethodWriter.WriteFrozenStructImplementation();
 
+            // Collect property names for method/property collision detection
+            var propertyNames = new HashSet<string>(structDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+
             base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, propertyNames);
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -312,8 +315,11 @@ namespace BindingsGeneration
 
             csWriter.WriteLine();
 
+            // Collect property names for method/property collision detection
+            var propertyNames = new HashSet<string>(structDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+
             base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, propertyNames);
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -1285,9 +1291,12 @@ namespace BindingsGeneration
             // Emit ISwiftObject stub implementations
             EmitEnumISwiftObjectImplementation(csWriter, enumDecl);
 
+            // Collect property names for method/property collision detection
+            var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+
             // Emit nested types and methods using base handler
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase, propertyNames);
 
             csWriter.Indent--;
             csWriter.WriteLine("}");

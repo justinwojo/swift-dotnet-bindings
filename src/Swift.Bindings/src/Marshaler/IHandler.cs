@@ -89,7 +89,8 @@ namespace BindingsGeneration
         /// <param name="decl">The list of base declarations.</param>
         /// <param name="conductor">The conductor instance.</param>
         /// <param name="typeDatabase">The type database instance.</param>
-        protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase)
+        /// <param name="siblingPropertyNames">Optional set of property names for detecting method/property collisions.</param>
+        protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null)
         {
             // Track emitted method signatures to avoid duplicates
             var emittedMethodSignatures = new HashSet<string>();
@@ -157,7 +158,8 @@ namespace BindingsGeneration
 
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
-                        var env = handler.Marshal(methodDecl, typeDatabase);
+                        // Pass property names to detect method/property name collisions
+                        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames);
                         handler.Emit(csWriter, swiftWriter, env, conductor);
                     }
                     else

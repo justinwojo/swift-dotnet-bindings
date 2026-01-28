@@ -67,7 +67,8 @@ namespace BindingsGeneration
     /// </remarks>
     /// <param name="methodDecl">The method declaration.</param>
     /// <param name="typeDatabase">The type database instance.</param>
-    public class MethodEnvironment(MethodDecl methodDecl, ITypeDatabase typeDatabase) : IEnvironment
+    /// <param name="siblingPropertyNames">Optional set of property names in the same type, used for collision detection.</param>
+    public class MethodEnvironment(MethodDecl methodDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null) : IEnvironment
     {
         /// <summary>
         /// Gets the method declaration.
@@ -103,6 +104,17 @@ namespace BindingsGeneration
         /// Tuple handler instance.
         /// </summary>
         public TupleHandler TupleHandler { get; } = new TupleHandler(typeDatabase);
+
+        /// <summary>
+        /// Gets the set of property names in the same parent type.
+        /// Used to detect and resolve method/property name collisions.
+        /// </summary>
+        public IReadOnlySet<string>? SiblingPropertyNames { get; } = siblingPropertyNames;
+
+        /// <summary>
+        /// Gets the C# method name, resolving any collisions with property names.
+        /// </summary>
+        public string CSharpMethodName => NameProvider.GetMethodName(MethodDecl.Name, SiblingPropertyNames);
     }
 
     /// <summary>
