@@ -4,5 +4,14 @@
         <entity managedNameSpace="Swift" managedTypeName="Data">
             <typedeclaration kind="struct" name="Data" module="Foundation" mangledName="s10Foundation4DataV" frozen="true" requiresMemoryManagement="false" />
         </entity>
+        <entity managedNameSpace="Swift" managedTypeName="URL">
+            <typedeclaration kind="struct" name="URL" module="Foundation" mangledName="$s10Foundation3URLV" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="System" managedTypeName="DateTimeOffset">
+            <typedeclaration kind="struct" name="Date" module="Foundation" mangledName="$s10Foundation4DateV" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="System" managedTypeName="Guid">
+            <typedeclaration kind="struct" name="UUID" module="Foundation" mangledName="$s10Foundation4UUIDV" frozen="true" requiresMemoryManagement="false" />
+        </entity>
     </entities>
 </swifttypedatabase>

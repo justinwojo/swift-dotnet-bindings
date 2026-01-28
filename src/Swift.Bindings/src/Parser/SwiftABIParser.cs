@@ -228,7 +228,11 @@ namespace BindingsGeneration
                             result = CreateMethodDecl(node, parentDecl, moduleDecl);
                         break;
                     case "Var":
-                        result = CreatePropertyDecl(node, parentDecl, moduleDecl);
+                        // Check if this is an enum element (enum case)
+                        if (node.DeclKind == "EnumElement")
+                            result = CreateEnumCaseDecl(node, parentDecl, moduleDecl);
+                        else
+                            result = CreatePropertyDecl(node, parentDecl, moduleDecl);
                         break;
                     case "Import":
                         break;
@@ -271,7 +275,9 @@ namespace BindingsGeneration
 
             TypeDecl? decl;
 
-            if (node.GenericSig is not null)
+            // Skip generic types, except for protocols which can have generic requirements
+            // Protocols with generic requirements (like 'where' clauses) should still be processed
+            if (node.GenericSig is not null && node.DeclKind != "Protocol")
             {
                 _logger.LogWarning($"Generic type '{node.Name}' not supported. Skipping.");
                 return null;
@@ -280,8 +286,11 @@ namespace BindingsGeneration
             switch (node.DeclKind)
             {
                 case "Struct":
-                case "Enum":
                     decl = CreateStructDecl(node, parentDecl, moduleDecl);
+                    break;
+
+                case "Enum":
+                    decl = CreateEnumDecl(node, parentDecl, moduleDecl);
                     break;
 
                 case "Class":
@@ -304,6 +313,12 @@ namespace BindingsGeneration
                 decl.Methods.AddRange(childDecls.OfType<MethodDecl>());
                 decl.Types.AddRange(childDecls.OfType<TypeDecl>());
                 decl.Operators.AddRange(childDecls.OfType<OperatorDecl>());
+
+                // Collect enum cases if this is an EnumDecl
+                if (decl is EnumDecl enumDecl)
+                {
+                    enumDecl.Cases.AddRange(childDecls.OfType<EnumCaseDecl>());
+                }
 
                 foreach (var type in decl.Types)
                 {
@@ -367,6 +382,105 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Creates an enum declaration from a node.
+        /// </summary>
+        /// <param name="node">The node representing the enum declaration.</param>
+        /// <param name="parentDecl">The parent declaration.</param>
+        /// <param name="moduleDecl">The module declaration.</param>
+        /// <returns>The enum declaration.</returns>
+        private EnumDecl CreateEnumDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        {
+            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
+            var hasFrozenAttribute = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Frozen") != -1;
+
+            return new EnumDecl
+            {
+                Name = ExtractUniqueName(node.Name),
+                SwiftTypeName = swiftTypeName,
+                MangledName = node.MangledName,
+                Properties = new List<PropertyDecl>(),
+                Methods = new List<MethodDecl>(),
+                Types = new List<TypeDecl>(),
+                Operators = new List<OperatorDecl>(),
+                Cases = new List<EnumCaseDecl>(),
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl,
+            };
+        }
+
+        /// <summary>
+        /// Creates an enum case declaration from a node.
+        /// </summary>
+        /// <param name="node">The node representing the enum case.</param>
+        /// <param name="parentDecl">The parent declaration.</param>
+        /// <param name="moduleDecl">The module declaration.</param>
+        /// <returns>The enum case declaration.</returns>
+        private EnumCaseDecl CreateEnumCaseDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        {
+            var enumCaseDecl = new EnumCaseDecl
+            {
+                Name = node.Name,
+                MangledName = node.MangledName,
+                AssociatedValues = new List<TypeSpec>(),
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl,
+            };
+
+            // Parse associated values from the type signature if present
+            // The type signature for enum cases looks like:
+            // - Simple case: (EnumType.Type) -> EnumType
+            // - Case with associated values: (EnumType.Type) -> (AssocValue1, AssocValue2) -> EnumType
+            var children = node.Children.ToList();
+            if (children.Count > 0 && children[0].Kind == kFunc)
+            {
+                var funcChildren = children[0].Children.ToList();
+                // For associated values, there will be a tuple in the function type
+                // The structure is: Function -> [ReturnType, Metatype] for simple
+                // or Function -> [Function -> [ReturnType, TupleOfAssocValues], Metatype] for associated values
+                if (funcChildren.Count >= 2)
+                {
+                    var returnPart = funcChildren[0];
+                    // Check if returnPart is another function (indicating associated values)
+                    if (returnPart.Kind == kFunc)
+                    {
+                        var innerFuncChildren = returnPart.Children.ToList();
+                        if (innerFuncChildren.Count >= 2)
+                        {
+                            // The second child should be the associated values
+                            var assocValuesNode = innerFuncChildren[1];
+                            if (assocValuesNode.Kind == kTuple)
+                            {
+                                // Parse tuple elements as associated values
+                                foreach (var tupleElement in assocValuesNode.Children)
+                                {
+                                    if (tupleElement.Kind == kNominal)
+                                    {
+                                        var typeSpec = TypeSpecParser.Parse(tupleElement.PrintedName);
+                                        if (typeSpec != null)
+                                        {
+                                            enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                        }
+                                    }
+                                }
+                            }
+                            else if (assocValuesNode.Kind == kNominal)
+                            {
+                                // Single associated value
+                                var typeSpec = TypeSpecParser.Parse(assocValuesNode.PrintedName);
+                                if (typeSpec != null)
+                                {
+                                    enumCaseDecl.AssociatedValues.Add(typeSpec);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return enumCaseDecl;
+        }
+
+        /// <summary>
         /// Creates a class declaration from a node.
         /// </summary>
         /// <param name="node">The node representing the class declaration.</param>
@@ -400,6 +514,42 @@ namespace BindingsGeneration
         /// <returns>The protocol declaration.</returns>
         private ProtocolDecl CreateProtocolDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
+            // Parse associated types from children
+            var associatedTypes = new List<AssociatedTypeDecl>();
+            foreach (var child in node.Children)
+            {
+                if (child.DeclKind == "AssociatedType")
+                {
+                    associatedTypes.Add(new AssociatedTypeDecl
+                    {
+                        Name = child.Name
+                    });
+                }
+            }
+
+            // Parse inherited protocols from conformances
+            var inheritedProtocols = new List<NamedTypeSpec>();
+            foreach (var conformance in node.Conformances)
+            {
+                if (conformance.Kind == kNominal)
+                {
+                    var reduction = demangler.Run(conformance.MangledName);
+                    if (reduction is TypeSpecReduction typeSpecReduction &&
+                        typeSpecReduction.TypeSpec is NamedTypeSpec namedTypeSpec)
+                    {
+                        inheritedProtocols.Add(namedTypeSpec);
+                    }
+                }
+            }
+
+            // Check for Self requirement in the generic signature
+            bool hasSelfRequirement = node.GenericSig?.Contains("Self") == true;
+
+            // Check if class-bound (requires AnyObject)
+            bool isClassBound = inheritedProtocols.Any(p =>
+                p.Name == "AnyObject" ||
+                p.Name == "Swift.AnyObject");
+
             return new ProtocolDecl
             {
                 Name = ExtractUniqueName(node.Name),
@@ -409,6 +559,11 @@ namespace BindingsGeneration
                 Methods = new List<MethodDecl>(),
                 Types = new List<TypeDecl>(),
                 Operators = new List<OperatorDecl>(),
+                AssociatedTypes = associatedTypes,
+                HasSelfRequirement = hasSelfRequirement,
+                InheritedProtocols = inheritedProtocols,
+                GenericSignature = node.GenericSig,
+                IsClassBound = isClassBound,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl
             };
@@ -515,6 +670,12 @@ namespace BindingsGeneration
                     case "get":
                         result.Add(CreateGetAccessor(accessor, fieldName, parentDecl, moduleDecl));
                         break;
+                    case "set":
+                        result.Add(CreateSetAccessor(accessor, fieldName, parentDecl, moduleDecl));
+                        break;
+                    case "_modify":
+                        // Optimization accessor, not needed for correctness
+                        break;
                     default:
                         _logger.LogWarning($"Unsupported accessor kind '{accessor.AccessorKind}' encountered.");
                         break;
@@ -554,6 +715,52 @@ namespace BindingsGeneration
             };
 
             return new GetAccessorDecl { Method = methodDecl };
+        }
+
+        private SetAccessorDecl CreateSetAccessor(Node accessor, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        {
+            // The setter has two children: the first is the parameter type (value to set),
+            // and the second is an empty tuple representing void return
+            var methodDecl = new MethodDecl
+            {
+                Name = $"{fieldName}_Set",
+                MangledName = accessor.MangledName,
+                MethodType = accessor.@static ?? false ? MethodType.Static : MethodType.Instance,
+                IsConstructor = false,
+                CSSignature = new List<ArgumentDecl>
+                {
+                    // Return type (void for setters - empty tuple)
+                    new ArgumentDecl
+                    {
+                        SwiftTypeSpec = TupleTypeSpec.Empty,
+                        Name = string.Empty,
+                        PrivateName = string.Empty,
+                        IsInOut = false,
+                        IsGeneric = false,
+                        ParentDecl = parentDecl,
+                        ModuleDecl = moduleDecl
+                    },
+                    // Parameter (value)
+                    new ArgumentDecl
+                    {
+                        SwiftTypeSpec = CreateTypeSpec(accessor.Children.ElementAt(0)),
+                        Name = "value",
+                        PrivateName = string.Empty,
+                        IsInOut = false,
+                        IsGeneric = false,
+                        ParentDecl = parentDecl,
+                        ModuleDecl = moduleDecl
+                    }
+                },
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl,
+                Throws = false,
+                IsAsync = false,
+                Visibility = Visibility.Private,
+            };
+
+            return new SetAccessorDecl { Method = methodDecl };
         }
 
         private PropertyDecl CreatePropertyDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)

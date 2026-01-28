@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration;
@@ -18,4 +19,9 @@ public abstract record AccessorDecl
 /// Represents a getter accessor declaration for a Swift property.
 /// </summary>
 public record GetAccessorDecl : AccessorDecl { }
+
+/// <summary>
+/// Represents a setter accessor declaration for a Swift property.
+/// </summary>
+public record SetAccessorDecl : AccessorDecl { }
 

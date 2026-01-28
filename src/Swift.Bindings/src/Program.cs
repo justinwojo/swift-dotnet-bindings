@@ -1,4 +1,5 @@
 ﻿// Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.CommandLine;
@@ -98,7 +99,7 @@ namespace BindingsGeneration
         public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, ILogger logger, ILoggerFactory loggerFactory)
         {
             var typeDatabase = new TypeDatabase();
-            string[] moduleDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml" };
+            string[] moduleDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml" };
             foreach (var database in moduleDatabases)
             {
                 typeDatabase.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", database)).Wait();

@@ -940,18 +940,292 @@ namespace BindingsGeneration
             var protocolEnv = (TypeEnvironment)env;
             var protocolDecl = (ProtocolDecl)protocolEnv.TypeDecl;
 
-            var interfaceName = NameProvider.GetInterfaceName(protocolDecl.Name);
+            var interfaceName = GetInterfaceNameWithGenerics(protocolDecl);
+            var inheritedInterfaces = GetInheritedInterfaceList(protocolDecl);
 
-            csWriter.WriteLine($"public interface {interfaceName}");
+            // Write the interface declaration
+            if (inheritedInterfaces.Count > 0)
+            {
+                csWriter.WriteLine($"public interface {interfaceName} : {string.Join(", ", inheritedInterfaces)}");
+            }
+            else
+            {
+                csWriter.WriteLine($"public interface {interfaceName}");
+            }
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
-            // TODO: Implement protocol methods and properties
-            // base.HandleBaseDecl(writer, protocolDecl.Types, conductor, env.TypeDatabase);
-            // base.HandleBaseDecl(writer, protocolDecl.Methods, conductor, env.TypeDatabase);
+            // Emit properties as interface members
+            foreach (var propertyDecl in protocolDecl.Properties)
+            {
+                EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase);
+            }
+
+            // Emit methods as interface members
+            foreach (var methodDecl in protocolDecl.Methods)
+            {
+                EmitInterfaceMethod(csWriter, methodDecl, env.TypeDatabase);
+            }
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Gets the interface name, including generic parameters for protocols with associated types.
+        /// </summary>
+        private static string GetInterfaceNameWithGenerics(ProtocolDecl protocolDecl)
+        {
+            var baseName = NameProvider.GetInterfaceName(protocolDecl.Name);
+
+            // If the protocol has associated types or Self requirement, make it generic
+            if (protocolDecl.HasSelfRequirement)
+            {
+                return $"{baseName}<TSelf> where TSelf : {baseName}<TSelf>";
+            }
+
+            if (protocolDecl.AssociatedTypes.Count > 0)
+            {
+                var typeParams = protocolDecl.AssociatedTypes.Select(at => $"T{at.Name}");
+                return $"{baseName}<{string.Join(", ", typeParams)}>";
+            }
+
+            return baseName;
+        }
+
+        /// <summary>
+        /// Gets the list of inherited interfaces for the protocol.
+        /// </summary>
+        private static List<string> GetInheritedInterfaceList(ProtocolDecl protocolDecl)
+        {
+            var inheritedInterfaces = new List<string>();
+
+            foreach (var inherited in protocolDecl.InheritedProtocols)
+            {
+                // Skip AnyObject as it doesn't translate to a C# interface
+                if (inherited.Name == "AnyObject" || inherited.Name == "Swift.AnyObject")
+                    continue;
+
+                inheritedInterfaces.Add(NameProvider.GetInterfaceName(inherited.NameWithoutModule));
+            }
+
+            return inheritedInterfaces;
+        }
+
+        /// <summary>
+        /// Emits a property declaration for an interface.
+        /// </summary>
+        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase)
+        {
+            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec);
+            var csharpTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
+
+            // Determine accessors
+            var hasGetter = propertyDecl.Accessors.OfType<GetAccessorDecl>().Any();
+            var hasSetter = propertyDecl.Accessors.OfType<SetAccessorDecl>().Any();
+
+            string accessors;
+            if (hasGetter && hasSetter)
+            {
+                accessors = "{ get; set; }";
+            }
+            else if (hasGetter)
+            {
+                accessors = "{ get; }";
+            }
+            else if (hasSetter)
+            {
+                accessors = "{ set; }";
+            }
+            else
+            {
+                // Default to get-only if no accessors found
+                accessors = "{ get; }";
+            }
+
+            csWriter.WriteLine($"{csharpTypeName} {propertyDecl.Name} {accessors}");
+        }
+
+        /// <summary>
+        /// Emits a method declaration for an interface.
+        /// </summary>
+        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase)
+        {
+            // Skip constructors - they can't be in interfaces
+            if (methodDecl.IsConstructor)
+                return;
+
+            // Skip static methods for now - they can be in C# 8+ interfaces but require implementation
+            if (methodDecl.MethodType == MethodType.Static)
+            {
+                _logger.LogDebug($"Skipping static method '{methodDecl.Name}' in interface - static interface members require implementation.");
+                return;
+            }
+
+            // Get return type
+            var returnType = "void";
+            if (methodDecl.CSSignature.Count > 0)
+            {
+                var returnArg = methodDecl.CSSignature[0];
+                if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
+                {
+                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(returnArg.SwiftTypeSpec);
+                    returnType = typeRecord.CSharpTypeName.FullyQualifiedName;
+                }
+            }
+
+            // Build parameters (skip first which is return type)
+            var parameters = new List<string>();
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var arg = methodDecl.CSSignature[i];
+                var argTypeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
+                var argTypeName = argTypeRecord.CSharpTypeName.FullyQualifiedName;
+                var argName = string.IsNullOrEmpty(arg.Name) ? $"arg{i}" : arg.Name;
+                parameters.Add($"{argTypeName} {argName}");
+            }
+
+            // Handle async methods
+            if (methodDecl.IsAsync)
+            {
+                if (returnType == "void")
+                {
+                    returnType = "Task";
+                }
+                else
+                {
+                    returnType = $"Task<{returnType}>";
+                }
+            }
+
+            csWriter.WriteLine($"{returnType} {methodDecl.Name}({string.Join(", ", parameters)});");
+        }
+    }
+
+    /// <summary>
+    /// Factory class for creating instances of EnumHandler.
+    /// </summary>
+    public class EnumHandlerFactory : HandlerFactory, IFactory<BaseDecl, ITypeHandler>
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="EnumHandlerFactory"/> class.
+        /// </summary>
+        /// <param name="loggerFactory">The logger factory instance.</param>
+        public EnumHandlerFactory(ILoggerFactory loggerFactory) : base(loggerFactory.CreateLogger<EnumHandler>())
+        {
+        }
+
+        /// <summary>
+        /// Determines if the factory handles the specified declaration.
+        /// </summary>
+        /// <param name="decl">The base declaration.</param>
+        public bool Handles(BaseDecl decl)
+        {
+            return decl is EnumDecl;
+        }
+
+        /// <summary>
+        /// Constructs a new instance of EnumHandler.
+        /// </summary>
+        public ITypeHandler Construct()
+        {
+            return new EnumHandler(_handlerLogger);
+        }
+    }
+
+    /// <summary>
+    /// Handler class for enum declarations.
+    /// </summary>
+    public class EnumHandler : BaseHandler, ITypeHandler
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="EnumHandler"/> class.
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        public EnumHandler(ILogger logger) : base(logger)
+        {
+        }
+
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
+        {
+            if (baseDecl is not EnumDecl enumDecl)
+            {
+                throw new ArgumentException("The provided decl must be an EnumDecl.", nameof(baseDecl));
+            }
+            return new TypeEnvironment(enumDecl, typeDatabase);
+        }
+
+        /// <inheritdoc/>
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        {
+            var enumEnv = (TypeEnvironment)env;
+            var enumDecl = (EnumDecl)enumEnv.TypeDecl;
+            var parentDecl = enumDecl.ParentDecl ?? throw new ArgumentNullException(nameof(enumDecl.ParentDecl));
+            var moduleDecl = enumDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(enumDecl.ModuleDecl));
+
+            // Enums with associated values are complex and need different handling
+            // For now, we focus on simple enums without associated values
+            if (enumDecl.HasAssociatedValueCases)
+            {
+                _logger.LogWarning($"Enum '{enumDecl.Name}' has associated value cases which are not fully supported yet.");
+            }
+
+            // Use unsafe class since methods may use function pointers
+            csWriter.WriteLine($"public unsafe class {enumDecl.Name} : {typeof(ISwiftObject).Name}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Emit static case constructors for simple cases (no associated values)
+            foreach (var caseDecl in enumDecl.Cases.Where(c => !c.HasAssociatedValues))
+            {
+                EmitEnumCase(csWriter, enumDecl, caseDecl, moduleDecl);
+            }
+
+            // Add a blank line between cases and other members
+            if (enumDecl.Cases.Any(c => !c.HasAssociatedValues))
+            {
+                csWriter.WriteLine();
+            }
+
+            // Emit properties using the same pattern as other handlers
+            foreach (var propertyDecl in enumDecl.Properties)
+            {
+                if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                {
+                    var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                }
+                else
+                {
+                    _logger.LogWarning($"No handler found for property {propertyDecl.Name}");
+                }
+            }
+
+            // Emit nested types and methods using base handler
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase);
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits a static property for a simple enum case (no associated values).
+        /// </summary>
+        private void EmitEnumCase(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl)
+        {
+            var caseName = caseDecl.Name;
+            var enumTypeName = enumDecl.Name;
+            var pInvokeName = $"PInvoke_{caseName}";
+
+            // Generate a unique static property for this case
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+            csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine($"public static {enumTypeName} {char.ToUpper(caseName[0])}{caseName.Substring(1)} => throw new NotImplementedException(\"Enum case constructors not yet implemented\");");
             csWriter.WriteLine();
         }
     }

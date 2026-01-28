@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.CodeDom.Compiler;
@@ -124,6 +125,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             EmitGetter(csWriter, getter);
         }
 
+        var setter = propertyDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
+        if (setter != null)
+        {
+            EmitSetter(csWriter, setter);
+        }
+
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();
@@ -137,6 +144,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter)
     {
         csWriter.WriteLine($"get => {getter.Method.Name}();");
+    }
+
+    /// <summary>
+    /// Emits the setter implementation for a property.
+    /// </summary>
+    /// <param name="csWriter">The C# code writer to emit to</param>
+    /// <param name="setter">The setter accessor declaration</param>
+    private void EmitSetter(CSharpWriter csWriter, SetAccessorDecl setter)
+    {
+        csWriter.WriteLine($"set => {setter.Method.Name}(value);");
     }
 }
 

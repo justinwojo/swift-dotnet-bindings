@@ -37,7 +37,8 @@ namespace BindingsGeneration
                 new NonFrozenStructHandlerFactory(loggerFactory),
                 new FrozenStructHandlerFactory(loggerFactory),
                 new ProtocolHandlerFactory(loggerFactory),
-                new ClassHandlerFactory(loggerFactory)
+                new ClassHandlerFactory(loggerFactory),
+                new EnumHandlerFactory(loggerFactory)
             ];
 
             _propertyHandlerFactories = [

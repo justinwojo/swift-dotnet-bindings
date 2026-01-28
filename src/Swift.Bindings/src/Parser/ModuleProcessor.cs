@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
@@ -309,14 +310,40 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Processes a protocol declaration. Currently unimplemented.
+        /// Processes a protocol declaration and registers it in the type database.
         /// </summary>
         /// <param name="namedTypeSpec">Spec for the protocol's name, module, etc.</param>
         /// <param name="protocolDecl">The protocol declaration node.</param>
         /// <returns><c>true</c> if the protocol was processed successfully; otherwise, <c>false</c>.</returns>
         private bool ProcessProtocol(NamedTypeSpec namedTypeSpec, ProtocolDecl protocolDecl)
         {
+            RegisterProtocolType(namedTypeSpec, protocolDecl);
             return true;
+        }
+
+        /// <summary>
+        /// Inserts a protocol's details into the type database.
+        /// </summary>
+        /// <param name="namedTypeSpec">The Swift type specification, including module name.</param>
+        /// <param name="protocolDecl">The protocol declaration node.</param>
+        private void RegisterProtocolType(NamedTypeSpec namedTypeSpec, ProtocolDecl protocolDecl)
+        {
+            var @namespace = $"Swift.{namedTypeSpec.Module}"; // TODO: Correctly map to a .NET namespace
+
+            // Protocol types are projected as interfaces in C#
+            // Use "I" prefix for interface naming convention
+            var csharpTypeIdentifier = NameProvider.GetInterfaceName(protocolDecl.Name);
+
+            var typeRecord = new TypeRecord
+            {
+                SwiftTypeName = protocolDecl.SwiftTypeName,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, csharpTypeIdentifier),
+                MetadataAccessor = string.Empty, // Protocols don't have direct metadata accessors
+                Flags = TypeRecordFlags.None, // Protocols are not frozen
+                Kind = TypeRecordKind.Protocol,
+            };
+
+            _moduleDatabase.RegisterType(protocolDecl.SwiftTypeName, typeRecord);
         }
     }
 }

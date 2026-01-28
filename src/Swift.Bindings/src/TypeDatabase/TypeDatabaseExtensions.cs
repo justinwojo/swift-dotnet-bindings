@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
@@ -22,6 +23,7 @@ public static class TypeDatabaseExtensions
         {
             NamedTypeSpec namedTypeSpec => typeDatabase.IsTypeProcessed(namedTypeSpec),
             TupleTypeSpec { IsEmptyTuple: true } => true,
+            ProtocolListTypeSpec => true, // Existential types are handled via ExistentialContainer
             _ => false
         };
     }
@@ -50,6 +52,7 @@ public static class TypeDatabaseExtensions
         {
             NamedTypeSpec namedTypeSpec => typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec),
             TupleTypeSpec { IsEmptyTuple: true } => VoidType,
+            ProtocolListTypeSpec protocolList => GetExistentialTypeRecord(protocolList),
             _ => AnyType
         };
     }
@@ -178,4 +181,26 @@ public static class TypeDatabaseExtensions
         Flags = TypeRecordFlags.Frozen,
         Kind = TypeRecordKind.Struct,
     };
+
+    /// <summary>
+    /// Gets the type record for an existential type (protocol or protocol composition).
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification.</param>
+    /// <returns>The type record for the existential type.</returns>
+    private static TypeRecord GetExistentialTypeRecord(ProtocolListTypeSpec protocolList)
+    {
+        var protocolCount = protocolList.Protocols.Count;
+        var protocolNames = protocolList.Protocols.Count == 0
+            ? "Any"
+            : string.Join(" & ", protocolList.Protocols.Keys.Select(p => p.NameWithoutModule));
+
+        return new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", $"ExistentialContainer{protocolCount}"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"any {protocolNames}"),
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.Frozen, // Existential containers have fixed layout
+            Kind = TypeRecordKind.Protocol,
+        };
+    }
 }
