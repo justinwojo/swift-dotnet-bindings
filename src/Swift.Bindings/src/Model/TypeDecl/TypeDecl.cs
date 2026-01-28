@@ -32,5 +32,10 @@ namespace BindingsGeneration
         /// Types declarations within the base declaration.
         /// </summary>
         public required List<TypeDecl> Types { get; set; }
+
+        /// <summary>
+        /// Operator declarations within the type.
+        /// </summary>
+        public required List<OperatorDecl> Operators { get; set; }
     }
 }

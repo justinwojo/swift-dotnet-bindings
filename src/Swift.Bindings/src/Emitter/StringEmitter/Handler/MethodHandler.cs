@@ -201,6 +201,13 @@ namespace BindingsGeneration
                 { Type: "AsyncContext" } => "null",
                 { Type: "AsyncTask" } => $"GCHandle.ToIntPtr({parameter.Name})",
                 { modifier: "out" } => $"out var {parameter.Name}",
+                // Handle closure function pointers:
+                // - For @convention(c): param name is original, variable is {name}FuncPtr
+                // - For escaping: param name is {name}FuncPtr, variable is the same
+                { Type: var type } when type.StartsWith("delegate* unmanaged") =>
+                    parameter.Name.EndsWith("FuncPtr") ? parameter.Name : $"{parameter.Name}FuncPtr",
+                // Handle closure context for escaping closures
+                { Type: "IntPtr", Name: var name } when name.EndsWith("Context") => parameter.Name,
                 _ => parameter.Name
             };
         }
@@ -231,6 +238,24 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Closure return types are not supported yet (Phase 3)
+            if (_env.ClosureHandler.IsClosure(argument))
+            {
+                SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                return;
+            }
+
+            // Handle tuple return types
+            if (_env.TupleHandler.IsTuple(argument.SwiftTypeSpec))
+            {
+                var tupleTypeSpec = (TupleTypeSpec)argument.SwiftTypeSpec;
+                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
+                    SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec));
+                else
+                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                return;
+            }
+
             if (argument.IsGeneric)
             {
                 var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
@@ -253,6 +278,34 @@ namespace BindingsGeneration
                 {
                     var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument);
                     AddParameter(csTypeParam, argument.Name);
+                    continue;
+                }
+
+                // Handle closure arguments
+                if (_env.ClosureHandler.IsClosure(argument))
+                {
+                    var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
+                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    {
+                        var delegateType = _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
+                        AddParameter(delegateType, argument.Name);
+                    }
+                    else
+                    {
+                        // Unsupported closure - use placeholder that will cause method to be skipped
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    }
+                    continue;
+                }
+
+                // Handle tuple arguments
+                if (_env.TupleHandler.IsTuple(argument))
+                {
+                    var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(argument)!;
+                    if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
+                        AddParameter(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec), argument.Name);
+                    else
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
                     continue;
                 }
 
@@ -337,6 +390,24 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Closure return types are not supported yet (Phase 3)
+            if (_env.ClosureHandler.IsClosure(returnType))
+            {
+                SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                return;
+            }
+
+            // Handle tuple return types
+            if (_env.TupleHandler.IsTuple(returnType.SwiftTypeSpec))
+            {
+                var tupleTypeSpec = (TupleTypeSpec)returnType.SwiftTypeSpec;
+                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
+                    SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec));
+                else
+                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                return;
+            }
+
             if (MarshallingHelpers.MethodRequiresIndirectResult(_env))
             {
                 AddParameter("SwiftIndirectResult", "swiftIndirectResult");
@@ -386,6 +457,48 @@ namespace BindingsGeneration
                     };
 
                     AddParameter(csTypeParam, csTypeName);
+                    continue;
+                }
+
+                // Handle closure arguments
+                if (_env.ClosureHandler.IsClosure(argument))
+                {
+                    var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
+                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    {
+                        // Get the function pointer type (without context for @convention(c))
+                        var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
+
+                        if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                        {
+                            // Escaping closures need both function pointer and context
+                            // The function pointer type needs to include the context parameter
+                            var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+                            AddParameter(funcPtrTypeWithContext, $"{argument.Name}FuncPtr");
+                            AddParameter("IntPtr", $"{argument.Name}Context");
+                        }
+                        else
+                        {
+                            // @convention(c) closures just need the function pointer
+                            AddParameter(funcPtrType, argument.Name);
+                        }
+                    }
+                    else
+                    {
+                        // Unsupported closure - use placeholder
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    }
+                    continue;
+                }
+
+                // Handle tuple arguments
+                if (_env.TupleHandler.IsTuple(argument))
+                {
+                    var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(argument)!;
+                    if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
+                        AddParameter(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec), argument.Name);
+                    else
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
                     continue;
                 }
 
@@ -497,6 +610,33 @@ namespace BindingsGeneration
         private void AddParameter(string type, string name, string modifier = "")
         {
             _parameters.Add(new Parameter(type, name, modifier));
+        }
+
+        /// <summary>
+        /// Adds context parameter to a function pointer type string for escaping closures.
+        /// Transforms "delegate* unmanaged[Cdecl]&lt;int, void&gt;" to "delegate* unmanaged[Cdecl]&lt;int, IntPtr, void&gt;"
+        /// </summary>
+        private static string AddContextToFunctionPointerType(string funcPtrType)
+        {
+            // Find the last comma before '>'
+            int lastAngle = funcPtrType.LastIndexOf('>');
+            if (lastAngle == -1)
+                return funcPtrType;
+
+            int lastComma = funcPtrType.LastIndexOf(',', lastAngle);
+            if (lastComma == -1)
+            {
+                // No parameters, just return type: "delegate* unmanaged[Cdecl]<void>"
+                // Insert "IntPtr, " before the return type
+                int openAngle = funcPtrType.IndexOf('<');
+                if (openAngle == -1)
+                    return funcPtrType;
+
+                return funcPtrType.Insert(openAngle + 1, "IntPtr, ");
+            }
+
+            // Insert ", IntPtr" after the last comma
+            return funcPtrType.Insert(lastComma + 1, " IntPtr,");
         }
     }
 
@@ -629,6 +769,7 @@ namespace BindingsGeneration
         internal void EmitMethod(CSharpWriter csWriter, SwiftWriter swiftWriter)
         {
             EmitAsyncWrapper(csWriter);
+            EmitClosureCallbacks(csWriter);
             EmitSignatureMethod(csWriter);
             EmitBodyStart(csWriter);
             EmitAsync(csWriter, swiftWriter);
@@ -642,6 +783,7 @@ namespace BindingsGeneration
             EmitIndirectResultMethod(csWriter);
             EmitGenericArguments(csWriter);
             EmitBoundGenericArguments(csWriter);
+            EmitClosureMarshalling(csWriter);
             EmitProtocolWitnessTables(csWriter);
             EmitPInvokeCall(csWriter);
             EmitSwiftError(csWriter);
@@ -669,6 +811,16 @@ namespace BindingsGeneration
             {
                 var payloadName = NameProvider.GetPayloadName(argument.Name);
                 csWriter.WriteLine($"IntPtr {payloadName} = IntPtr.Zero;");
+            }
+
+            // Declare GCHandle variables for escaping closures
+            foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
+            {
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
+                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) && _env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                {
+                    csWriter.WriteLine($"GCHandle {argument.Name}Handle = default;");
+                }
             }
         }
 
@@ -838,6 +990,60 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits closure argument marshalling.
+        /// For @convention(c) closures, converts C# delegates to unmanaged function pointers.
+        /// For escaping closures, creates closure data with a thunk and GCHandle context.
+        /// </summary>
+        private void EmitClosureMarshalling(CSharpWriter csWriter)
+        {
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
+            {
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
+                if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    continue;
+
+                if (_env.ClosureHandler.IsConventionC(closureTypeSpec))
+                {
+                    // For @convention(c) closures, convert delegate to function pointer
+                    var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
+
+                    // Marshal.GetFunctionPointerForDelegate returns IntPtr, cast to the proper function pointer type
+                    csWriter.WriteLine($"var {argumentDecl.Name}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({argumentDecl.Name});");
+                }
+                else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                {
+                    // For escaping closures, create closure data with thunk pointer and delegate in context
+                    var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name);
+                    csWriter.WriteLines($"""
+                        var {argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});
+                        var {argumentDecl.Name}FuncPtr = s_{callbackName};
+                        var {argumentDecl.Name}Context = GCHandle.ToIntPtr({argumentDecl.Name}Handle);
+                        """);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Emits callback functions and pointers for escaping closures.
+        /// </summary>
+        private void EmitClosureCallbacks(CSharpWriter csWriter)
+        {
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
+            {
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
+                if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    continue;
+
+                if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                {
+                    ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler);
+                    ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler);
+                    csWriter.WriteLine();
+                }
+            }
+        }
+
+        /// <summary>
         /// Emits the SafeHandle add reference.
         /// Frozen structs are passed as lowered buffers, so explicit retain is needed.
         /// Non-frozen structs are passed as SafeHandle, so reference counting is managed automatically.
@@ -858,7 +1064,7 @@ namespace BindingsGeneration
                 }
             }
 
-            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a)))
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a)))
             {
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
@@ -898,6 +1104,16 @@ namespace BindingsGeneration
                     var payloadName = NameProvider.GetPayloadName(argumentDecl.Name);
                     csWriter.WriteLine($"{metadataName}.ValueWitnessTable->Destroy((void *){payloadName}, {metadataName});");
                     continue;
+                }
+
+                // Free GCHandle for escaping closures
+                if (_env.ClosureHandler.IsClosure(argumentDecl))
+                {
+                    var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
+                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) && _env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                    {
+                        csWriter.WriteLine($"if ({argumentDecl.Name}Handle.IsAllocated) {argumentDecl.Name}Handle.Free();");
+                    }
                 }
             }
         }

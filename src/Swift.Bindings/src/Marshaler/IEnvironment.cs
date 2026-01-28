@@ -92,6 +92,16 @@ namespace BindingsGeneration
         /// Bound generic helper instance.
         /// </summary>
         public BoundGenericsHandler BoundGenericsHandler { get; } = new BoundGenericsHandler(typeDatabase);
+
+        /// <summary>
+        /// Closure handler instance.
+        /// </summary>
+        public ClosureHandler ClosureHandler { get; } = new ClosureHandler(typeDatabase);
+
+        /// <summary>
+        /// Tuple handler instance.
+        /// </summary>
+        public TupleHandler TupleHandler { get; } = new TupleHandler(typeDatabase);
     }
 
     /// <summary>
@@ -118,5 +128,10 @@ namespace BindingsGeneration
         /// Bound generic helper instance.
         /// </summary>
         public BoundGenericsHandler BoundGenericsHandler { get; } = new BoundGenericsHandler(typeDatabase);
+
+        /// <summary>
+        /// Tuple handler instance.
+        /// </summary>
+        public TupleHandler TupleHandler { get; } = new TupleHandler(typeDatabase);
     }
 }

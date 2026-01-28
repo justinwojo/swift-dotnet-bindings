@@ -74,8 +74,12 @@ namespace BindingsGeneration
             var typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
             bool isProjectedAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord!);
 
+            // Check for explicit equality/inequality operators
+            bool hasExplicitEquality = OperatorHandler.HasExplicitEqualityOperator(structDecl.Operators);
+            bool hasExplicitInequality = OperatorHandler.HasExplicitInequalityOperator(structDecl.Operators);
+
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl);
-            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass);
+            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, hasExplicitEquality, hasExplicitInequality);
             bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
             SwiftTypeInfo? swiftTypeInfo = typeRecord?.SwiftTypeInfo;
@@ -169,6 +173,18 @@ namespace BindingsGeneration
             }
             csWriter.WriteLine();
 
+            // Emit operators
+            var operatorHandler = new OperatorHandler(_logger);
+            foreach (var operatorDecl in structDecl.Operators)
+            {
+                if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
+                {
+                    operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase);
+                }
+            }
+            // Handle paired operators (e.g., if == is defined but != is not)
+            operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, structDecl.Name);
+
             // Add Equatable support if the struct conforms to Equatable
             SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
             ISwiftObjectMethodWriter.WriteFrozenStructImplementation();
@@ -243,8 +259,12 @@ namespace BindingsGeneration
             var structDecl = (StructDecl)structEnv.TypeDecl;
             var moduleDecl = structDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(structDecl.ModuleDecl));
 
+            // Check for explicit equality/inequality operators
+            bool hasExplicitEquality = OperatorHandler.HasExplicitEqualityOperator(structDecl.Operators);
+            bool hasExplicitInequality = OperatorHandler.HasExplicitInequalityOperator(structDecl.Operators);
+
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl);
-            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true);
+            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, hasExplicitEquality, hasExplicitInequality);
             bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
             var interfaces = new List<string> {
@@ -271,6 +291,18 @@ namespace BindingsGeneration
 
             WritePrivateFields(csWriter, structDecl);
             WritePayload(csWriter, structDecl);
+
+            // Emit operators
+            var operatorHandler = new OperatorHandler(_logger);
+            foreach (var operatorDecl in structDecl.Operators)
+            {
+                if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
+                {
+                    operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase);
+                }
+            }
+            // Handle paired operators (e.g., if == is defined but != is not)
+            operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, structDecl.Name);
 
             // Add Equatable support if the struct conforms to Equatable
             SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
@@ -710,13 +742,22 @@ namespace BindingsGeneration
         private readonly StructDecl _structDecl;
         private readonly bool _implementsEquatable;
         private readonly bool _isRefType;
+        private readonly bool _hasExplicitEqualityOperator;
+        private readonly bool _hasExplicitInequalityOperator;
 
         public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType)
+            : this(csWriter, structDecl, refType, false, false)
+        {
+        }
+
+        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
         {
             _writer = csWriter;
             _structDecl = structDecl;
             _implementsEquatable = _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
             _isRefType = refType;
+            _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
+            _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
         }
 
         public void WriteSwiftEquatableImplementation()
@@ -733,7 +774,8 @@ namespace BindingsGeneration
 
         private void WriteSwiftEquatableImplementationWithSwiftEquals(bool refType)
         {
-            var code = $$"""
+            // Always write Equals and GetHashCode methods
+            var equalsMethods = $$"""
             public override bool Equals(object? obj)
             {
                 return obj is {{_structDecl.Name}} other && Swift.Runtime.SwiftEquatable.Equals(this, other);
@@ -743,30 +785,53 @@ namespace BindingsGeneration
             {
                 throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Hashable protocol, so GetHashCode() is not supported.");
             }
+            """;
 
-            public static bool operator ==({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+            _writer.WriteLines(equalsMethods);
+            _writer.WriteLine();
+
+            // Only write operator == if no explicit operator is defined
+            if (!_hasExplicitEqualityOperator)
             {
-                return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                var equalityOperator = $$"""
+                public static bool operator ==({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                {
+                    return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                }
+                """;
+                _writer.WriteLines(equalityOperator);
+                _writer.WriteLine();
             }
 
-            public static bool operator !=({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+            // Only write operator != if no explicit operator is defined
+            if (!_hasExplicitInequalityOperator)
             {
-                return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                var inequalityOperator = $$"""
+                public static bool operator !=({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                {
+                    return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                }
+                """;
+                _writer.WriteLines(inequalityOperator);
+                _writer.WriteLine();
             }
 
+            // Write the IEquatable<T>.Equals method
+            var equatableEquals = $$"""
             public bool Equals({{_structDecl.Name}}{{(refType == true ? "?" : "")}} other)
             {
                 return Swift.Runtime.SwiftEquatable.Equals(this, other);
             }
             """;
 
-            _writer.WriteLines(code);
+            _writer.WriteLines(equatableEquals);
             _writer.WriteLine();
         }
 
         private void WriteDefaultEquatableImplementation()
         {
-            var code = $$"""
+            // Always write Equals and GetHashCode methods
+            var equalsMethods = $$"""
             // Swift structs cannot be compared using .NET's default equality semantics,
             // since Swift's equality is defined by the Equatable protocol.
             // This type does not implement Swift's Equatable protocol.
@@ -780,20 +845,36 @@ namespace BindingsGeneration
             {
                 throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
             }
-
-            public static bool operator ==({{_structDecl.Name}} left, {{_structDecl.Name}} right)
-            {
-                throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-
-            public static bool operator !=({{_structDecl.Name}} left, {{_structDecl.Name}} right)
-            {
-                throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
             """;
 
-            _writer.WriteLines(code);
+            _writer.WriteLines(equalsMethods);
             _writer.WriteLine();
+
+            // Only write operator == if no explicit operator is defined
+            if (!_hasExplicitEqualityOperator)
+            {
+                var equalityOperator = $$"""
+                public static bool operator ==({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                {
+                    throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
+                }
+                """;
+                _writer.WriteLines(equalityOperator);
+                _writer.WriteLine();
+            }
+
+            // Only write operator != if no explicit operator is defined
+            if (!_hasExplicitInequalityOperator)
+            {
+                var inequalityOperator = $$"""
+                public static bool operator !=({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                {
+                    throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
+                }
+                """;
+                _writer.WriteLines(inequalityOperator);
+                _writer.WriteLine();
+            }
         }
     }
 

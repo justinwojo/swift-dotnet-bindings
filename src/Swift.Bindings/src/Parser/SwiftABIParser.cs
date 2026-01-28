@@ -221,8 +221,10 @@ namespace BindingsGeneration
                         break;
                     case "Function":
                     case "Constructor":
-                        // TODO: Implement operator overloading
-                        result = IsOperator(node.Name) ? null : CreateMethodDecl(node, parentDecl, moduleDecl);
+                        if (IsOperator(node.Name))
+                            result = CreateOperatorDecl(node, parentDecl, moduleDecl);
+                        else
+                            result = CreateMethodDecl(node, parentDecl, moduleDecl);
                         break;
                     case "Var":
                         result = CreatePropertyDecl(node, parentDecl, moduleDecl);
@@ -300,6 +302,7 @@ namespace BindingsGeneration
                 decl.Properties.AddRange(childDecls.OfType<PropertyDecl>());
                 decl.Methods.AddRange(childDecls.OfType<MethodDecl>());
                 decl.Types.AddRange(childDecls.OfType<TypeDecl>());
+                decl.Operators.AddRange(childDecls.OfType<OperatorDecl>());
 
                 foreach (var type in decl.Types)
                 {
@@ -353,6 +356,7 @@ namespace BindingsGeneration
                 Properties = new List<PropertyDecl>(),
                 Methods = new List<MethodDecl>(),
                 Types = new List<TypeDecl>(),
+                Operators = new List<OperatorDecl>(),
                 Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
@@ -379,6 +383,7 @@ namespace BindingsGeneration
                 Properties = new List<PropertyDecl>(),
                 Methods = new List<MethodDecl>(),
                 Types = new List<TypeDecl>(),
+                Operators = new List<OperatorDecl>(),
                 Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl
@@ -402,6 +407,7 @@ namespace BindingsGeneration
                 Properties = new List<PropertyDecl>(),
                 Methods = new List<MethodDecl>(),
                 Types = new List<TypeDecl>(),
+                Operators = new List<OperatorDecl>(),
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl
             };
@@ -458,6 +464,43 @@ namespace BindingsGeneration
             }
 
             return methodDecl;
+        }
+
+        /// <summary>
+        /// Creates an operator declaration from a node.
+        /// </summary>
+        /// <param name="node">The node representing the operator declaration.</param>
+        /// <param name="parentDecl">The parent declaration.</param>
+        /// <param name="moduleDecl">The module declaration.</param>
+        /// <returns>The operator declaration, or null if the underlying method cannot be created.</returns>
+        private OperatorDecl? CreateOperatorDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        {
+            var methodDecl = CreateMethodDecl(node, parentDecl, moduleDecl);
+            if (methodDecl == null) return null;
+
+            // CSSignature[0] is return type, remaining are parameters
+            // For operators, Swift static func operators have the operands as parameters
+            var paramCount = methodDecl.CSSignature.Count - 1;
+            var isUnary = paramCount == 1;
+
+            // Detect prefix vs postfix for unary operators
+            // Swift prefix operators have 'prefix' in DeclAttributes
+            bool isPrefix = true; // Default to prefix for unary operators
+            if (node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "postfix") != -1)
+            {
+                isPrefix = false;
+            }
+
+            return new OperatorDecl
+            {
+                Name = node.Name,
+                OperatorSymbol = node.Name,
+                Kind = isUnary ? OperatorKind.Unary : OperatorKind.Binary,
+                IsPrefix = isPrefix,
+                UnderlyingMethod = methodDecl,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            };
         }
 
         private List<AccessorDecl> HandleAccessors(IEnumerable<Node> accessors, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl)
