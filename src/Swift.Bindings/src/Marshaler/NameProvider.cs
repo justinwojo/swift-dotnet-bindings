@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration;
@@ -26,12 +27,17 @@ public static class NameProvider
 
     /// <summary>
     /// Provides the name of the PInvoke method.
+    /// Uses a hash of the mangled name to ensure uniqueness for method overloads
+    /// that have different Swift parameter types but marshal to the same C# types.
     /// </summary>
     /// <param name="methodDecl">The method declaration.</param>
     /// <returns>The name of the PInvoke method.</returns>
     public static string GetPInvokeName(MethodDecl methodDecl)
     {
-        return $"PInvoke_{methodDecl.Name}";
+        // Use last 8 chars of mangled name hash to disambiguate overloads
+        // whose parameters marshal to the same C# types (e.g., URL and ImageRequest both become SafeHandle)
+        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        return $"PInvoke_{methodDecl.Name}_{mangledHash}";
     }
 
 

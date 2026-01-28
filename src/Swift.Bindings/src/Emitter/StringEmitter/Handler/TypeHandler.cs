@@ -955,21 +955,66 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            // Track emitted members to avoid duplicates
+            var emittedProperties = new HashSet<string>();
+            var emittedMethods = new HashSet<string>();
+
             // Emit properties as interface members
             foreach (var propertyDecl in protocolDecl.Properties)
             {
+                // Create a unique key for the property (name is sufficient since properties can't be overloaded)
+                var propertyKey = propertyDecl.Name;
+                if (emittedProperties.Contains(propertyKey))
+                {
+                    _logger.LogDebug($"Skipping duplicate property '{propertyDecl.Name}' in interface {protocolDecl.Name}");
+                    continue;
+                }
+                emittedProperties.Add(propertyKey);
                 EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase);
             }
 
             // Emit methods as interface members
             foreach (var methodDecl in protocolDecl.Methods)
             {
+                // Create a unique key for the method (name + parameter types)
+                var methodKey = GetMethodSignatureKey(methodDecl, env.TypeDatabase);
+                if (emittedMethods.Contains(methodKey))
+                {
+                    _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' in interface {protocolDecl.Name}");
+                    continue;
+                }
+                emittedMethods.Add(methodKey);
                 EmitInterfaceMethod(csWriter, methodDecl, env.TypeDatabase);
             }
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Creates a unique signature key for a method based on name and parameter types.
+        /// </summary>
+        private static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+        {
+            var paramTypes = new List<string>();
+            // Skip first element (return type) in CSSignature
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var arg = methodDecl.CSSignature[i];
+                try
+                {
+                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
+                    paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                }
+                catch
+                {
+                    // For generic type parameters or other unsupported types,
+                    // use the string representation of the type spec
+                    paramTypes.Add(arg.SwiftTypeSpec?.ToString() ?? "unknown");
+                }
+            }
+            return $"{methodDecl.Name}({string.Join(",", paramTypes)})";
         }
 
         /// <summary>
@@ -1203,6 +1248,9 @@ namespace BindingsGeneration
                 }
             }
 
+            // Emit ISwiftObject stub implementations
+            EmitEnumISwiftObjectImplementation(csWriter, enumDecl);
+
             // Emit nested types and methods using base handler
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase);
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase);
@@ -1210,6 +1258,32 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits stub ISwiftObject implementations for enum types.
+        /// </summary>
+        private static void EmitEnumISwiftObjectImplementation(CSharpWriter csWriter, EnumDecl enumDecl)
+        {
+            csWriter.WriteLines($@"
+                static TypeMetadata ISwiftObject.GetTypeMetadata() => throw new NotImplementedException(""Enum type metadata not yet implemented"");
+
+                static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+                    where TProtocol : class
+                {{
+                    throw new NotImplementedException(""Enum protocol conformance not yet implemented"");
+                }}
+
+                int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+                {{
+                    throw new NotImplementedException(""Enum marshalling not yet implemented"");
+                }}
+
+                static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+                {{
+                    throw new NotImplementedException(""Enum NewFromPayload not yet implemented"");
+                }}
+            ");
         }
 
         /// <summary>

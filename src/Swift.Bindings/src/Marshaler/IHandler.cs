@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.CodeDom.Compiler;
@@ -90,6 +91,9 @@ namespace BindingsGeneration
         /// <param name="typeDatabase">The type database instance.</param>
         protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase)
         {
+            // Track emitted method signatures to avoid duplicates
+            var emittedMethodSignatures = new HashSet<string>();
+
             foreach (var baseDecl in decl)
             {
                 if (baseDecl is StructDecl structDecl)
@@ -128,8 +132,29 @@ namespace BindingsGeneration
                         _logger.LogWarning($"No handler found for method {protocolDecl.Name}");
                     }
                 }
+                else if (baseDecl is EnumDecl enumDecl)
+                {
+                    if (conductor.TryGetTypeHandler(enumDecl, out var handler))
+                    {
+                        var env = handler.Marshal(enumDecl, typeDatabase);
+                        handler.Emit(csWriter, swiftWriter, env, conductor);
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"No handler found for enum {enumDecl.Name}");
+                    }
+                }
                 else if (baseDecl is MethodDecl methodDecl)
                 {
+                    // Create unique signature key to detect duplicates
+                    var signatureKey = GetMethodSignatureKey(methodDecl, typeDatabase);
+                    if (emittedMethodSignatures.Contains(signatureKey))
+                    {
+                        _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' with signature: {signatureKey}");
+                        continue;
+                    }
+                    emittedMethodSignatures.Add(signatureKey);
+
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
                         var env = handler.Marshal(methodDecl, typeDatabase);
@@ -148,6 +173,32 @@ namespace BindingsGeneration
 
                 csWriter.WriteLine();
             }
+        }
+
+        /// <summary>
+        /// Creates a unique signature key for a method based on name, constructor status, and parameter types.
+        /// </summary>
+        private static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+        {
+            var paramTypes = new List<string>();
+            // Skip first element (return type) in CSSignature
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var arg = methodDecl.CSSignature[i];
+                try
+                {
+                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
+                    paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                }
+                catch
+                {
+                    // For generic type parameters or other unsupported types,
+                    // use the string representation of the type spec
+                    paramTypes.Add(arg.SwiftTypeSpec?.ToString() ?? "unknown");
+                }
+            }
+            var prefix = methodDecl.IsConstructor ? "ctor:" : "method:";
+            return $"{prefix}{methodDecl.Name}({string.Join(",", paramTypes)})";
         }
     }
 }
