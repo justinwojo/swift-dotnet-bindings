@@ -16,10 +16,16 @@ namespace Swift;
 /// </remarks>
 public sealed class URL : ISwiftObject, IDisposable
 {
-    private IntPtr _handle;
+    private SwiftSafeHandle<URL> _payload = SwiftSafeHandle<URL>.Zero;
     private bool _disposed;
 
     private static TypeMetadata? _cachedMetadata;
+
+    /// <summary>
+    /// Gets the internal handle for marshalling to Swift.
+    /// This returns a SafeHandle for P/Invoke compatibility.
+    /// </summary>
+    public SwiftSafeHandle<URL> Payload => _payload;
 
     /// <summary>
     /// Creates a URL from a string representation.
@@ -109,8 +115,19 @@ public sealed class URL : ISwiftObject, IDisposable
         {
             fixed (void* swiftDest = swiftDestSpan)
             {
-                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_handle, metadata);
-                return (int)metadata.Size;
+                // Ensure the handle is valid before copying
+                bool success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                    return (int)metadata.Size;
+                }
+                finally
+                {
+                    if (success)
+                        _payload.DangerousRelease();
+                }
             }
         }
     }
@@ -126,7 +143,7 @@ public sealed class URL : ISwiftObject, IDisposable
 
     private URL(IntPtr handle)
     {
-        _handle = handle;
+        _payload = new SwiftSafeHandle<URL>(handle);
     }
 
     #endregion
@@ -169,7 +186,7 @@ public sealed class URL : ISwiftObject, IDisposable
     {
         if (!_disposed)
         {
-            // Release the Swift object if needed
+            _payload.Dispose();
             _disposed = true;
         }
     }

@@ -263,6 +263,12 @@ namespace BindingsGeneration
             }
 
             var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
+            // Protocol types (interfaces) are not supported as return types because they don't have Payload property
+            if (typeRecord.Kind == TypeRecordKind.Protocol)
+            {
+                SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                return;
+            }
             SetReturnType(typeRecord.CSharpTypeName.FullyQualifiedName);
         }
 
@@ -316,6 +322,12 @@ namespace BindingsGeneration
                 else
                 {
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
+                    // Protocol types (interfaces) are not supported as parameters because they don't have Payload property
+                    if (typeRecord.Kind == TypeRecordKind.Protocol)
+                    {
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        continue;
+                    }
                     AddParameter(typeRecord.CSharpTypeName.FullyQualifiedName, argument.Name);
                 }
             }
@@ -750,6 +762,7 @@ namespace BindingsGeneration
             EmitBodyStart(csWriter);
             EmitSafeHandleAddRef(csWriter);
             EmitSwiftSelf(csWriter);
+            EmitBoundGenericArguments(csWriter);
             EmitIndirectResultConstructor(csWriter);
             EmitPInvokeCall(csWriter);
             EmitSwiftError(csWriter);

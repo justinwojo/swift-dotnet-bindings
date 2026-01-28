@@ -68,8 +68,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     {
         // This will emit the C# equivalent of the Swift property.
         // To achieve this, the process is divided into the following steps:
-        // 1. Emit Accessor Methods: Generate the C# methods that correspond to the Swift property's accessors (getter, setter, etc.).
-        // 2. Emit Property Definition: Define the C# property itself, including its type, name, and accessors.
+        // 1. Check if accessor methods can be emitted (no unsupported types)
+        // 2. Emit Accessor Methods: Generate the C# methods that correspond to the Swift property's accessors (getter, setter, etc.).
+        // 3. Emit Property Definition: Define the C# property itself, including its type, name, and accessors.
         //    This step utilizes the previously generated accessor methods to implement the property's behavior.
 
         var propertyEnv = (PropertyEnvironment)env;
@@ -95,22 +96,47 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             false => typeRecord!.CSharpTypeName.FullyQualifiedName
         };
 
+        // Skip properties with AnyType - the accessor methods will be skipped due to unsupported types
+        if (csTypeName.Contains("AnyType"))
+        {
+            _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported AnyType in type {csTypeName}.");
+            return;
+        }
+
         // TODO Detect and skip / Handle async properties https://github.com/dotnet/runtimelab/issues/2996
 
         // Get the C# property name, handling reserved keywords and special cases
         var propertyName = NameProvider.GetPropertyName(propertyDecl.Name);
 
-        // First emit the accessor methods using MethodHandler
+        // Check if all accessor methods can be emitted before actually emitting them.
+        // If any accessor would be skipped (due to unsupported types like AnyType),
+        // skip the entire property to avoid generating a property that references non-existent methods.
+        foreach (var accessor in propertyDecl.Accessors)
+        {
+            if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
+            {
+                var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+                var signatureHandler = new SignatureHandler(accessorEnv);
+                if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
+                {
+                    _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} has unsupported signature.");
+                    return;
+                }
+            }
+            else
+            {
+                _logger.LogWarning($"No handler found for property accessor {accessor.Method.Name}. Skipping property {propertyDecl.Name}.");
+                return;
+            }
+        }
+
+        // Now emit the accessor methods using MethodHandler
         foreach (var accessor in propertyDecl.Accessors)
         {
             if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
             {
                 var accessorEnv = methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
                 methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor);
-            }
-            else
-            {
-                _logger.LogWarning($"No handler found for properties accessor {accessor.Method.Name}");
             }
         }
         var staticModifier = propertyDecl.IsStatic ? "static " : string.Empty;

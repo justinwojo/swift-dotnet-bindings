@@ -1222,6 +1222,12 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            // Emit payload field and property - enums need this for property accessors
+            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{enumDecl.Name}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine($"SwiftSafeHandle<{enumDecl.Name}> _payload = SwiftSafeHandle<{enumDecl.Name}>.Zero;");
+            csWriter.WriteLine($"public SwiftSafeHandle<{enumDecl.Name}> Payload => _payload;");
+            csWriter.WriteLine();
+
             // Emit static case constructors for simple cases (no associated values)
             foreach (var caseDecl in enumDecl.Cases.Where(c => !c.HasAssociatedValues))
             {
