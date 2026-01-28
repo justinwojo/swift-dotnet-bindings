@@ -75,12 +75,12 @@ namespace BindingsGeneration
             var typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
             bool isProjectedAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord!);
 
-            // Check for explicit equality/inequality operators
-            bool hasExplicitEquality = OperatorHandler.HasExplicitEqualityOperator(structDecl.Operators);
-            bool hasExplicitInequality = OperatorHandler.HasExplicitInequalityOperator(structDecl.Operators);
+            // Check for equality/inequality operators (explicit or synthesized)
+            bool hasEquality = OperatorHandler.WillHaveEqualityOperator(structDecl.Operators);
+            bool hasInequality = OperatorHandler.WillHaveInequalityOperator(structDecl.Operators);
 
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl);
-            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, hasExplicitEquality, hasExplicitInequality);
+            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, hasEquality, hasInequality);
             bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
             SwiftTypeInfo? swiftTypeInfo = typeRecord?.SwiftTypeInfo;
@@ -260,12 +260,12 @@ namespace BindingsGeneration
             var structDecl = (StructDecl)structEnv.TypeDecl;
             var moduleDecl = structDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(structDecl.ModuleDecl));
 
-            // Check for explicit equality/inequality operators
-            bool hasExplicitEquality = OperatorHandler.HasExplicitEqualityOperator(structDecl.Operators);
-            bool hasExplicitInequality = OperatorHandler.HasExplicitInequalityOperator(structDecl.Operators);
+            // Check for equality/inequality operators (explicit or synthesized)
+            bool hasEquality = OperatorHandler.WillHaveEqualityOperator(structDecl.Operators);
+            bool hasInequality = OperatorHandler.WillHaveInequalityOperator(structDecl.Operators);
 
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl);
-            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, hasExplicitEquality, hasExplicitInequality);
+            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, hasEquality, hasInequality);
             bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
             var interfaces = new List<string> {

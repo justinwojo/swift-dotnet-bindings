@@ -390,5 +390,21 @@ namespace BindingsGeneration
         /// <returns>True if != operator is explicitly defined.</returns>
         public static bool HasExplicitInequalityOperator(List<OperatorDecl> operators) =>
             operators.Any(o => o.OperatorSymbol == "!=");
+
+        /// <summary>
+        /// Checks if an equality operator will be emitted (either explicit or synthesized from !=).
+        /// </summary>
+        /// <param name="operators">The list of operators.</param>
+        /// <returns>True if == operator will be present in the generated code.</returns>
+        public static bool WillHaveEqualityOperator(List<OperatorDecl> operators) =>
+            HasExplicitEqualityOperator(operators) || HasExplicitInequalityOperator(operators);
+
+        /// <summary>
+        /// Checks if an inequality operator will be emitted (either explicit or synthesized from ==).
+        /// </summary>
+        /// <param name="operators">The list of operators.</param>
+        /// <returns>True if != operator will be present in the generated code.</returns>
+        public static bool WillHaveInequalityOperator(List<OperatorDecl> operators) =>
+            HasExplicitInequalityOperator(operators) || HasExplicitEqualityOperator(operators);
     }
 }
