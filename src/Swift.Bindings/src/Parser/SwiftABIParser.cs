@@ -719,8 +719,9 @@ namespace BindingsGeneration
 
         private SetAccessorDecl CreateSetAccessor(Node accessor, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
-            // The setter has two children: the first is the parameter type (value to set),
-            // and the second is an empty tuple representing void return
+            // The setter has two children:
+            // - Index 0: Void (return type)
+            // - Index 1: The parameter type (value to set)
             var methodDecl = new MethodDecl
             {
                 Name = $"{fieldName}_Set",
@@ -740,10 +741,10 @@ namespace BindingsGeneration
                         ParentDecl = parentDecl,
                         ModuleDecl = moduleDecl
                     },
-                    // Parameter (value)
+                    // Parameter (value) - at index 1, after the void return type
                     new ArgumentDecl
                     {
-                        SwiftTypeSpec = CreateTypeSpec(accessor.Children.ElementAt(0)),
+                        SwiftTypeSpec = CreateTypeSpec(accessor.Children.ElementAt(1)),
                         Name = "value",
                         PrivateName = string.Empty,
                         IsInOut = false,

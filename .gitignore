@@ -204,3 +204,9 @@ launchSettings.json
 testing/
 src/samples/
 BindingTesting/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# LLVM profiling data
+*.profraw

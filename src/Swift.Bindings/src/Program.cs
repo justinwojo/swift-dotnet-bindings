@@ -21,6 +21,9 @@ namespace BindingsGeneration
             Option<string> dylibOption = new(aliases: new[] { "-d", "--dylib" }, "Path to the dynamic library.") { IsRequired = true };
             Option<string> tbdOption = new(aliases: new[] { "-t", "--tbd" }, "Path to the TBD file.") { IsRequired = true };
             Option<string> outputDirectoryOption = new(aliases: new[] { "-o", "--output" }, "Output directory for generated bindings.") { IsRequired = true };
+            Option<string> libraryNameOption = new(
+                aliases: new[] { "-l", "--library-name" },
+                description: "Runtime library name for DllImport (e.g., '@rpath/Nuke.framework/Nuke'). If not specified, uses the dylib path.");
             Option<int> verboseOption = new(
                 aliases: new[] { "-v", "--verbose" },
                 description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -33,19 +36,21 @@ namespace BindingsGeneration
                 dylibOption,
                 tbdOption,
                 outputDirectoryOption,
+                libraryNameOption,
                 verboseOption,
                 helpOption,
             };
-            rootCommand.SetHandler((string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, int verbose, bool help) =>
+            rootCommand.SetHandler((string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string? libraryName, int verbose, bool help) =>
             {
                 if (help)
                 {
                     Console.WriteLine("Usage:");
-                    Console.WriteLine("  -a, --swiftabi     Required. Path to the Swift ABI file.");
-                    Console.WriteLine("  -d, --dylib        Required. Path to the dynamic library.");
-                    Console.WriteLine("  -t, --tbd          Required. Path to the TBD file.");
-                    Console.WriteLine("  -o, --output       Required. Output directory for generated bindings.");
-                    Console.WriteLine("  -v, --verbose      Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
+                    Console.WriteLine("  -a, --swiftabi       Required. Path to the Swift ABI file.");
+                    Console.WriteLine("  -d, --dylib          Required. Path to the dynamic library.");
+                    Console.WriteLine("  -t, --tbd            Required. Path to the TBD file.");
+                    Console.WriteLine("  -o, --output         Required. Output directory for generated bindings.");
+                    Console.WriteLine("  -l, --library-name   Optional. Runtime library name for DllImport (e.g., '@rpath/Nuke.framework/Nuke').");
+                    Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
                     return;
                 }
 
@@ -76,12 +81,16 @@ namespace BindingsGeneration
                     return;
                 }
 
-                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, logger, loggerFactory);
+                // Use the provided library name, or fall back to the dylib path
+                var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
+
+                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, logger, loggerFactory);
             },
             swiftAbiOption,
             dylibOption,
             tbdOption,
             outputDirectoryOption,
+            libraryNameOption,
             verboseOption,
             helpOption
             );
@@ -93,10 +102,13 @@ namespace BindingsGeneration
         /// Generates C# bindings from Swift ABI files.
         /// </summary>
         /// <param name="swiftAbiPath">Path to the Swift ABI file.</param>
-        /// <param name="dylibPath">Path to the dynamic library.</param>
+        /// <param name="dylibPath">Path to the dynamic library (used for metadata extraction).</param>
+        /// <param name="tbdPath">Path to the TBD file.</param>
         /// <param name="outputDirectory">Output directory for generated bindings.</param>
+        /// <param name="runtimeLibraryName">Library name for DllImport in generated code.</param>
         /// <param name="logger">ILogger instance.</param>
-        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, ILogger logger, ILoggerFactory loggerFactory)
+        /// <param name="loggerFactory">ILoggerFactory instance.</param>
+        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, ILogger logger, ILoggerFactory loggerFactory)
         {
             var typeDatabase = new TypeDatabase();
             string[] moduleDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml" };
@@ -106,6 +118,7 @@ namespace BindingsGeneration
             }
 
             logger.LogInformation("Starting bindings generation for {SwiftAbiPath}...", swiftAbiPath);
+            logger.LogInformation("Runtime library name: {LibraryName}", runtimeLibraryName);
 
             // Parse the TBD file
             Demangling.DemanglingResults demangledTbdFile = Demangling.DemanglingResults.FromTbd(tbdPath, loggerFactory);
@@ -121,7 +134,8 @@ namespace BindingsGeneration
                 // Parse the Swift ABI file and generate declarations
                 var (decl, moduleTypes) = swiftParser.ParseModule();
 
-                var moduleProcessor = new ModuleProcessor(moduleName, dylibPath, moduleTypes, typeDatabase, loggerFactory.CreateLogger<ModuleProcessor>());
+                // dylibPath is used for metadata extraction, runtimeLibraryName is used in generated DllImport
+                var moduleProcessor = new ModuleProcessor(moduleName, dylibPath, runtimeLibraryName, moduleTypes, typeDatabase, loggerFactory.CreateLogger<ModuleProcessor>());
                 var moduleDatabase = moduleProcessor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
                 typeDatabase.AddModuleDatabase(moduleDatabase);
 

@@ -36,13 +36,13 @@ namespace BindingsGeneration
             // TODO: This is synchronous, consider other xml parsers, other formats
             xmlDoc.LoadXml(fileContent);
             if (!ValidateXmlSchema(xmlDoc))
-                throw new Exception(string.Format($"Invalid XML schema in {0}.", file));
+                throw new Exception($"Invalid XML schema in {file}.");
 
             var version = xmlDoc.DocumentElement?.Attributes?["version"]?.Value;
             var moduleDatabase = version switch
             {
                 "1.0" => ReadVersion1_0(xmlDoc),
-                _ => throw new Exception(string.Format($"Unsupported database version {0} in {1}.", version, file))
+                _ => throw new Exception($"Unsupported database version {version} in {file}.")
             };
 
             AddModuleDatabase(moduleDatabase);
@@ -87,6 +87,10 @@ namespace BindingsGeneration
 
             foreach (XmlNode entityNode in entitiesNode.ChildNodes)
             {
+                // Skip non-element nodes (comments, whitespace, etc.)
+                if (entityNode.NodeType != XmlNodeType.Element)
+                    continue;
+
                 if (entityNode.Name != "entity")
                     return false;
 
@@ -121,6 +125,10 @@ namespace BindingsGeneration
 
             foreach (XmlNode? entityNode in entitiesNode.ChildNodes)
             {
+                // Skip non-element nodes (comments, whitespace, etc.)
+                if (entityNode?.NodeType != XmlNodeType.Element)
+                    continue;
+
                 XmlNode? typeDeclarationNode = entityNode?.SelectSingleNode("typedeclaration");
                 if (typeDeclarationNode == null)
                     throw new Exception("Invalid XML structure: 'typedeclaration' node not found.");

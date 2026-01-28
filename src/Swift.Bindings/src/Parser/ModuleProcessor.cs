@@ -33,13 +33,15 @@ namespace BindingsGeneration
         /// Initializes a new instance of the <see cref="ModuleProcessor"/> class.
         /// </summary>
         /// <param name="module">The name of the Swift module being processed.</param>
-        /// <param name="dylibPath">The file path to the Swift dynamic library.</param>
+        /// <param name="dylibPath">The file path to the Swift dynamic library (used for metadata extraction).</param>
+        /// <param name="runtimeLibraryName">The library name for DllImport in generated code.</param>
         /// <param name="typeDecls">A dictionary mapping Swift type specs to their declarations.</param>
         /// <param name="typeDatabase">The global type database tracking processed types.</param>
         /// <param name="logger">Logger instance.</param>
         public ModuleProcessor(
             string module,
             string dylibPath,
+            string runtimeLibraryName,
             Dictionary<NamedTypeSpec, TypeDecl> typeDecls,
             ITypeDatabase typeDatabase,
             ILogger logger)
@@ -47,7 +49,8 @@ namespace BindingsGeneration
             _module = module;
             _dylibPath = dylibPath;
             _typeDatabase = typeDatabase;
-            _moduleDatabase = new ModuleTypeDatabase(module, dylibPath);
+            // Use runtimeLibraryName for DllImport in generated code
+            _moduleDatabase = new ModuleTypeDatabase(module, runtimeLibraryName);
             _typeDecls = typeDecls;
             _logger = logger;
         }
