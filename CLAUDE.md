@@ -5,8 +5,38 @@
 This is Microsoft's **experimental** Swift/.NET interoperability project. It generates C# bindings from compiled Apple Swift libraries, allowing Swift frameworks to be consumed in .NET/C# applications on Apple platforms (iOS, macOS, tvOS, Catalyst).
 
 **Branch**: `feature/swift-bindings`
-**Status**: Experimental (last active ~9 months ago by Microsoft, recently picked up for evaluation)
+**Status**: Experimental (last active ~9 months ago by Microsoft, recently picked up by Justin Wojciechowski)
 **Target**: .NET 9.0+ on Apple platforms
+
+## Copyright and Licensing
+
+This project is licensed under the **MIT License**. The original codebase is copyrighted by Microsoft Corporation. New contributions and modifications are additionally copyrighted by Justin Wojciechowski.
+
+### Copyright Header Requirements
+
+**When creating new C# files** (original work, not derived from Microsoft code):
+```csharp
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+```
+
+**When modifying existing Microsoft files** that don't already have Justin's copyright, add his copyright line:
+```csharp
+// Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+```
+
+**When creating files derived from Microsoft code** (based on their patterns/templates):
+```csharp
+// Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+```
+
+**Files already containing Justin's copyright** should not be modified (the header is already correct).
+
+This approach follows MIT license best practices: original work gets the author's copyright, while derived/modified work preserves the original copyright alongside the contributor's.
 
 ## Why This Project Matters
 
@@ -316,3 +346,4 @@ var conforms = obj.GetProtocolConformanceDescriptor(typeof(ISomeProtocol));
 3. Add tests for new features in appropriate test project
 4. Run `./build.sh` on macOS to validate changes
 5. Follow existing code style (no emojis, clear naming)
+6. **Include proper copyright headers** (see "Copyright and Licensing" section above)
