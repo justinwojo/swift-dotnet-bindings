@@ -1,3 +1,7 @@
+// Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
 namespace BindingsGeneration;
 
 /// <summary>
@@ -8,10 +12,14 @@ namespace BindingsGeneration;
 public class BoundGenericsHandler
 {
     private readonly ITypeDatabase _typeDatabase;
+    private readonly ClosureHandler _closureHandler;
+    private readonly TupleHandler _tupleHandler;
 
     public BoundGenericsHandler(ITypeDatabase typeDatabase)
     {
         _typeDatabase = typeDatabase;
+        _closureHandler = new ClosureHandler(typeDatabase);
+        _tupleHandler = new TupleHandler(typeDatabase);
     }
 
     // Almost all generics will be projected into C# as classes.
@@ -99,18 +107,12 @@ public class BoundGenericsHandler
     /// </summary>
     /// <param name="namedTypeSpec">The named type specification.</param>
     /// <returns>The C# type name string.</returns>
-    /// <exception cref="NotSupportedException">
-    /// Thrown when any generic parameter is not a named type specification.
-    /// </exception>
     private string TranslateBoundGenericTypeToCSharp(NamedTypeSpec namedTypeSpec)
     {
         List<string> translatedGenericParameters = new();
         foreach (var genericParameter in namedTypeSpec.GenericParameters)
         {
-            if (genericParameter is not NamedTypeSpec namedGenericParameter)
-                throw new NotSupportedException(
-                    $"Generic parameter {genericParameter} is not a named type spec");
-            translatedGenericParameters.Add(TranslateBoundGenericTypeToCSharp(namedGenericParameter));
+            translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter));
         }
 
         var typeReference = _typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec); // TODO: consider throwing an exception instead
@@ -118,6 +120,46 @@ public class BoundGenericsHandler
                (translatedGenericParameters.Count > 0
                     ? $"<{string.Join(", ", translatedGenericParameters)}>"
                     : "");
+    }
+
+    /// <summary>
+    /// Translates any TypeSpec to its C# equivalent.
+    /// Handles NamedTypeSpec, ClosureTypeSpec, and TupleTypeSpec.
+    /// </summary>
+    /// <param name="typeSpec">The type specification to translate.</param>
+    /// <returns>The C# type name string.</returns>
+    /// <exception cref="NotSupportedException">
+    /// Thrown when the type specification is not supported.
+    /// </exception>
+    private string TranslateTypeSpecToCSharp(TypeSpec typeSpec)
+    {
+        return typeSpec switch
+        {
+            NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec),
+            ClosureTypeSpec closureTypeSpec => TranslateClosureTypeToCSharp(closureTypeSpec),
+            TupleTypeSpec tupleTypeSpec => _tupleHandler.GetCSharpTupleType(tupleTypeSpec),
+            _ => throw new NotSupportedException(
+                $"Type spec {typeSpec.GetType().Name} ({typeSpec}) is not supported as a generic parameter")
+        };
+    }
+
+    /// <summary>
+    /// Translates a closure type spec to its C# delegate type.
+    /// Falls back to object for unsupported closures.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>The C# delegate type name.</returns>
+    private string TranslateClosureTypeToCSharp(ClosureTypeSpec closureTypeSpec)
+    {
+        // Check if the closure is supported
+        if (!_closureHandler.IsSupportedClosure(closureTypeSpec))
+        {
+            // For unsupported closures (async, throwing, etc.), fall back to object
+            // This allows the binding to compile, though the closure won't be directly usable
+            return "object";
+        }
+
+        return _closureHandler.GetCSharpDelegateType(closureTypeSpec);
     }
 
     /// <summary>

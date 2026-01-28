@@ -203,3 +203,4 @@ launchSettings.json
 # Testing artifacts
 testing/
 src/samples/
+BindingTesting/
