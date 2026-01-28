@@ -95,7 +95,8 @@ namespace BindingsGeneration
 
             if (isProjectedAsClass)
             {
-                csWriter.WriteLine($"public class {structDecl.Name} : {string.Join(", ", interfaces)}");
+                // Use unsafe class since methods may use function pointers for closure parameters
+                csWriter.WriteLine($"public unsafe class {structDecl.Name} : {string.Join(", ", interfaces)}");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 

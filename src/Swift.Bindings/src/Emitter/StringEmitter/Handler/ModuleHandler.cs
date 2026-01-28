@@ -81,7 +81,8 @@ namespace BindingsGeneration
             // Emit top-level methods
             if (moduleDecl.Methods.Any())
             {
-                csWriter.WriteLine($"public class {moduleDecl.Name}");
+                // Use unsafe class since methods may use function pointers for closure parameters
+                csWriter.WriteLine($"public unsafe class {moduleDecl.Name}");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine();

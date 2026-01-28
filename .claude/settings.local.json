@@ -11,7 +11,12 @@
       "Bash(\"C:\\\\Program Files\\\\dotnet\\\\dotnet.exe\" build C:/Users/User/Dev/runtimelab/src/Swift.Bindings/tests/UnitTests/Swift.Bindings.Unit.Tests.csproj)",
       "Bash(dotnet test:*)",
       "Bash(dir:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(xargs:*)",
+      "Bash(./build.sh:*)",
+      "Bash(ls:*)",
+      "Bash(python3:*)",
+      "Bash(/Users/wojo/Dev/swift-bindings/dotnet.sh:*)"
     ]
   }
 }

@@ -87,9 +87,11 @@ public class ClosureHandler
         if (closureTypeSpec.Throws)
             return false;
 
-        // For non-@convention(c) closures, they must be escaping
-        if (!IsConventionC(closureTypeSpec) && !closureTypeSpec.IsEscaping)
-            return false;
+        // Note: We no longer check for explicit @escaping attribute here.
+        // All closures in public Swift APIs are either @convention(c) or @escaping by definition,
+        // since non-escaping closures cannot cross API boundaries. The ABI JSON doesn't include
+        // these attributes in the printedName field, so we treat all non-async, non-throwing
+        // closures as supported (either @convention(c) or implicitly @escaping).
 
         // Check that all argument types are supported
         foreach (var arg in closureTypeSpec.EachArgument())
@@ -188,7 +190,8 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Gets the P/Invoke function pointer type for a @convention(c) closure.
+    /// Gets the P/Invoke function pointer type for a closure.
+    /// Uses Swift calling convention since escaping closures are called with Swift ABI.
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns>The unmanaged function pointer type string.</returns>
@@ -203,10 +206,11 @@ public class ClosureHandler
         bool hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var returnType = hasReturn ? TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType) : "void";
 
+        // Use Swift calling convention for escaping closures (thick closures)
         if (argTypes.Count == 0)
-            return $"delegate* unmanaged[Cdecl]<{returnType}>";
+            return $"delegate* unmanaged[Swift]<{returnType}>";
 
-        return $"delegate* unmanaged[Cdecl]<{string.Join(", ", argTypes)}, {returnType}>";
+        return $"delegate* unmanaged[Swift]<{string.Join(", ", argTypes)}, {returnType}>";
     }
 
     /// <summary>
@@ -237,6 +241,7 @@ public class ClosureHandler
 
     /// <summary>
     /// Translates a TypeSpec to its P/Invoke equivalent type.
+    /// For UnmanagedCallersOnly compatibility, bool is mapped to byte.
     /// </summary>
     private string TranslateTypeSpecToPInvokeType(TypeSpec typeSpec)
     {
@@ -245,6 +250,11 @@ public class ClosureHandler
             // Handle pointer types - all map to void* or IntPtr
             if (IsPointerType(namedType))
                 return "void*";
+
+            // Swift.Bool must be mapped to byte for UnmanagedCallersOnly
+            // (bool is non-blittable in .NET)
+            if (namedType.Name == "Swift.Bool")
+                return "byte";
 
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
 

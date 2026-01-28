@@ -417,7 +417,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetPInvokeFunctionPointerType(closure);
 
-        Assert.Equal("delegate* unmanaged[Cdecl]<ValueTuple<System.Int64, System.Boolean>, void>", result);
+        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<System.Int64, System.Boolean>, void>", result);
     }
 
     [Fact]
@@ -435,7 +435,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetPInvokeFunctionPointerType(closure);
 
-        Assert.Equal("delegate* unmanaged[Cdecl]<ValueTuple<System.Int64, System.Double>>", result);
+        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<System.Int64, System.Double>>", result);
     }
 
     #endregion

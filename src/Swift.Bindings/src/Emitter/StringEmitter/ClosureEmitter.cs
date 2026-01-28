@@ -30,16 +30,18 @@ public static class ClosureEmitter
 
         // Build parameter list for the callback (arguments + context as last param)
         var parameters = new List<string>();
+        var argTypes = new List<TypeSpec>();
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             var paramType = GetCallbackParameterType(arg, closureHandler);
             parameters.Add($"{paramType} arg{argIndex}");
+            argTypes.Add(arg);
             argIndex++;
         }
-        // Context is passed in a register (r13 on x64, x20 on ARM64) but for the callback
-        // it appears as the last parameter when using Swift calling convention
-        parameters.Add("IntPtr context");
+        // Context is passed in the Swift "self" register. Using SwiftSelf tells .NET to
+        // receive this value from the correct register per Swift calling convention.
+        parameters.Add("SwiftSelf context");
 
         var returnType = closureTypeSpec.ReturnType.IsEmptyTuple
             ? "void"
@@ -48,21 +50,39 @@ public static class ClosureEmitter
         var parametersString = string.Join(", ", parameters);
 
         // Build argument list for invoking the delegate
+        // Convert byte to bool for Swift.Bool parameters
         var invokeArgs = new List<string>();
         for (int i = 0; i < argIndex; i++)
         {
-            invokeArgs.Add($"arg{i}");
+            var argExpr = IsBoolType(argTypes[i]) ? $"arg{i} != 0" : $"arg{i}";
+            invokeArgs.Add(argExpr);
         }
         var invokeArgsString = string.Join(", ", invokeArgs);
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
+        var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
+
+        // For bool returns, we need to convert: (byte)(result ? 1 : 0)
+        string returnStatement;
+        if (!hasReturn)
+        {
+            returnStatement = $"del({invokeArgsString});";
+        }
+        else if (returnIsBool)
+        {
+            returnStatement = $"return (byte)(del({invokeArgsString}) ? 1 : 0);";
+        }
+        else
+        {
+            returnStatement = $"return del({invokeArgsString});";
+        }
 
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
             private static {{returnType}} {{callbackName}}({{parametersString}})
             {
-                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>(context);
-                {{(hasReturn ? "return " : "")}}del({{invokeArgsString}});
+                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>(new IntPtr(context.Value));
+                {{returnStatement}}
             }
             """);
     }
@@ -165,6 +185,7 @@ public static class ClosureEmitter
 
     /// <summary>
     /// Gets basic C# type mapping for common Swift types.
+    /// For UnmanagedCallersOnly callbacks, we use blittable types only.
     /// </summary>
     private static string GetBasicCSharpType(string swiftTypeName)
     {
@@ -182,18 +203,28 @@ public static class ClosureEmitter
             "Swift.UInt64" => "ulong",
             "Swift.Float" => "float",
             "Swift.Double" => "double",
-            "Swift.Bool" => "bool",
+            // Bool is non-blittable, use byte instead (Swift.Bool is 1 byte)
+            "Swift.Bool" => "byte",
             "Swift.Void" => "void",
             _ => "void*" // Default to pointer for unknown types
         };
     }
 
     /// <summary>
-    /// Adds context parameter to a function pointer type string.
+    /// Checks if the Swift type is Bool, which requires conversion in callbacks.
+    /// </summary>
+    private static bool IsBoolType(TypeSpec typeSpec)
+    {
+        return typeSpec is NamedTypeSpec namedType && namedType.Name == "Swift.Bool";
+    }
+
+    /// <summary>
+    /// Adds SwiftSelf context parameter to a function pointer type string.
+    /// SwiftSelf is used because Swift passes closure context in the "self" register.
     /// </summary>
     private static string AddContextToFunctionPointerType(string funcPtrType)
     {
-        // Transform "delegate* unmanaged[Cdecl]<int, void>" to "delegate* unmanaged[Cdecl]<int, IntPtr, void>"
+        // Transform "delegate* unmanaged[Swift]<int, void>" to "delegate* unmanaged[Swift]<int, SwiftSelf, void>"
         // The context is the last parameter before the return type
 
         // Find the last comma before '>'
@@ -204,16 +235,16 @@ public static class ClosureEmitter
         int lastComma = funcPtrType.LastIndexOf(',', lastAngle);
         if (lastComma == -1)
         {
-            // No parameters, just return type: "delegate* unmanaged[Cdecl]<void>"
-            // Insert "IntPtr, " before the return type
+            // No parameters, just return type: "delegate* unmanaged[Swift]<void>"
+            // Insert "SwiftSelf, " before the return type
             int openAngle = funcPtrType.IndexOf('<');
             if (openAngle == -1)
                 return funcPtrType;
 
-            return funcPtrType.Insert(openAngle + 1, "IntPtr, ");
+            return funcPtrType.Insert(openAngle + 1, "SwiftSelf, ");
         }
 
-        // Insert ", IntPtr" after the last comma
-        return funcPtrType.Insert(lastComma + 1, " IntPtr,");
+        // Insert ", SwiftSelf" after the last comma
+        return funcPtrType.Insert(lastComma + 1, " SwiftSelf,");
     }
 }

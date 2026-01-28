@@ -202,13 +202,11 @@ namespace BindingsGeneration
                 { Type: "AsyncContext" } => "null",
                 { Type: "AsyncTask" } => $"GCHandle.ToIntPtr({parameter.Name})",
                 { modifier: "out" } => $"out var {parameter.Name}",
-                // Handle closure function pointers:
-                // - For @convention(c): param name is original, variable is {name}FuncPtr
-                // - For escaping: param name is {name}FuncPtr, variable is the same
+                // Handle escaping closures: parameter is SwiftClosureData, variable is {name}Closure
+                { Type: "SwiftClosureData" } => $"{parameter.Name}Closure",
+                // Handle @convention(c) closure function pointers
                 { Type: var type } when type.StartsWith("delegate* unmanaged") =>
                     parameter.Name.EndsWith("FuncPtr") ? parameter.Name : $"{parameter.Name}FuncPtr",
-                // Handle closure context for escaping closures
-                { Type: "IntPtr", Name: var name } when name.EndsWith("Context") => parameter.Name,
                 _ => parameter.Name
             };
         }
@@ -467,20 +465,16 @@ namespace BindingsGeneration
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     {
-                        // Get the function pointer type (without context for @convention(c))
-                        var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
-
                         if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                         {
-                            // Escaping closures need both function pointer and context
-                            // The function pointer type needs to include the context parameter
-                            var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
-                            AddParameter(funcPtrTypeWithContext, $"{argument.Name}FuncPtr");
-                            AddParameter("IntPtr", $"{argument.Name}Context");
+                            // Escaping closures are passed as a single SwiftClosureData struct
+                            // containing both function pointer and context
+                            AddParameter("SwiftClosureData", argument.Name);
                         }
                         else
                         {
                             // @convention(c) closures just need the function pointer
+                            var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
                             AddParameter(funcPtrType, argument.Name);
                         }
                     }
@@ -1013,12 +1007,11 @@ namespace BindingsGeneration
                 }
                 else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
-                    // For escaping closures, create closure data with thunk pointer and delegate in context
+                    // For escaping closures, create a SwiftClosureData struct with thunk pointer and delegate in context
                     var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name);
                     csWriter.WriteLines($"""
-                        var {argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});
-                        var {argumentDecl.Name}FuncPtr = s_{callbackName};
-                        var {argumentDecl.Name}Context = GCHandle.ToIntPtr({argumentDecl.Name}Handle);
+                        {argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});
+                        var {argumentDecl.Name}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({argumentDecl.Name}Handle));
                         """);
                 }
             }
