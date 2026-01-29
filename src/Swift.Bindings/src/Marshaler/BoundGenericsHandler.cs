@@ -36,7 +36,8 @@ public class BoundGenericsHandler
     private static readonly Dictionary<SwiftTypeName, string> s_bufferTypeMap = new()
         {
             { SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "IntPtr" },
-            { SwiftTypeName.FromModuleQualifiedName("Swift.Set"), "IntPtr" }
+            { SwiftTypeName.FromModuleQualifiedName("Swift.Set"), "IntPtr" },
+            { SwiftTypeName.FromModuleQualifiedName("Swift.Optional"), "IntPtr" }
         };
 
     /// <summary>
