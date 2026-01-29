@@ -42,6 +42,20 @@ This approach follows MIT license best practices: original work gets the author'
 
 Apple is increasingly shipping Swift-only APIs (StoreKit 2, SwiftUI, etc.). Without Swift interop, .NET on iOS becomes progressively less capable. Traditional Objective-C bindings don't work for Swift-only libraries. This project attempts to solve that fundamental problem.
 
+## North Star Vision
+
+**Read `/north-star.md` for the project's long-term vision and roadmap.**
+
+The end goal: Any .NET developer can bind any Swift library and distribute it via NuGet with a simple workflow:
+1. Create binding project → 2. Add xcframework → 3. Build → 4. Distribute NuGet package
+
+When making architectural decisions or prioritizing work, refer to the north star document to ensure alignment with the project's direction. Key priorities:
+- **Phase 1** (current): Foundation completion - async SafeHandle fix, property setters, enum cases
+- **Phase 2**: Type system completeness - existentials, generics, protocols
+- **Phase 3**: Developer experience - MSBuild SDK, project templates, NuGet automation
+
+See also: `/src/docs/nuke-binding-roadmap.md` for real-world gap tracking from Nuke library testing.
+
 ## Repository Structure
 
 ```
