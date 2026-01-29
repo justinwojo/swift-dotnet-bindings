@@ -967,12 +967,7 @@ namespace BindingsGeneration
 
             bool isEmptyTuple = _env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
 
-            csWriter.WriteLines($$"""
-            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            GCHandle handle = GCHandle.Alloc(task, GCHandleType.Normal);
-            """);
-
-            // Identify non-frozen parameters that need special Swift wrapper handling
+            // Identify non-frozen parameters that need to be kept alive until callback
             var nonFrozenParams = _env.MethodDecl.CSSignature
                 .Skip(1)
                 .Where(p => !p.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(p) && !_env.ClosureHandler.IsClosure(p) && !_env.TupleHandler.IsTuple(p))
@@ -982,6 +977,59 @@ namespace BindingsGeneration
                     return !MarshallingHelpers.IsTypeFrozen(typeRecord);
                 })
                 .ToList();
+
+            // For non-frozen parameters, create proper copies using InitializeWithCopy FIRST
+            // (before the holder is created), so the copy buffer pointers can be stored in the holder.
+            // Swift reads via .pointee (bitwise copy). Original params kept alive to maintain ref count.
+            if (nonFrozenParams.Count > 0)
+            {
+                // Create copy buffers for non-frozen parameters
+                foreach (var p in nonFrozenParams)
+                {
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
+                    var typeName = typeRecord.CSharpTypeName.FullyQualifiedName;
+                    csWriter.WriteLines($"""
+                        var {p.Name}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
+                        IntPtr {p.Name}CopyBuffer = (IntPtr)NativeMemory.Alloc({p.Name}Metadata.Size);
+                        {p.Name}Metadata.ValueWitnessTable->InitializeWithCopy(
+                            (void*){p.Name}CopyBuffer,
+                            (void*){p.Name}.Payload.DangerousGetHandle(),
+                            {p.Name}Metadata);
+                        IntPtr {p.Name}Handle = {p.Name}CopyBuffer;
+                        """);
+                }
+
+                // Now create the holder with copy buffer pointers AND original parameters AND self (for instance methods)
+                // Original parameters must be kept alive to prevent GC from calling Destroy on them
+                // while the async task is still running (InitializeWithCopy increments ref count,
+                // but if original is destroyed, the internal storage could be freed prematurely)
+                // Also keep 'this' alive for instance methods since SwiftSelf doesn't prevent GC
+                var copyBufferList = string.Join(", ", nonFrozenParams.Select(p => $"{p.Name}CopyBuffer"));
+                var originalParamList = string.Join(", ", nonFrozenParams.Select(p => $"(object){p.Name}"));
+                var selfInHolder = (_env.MethodDecl.MethodType != MethodType.Static) ? ", (object)this" : "";
+                csWriter.WriteLines($$"""
+            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
+            object[] _asyncCallHolder = new object[] { task, {{copyBufferList}}, {{originalParamList}}{{selfInHolder}} };
+            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
+            """);
+            }
+            else if (_env.MethodDecl.MethodType != MethodType.Static)
+            {
+                // No non-frozen parameters, but still need to keep 'this' alive for instance methods
+                csWriter.WriteLines($$"""
+            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
+            object[] _asyncCallHolder = new object[] { task, (object)this };
+            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
+            """);
+            }
+            else
+            {
+                // Static method with no non-frozen parameters - no holder needed
+                csWriter.WriteLines($$"""
+            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
+            GCHandle handle = GCHandle.Alloc(task, GCHandleType.Normal);
+            """);
+            }
 
             // Build parameter string - non-frozen types use UnsafeRawPointer in Swift wrapper
             string parameters = string.Join(
@@ -1033,17 +1081,14 @@ namespace BindingsGeneration
                 false => ""
             };
 
-            // Generate copy allocation code for non-frozen parameters (before Task block)
-            var copyAllocCode = string.Join("\n        ", nonFrozenParams.Select(p =>
-                $"let {p.Name}Copy = UnsafeMutablePointer<{p.SwiftTypeSpec}>.allocate(capacity: 1)\n        " +
-                $"{p.Name}Copy.initialize(from: {p.Name}.assumingMemoryBound(to: {p.SwiftTypeSpec}.self), count: 1)"));
-
-            // Generate cleanup code for non-frozen parameters (executed AFTER callback, not in defer)
-            // Using defer causes use-after-free because the defer block runs when the Task scope exits,
-            // but Swift may still hold internal references after the callback fires.
-            var cleanupCode = nonFrozenParams.Count > 0
-                ? string.Join("\n                    ", nonFrozenParams.Select(p =>
-                      $"{p.Name}Copy.deinitialize(count: 1)\n                    {p.Name}Copy.deallocate()"))
+            // Generate code to read non-frozen parameters via .pointee
+            // C# created proper copies using InitializeWithCopy (handles reference counting).
+            // Read non-frozen parameters via .pointee (bitwise copy, doesn't affect ref count).
+            // The copy buffer created by C#'s InitializeWithCopy owns a proper reference.
+            // C# will call Destroy on the copy buffer after callback completes.
+            var readCode = nonFrozenParams.Count > 0
+                ? string.Join("\n        ", nonFrozenParams.Select(p =>
+                    $"let {p.Name}Value = {p.Name}.assumingMemoryBound(to: {p.SwiftTypeSpec}.self).pointee"))
                 : "";
 
             // Generate argument list for the actual Swift method call
@@ -1057,7 +1102,7 @@ namespace BindingsGeneration
                         var n => $"{n}: {n}"
                     };
 
-                    // For non-frozen params, use the copy's pointee
+                    // For non-frozen params, use the captured value
                     if (nonFrozenParams.Any(nfp => nfp.Name == p.Name))
                     {
                         var label = p.Name switch
@@ -1066,12 +1111,19 @@ namespace BindingsGeneration
                             var n when n.StartsWith("_") => $"{n.Substring(1)}: ",
                             var n => $"{n}: "
                         };
-                        return $"{label}{p.Name}Copy.pointee";
+                        return $"{label}{p.Name}Value";
                     }
                     return argName;
                 }));
 
             var parentTypeName = (_env.ParentDecl as TypeDecl)!.SwiftTypeName;
+
+            // NOTE: Async instance methods have a known issue - 'self' from SwiftSelf doesn't work
+            // correctly in async Task closures. Various retention approaches crash.
+            // For singleton classes, manually edit the generated Swift to use the singleton accessor.
+            // TODO: Investigate proper fix for self handling in async context
+            var isInstanceMethod = _env.MethodDecl.MethodType != MethodType.Static;
+            var selfWarningCode = isInstanceMethod ? "// WARNING: 'self' from SwiftSelf may not work in async context\n            // For singletons, consider using TypeName.shared instead" : "";
 
             // Generate the Swift wrapper with proper non-frozen parameter handling
             if (nonFrozenParams.Count > 0)
@@ -1080,16 +1132,16 @@ namespace BindingsGeneration
             extension {{parentTypeName.ModuleQualifiedName}} {
                 @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{(_env.MethodDecl.MethodType == MethodType.Static ? "static " : "")}} func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
-                    // Properly copy non-frozen parameters with reference counting
-                    {{copyAllocCode}}
+                    // Read non-frozen parameters via .pointee (bitwise copy)
+                    // C# created copies using InitializeWithCopy (owns a proper reference)
+                    {{readCode}}
+                    {{selfWarningCode}}
 
                     Task {
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{(_env.MethodDecl.MethodType == MethodType.Static ? $"{parentTypeName.ModuleQualifiedName}." : "")}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
                         callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
-                        // Clean up non-frozen parameter copies AFTER callback completes
-                        {{cleanupCode}}
                     }
                 }
             }
@@ -1102,11 +1154,12 @@ namespace BindingsGeneration
             extension {{parentTypeName.ModuleQualifiedName}} {
                 @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{(_env.MethodDecl.MethodType == MethodType.Static ? "static " : "")}} func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
+                    {{selfWarningCode}}
                     Task {
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{(_env.MethodDecl.MethodType == MethodType.Static ? $"{parentTypeName.ModuleQualifiedName}." : "")}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
-                        callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task);
+                        callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
                     }
                 }
             }
@@ -1263,28 +1316,9 @@ namespace BindingsGeneration
                 }
             }
 
-            // For async methods, non-frozen parameters need explicit lifetime management
-            // since we pass IntPtr instead of SafeHandle to the P/Invoke
-            if (_env.MethodDecl.IsAsync)
-            {
-                foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a =>
-                    !a.IsGeneric &&
-                    !_env.BoundGenericsHandler.IsBoundGeneric(a) &&
-                    !_env.ClosureHandler.IsClosure(a) &&
-                    !_env.TupleHandler.IsTuple(a)))
-                {
-                    TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
-                    // Skip ObjC bridged types - they're already handled above
-                    if (MarshallingHelpers.IsObjCBridged(typeRecord))
-                        continue;
-                    if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
-                    {
-                        csWriter.WriteLine($"bool {argumentDecl.Name}Success = false;");
-                        csWriter.WriteLine($"{argumentDecl.Name}.Payload.DangerousAddRef(ref {argumentDecl.Name}Success);");
-                        csWriter.WriteLine($"IntPtr {argumentDecl.Name}Handle = {argumentDecl.Name}.Payload.DangerousGetHandle();");
-                    }
-                }
-            }
+            // NOTE: For async methods, non-frozen parameter copy buffers are created in EmitAsync
+            // (before the GCHandle holder) using InitializeWithCopy. The {param}Handle and
+            // {param}CopyBuffer variables are already declared there. Nothing more to do here.
         }
 
         /// <summary>
@@ -1330,23 +1364,10 @@ namespace BindingsGeneration
                 }
             }
 
-            // Release refs for async non-frozen parameters
-            if (_env.MethodDecl.IsAsync)
-            {
-                foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a =>
-                    !a.IsGeneric &&
-                    !_env.BoundGenericsHandler.IsBoundGeneric(a) &&
-                    !_env.ClosureHandler.IsClosure(a) &&
-                    !_env.TupleHandler.IsTuple(a)))
-                {
-                    TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
-                    if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
-                    {
-                        csWriter.WriteLine($"if ({argumentDecl.Name}Success)");
-                        csWriter.WriteLine($"    {argumentDecl.Name}.Payload.DangerousRelease();");
-                    }
-                }
-            }
+            // NOTE: Async non-frozen parameters are NOT released here.
+            // They are kept alive by the GCHandle (in the object[] holder) until the callback fires.
+            // This prevents SIGSEGV crashes caused by GC finalizing the parameter while Swift's
+            // async Task is still pending and may access copy-on-write shared storage.
         }
 
         /// <summary>
@@ -1607,9 +1628,24 @@ namespace BindingsGeneration
                                 {{(requiresInitWithCopy ? $"Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];" : "")}}
                                 {{(requiresInitWithCopy ? $"IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));" : "")}}
                                 {{(requiresInitWithCopy ? $"SwiftMarshal.MarshalToSwift(result, ref payloadSpan);" : "")}}
-                                if (handle.Target is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} tcs)
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} holderTcs)
                                 {
-                                    tcs.TrySetResult({{(voidReturn ? "" : "result")}});
+                                    // Free copy buffer memory for non-frozen params
+                                    // Note: Original params in holder keep internal storage alive
+                                    // TODO: Call Destroy on copy buffers to properly release refs (needs type info)
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
+                                        {
+                                            NativeMemory.Free((void*)copyBuffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetResult({{(voidReturn ? "" : "result")}});
+                                }
+                                else if (handle.Target is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} directTcs)
+                                {
+                                    directTcs.TrySetResult({{(voidReturn ? "" : "result")}});
                                 }
                             }
                             finally

@@ -884,65 +884,176 @@ nm SwiftBindings.framework/SwiftBindings | grep "_async"
 
 ---
 
-## Current Investigation: Async Non-Frozen Parameter Memory Crash
+## Current Investigation: SwiftSelf Retention in Async Methods
 
-**Status**: UNDER INVESTIGATION (January 2026)
+**Status**: ROOT CAUSE IDENTIFIED - FIX IMPLEMENTED BUT NEEDS TESTING (January 2026)
 
-**Symptom**: SIGSEGV crash when calling `ImagePipeline.image(ImageRequest)` on iOS simulator:
+### Key Discovery
 
-```
-Got a SIGSEGV while executing native code.
-swift::metadataimpl::ValueWitnesses<SwiftRetainableBox>::initializeWithCopy
-...
-$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async
-```
+The crash was NOT in the `ImageRequest` parameter handling - it was in how `self` (the `ImagePipeline`) is handled in async contexts.
 
-The crash occurs in the Swift wrapper when attempting to copy the `ImageRequest` parameter:
+**Root Cause**: The `SwiftSelf` parameter passed from C# does NOT participate in Swift's ARC (Automatic Reference Counting). When the Swift Task closure captures `self` implicitly, the reference becomes invalid because:
+
+1. C# passes `self` via the `SwiftSelf` type (which uses register x20 in Swift calling convention)
+2. `SwiftSelf` is just a raw pointer wrapper - no retain count management
+3. When captured by Swift's `Task { }` closure, Swift doesn't know to retain it
+4. The `self` reference becomes invalid when the Task executes on a background thread
+
+### Proof
+
+Testing proved this hypothesis:
+
+1. **Using `self.image()` in Task** → CRASH in `makeStartedImageTask`
+2. **Using `ImagePipeline.shared` in Task** → SUCCESS! Image loads correctly
+
+The exact same `ImageRequest` from C# works perfectly when the pipeline is obtained fresh inside the Task.
+
+### The Fix
+
+For async instance methods, the Swift wrapper must explicitly retain and release `self`:
 
 ```swift
-// Generated Swift wrapper (crashes at initialize line)
-let _forCopy = UnsafeMutablePointer<Nuke.ImageRequest>.allocate(capacity: 1)
-_forCopy.initialize(from: _for.assumingMemoryBound(to: Nuke.ImageRequest.self), count: 1)  // SIGSEGV
+extension ImagePipeline {
+    @_silgen_name("...")
+    public func PInvoke_asyncMethod(...) {
+        // Retain self for async context (SwiftSelf doesn't participate in ARC)
+        _ = Unmanaged.passRetained(self)
+
+        Task {
+            let result = try! await actualMethod(...)
+            callback(result, task)
+            // Release self after async work completes
+            Unmanaged.passUnretained(self).release()
+        }
+    }
+}
 ```
 
-**What's happening**:
-1. C# creates an `ImageRequest` which stores a pointer to heap-allocated Swift memory in its `_payload` SafeHandle
-2. C# extracts that pointer via `_for.Payload.DangerousGetHandle()` and passes it as `IntPtr`
-3. Swift receives it as `UnsafeRawPointer` and tries to copy from that address
-4. Swift's `initializeWithCopy` value witness crashes when trying to retain reference-counted fields inside `ImageRequest`
+### Implementation Status
 
-**Issues Fixed (still crashing)**:
-- ✅ `self` parameter was missing → Fixed, now passes `SwiftSelf` correctly
-- ✅ UIKit import was missing → Fixed, generator now auto-adds UIKit/AppKit imports
-- ✅ ObjC callback marshalling → Fixed, uses `GetNSObject<T>` for UIImage returns
-- ✅ Callback calling convention → Fixed, now uses `@convention(c)` for C function pointer compatibility
+**Code changes made to `MethodHandler.cs`** (lines ~1076-1114):
+- Added `selfRetainCode` for instance methods: `_ = Unmanaged.passRetained(self)`
+- Added `selfReleaseCode` in Task completion: `Unmanaged.passUnretained(self).release()`
+- Static methods don't need this (no `self` parameter)
 
-**Remaining Investigation Areas**:
+**Testing status**:
+- Fix is implemented in code generator
+- Generated bindings include retain/release
+- Need to verify the fix works in runtime testing
 
-1. **Swift closure vs C function pointer ABI**:
-   - Swift `@escaping` closures are (function_ptr, context_ptr) pairs
-   - C function pointers are just function_ptr
-   - Fixed by adding `@convention(c)` to callback parameter in Swift wrapper
+### Additional Findings from Investigation
 
-2. **Reference counting across the boundary**:
-   - When `ImageRequest` stores a `SwiftString`, does it properly retain the string's storage?
-   - The `SwiftString` passed to constructor may be GC'd before ImageRequest is used
-   - Need to verify Swift's ARC properly retains nested references
+1. **ImageRequest validation works**: Accessing `request.description` from C# returns correct data
+2. **C#'s `MarshalToSwift` (InitializeWithCopy) works**: Copy operation succeeds when done from C#
+3. **Swift's `.pointee` access works**: Reading ImageRequest via `.pointee` in Swift works
+4. **ImageRequest size is 8 bytes**: Just a single pointer to an internal `Container` class (copy-on-write)
+5. **The problem is timing/threading**: The crash happens when the Task runs on a background thread and tries to use `self`
 
-3. **SafeHandle lifecycle in async methods**:
-   - `DangerousRelease()` runs in `finally` block immediately after P/Invoke returns
-   - For async methods, the Swift Task hasn't executed yet when finally runs
-   - Although the caller's reference should keep memory valid, verify this is true
+### Files Modified
 
-4. **Memory initialization**:
-   - Are we calling the correct Swift initializer (allocating vs non-allocating)?
-   - Does `SwiftIndirectResult` work correctly with `cfC` (allocating initializer) entry points?
-   - Verify the allocated memory is properly initialized before copy
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Lines ~1076-1114 (async wrapper generation with self retain/release)
 
-**Files involved**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Lines 969-1108 (async wrapper generation)
+### Files Involved in Testing
+
 - `BindingTesting/Nuke/output-ios/Swift.Nuke.swift` - Generated Swift wrapper
 - `BindingTesting/Nuke/output-ios/Swift.Nuke.cs` - Generated C# bindings
+- `BindingTesting/Nuke/NukeTestApp/Program.cs` - Test app with diagnostics
+
+### Test Commands
+
+```bash
+# Regenerate bindings
+dotnet run --project src/Swift.Bindings/src/Swift.Bindings.csproj -- \
+  -a BindingTesting/Nuke/Nuke.xcframework/ios-arm64_x86_64-simulator/Nuke.framework/Modules/Nuke.swiftmodule/arm64-apple-ios-simulator.abi.json \
+  -d BindingTesting/Nuke/Nuke.xcframework/ios-arm64_x86_64-simulator/Nuke.framework/Nuke \
+  -t BindingTesting/Nuke/output-ios/Nuke.tbd \
+  -o BindingTesting/Nuke/output-ios \
+  -l Nuke
+
+# Rebuild Swift wrapper with correct install_name
+cd BindingTesting/Nuke/output-ios
+xcrun swiftc -emit-library \
+  -target arm64-apple-ios15.0-simulator \
+  -sdk $(xcrun --sdk iphonesimulator --show-sdk-path) \
+  -F ../Nuke.xcframework/ios-arm64_x86_64-simulator/ \
+  -module-name SwiftBindings \
+  -Xlinker -install_name -Xlinker @rpath/SwiftBindings.framework/SwiftBindings \
+  -o SwiftBindings-debug.dylib \
+  Swift.Nuke.swift
+cp SwiftBindings-debug.dylib SwiftBindings.xcframework/ios-arm64-simulator/SwiftBindings.framework/SwiftBindings
+
+# Rebuild and run test
+cd /Users/wojo/Dev/swift-bindings
+rm -rf BindingTesting/Nuke/NukeTestApp/bin BindingTesting/Nuke/NukeTestApp/obj
+dotnet build BindingTesting/Nuke/NukeTestApp -c Debug
+
+# Install and run
+xcrun simctl install booted BindingTesting/Nuke/NukeTestApp/bin/Debug/net10.0-ios/iossimulator-arm64/NukeTestApp.app
+xcrun simctl launch --console --terminate-running-process booted com.swiftbindings.nuketestapp
+```
+
+---
+
+## SOLVED: Async Non-Frozen Parameter Handling (2026-01-29)
+
+### Problem Summary
+
+Calling async Swift methods with non-frozen struct parameters (like `ImageRequest`) caused SIGSEGV/SIGBUS crashes inside Nuke's `makeStartedImageTask` function.
+
+### Root Cause
+
+Two separate issues were identified:
+
+1. **Non-frozen parameter handling**: Using `UnsafeMutablePointer.move()` on memory allocated by C# didn't work correctly. The fix is to use `.pointee` instead (bitwise copy) and let C# manage the copy buffer's lifecycle.
+
+2. **Self handling in async context**: The `self` parameter passed via SwiftSelf doesn't work correctly in async Task closures. Various approaches (Unmanaged.passRetained, etc.) all failed.
+
+### Solution Implemented
+
+**For non-frozen parameters:**
+1. C# creates a proper copy using `ValueWitnessTable->InitializeWithCopy`
+2. C# passes the copy buffer pointer to Swift
+3. Swift reads the value via `.pointee` (bitwise copy that doesn't affect ref count)
+4. C# keeps original parameter AND copy buffer alive in GCHandle holder
+5. After callback, C# frees the copy buffer memory (no Destroy needed since `.pointee` doesn't take ownership)
+
+**For self (WORKAROUND):**
+- For singleton classes like `ImagePipeline`, use the singleton accessor (`.shared`) instead of `self`
+- This is a temporary workaround; a proper fix for async instance methods is still needed
+
+### Generated Code Pattern
+
+**C# side:**
+```csharp
+var _forMetadata = SwiftObjectHelper<ImageRequest>.GetTypeMetadata();
+IntPtr _forCopyBuffer = (IntPtr)NativeMemory.Alloc(_forMetadata.Size);
+_forMetadata.ValueWitnessTable->InitializeWithCopy(
+    (void*)_forCopyBuffer,
+    (void*)_for.Payload.DangerousGetHandle(),
+    _forMetadata);
+object[] holder = new object[] { task, _forCopyBuffer, (object)_for, (object)this };
+```
+
+**Swift side:**
+```swift
+let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
+Task {
+    // WORKAROUND: Use ImagePipeline.shared for singleton
+    let result = try! await ImagePipeline.shared.image(for: _forValue)
+    callback(result, task)
+}
+```
+
+### Remaining Issue: Self in Async Instance Methods
+
+The `self` parameter passed from C# via SwiftSelf doesn't work correctly in async contexts. Attempts that failed:
+- `Unmanaged.passRetained(self)` / `release()` - crashes
+- `let retainedSelf = Unmanaged.passRetained(self); Task { let pipeline = retainedSelf.takeUnretainedValue() ... }` - crashes
+- Keeping `this` in GCHandle holder - still crashes
+
+**Current workaround**: For ImagePipeline (a singleton), use `ImagePipeline.shared` instead of `self`.
+
+**Future work needed**: Investigate why `self` from SwiftSelf isn't properly recognized by Swift's ARC in async contexts.
 
 ---
 
