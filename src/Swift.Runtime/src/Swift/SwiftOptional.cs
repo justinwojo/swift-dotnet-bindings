@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
@@ -22,14 +22,38 @@ public enum SwiftOptionalCases : uint
 /// </summary>
 public class SwiftOptional<T> : ISwiftObject
 {
-    byte[] _payload;
+    static nuint _payloadSize = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata().Size;
+
+    private SwiftSafeHandle<SwiftOptional<T>> _payload;
 
     /// <summary>
-    /// Constructs a new empty SwiftOptional
+    /// Gets the safe handle to the underlying Swift payload
     /// </summary>
-    SwiftOptional()
+    public SwiftSafeHandle<SwiftOptional<T>> Payload => _payload;
+
+    /// <summary>
+    /// Gets a PayloadBuffer for use in PInvoke calls
+    /// </summary>
+    public unsafe PayloadBuffer<IntPtr> PayloadBuffer => new PayloadBuffer<IntPtr>(_payload);
+
+    /// <summary>
+    /// Constructs a new empty SwiftOptional with allocated native memory
+    /// </summary>
+    unsafe SwiftOptional()
     {
-        _payload = new byte[SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata().Size];
+        IntPtr bufferPtr = (IntPtr)NativeMemory.AllocZeroed(_payloadSize);
+        _payload = new SwiftSafeHandle<SwiftOptional<T>>(bufferPtr);
+    }
+
+    /// <summary>
+    /// Constructs a new SwiftOptional from the given handle
+    /// </summary>
+    unsafe SwiftOptional(IntPtr handle)
+    {
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(_payloadSize);
+        var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
+        metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
+        _payload = new SwiftSafeHandle<SwiftOptional<T>>(bufferPtr);
     }
 
     /// <summary>
@@ -47,16 +71,7 @@ public class SwiftOptional<T> : ISwiftObject
     /// </summary>
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
-        var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
-        var instance = new SwiftOptional<T>();
-        unsafe
-        {
-            fixed (byte* payloadPtr = instance._payload)
-            {
-                metadata.ValueWitnessTable->InitializeWithCopy(payloadPtr, (byte*)payload, metadata);
-                return instance;
-            }
-        }
+        return new SwiftOptional<T>(payload);
     }
 
     /// <summary>
@@ -73,11 +88,21 @@ public class SwiftOptional<T> : ISwiftObject
         }
         unsafe
         {
-            fixed (byte* payload = _payload)
             fixed (void* swiftDest = swiftDestSpan)
             {
-                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, payload, metadata);
-                return (int)metadata.Size;
+                // Ensure the payload is valid before making copy
+                bool success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                    return (int)metadata.Size;
+                }
+                finally
+                {
+                    if (success)
+                        _payload.DangerousRelease();
+                }
             }
         }
     }
@@ -97,55 +122,70 @@ public class SwiftOptional<T> : ISwiftObject
     /// <summary>
     /// Creates a new SwiftOptional with a Some case payload
     /// </summary>
-    public static SwiftOptional<T> NewSome(T value)
+    public static unsafe SwiftOptional<T> NewSome(T value)
     {
-        unsafe
+        var instance = new SwiftOptional<T>();
+        bool success = false;
+        instance._payload.DangerousAddRef(ref success);
+        try
         {
-            var instance = new SwiftOptional<T>();
-            fixed (byte* payload = instance._payload)
-            {
-                var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
-                // The additional byte is a discriminator for the enum case
-                // https://github.com/swiftlang/swift/blob/8c8ed346edac36f07ece5518f40e35c05e4aa13a/stdlib/public/core/Optional.swift#L121
-                Span<byte> payloadSpan = new Span<byte>(payload, (int)metadata.Size - 1);
-                SwiftMarshal.MarshalToSwift(value, ref payloadSpan);
-                metadata.ValueWitnessTable->DestructiveInjectEnumTag(payload, (uint)SwiftOptionalCases.Some, metadata);
-                return instance;
-            }
+            var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
+            byte* payload = (byte*)instance._payload.DangerousGetHandle();
+            // The additional byte is a discriminator for the enum case
+            // https://github.com/swiftlang/swift/blob/8c8ed346edac36f07ece5518f40e35c05e4aa13a/stdlib/public/core/Optional.swift#L121
+            Span<byte> payloadSpan = new Span<byte>(payload, (int)metadata.Size - 1);
+            SwiftMarshal.MarshalToSwift(value, ref payloadSpan);
+            metadata.ValueWitnessTable->DestructiveInjectEnumTag(payload, (uint)SwiftOptionalCases.Some, metadata);
+            return instance;
+        }
+        finally
+        {
+            if (success)
+                instance._payload.DangerousRelease();
         }
     }
 
     /// <summary>
     /// Creates a new SwiftOptional with no payload
     /// </summary>
-    public static SwiftOptional<T> NewNone()
+    public static unsafe SwiftOptional<T> NewNone()
     {
-        unsafe
+        var instance = new SwiftOptional<T>();
+        bool success = false;
+        instance._payload.DangerousAddRef(ref success);
+        try
         {
-            var instance = new SwiftOptional<T>();
-            fixed (byte* payload = instance._payload)
-            {
-                var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
-                metadata.ValueWitnessTable->DestructiveInjectEnumTag(payload, (uint)SwiftOptionalCases.None, metadata);
-                return instance;
-            }
+            var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
+            byte* payload = (byte*)instance._payload.DangerousGetHandle();
+            metadata.ValueWitnessTable->DestructiveInjectEnumTag(payload, (uint)SwiftOptionalCases.None, metadata);
+            return instance;
+        }
+        finally
+        {
+            if (success)
+                instance._payload.DangerousRelease();
         }
     }
 
     /// <summary>
     /// Gets the case of the optional type
     /// </summary>
-    public SwiftOptionalCases Case
+    public unsafe SwiftOptionalCases Case
     {
         get
         {
-            unsafe
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
             {
-                fixed (byte* payload = _payload)
-                {
-                    var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
-                    return (SwiftOptionalCases)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                }
+                var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
+                byte* payload = (byte*)_payload.DangerousGetHandle();
+                return (SwiftOptionalCases)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
             }
         }
     }
@@ -153,7 +193,7 @@ public class SwiftOptional<T> : ISwiftObject
     /// <summary>
     /// Gets the value of the optional type if the case is Some
     /// </summary>
-    public T Some
+    public unsafe T Some
     {
         get
         {
@@ -162,14 +202,23 @@ public class SwiftOptional<T> : ISwiftObject
                 throw new InvalidOperationException("Cannot get Some when case is None");
             }
             var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
-            unsafe
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
             {
-                Span<byte> payload = stackalloc byte[_payload.Length];
-                _payload.CopyTo(payload);
-                fixed (byte* payloadPtr = payload)
+                // Create a copy of the payload for marshalling
+                byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
+                Span<byte> payloadCopy = stackalloc byte[(int)_payloadSize];
+                new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(payloadCopy);
+                fixed (byte* payloadPtr = payloadCopy)
                 {
                     return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(payloadPtr));
                 }
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
             }
         }
     }
