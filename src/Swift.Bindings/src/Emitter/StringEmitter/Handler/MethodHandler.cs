@@ -480,8 +480,9 @@ namespace BindingsGeneration
         {
             if (_env.MethodDecl.IsAsync)
             {
+                // Our Swift wrapper expects: callback, task (handle), then method arguments
+                // No context parameter needed - we handle the callback in Swift
                 AddParameter("AsyncCallback", NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl));
-                AddParameter("AsyncContext", "context");
                 AddParameter("AsyncTask", "handle");
             }
         }
@@ -611,6 +612,10 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleSwiftSelf()
         {
+            // Async methods call our generated Swift wrapper which handles self implicitly
+            if (_env.MethodDecl.IsAsync)
+                return;
+
             if (MarshallingHelpers.MethodRequiresSwiftSelf(_env))
             {
                 if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)
@@ -643,6 +648,10 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleSwiftError()
         {
+            // Async methods call our generated Swift wrapper which handles errors internally
+            if (_env.MethodDecl.IsAsync)
+                return;
+
             if (_env.MethodDecl.Throws)
             {
                 AddParameter("SwiftError", "error", "out");
@@ -773,7 +782,10 @@ namespace BindingsGeneration
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
 
             var pInvokeName = NameProvider.GetPInvokeName(methodDecl);
-            var libPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            // Async methods use generated Swift wrappers in SwiftBindings library
+            var libPath = methodDecl.IsAsync
+                ? "SwiftBindings"
+                : methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
 
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
@@ -806,9 +818,10 @@ namespace BindingsGeneration
             _pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
             _requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
-            _requiresSwiftSelf = MarshallingHelpers.MethodRequiresSwiftSelf(methodEnv);
-            _requiresSwiftError = _env.MethodDecl.Throws;
             _requiresSwiftAsync = _env.MethodDecl.IsAsync;
+            // Async methods call our generated Swift wrapper which handles self/error internally
+            _requiresSwiftSelf = !_requiresSwiftAsync && MarshallingHelpers.MethodRequiresSwiftSelf(methodEnv);
+            _requiresSwiftError = !_requiresSwiftAsync && _env.MethodDecl.Throws;
 
             // Frozen struct setters need a fixed block to get a pointer to 'this'
             // because setters modify the struct in-place (pointer semantics)

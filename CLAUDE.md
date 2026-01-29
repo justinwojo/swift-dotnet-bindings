@@ -303,6 +303,20 @@ dotnet test src/Swift.Bindings/tests/IntegrationTests
 dotnet test src/Swift.Bindings/tests/UnitTests -- RunConfiguration.DotNetHostPath="C:\Program Files\dotnet\dotnet.exe"
 ```
 
+**iOS Simulator Testing**: The `dotnet build -t:Run` command times out waiting for the app to exit. For faster iteration when testing on iOS simulator:
+
+```bash
+# Build the app
+dotnet build BindingTesting/Nuke/NukeTestApp -c Debug
+
+# Install and launch with 5-second output capture
+xcrun simctl install booted BindingTesting/Nuke/NukeTestApp/bin/Debug/net10.0-ios/iossimulator-arm64/NukeTestApp.app && \
+(xcrun simctl launch --console --terminate-running-process booted com.swiftbindings.nuketestapp 2>&1 &); \
+sleep 5; echo "---DONE---"
+```
+
+This captures console output (including crash logs) without waiting for app termination. Adjust `sleep` duration as needed. See `BindingTesting/Nuke/ROADMAP.md` for more details on framework resolution and known issues.
+
 ## Architecture Notes
 
 ### Emitter Redesign (In Progress)
