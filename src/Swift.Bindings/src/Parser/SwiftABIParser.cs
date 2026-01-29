@@ -403,8 +403,11 @@ namespace BindingsGeneration
                 Types = new List<TypeDecl>(),
                 Operators = new List<OperatorDecl>(),
                 Cases = new List<EnumCaseDecl>(),
+                Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
+                IsFrozen = hasFrozenAttribute,
+                MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName)
             };
         }
 

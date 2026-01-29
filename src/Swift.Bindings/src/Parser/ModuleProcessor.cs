@@ -262,13 +262,87 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Processes an enum declaration. Currently unimplemented.
+        /// Processes an enum declaration and registers it in the type database.
         /// </summary>
         /// <param name="namedTypeSpec">Spec for the enum's name, module, etc.</param>
         /// <param name="enumDecl">The enum declaration node.</param>
         private void ProcessEnum(NamedTypeSpec namedTypeSpec, EnumDecl enumDecl)
         {
-            return;
+            // Get metadata pointer if the enum has a metadata accessor
+            IntPtr metadataPtr = IntPtr.Zero;
+            if (!string.IsNullOrEmpty(enumDecl.MetadataAccessor))
+            {
+                try
+                {
+                    metadataPtr = DynamicLibraryLoader.invoke(_dylibPath, enumDecl.MetadataAccessor);
+                }
+                catch
+                {
+                    // If metadata accessor fails, continue with zero pointer
+                    _logger.LogWarning($"Failed to get metadata for enum '{enumDecl.Name}'. Continuing without metadata.");
+                }
+            }
+
+            var swiftTypeInfo = new SwiftTypeInfo { MetadataPtr = metadataPtr };
+            TypeRecordFlags flags = CalculateEnumFlags(enumDecl);
+
+            RegisterEnumType(namedTypeSpec, enumDecl, swiftTypeInfo, flags);
+        }
+
+        /// <summary>
+        /// Determines the flags for an enum type.
+        /// </summary>
+        /// <param name="enumDecl">The enum declaration.</param>
+        /// <returns>The type record flags.</returns>
+        private TypeRecordFlags CalculateEnumFlags(EnumDecl enumDecl)
+        {
+            TypeRecordFlags flags = TypeRecordFlags.None;
+
+            if (enumDecl.IsFrozen)
+                flags |= TypeRecordFlags.Frozen;
+
+            // Enums with associated values may require memory management
+            // depending on the types of the associated values
+            if (enumDecl.HasAssociatedValueCases)
+            {
+                // For now, mark enums with associated values as requiring memory management
+                // A more sophisticated check would examine the associated value types
+                flags |= TypeRecordFlags.RequiresMemoryManagement;
+            }
+
+            return flags;
+        }
+
+        /// <summary>
+        /// Inserts an enum's details into the type database.
+        /// </summary>
+        /// <param name="namedTypeSpec">The Swift type specification, including module name.</param>
+        /// <param name="enumDecl">The enum declaration node.</param>
+        /// <param name="swiftTypeInfo">Pointer to the Swift metadata plus ValueWitnessTable.</param>
+        /// <param name="flags">The type record flags.</param>
+        private void RegisterEnumType(
+            NamedTypeSpec namedTypeSpec,
+            EnumDecl enumDecl,
+            SwiftTypeInfo swiftTypeInfo,
+            TypeRecordFlags flags)
+        {
+            var @namespace = $"Swift.{namedTypeSpec.Module}"; // TODO: Correctly map to a .NET namespace
+            // TODO: Remove this logic once correct csharp type names are used
+            var csharpTypeIdentifier = enumDecl.SwiftTypeName.Module == ""
+                ? enumDecl.SwiftTypeName.Name
+                : enumDecl.SwiftTypeName.ModuleQualifiedName.Substring(enumDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+
+            var typeRecord = new TypeRecord
+            {
+                SwiftTypeName = enumDecl.SwiftTypeName,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, csharpTypeIdentifier),
+                SwiftTypeInfo = swiftTypeInfo,
+                MetadataAccessor = enumDecl.MetadataAccessor,
+                Flags = flags,
+                Kind = TypeRecordKind.Enum,
+            };
+
+            _moduleDatabase.RegisterType(enumDecl.SwiftTypeName, typeRecord);
         }
 
         /// <summary>

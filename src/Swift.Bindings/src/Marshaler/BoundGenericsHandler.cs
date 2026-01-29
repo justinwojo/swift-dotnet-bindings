@@ -110,13 +110,21 @@ public class BoundGenericsHandler
     /// <returns>The C# type name string.</returns>
     private string TranslateBoundGenericTypeToCSharp(NamedTypeSpec namedTypeSpec)
     {
+        var typeReference = _typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec); // TODO: consider throwing an exception instead
+
+        // If the type falls back to AnyType, don't append generic parameters
+        // since AnyType is not a generic type and adding <T1, T2> would be invalid C#
+        if (typeReference == TypeDatabaseExtensions.AnyType)
+        {
+            return typeReference.CSharpTypeName.FullyQualifiedName;
+        }
+
         List<string> translatedGenericParameters = new();
         foreach (var genericParameter in namedTypeSpec.GenericParameters)
         {
             translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter));
         }
 
-        var typeReference = _typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec); // TODO: consider throwing an exception instead
         return typeReference.CSharpTypeName.FullyQualifiedName +
                (translatedGenericParameters.Count > 0
                     ? $"<{string.Join(", ", translatedGenericParameters)}>"

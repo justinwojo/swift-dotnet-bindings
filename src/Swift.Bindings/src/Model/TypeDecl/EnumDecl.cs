@@ -40,5 +40,20 @@ namespace BindingsGeneration
         /// Whether this enum has any cases with associated values.
         /// </summary>
         public bool HasAssociatedValueCases => Cases.Any(c => c.HasAssociatedValues);
+
+        /// <summary>
+        /// Whether the enum is frozen (has a stable ABI layout).
+        /// </summary>
+        public required bool IsFrozen { get; set; }
+
+        /// <summary>
+        /// Protocol conformances for this enum.
+        /// </summary>
+        public required List<TypeConformance> Conformances { get; set; }
+
+        /// <summary>
+        /// Metadata accessor function name for this enum.
+        /// </summary>
+        public required string MetadataAccessor { get; set; }
     }
 }

@@ -162,8 +162,11 @@ public class EnumParserTests
             Types = new List<TypeDecl>(),
             Operators = new List<OperatorDecl>(),
             Cases = new List<EnumCaseDecl>(),
+            Conformances = new List<TypeConformance>(),
             ParentDecl = null,
-            ModuleDecl = null
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = string.Empty
         };
     }
 
