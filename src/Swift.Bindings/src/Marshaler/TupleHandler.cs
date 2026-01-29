@@ -121,10 +121,22 @@ public class TupleHandler
     /// <returns>The C# tuple type string (e.g., "(int, string)" or "(int x, string y)").</returns>
     public string GetCSharpTupleType(TupleTypeSpec tupleTypeSpec)
     {
+        return GetCSharpTupleType(tupleTypeSpec, TranslateElementTypeToCSharp);
+    }
+
+    /// <summary>
+    /// Translates a Swift tuple type to a C# tuple type string for wrapper methods,
+    /// using a custom type translator for element types.
+    /// </summary>
+    /// <param name="tupleTypeSpec">The tuple type specification.</param>
+    /// <param name="typeTranslator">A function that translates element TypeSpecs to C# type names.</param>
+    /// <returns>The C# tuple type string (e.g., "(int, string)" or "(int x, string y)").</returns>
+    public string GetCSharpTupleType(TupleTypeSpec tupleTypeSpec, Func<TypeSpec, string> typeTranslator)
+    {
         var elementTypes = new List<string>();
         foreach (var element in tupleTypeSpec.Elements)
         {
-            var typeString = TranslateElementTypeToCSharp(element);
+            var typeString = typeTranslator(element);
 
             // Include label if present
             if (!string.IsNullOrEmpty(element.TypeLabel))
@@ -146,10 +158,22 @@ public class TupleHandler
     /// <returns>The ValueTuple type string (e.g., "ValueTuple<int, string>").</returns>
     public string GetPInvokeTupleType(TupleTypeSpec tupleTypeSpec)
     {
+        return GetPInvokeTupleType(tupleTypeSpec, TranslateElementTypeToPInvoke);
+    }
+
+    /// <summary>
+    /// Gets the P/Invoke tuple type for a tuple, using a custom type translator for element types.
+    /// Uses ValueTuple<> generic type for P/Invoke compatibility.
+    /// </summary>
+    /// <param name="tupleTypeSpec">The tuple type specification.</param>
+    /// <param name="typeTranslator">A function that translates element TypeSpecs to P/Invoke type names.</param>
+    /// <returns>The ValueTuple type string (e.g., "ValueTuple<int, IntPtr>").</returns>
+    public string GetPInvokeTupleType(TupleTypeSpec tupleTypeSpec, Func<TypeSpec, string> typeTranslator)
+    {
         var elementTypes = new List<string>();
         foreach (var element in tupleTypeSpec.Elements)
         {
-            elementTypes.Add(TranslateElementTypeToPInvoke(element));
+            elementTypes.Add(typeTranslator(element));
         }
 
         return $"ValueTuple<{string.Join(", ", elementTypes)}>";

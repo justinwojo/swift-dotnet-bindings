@@ -146,7 +146,7 @@ public class BoundGenericsHandler
         {
             NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec),
             ClosureTypeSpec closureTypeSpec => TranslateClosureTypeToCSharp(closureTypeSpec),
-            TupleTypeSpec tupleTypeSpec => _tupleHandler.GetCSharpTupleType(tupleTypeSpec),
+            TupleTypeSpec tupleTypeSpec => _tupleHandler.GetCSharpTupleType(tupleTypeSpec, TranslateTypeSpecToCSharp),
             _ => throw new NotSupportedException(
                 $"Type spec {typeSpec.GetType().Name} ({typeSpec}) is not supported as a generic parameter")
         };

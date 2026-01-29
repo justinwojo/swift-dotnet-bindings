@@ -1819,7 +1819,9 @@ namespace BindingsGeneration
             if (typeSpec is TupleTypeSpec tupleType)
             {
                 var tupleHandler = new TupleHandler(typeDatabase);
-                return tupleHandler.GetCSharpTupleType(tupleType);
+                // Use a recursive translator that handles bound generics for each element
+                return tupleHandler.GetCSharpTupleType(tupleType, elementTypeSpec =>
+                    GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler));
             }
 
             // For non-generic types, use the standard lookup
@@ -1831,12 +1833,30 @@ namespace BindingsGeneration
         /// </summary>
         private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase)
         {
+            // Handle tuple types - need to construct a ValueTuple with extracted payloads
+            if (typeSpec is TupleTypeSpec tupleType)
+            {
+                var elementArgs = new List<string>();
+                for (int i = 0; i < tupleType.Elements.Count; i++)
+                {
+                    var element = tupleType.Elements[i];
+                    // Access tuple element by name if it has a label, otherwise by Item1, Item2, etc.
+                    var elementAccess = !string.IsNullOrEmpty(element.TypeLabel)
+                        ? $"{paramName}.{element.TypeLabel}"
+                        : $"{paramName}.Item{i + 1}";
+
+                    // Recursively get the P/Invoke argument for this element
+                    elementArgs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase));
+                }
+                return $"({string.Join(", ", elementArgs)})";
+            }
+
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
 
-            // For types that have payloads (non-frozen structs, classes), access the Payload property
+            // For types that have payloads (non-frozen structs, classes), access the Payload.DangerousGetHandle()
             if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
             {
-                return $"{paramName}.Payload";
+                return $"{paramName}.Payload.DangerousGetHandle()";
             }
 
             return paramName;
@@ -1847,6 +1867,15 @@ namespace BindingsGeneration
         /// </summary>
         private static string GetPInvokeType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
         {
+            // Handle tuple types
+            if (typeSpec is TupleTypeSpec tupleType)
+            {
+                var tupleHandler = new TupleHandler(typeDatabase);
+                // Use recursive type translation for P/Invoke tuple elements
+                return tupleHandler.GetPInvokeTupleType(tupleType, elementTypeSpec =>
+                    GetPInvokeType(elementTypeSpec, typeDatabase));
+            }
+
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
 
             // For types that require memory management, use IntPtr in P/Invoke
