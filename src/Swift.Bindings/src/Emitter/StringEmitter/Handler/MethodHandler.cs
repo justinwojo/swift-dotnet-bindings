@@ -988,7 +988,7 @@ namespace BindingsGeneration
                 ", ",
                 new[]
                 {
-                    $"callback: @escaping ({(isEmptyTuple ? "" : $"{(_env.MethodDecl.CSSignature.First().IsGeneric ? _env.MethodDecl.GenericParameters[0].SugaredTypeName : _env.MethodDecl.CSSignature.First().SwiftTypeSpec)}, ")}Int64) -> Void",
+                    $"callback: @escaping @convention(c) ({(isEmptyTuple ? "" : $"{(_env.MethodDecl.CSSignature.First().IsGeneric ? _env.MethodDecl.GenericParameters[0].SugaredTypeName : _env.MethodDecl.CSSignature.First().SwiftTypeSpec)}, ")}Int64) -> Void",
                     "task: Int64"
                 }.Concat(
                     _env.MethodDecl.CSSignature

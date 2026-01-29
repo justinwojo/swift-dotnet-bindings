@@ -911,26 +911,33 @@ _forCopy.initialize(from: _for.assumingMemoryBound(to: Nuke.ImageRequest.self), 
 3. Swift receives it as `UnsafeRawPointer` and tries to copy from that address
 4. Swift's `initializeWithCopy` value witness crashes when trying to retain reference-counted fields inside `ImageRequest`
 
-**Possible causes**:
-1. **Invalid pointer**: The pointer passed from C# doesn't point to valid Swift memory
-2. **Memory layout mismatch**: The memory layout C# created doesn't match what Swift expects
-3. **Reference counting issue**: Internal references (strings, nested objects) in `ImageRequest` have invalid retain counts
-4. **Object lifecycle**: The Swift object was deallocated or its internal state corrupted
-
-**What we've ruled out**:
+**Issues Fixed (still crashing)**:
 - ✅ `self` parameter was missing → Fixed, now passes `SwiftSelf` correctly
-- ✅ UIKit import was missing → Fixed, generator now auto-adds imports
-- ✅ ObjC callback marshalling → Fixed, uses `GetNSObject<T>` for UIImage
+- ✅ UIKit import was missing → Fixed, generator now auto-adds UIKit/AppKit imports
+- ✅ ObjC callback marshalling → Fixed, uses `GetNSObject<T>` for UIImage returns
+- ✅ Callback calling convention → Fixed, now uses `@convention(c)` for C function pointer compatibility
 
-**Investigation needed**:
-1. Trace how `ImageRequest` is constructed in C# - what memory does `_payload` actually point to?
-2. Verify the constructor P/Invoke properly allocates and initializes Swift memory
-3. Check if the returned pointer from the constructor is being used correctly
-4. Consider whether non-frozen struct parameters need a different passing strategy (copy-in on C# side?)
+**Remaining Investigation Areas**:
 
-**Workaround attempts**:
-- The Swift wrapper tries to copy the parameter to ensure it lives for the async task duration
-- This copy triggers the crash because the source memory appears invalid
+1. **Swift closure vs C function pointer ABI**:
+   - Swift `@escaping` closures are (function_ptr, context_ptr) pairs
+   - C function pointers are just function_ptr
+   - Fixed by adding `@convention(c)` to callback parameter in Swift wrapper
+
+2. **Reference counting across the boundary**:
+   - When `ImageRequest` stores a `SwiftString`, does it properly retain the string's storage?
+   - The `SwiftString` passed to constructor may be GC'd before ImageRequest is used
+   - Need to verify Swift's ARC properly retains nested references
+
+3. **SafeHandle lifecycle in async methods**:
+   - `DangerousRelease()` runs in `finally` block immediately after P/Invoke returns
+   - For async methods, the Swift Task hasn't executed yet when finally runs
+   - Although the caller's reference should keep memory valid, verify this is true
+
+4. **Memory initialization**:
+   - Are we calling the correct Swift initializer (allocating vs non-allocating)?
+   - Does `SwiftIndirectResult` work correctly with `cfC` (allocating initializer) entry points?
+   - Verify the allocated memory is properly initialized before copy
 
 **Files involved**:
 - `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Lines 969-1108 (async wrapper generation)
