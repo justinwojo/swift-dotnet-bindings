@@ -23,7 +23,8 @@ namespace BindingsGeneration
             Option<string> outputDirectoryOption = new(aliases: new[] { "-o", "--output" }, "Output directory for generated bindings.") { IsRequired = true };
             Option<string> libraryNameOption = new(
                 aliases: new[] { "-l", "--library-name" },
-                description: "Runtime library name for DllImport (e.g., '@rpath/Nuke.framework/Nuke'). If not specified, uses the dylib path.");
+                description: "Runtime library name for DllImport. If not specified, uses the dylib path. " +
+                             "Note: If the name starts with '@' (e.g., @rpath/...), escape it with backslash: '\\@rpath/Nuke.framework/Nuke'");
             Option<int> verboseOption = new(
                 aliases: new[] { "-v", "--verbose" },
                 description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -49,7 +50,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  -d, --dylib          Required. Path to the dynamic library.");
                     Console.WriteLine("  -t, --tbd            Required. Path to the TBD file.");
                     Console.WriteLine("  -o, --output         Required. Output directory for generated bindings.");
-                    Console.WriteLine("  -l, --library-name   Optional. Runtime library name for DllImport (e.g., '@rpath/Nuke.framework/Nuke').");
+                    Console.WriteLine("  -l, --library-name   Optional. Runtime library name for DllImport. Escape @ with backslash: '\\@rpath/...'");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
                     return;
                 }
