@@ -11,4 +11,5 @@ internal static class KnownLibraries
     public const string SwiftDispatch = "/usr/lib/swift/libswiftDispatch.dylib";
     public const string AppKit = "/System/Library/Frameworks/AppKit.framework/AppKit";
     public const string CoreImage = "/System/Library/Frameworks/CoreImage.framework/CoreImage";
+    public const string UIKit = "/System/Library/Frameworks/UIKit.framework/UIKit";
 }

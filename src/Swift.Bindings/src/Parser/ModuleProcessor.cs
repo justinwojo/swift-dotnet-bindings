@@ -138,9 +138,20 @@ namespace BindingsGeneration
             // Ensure that all properties are processed or known in the database.
             ProcessStructProperties(structDecl);
 
-
-            // TODO: Remove loading dylib
-            IntPtr metadataPtr = DynamicLibraryLoader.invoke(_dylibPath, structDecl.MetadataAccessor);
+            // Get metadata pointer if possible (may fail for cross-platform builds, e.g., iOS on macOS)
+            IntPtr metadataPtr = IntPtr.Zero;
+            if (!string.IsNullOrEmpty(structDecl.MetadataAccessor))
+            {
+                try
+                {
+                    metadataPtr = DynamicLibraryLoader.invoke(_dylibPath, structDecl.MetadataAccessor);
+                }
+                catch
+                {
+                    // If metadata accessor fails (e.g., iOS dylib on macOS), continue without metadata
+                    _logger.LogWarning($"Failed to get metadata for struct '{structDecl.Name}'. Continuing without metadata.");
+                }
+            }
             var swiftTypeInfo = new SwiftTypeInfo { MetadataPtr = metadataPtr };
 
             TypeRecordFlags flags = CacluateFlags(structDecl);
@@ -380,7 +391,17 @@ namespace BindingsGeneration
         /// <param name="classDecl">The class declaration node.</param>
         private void ProcessClass(NamedTypeSpec namedTypeSpec, ClassDecl classDecl)
         {
-            IntPtr metadataPtr = DynamicLibraryLoader.invoke(_dylibPath, $"{classDecl.MangledName}Ma");
+            // Get metadata pointer if possible (may fail for cross-platform builds, e.g., iOS on macOS)
+            IntPtr metadataPtr = IntPtr.Zero;
+            try
+            {
+                metadataPtr = DynamicLibraryLoader.invoke(_dylibPath, $"{classDecl.MangledName}Ma");
+            }
+            catch
+            {
+                // If metadata accessor fails (e.g., iOS dylib on macOS), continue without metadata
+                _logger.LogWarning($"Failed to get metadata for class '{classDecl.Name}'. Continuing without metadata.");
+            }
             var swiftTypeInfo = new SwiftTypeInfo { MetadataPtr = metadataPtr };
 
             RegisterClassType(namedTypeSpec, classDecl, swiftTypeInfo);
