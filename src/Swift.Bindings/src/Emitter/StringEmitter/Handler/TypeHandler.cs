@@ -1620,12 +1620,6 @@ namespace BindingsGeneration
             var parentDecl = enumDecl.ParentDecl ?? throw new ArgumentNullException(nameof(enumDecl.ParentDecl));
             var moduleDecl = enumDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(enumDecl.ModuleDecl));
 
-            // Enums with associated values are complex and need different handling
-            // For now, we focus on simple enums without associated values
-            if (enumDecl.HasAssociatedValueCases)
-            {
-                _logger.LogWarning($"Enum '{enumDecl.Name}' has associated value cases which are not fully supported yet.");
-            }
 
             // Use unsafe class since methods may use function pointers
             csWriter.WriteLine($"public unsafe class {enumDecl.Name} : {typeof(ISwiftObject).Name}");
@@ -1638,14 +1632,23 @@ namespace BindingsGeneration
             csWriter.WriteLine($"public SwiftSafeHandle<{enumDecl.Name}> Payload => _payload;");
             csWriter.WriteLine();
 
-            // Emit static case constructors for simple cases (no associated values)
-            foreach (var caseDecl in enumDecl.Cases.Where(c => !c.HasAssociatedValues))
+            // Emit case constructors for all cases
+            // Simple cases (no associated values) become static properties
+            // Cases with associated values become static methods
+            foreach (var caseDecl in enumDecl.Cases)
             {
-                EmitEnumCase(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase);
+                if (caseDecl.HasAssociatedValues)
+                {
+                    EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase);
+                }
+                else
+                {
+                    EmitEnumCase(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase);
+                }
             }
 
             // Add a blank line between cases and other members
-            if (enumDecl.Cases.Any(c => !c.HasAssociatedValues))
+            if (enumDecl.Cases.Any())
             {
                 csWriter.WriteLine();
             }
@@ -1715,6 +1718,178 @@ namespace BindingsGeneration
             csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
             csWriter.WriteLine($"private static extern IntPtr {pInvokeName}();");
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits a static method for an enum case with associated values.
+        /// </summary>
+        private void EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            var caseName = caseDecl.Name;
+            var enumTypeName = enumDecl.Name;
+            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var pInvokeName = $"PInvoke_{capitalizedName}";
+            var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Build parameter list from associated values
+            var parameters = new List<(string type, string name, TypeSpec typeSpec)>();
+            for (int i = 0; i < caseDecl.AssociatedValues.Count; i++)
+            {
+                var typeSpec = caseDecl.AssociatedValues[i];
+                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+
+                // Check if type is unsupported
+                if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping case.");
+                    return;
+                }
+
+                // Use type label if available, otherwise generate a name
+                var paramName = typeSpec.TypeLabel ?? $"value{i}";
+                // Sanitize parameter name (remove invalid characters, ensure starts with letter)
+                paramName = SanitizeParameterName(paramName);
+                parameters.Add((csharpType, paramName, typeSpec));
+            }
+
+            // Generate the static method for this case
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Creates the '{caseName}' case of {enumTypeName}.");
+            csWriter.WriteLine($"/// </summary>");
+
+            var parameterString = string.Join(", ", parameters.Select(p => $"{p.type} {p.name}"));
+            csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}({parameterString})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var result = new {enumTypeName}();");
+
+            // Build the P/Invoke call with arguments
+            var argList = new List<string>();
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var (type, name, typeSpec) = parameters[i];
+                argList.Add(GetPInvokeArgument(name, typeSpec, typeDatabase));
+            }
+
+            csWriter.WriteLine($"IntPtr casePtr = {pInvokeName}({string.Join(", ", argList)});");
+            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(casePtr);");
+            csWriter.WriteLine("return result;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // P/Invoke declaration for the case constructor with associated values
+            var pInvokeParams = new List<string>();
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var (_, name, typeSpec) = parameters[i];
+                var pInvokeType = GetPInvokeType(typeSpec, typeDatabase);
+                pInvokeParams.Add($"{pInvokeType} {name}");
+            }
+
+            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
+            csWriter.WriteLine($"private static extern IntPtr {pInvokeName}({string.Join(", ", pInvokeParams)});");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Gets the C# type name for an enum case associated value type.
+        /// </summary>
+        private static string GetCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
+        {
+            // Handle bound generics (e.g., Optional<T>, Array<T>)
+            if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            {
+                // Create a temporary property to use the BoundGenericsHandler
+                var tempProperty = new PropertyDecl
+                {
+                    Name = "_temp",
+                    SwiftTypeSpec = typeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                };
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+            }
+
+            // Handle tuple types
+            if (typeSpec is TupleTypeSpec tupleType)
+            {
+                var tupleHandler = new TupleHandler(typeDatabase);
+                return tupleHandler.GetCSharpTupleType(tupleType);
+            }
+
+            // For non-generic types, use the standard lookup
+            return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
+        /// Gets the P/Invoke argument expression for a parameter.
+        /// </summary>
+        private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+            // For types that have payloads (non-frozen structs, classes), access the Payload property
+            if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+            {
+                return $"{paramName}.Payload";
+            }
+
+            return paramName;
+        }
+
+        /// <summary>
+        /// Gets the P/Invoke parameter type for an associated value.
+        /// </summary>
+        private static string GetPInvokeType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+            // For types that require memory management, use IntPtr in P/Invoke
+            if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+            {
+                return "IntPtr";
+            }
+
+            // For primitives and frozen structs, use the C# type directly
+            return typeRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
+        /// Sanitizes a parameter name to be a valid C# identifier.
+        /// </summary>
+        private static string SanitizeParameterName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return "value";
+
+            // Replace invalid characters with underscores
+            var sanitized = new System.Text.StringBuilder();
+            foreach (var c in name)
+            {
+                if (char.IsLetterOrDigit(c) || c == '_')
+                    sanitized.Append(c);
+                else
+                    sanitized.Append('_');
+            }
+
+            var result = sanitized.ToString();
+
+            // Ensure starts with letter or underscore
+            if (result.Length > 0 && char.IsDigit(result[0]))
+                result = "_" + result;
+
+            // Handle C# reserved keywords
+            var keywords = new HashSet<string> { "string", "int", "bool", "float", "double", "object", "class", "struct", "enum", "delegate", "event", "interface", "namespace", "using", "static", "public", "private", "protected", "internal", "abstract", "sealed", "virtual", "override", "new", "return", "if", "else", "for", "foreach", "while", "do", "switch", "case", "default", "break", "continue", "goto", "throw", "try", "catch", "finally", "lock", "using", "checked", "unchecked", "fixed", "unsafe", "volatile", "extern", "ref", "out", "in", "params", "this", "base", "null", "true", "false", "is", "as", "typeof", "sizeof", "stackalloc", "await", "async", "yield", "nameof", "var", "dynamic" };
+
+            if (keywords.Contains(result))
+                result = "@" + result;
+
+            return string.IsNullOrEmpty(result) ? "value" : result;
         }
     }
 

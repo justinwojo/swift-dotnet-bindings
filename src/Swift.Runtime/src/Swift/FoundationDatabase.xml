@@ -16,5 +16,11 @@
         <entity managedNameSpace="Swift" managedTypeName="OperationQueue">
             <typedeclaration kind="class" name="OperationQueue" module="Foundation" mangledName="$sSo16NSOperationQueueC" frozen="false" requiresMemoryManagement="true" />
         </entity>
+        <entity managedNameSpace="Swift" managedTypeName="URLRequest">
+            <typedeclaration kind="struct" name="URLRequest" module="Foundation" mangledName="$s10Foundation10URLRequestV" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="URLResponse">
+            <typedeclaration kind="class" name="URLResponse" module="Foundation" mangledName="$sSo15NSURLResponseC" frozen="false" requiresMemoryManagement="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

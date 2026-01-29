@@ -41,8 +41,9 @@ Initial binding generation revealed these gap categories:
 **Remaining gaps**:
 - 86 methods with unsupported signatures (skipped)
 - ~10 properties with unsupported types (skipped) - reduced from 24
-- 59 enum cases throwing `NotImplementedException`
+- Enum cases with associated values may have unsupported parameter types
 - 4 remaining AnyType references (existential types and closures - not enums)
+- **ObjC types use `Swift.*` wrappers instead of existing .NET iOS bindings** (see 2.8) - Major UX issue
 
 **Fixed issues**:
 - ~~11 errors related to enum types in Optional<T> parameters~~ FIXED (Phase 2.5)
@@ -184,7 +185,7 @@ Skipping property 'url' of type 'Optional' from module 'Swift'
 - `src/Swift.Bindings/tests/UnitTests/MarshalerTests/OptionalHandlerTests.cs` - 12 new tests
 
 ### 2.2 Foundation/Platform Types
-**Status**: DONE
+**Status**: DONE (but see 2.8 for planned refactoring)
 
 **Types implemented**:
 | Swift Type | Status | C# Mapping | Module |
@@ -196,8 +197,10 @@ Skipping property 'url' of type 'Optional' from module 'Swift'
 | `NSColor` | DONE | `Swift.NSColor` | AppKit |
 | `CIContext` | DONE | `Swift.CIContext` | CoreImage |
 | `UIImage` | DONE | `Swift.UIImage` | UIKit |
-| `URLRequest` | TODO | Need wrapper class | Foundation |
-| `URLResponse` | TODO | Need wrapper class | Foundation |
+| `URLRequest` | DONE | `Swift.URLRequest` with `SwiftSafeHandle` | Foundation |
+| `URLResponse` | DONE | `Swift.URLResponse` with `SwiftSafeHandle` | Foundation |
+
+> **Note**: These `Swift.*` wrapper types work but create UX friction. Section 2.8 describes the planned refactoring to instead map these Objective-C types to the existing .NET iOS bindings (e.g., `UIKit.UIImage` instead of `Swift.UIImage`). This will allow seamless interop with standard .NET iOS code.
 
 **Files added**:
 - `src/Swift.Runtime/src/Swift/OperationQueue.cs`
@@ -206,13 +209,15 @@ Skipping property 'url' of type 'Optional' from module 'Swift'
 - `src/Swift.Runtime/src/Swift/NSColor.cs`
 - `src/Swift.Runtime/src/Swift/CIContext.cs`
 - `src/Swift.Runtime/src/Swift/UIImage.cs`
+- `src/Swift.Runtime/src/Swift/URLRequest.cs`
+- `src/Swift.Runtime/src/Swift/URLResponse.cs`
 - `src/Swift.Runtime/src/Swift/DispatchDatabase.xml`
 - `src/Swift.Runtime/src/Swift/AppKitDatabase.xml`
 - `src/Swift.Runtime/src/Swift/CoreImageDatabase.xml`
 - `src/Swift.Runtime/src/Swift/UIKitDatabase.xml`
 
 **Files modified**:
-- `src/Swift.Runtime/src/Swift/FoundationDatabase.xml` - Added OperationQueue mapping
+- `src/Swift.Runtime/src/Swift/FoundationDatabase.xml` - Added OperationQueue, URLRequest, URLResponse mappings
 - `src/Swift.Runtime/src/Swift/Runtime/KnownLibraries.cs` - Added library paths
 - `src/Swift.Bindings/src/Program.cs` - Load new database files
 
@@ -316,20 +321,47 @@ public unsafe void MyProperty_Set(int value)
 - `src/Swift.Bindings/src/Marshaler/BoundGenericsHandler.cs`
 
 ### 2.6 Enum Case Constructors
-**Status**: TODO
+**Status**: DONE
 
-**Problem**: All enum cases throw `NotImplementedException`:
+**Problem**: Enum cases without associated values were implemented as static properties, but cases with associated values were skipped.
+
+**Solution**: Modified `EnumHandler` to emit:
+- **Simple cases** (no associated values) → Static properties (existing behavior)
+- **Cases with associated values** → Static methods with parameters
+
+**Implementation details**:
+1. Removed the filter that excluded cases with associated values
+2. Added `EmitEnumCaseWithAssociatedValues()` method that:
+   - Maps Swift associated value types to C# parameter types
+   - Generates P/Invoke calls with proper argument marshalling
+   - Handles non-frozen types by accessing `.Payload` property
+
+**Generated code example**:
 ```csharp
-public static CacheType Memory => throw new NotImplementedException("Enum case constructors not yet implemented");
+// Simple case (no associated values) - static property
+public static MyResult Success
+{
+    get
+    {
+        var result = new MyResult();
+        IntPtr casePtr = PInvoke_Success();
+        result._payload = new SwiftSafeHandle<MyResult>(casePtr);
+        return result;
+    }
+}
+
+// Case with associated values - static method
+public static MyResult Failure(SwiftString message)
+{
+    var result = new MyResult();
+    IntPtr casePtr = PInvoke_Failure(message.Payload);
+    result._payload = new SwiftSafeHandle<MyResult>(casePtr);
+    return result;
+}
 ```
 
-Swift enum cases appear as metatype functions:
-```
-PropertyHandler: Couldn't process property running of type (Nuke.ImageTask.State.Type) -> Nuke.ImageTask.State
-```
-
-**Files to modify**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs` - `EnumHandler.EmitEnumCase()`
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs` - Added `EmitEnumCaseWithAssociatedValues()` and helper methods
 
 ### 2.7 Cross-Platform Binding Generation (iOS on macOS)
 **Status**: DONE
@@ -343,6 +375,70 @@ PropertyHandler: Couldn't process property running of type (Nuke.ImageTask.State
 
 **Files modified**:
 - `src/Swift.Bindings/src/Parser/ModuleProcessor.cs` - Added try/catch around `DynamicLibraryLoader.invoke()`
+
+### 2.8 Reuse Existing .NET iOS Bindings for Objective-C Types
+**Status**: TODO (High Priority)
+**Impact**: Major UX improvement
+
+**Problem**: Currently, Objective-C types that Swift imports (like `UIImage`, `URL`, `Data`) are mapped to custom `Swift.*` wrapper types. This creates friction for users who are already using the standard .NET iOS bindings.
+
+**Current behavior** (problematic):
+```csharp
+// Nuke returns Swift.UIImage
+var response = await pipeline.Image(request);
+Swift.UIImage swiftImage = response.Image;
+
+// Can't use directly with UIKit - wrong type!
+myImageView.Image = swiftImage;  // ❌ Compile error
+
+// User would need awkward conversion
+myImageView.Image = swiftImage.ToUIImage();  // Friction
+```
+
+**Desired behavior**:
+```csharp
+// Nuke returns UIKit.UIImage directly
+var response = await pipeline.Image(request);
+UIImage image = response.Image;  // Standard .NET iOS type
+
+myImageView.Image = image;  // ✅ Just works
+```
+
+**Why this works**: Swift's `UIImage` is literally the same Objective-C `UIImage` class - Swift just imports it. The pointer Swift returns is the same `objc_object*` that .NET's existing bindings wrap. There's no "SwiftUIImage" - it's the same type.
+
+**Types to remap**:
+| Current (`Swift.*`) | Should map to (.NET iOS) |
+|---------------------|--------------------------|
+| `Swift.UIImage` | `UIKit.UIImage` |
+| `Swift.NSImage` | `AppKit.NSImage` |
+| `Swift.URL` | `Foundation.NSUrl` |
+| `Swift.URLRequest` | `Foundation.NSUrlRequest` |
+| `Swift.URLResponse` | `Foundation.NSUrlResponse` |
+| `Swift.Data` | `Foundation.NSData` |
+| `Swift.OperationQueue` | `Foundation.NSOperationQueue` |
+| `Swift.DispatchQueue` | `CoreFoundation.DispatchQueue` |
+
+**Types that still need `Swift.*` wrappers** (pure Swift, no ObjC equivalent):
+- `SwiftString` (Swift.String is not NSString in many contexts)
+- `SwiftArray<T>`, `SwiftSet<T>`, `SwiftDictionary<K,V>` (Swift collections)
+- `SwiftOptional<T>`
+- All generated types from Swift libraries (e.g., `Nuke.ImagePipeline`, `Nuke.ImageRequest`)
+
+**Implementation approach**:
+1. Update type database mappings to point to .NET iOS types
+2. Modify marshalling to use `ObjCRuntime.Runtime.GetNSObject<T>(ptr)` for return values
+3. For parameters, extract the native handle from the .NET type
+4. Remove unnecessary `Swift.UIImage`, `Swift.URL`, etc. wrapper classes
+5. Add dependency on `Microsoft.iOS` (or platform-specific) workload types
+
+**Complexity**: Medium - requires careful integration with .NET iOS binding infrastructure
+
+**Files to modify**:
+- `src/Swift.Runtime/src/Swift/FoundationDatabase.xml`
+- `src/Swift.Runtime/src/Swift/UIKitDatabase.xml`
+- `src/Swift.Runtime/src/Swift/AppKitDatabase.xml`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - marshalling logic
+- Remove: `Swift.UIImage.cs`, `Swift.URL.cs`, `Swift.URLRequest.cs`, `Swift.URLResponse.cs`, etc.
 
 ---
 
@@ -618,8 +714,9 @@ var image = response.Image; // UIImage
 - [x] Fix enum type registration
 - [x] Proper ISwiftObject implementation
 - [x] Property setters
-- [ ] URLRequest/URLResponse support
-- [ ] Enum case constructors
+- [x] URLRequest/URLResponse support
+- [x] Enum case constructors (simple cases work, cases with associated values emit static methods)
+- [ ] **Reuse .NET iOS bindings for ObjC types** (UIImage, URL, etc.) - High priority UX fix
 - [ ] Existential types
 - [ ] **Async method support** - BLOCKED by .NET SafeHandle limitation
 
