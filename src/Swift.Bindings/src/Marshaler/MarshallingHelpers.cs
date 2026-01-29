@@ -54,5 +54,16 @@ namespace BindingsGeneration
         {
             return (typeRecord.Flags & TypeRecordFlags.Frozen) != 0 && (typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0;
         }
+
+        /// <summary>
+        /// Determines if a method is a property setter based on its name.
+        /// Property setters are generated with names ending in "_Set".
+        /// </summary>
+        /// <param name="methodDecl">The method declaration to check.</param>
+        /// <returns>True if the method is a property setter, false otherwise.</returns>
+        public static bool MethodIsSetter(MethodDecl methodDecl)
+        {
+            return methodDecl.Name.EndsWith("_Set");
+        }
     }
 }

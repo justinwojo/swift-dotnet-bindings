@@ -594,11 +594,21 @@ namespace BindingsGeneration
             {
                 if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)
                 {
-                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
-                    if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
-                        AddParameter($"SwiftSelf<Buffer>", "self");
+                    // Setters always need pointer semantics (even for frozen structs)
+                    // because they modify the struct in-place
+                    if (MarshallingHelpers.MethodIsSetter(_env.MethodDecl))
+                    {
+                        AddParameter("SwiftSelf", "self");
+                    }
                     else
-                        AddParameter($"SwiftSelf<{_env.ParentDecl.Name}>", "self");
+                    {
+                        // Getters can use value semantics for frozen structs
+                        var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                        if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+                            AddParameter($"SwiftSelf<Buffer>", "self");
+                        else
+                            AddParameter($"SwiftSelf<{_env.ParentDecl.Name}>", "self");
+                    }
                 }
                 else
                 {
@@ -765,6 +775,7 @@ namespace BindingsGeneration
         private readonly bool _requiresSwiftSelf;
         private readonly bool _requiresSwiftError;
         private readonly bool _requiresSwiftAsync;
+        private readonly bool _requiresFixedBlock;
 
         internal WrapperEmitter(MethodEnvironment methodEnv, SignatureHandler signatureHandler)
         {
@@ -777,6 +788,18 @@ namespace BindingsGeneration
             _requiresSwiftSelf = MarshallingHelpers.MethodRequiresSwiftSelf(methodEnv);
             _requiresSwiftError = _env.MethodDecl.Throws;
             _requiresSwiftAsync = _env.MethodDecl.IsAsync;
+
+            // Frozen struct setters need a fixed block to get a pointer to 'this'
+            // because setters modify the struct in-place (pointer semantics)
+            // while getters can pass by value (value semantics)
+            _requiresFixedBlock = false;
+            if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen && MarshallingHelpers.MethodIsSetter(_env.MethodDecl))
+            {
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                // Only pure frozen structs (no memory management) need the fixed block
+                // Frozen structs with memory management use _payload SafeHandle like non-frozen types
+                _requiresFixedBlock = !MarshallingHelpers.RequiresMemoryManagement(typeRecord);
+            }
         }
 
         /// <summary>
@@ -813,6 +836,7 @@ namespace BindingsGeneration
             EmitDeclarationsForAllocations(csWriter);
 
             EmitTryBlockStart(csWriter);
+            EmitFixedBlockStart(csWriter);
 
             EmitSwiftSelf(csWriter);
             EmitIndirectResultMethod(csWriter);
@@ -824,6 +848,7 @@ namespace BindingsGeneration
             EmitSwiftError(csWriter);
             EmitReturnMethod(csWriter);
 
+            EmitFixedBlockEnd(csWriter);
             EmitTryBlockEnd(csWriter);
             EmitFinally(csWriter);
             EmitBodyEnd(csWriter);
@@ -870,7 +895,12 @@ namespace BindingsGeneration
                 return;
             }
 
-            if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)
+            // Frozen struct setters use a fixed block to get a pointer to 'this'
+            if (_requiresFixedBlock)
+            {
+                csWriter.WriteLine("var self = new SwiftSelf(__self);");
+            }
+            else if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)
             {
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                 if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
@@ -1458,6 +1488,31 @@ namespace BindingsGeneration
             EmitBodyStart(csWriter);
             EmitSafeHandleRelease(csWriter);
             EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the start of a fixed block for frozen struct setters.
+        /// The fixed block pins the struct in memory so we can get a pointer to it.
+        /// </summary>
+        private void EmitFixedBlockStart(CSharpWriter csWriter)
+        {
+            if (!_requiresFixedBlock) return;
+
+            var structDecl = (StructDecl)_env.ParentDecl;
+            csWriter.WriteLine($"fixed ({structDecl.Name}* __self = &this)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+
+        /// <summary>
+        /// Emits the end of a fixed block for frozen struct setters.
+        /// </summary>
+        private void EmitFixedBlockEnd(CSharpWriter csWriter)
+        {
+            if (!_requiresFixedBlock) return;
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
         }
 
         /// <summary>
