@@ -56,6 +56,17 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Determines if a type is an Objective-C bridged class that should be remapped
+        /// to its .NET iOS binding equivalent (e.g., UIKit.UIImage instead of Swift.UIImage).
+        /// </summary>
+        /// <param name="typeRecord">The type record to check.</param>
+        /// <returns>True if the type is ObjC bridged, false otherwise.</returns>
+        public static bool IsObjCBridged(TypeRecord typeRecord)
+        {
+            return (typeRecord.Flags & TypeRecordFlags.ObjCBridged) != 0;
+        }
+
+        /// <summary>
         /// Determines if a method is a property setter based on its name.
         /// Property setters are generated with names ending in "_Set".
         /// </summary>

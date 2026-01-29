@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -124,4 +125,54 @@ public struct Data : ISwiftObject
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataV9copyBytes2to5countySpys5UInt8VG_SitF")]
     public static unsafe extern void PInvoke_CopyBytes(UnsafeMutablePointer<byte> buffer, nint count, Data data);
+
+    /// <summary>
+    /// Converts this Swift.Data to a byte array.
+    /// </summary>
+    /// <returns>A byte array containing the data.</returns>
+    public unsafe byte[] ToByteArray()
+    {
+        var count = Count;
+        if (count == 0)
+            return Array.Empty<byte>();
+
+        var bytes = new byte[count];
+        fixed (byte* ptr = bytes)
+        {
+            CopyBytes(new UnsafeMutablePointer<byte>(ptr), count);
+        }
+        return bytes;
+    }
+
+#if IOS || MACCATALYST || MACOS
+    /// <summary>
+    /// Converts this Swift.Data to a .NET iOS Foundation.NSData.
+    /// </summary>
+    /// <returns>An NSData representation of this Data.</returns>
+    public Foundation.NSData ToNSData()
+    {
+        return Foundation.NSData.FromArray(ToByteArray());
+    }
+
+    /// <summary>
+    /// Creates a Swift.Data from a .NET iOS Foundation.NSData.
+    /// </summary>
+    /// <param name="nsData">The NSData to convert.</param>
+    /// <returns>A Swift.Data representation of the NSData.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if nsData is null.</exception>
+    public static unsafe Data FromNSData(Foundation.NSData nsData)
+    {
+        if (nsData == null)
+            throw new ArgumentNullException(nameof(nsData));
+
+        var bytes = nsData.ToArray();
+        if (bytes.Length == 0)
+            return new Data(new UnsafeRawPointer(null), 0);
+
+        fixed (byte* ptr = bytes)
+        {
+            return new Data(new UnsafeRawPointer(ptr), bytes.Length);
+        }
+    }
+#endif
 }

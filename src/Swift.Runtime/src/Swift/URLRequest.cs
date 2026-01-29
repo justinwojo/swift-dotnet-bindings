@@ -92,6 +92,50 @@ public sealed class URLRequest : ISwiftObject, IDisposable
         set => PInvoke_SetTimeoutInterval(this, value);
     }
 
+#if IOS || MACCATALYST || MACOS
+    /// <summary>
+    /// Converts this Swift.URLRequest to a .NET iOS Foundation.NSUrlRequest.
+    /// </summary>
+    /// <returns>An NSUrlRequest representation of this URLRequest.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if this URLRequest has no URL.</exception>
+    public Foundation.NSUrlRequest ToNSUrlRequest()
+    {
+        var url = URL?.ToNSUrl();
+        if (url == null)
+            throw new InvalidOperationException("URLRequest has no URL");
+
+        var request = new Foundation.NSMutableUrlRequest(url);
+        request.HttpMethod = HTTPMethod ?? "GET";
+        request.TimeoutInterval = TimeoutInterval;
+        return request;
+    }
+
+    /// <summary>
+    /// Creates a Swift.URLRequest from a .NET iOS Foundation.NSUrlRequest.
+    /// </summary>
+    /// <param name="nsUrlRequest">The NSUrlRequest to convert.</param>
+    /// <returns>A Swift.URLRequest representation of the NSUrlRequest.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if nsUrlRequest is null.</exception>
+    /// <exception cref="ArgumentException">Thrown if the NSUrlRequest has no URL.</exception>
+    public static URLRequest FromNSUrlRequest(Foundation.NSUrlRequest nsUrlRequest)
+    {
+        if (nsUrlRequest == null)
+            throw new ArgumentNullException(nameof(nsUrlRequest));
+
+        if (nsUrlRequest.Url == null)
+            throw new ArgumentException("NSUrlRequest has no URL", nameof(nsUrlRequest));
+
+        var swiftUrl = Swift.URL.FromNSUrl(nsUrlRequest.Url);
+        var request = FromURL(swiftUrl);
+
+        if (nsUrlRequest.HttpMethod != null)
+            request.HTTPMethod = nsUrlRequest.HttpMethod;
+
+        request.TimeoutInterval = nsUrlRequest.TimeoutInterval;
+        return request;
+    }
+#endif
+
     #region ISwiftObject Implementation
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()

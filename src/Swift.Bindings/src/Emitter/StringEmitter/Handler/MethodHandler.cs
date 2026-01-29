@@ -175,6 +175,8 @@ namespace BindingsGeneration
             "AsyncContext" => $"{modifier} void* {Name}",
             "AsyncTask" => $"{modifier} IntPtr {Name}",
             "IntPtrFromNonFrozen" => $"{modifier} IntPtr {Name}",
+            // ObjC bridged types use IntPtr in P/Invoke
+            var t when t.StartsWith("ObjCBridged:") => $"{modifier} IntPtr {Name}",
             _ => $"{modifier} {Type} {Name}"
         };
     }
@@ -209,6 +211,8 @@ namespace BindingsGeneration
                 // Handle @convention(c) closure function pointers
                 { Type: var type } when type.StartsWith("delegate* unmanaged") =>
                     parameter.Name.EndsWith("FuncPtr") ? parameter.Name : $"{parameter.Name}FuncPtr",
+                // ObjC bridged types: extract Handle from the .NET iOS binding object
+                { Type: var type } when type.StartsWith("ObjCBridged:") => $"{parameter.Name}Handle",
                 _ => parameter.Name
             };
         }
@@ -449,6 +453,14 @@ namespace BindingsGeneration
             }
 
             TypeRecord returnTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
+
+            // ObjC bridged types return IntPtr in P/Invoke, then wrapped with GetNSObject<T>
+            if (MarshallingHelpers.IsObjCBridged(returnTypeRecord))
+            {
+                SetReturnType("IntPtr");
+                return;
+            }
+
             if (_env.MethodDecl.IsAsync && !MarshallingHelpers.IsTypeFrozen(returnTypeRecord))
             {
                 SetReturnType("IntPtr");
@@ -539,6 +551,15 @@ namespace BindingsGeneration
                 }
 
                 TypeRecord argumentTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argument.SwiftTypeSpec);
+
+                // ObjC bridged types use IntPtr in P/Invoke, Handle extracted from the .NET iOS binding
+                if (MarshallingHelpers.IsObjCBridged(argumentTypeRecord))
+                {
+                    // Store the original C# type name for use in wrapper generation
+                    AddParameter($"ObjCBridged:{argumentTypeRecord.CSharpTypeName.FullyQualifiedName}", argument.Name);
+                    continue;
+                }
+
                 if (!MarshallingHelpers.IsTypeFrozen(argumentTypeRecord))
                 {
                     // For async methods, SafeHandle cannot be used with Swift calling convention.
@@ -932,6 +953,18 @@ namespace BindingsGeneration
             GCHandle handle = GCHandle.Alloc(task, GCHandleType.Normal);
             """);
 
+            // Identify non-frozen parameters that need special Swift wrapper handling
+            var nonFrozenParams = _env.MethodDecl.CSSignature
+                .Skip(1)
+                .Where(p => !p.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(p) && !_env.ClosureHandler.IsClosure(p) && !_env.TupleHandler.IsTuple(p))
+                .Where(p =>
+                {
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
+                    return !MarshallingHelpers.IsTypeFrozen(typeRecord);
+                })
+                .ToList();
+
+            // Build parameter string - non-frozen types use UnsafeRawPointer in Swift wrapper
             string parameters = string.Join(
                 ", ",
                 new[]
@@ -941,7 +974,15 @@ namespace BindingsGeneration
                 }.Concat(
                     _env.MethodDecl.CSSignature
                         .Skip(1)
-                        .Select(p => $"{p.Name}: {(p.IsGeneric ? _env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName : p.SwiftTypeSpec)}")
+                        .Select(p =>
+                        {
+                            // Check if this is a non-frozen parameter that needs UnsafeRawPointer
+                            if (nonFrozenParams.Any(nfp => nfp.Name == p.Name))
+                            {
+                                return $"{p.Name}: UnsafeRawPointer";
+                            }
+                            return $"{p.Name}: {(p.IsGeneric ? _env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName : p.SwiftTypeSpec)}";
+                        })
                 )
             );
 
@@ -973,27 +1014,84 @@ namespace BindingsGeneration
                 false => ""
             };
 
+            // Generate copy allocation code for non-frozen parameters (before Task block)
+            var copyAllocCode = string.Join("\n        ", nonFrozenParams.Select(p =>
+                $"let {p.Name}Copy = UnsafeMutablePointer<{p.SwiftTypeSpec}>.allocate(capacity: 1)\n        " +
+                $"{p.Name}Copy.initialize(from: {p.Name}.assumingMemoryBound(to: {p.SwiftTypeSpec}.self), count: 1)"));
+
+            // Generate defer cleanup code for non-frozen parameters (inside Task block)
+            var deferCleanupCode = nonFrozenParams.Count > 0
+                ? "defer {\n                    " +
+                  string.Join("\n                    ", nonFrozenParams.Select(p =>
+                      $"{p.Name}Copy.deinitialize(count: 1)\n                    {p.Name}Copy.deallocate()")) +
+                  "\n                }"
+                : "";
+
+            // Generate argument list for the actual Swift method call
+            var methodCallArgs = string.Join(", ", _env.MethodDecl.CSSignature.Skip(1)
+                .Select(p =>
+                {
+                    var argName = p.Name switch
+                    {
+                        var n when n.StartsWith("arg") => n,
+                        var n when n.StartsWith("_") => $"{n.Substring(1)}: {n}",
+                        var n => $"{n}: {n}"
+                    };
+
+                    // For non-frozen params, use the copy's pointee
+                    if (nonFrozenParams.Any(nfp => nfp.Name == p.Name))
+                    {
+                        var label = p.Name switch
+                        {
+                            var n when n.StartsWith("arg") => "",
+                            var n when n.StartsWith("_") => $"{n.Substring(1)}: ",
+                            var n => $"{n}: "
+                        };
+                        return $"{label}{p.Name}Copy.pointee";
+                    }
+                    return argName;
+                }));
+
             var parentTypeName = (_env.ParentDecl as TypeDecl)!.SwiftTypeName;
-            swiftWriter.WriteLine($$"""
+
+            // Generate the Swift wrapper with proper non-frozen parameter handling
+            if (nonFrozenParams.Count > 0)
+            {
+                swiftWriter.WriteLine($$"""
             extension {{parentTypeName.ModuleQualifiedName}} {
                 @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{(_env.MethodDecl.MethodType == MethodType.Static ? "static " : "")}} func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
+                    // Properly copy non-frozen parameters with reference counting
+                    {{copyAllocCode}}
+
                     Task {
+                        {{deferCleanupCode}}
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{(_env.MethodDecl.MethodType == MethodType.Static ? $"{parentTypeName.ModuleQualifiedName}." : "")}}{{_env.MethodDecl.Name}}(
-                            {{string.Join(", ", _env.MethodDecl.CSSignature.Skip(1)
-                                .Select(p => p.Name switch
-                                {
-                                    var n when n.StartsWith("arg") => n,
-                                    var n when n.StartsWith("_") => $"{n.Substring(1)}: {n}",
-                                    var n => $"{n}: {n}"
-                                })
-                            )}}
+                            {{methodCallArgs}}
                         )
                         callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task);
                     }
                 }
             }
             """);
+            }
+            else
+            {
+                // No non-frozen parameters - use original simpler code
+                swiftWriter.WriteLine($$"""
+            extension {{parentTypeName.ModuleQualifiedName}} {
+                @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+                public {{(_env.MethodDecl.MethodType == MethodType.Static ? "static " : "")}} func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
+                    Task {
+                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{(_env.MethodDecl.MethodType == MethodType.Static ? $"{parentTypeName.ModuleQualifiedName}." : "")}}{{_env.MethodDecl.Name}}(
+                            {{methodCallArgs}}
+                        )
+                        callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task);
+                    }
+                }
+            }
+            """);
+            }
         }
 
         /// <summary>
@@ -1131,6 +1229,14 @@ namespace BindingsGeneration
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a)))
             {
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
+
+                // ObjC bridged types: extract Handle from .NET iOS binding object
+                if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                {
+                    csWriter.WriteLine($"IntPtr {argumentDecl.Name}Handle = {argumentDecl.Name}?.Handle ?? IntPtr.Zero;");
+                    continue;
+                }
+
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 {
                     csWriter.WriteLine($"using PayloadBuffer<{typeRecord.CSharpTypeName}.Buffer> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
@@ -1148,6 +1254,9 @@ namespace BindingsGeneration
                     !_env.TupleHandler.IsTuple(a)))
                 {
                     TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
+                    // Skip ObjC bridged types - they're already handled above
+                    if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                        continue;
                     if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
                     {
                         csWriter.WriteLine($"bool {argumentDecl.Name}Success = false;");
@@ -1362,6 +1471,14 @@ namespace BindingsGeneration
             if (!returnArg.IsGeneric)
             {
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnArg.SwiftTypeSpec);
+
+                // ObjC bridged types: wrap IntPtr result with GetNSObject<T>
+                if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                {
+                    csWriter.WriteLine($"return ObjCRuntime.Runtime.GetNSObject<{_wrapperSignature.ReturnType}>(result);");
+                    return;
+                }
+
                 if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 && (typeRecord.Flags & TypeRecordFlags.Frozen) != 0)
                 {
                     csWriter.WriteLine($$"""

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <swifttypedatabase version="1.0" moduleName="AppKit" modulePath="/System/Library/Frameworks/AppKit.framework/AppKit">
     <entities>
-        <entity managedNameSpace="Swift" managedTypeName="NSImage">
-            <typedeclaration kind="class" name="NSImage" module="AppKit" mangledName="$sSo7NSImageC" frozen="false" requiresMemoryManagement="true" />
+        <entity managedNameSpace="AppKit" managedTypeName="NSImage">
+            <typedeclaration kind="class" name="NSImage" module="AppKit" mangledName="$sSo7NSImageC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="Swift" managedTypeName="NSColor">
-            <typedeclaration kind="class" name="NSColor" module="AppKit" mangledName="$sSo7NSColorC" frozen="false" requiresMemoryManagement="true" />
+        <entity managedNameSpace="AppKit" managedTypeName="NSColor">
+            <typedeclaration kind="class" name="NSColor" module="AppKit" mangledName="$sSo7NSColorC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
     </entities>
 </swifttypedatabase>

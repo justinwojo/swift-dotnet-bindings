@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Collections.Concurrent;
@@ -140,6 +141,7 @@ namespace BindingsGeneration
                 string @namespace = entityNode?.Attributes?["managedNameSpace"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'managedNameSpace' attribute.");
                 string frozen = typeDeclarationNode?.Attributes?["frozen"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'frozen' attribute.");
                 string requiresMemoryManagement = typeDeclarationNode?.Attributes?["requiresMemoryManagement"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'requiresMemoryManagement' attribute.");
+                string objcBridged = typeDeclarationNode?.Attributes?["objcBridged"]?.Value ?? "false";
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
@@ -152,7 +154,8 @@ namespace BindingsGeneration
                     SwiftTypeName = swiftTypeName,
                     MetadataAccessor = swiftMangledName,
                     Flags = (frozen.ToLower() == "true" ? TypeRecordFlags.Frozen : TypeRecordFlags.None) |
-                            (requiresMemoryManagement.ToLower() == "true" ? TypeRecordFlags.RequiresMemoryManagement : TypeRecordFlags.None),
+                            (requiresMemoryManagement.ToLower() == "true" ? TypeRecordFlags.RequiresMemoryManagement : TypeRecordFlags.None) |
+                            (objcBridged.ToLower() == "true" ? TypeRecordFlags.ObjCBridged : TypeRecordFlags.None),
                     Kind = TypeRecordKind.Struct,
                 };
 

@@ -63,6 +63,37 @@ public sealed class URL : ISwiftObject, IDisposable
         return new Uri(absoluteString);
     }
 
+#if IOS || MACCATALYST || MACOS
+    /// <summary>
+    /// Converts this Swift.URL to a .NET iOS Foundation.NSUrl.
+    /// </summary>
+    /// <returns>An NSUrl representation of this URL.</returns>
+    public Foundation.NSUrl ToNSUrl()
+    {
+        // Use the absoluteString to create an NSUrl (safe, avoids internal layout assumptions)
+        return new Foundation.NSUrl(AbsoluteString);
+    }
+
+    /// <summary>
+    /// Creates a Swift.URL from a .NET iOS Foundation.NSUrl.
+    /// </summary>
+    /// <param name="nsUrl">The NSUrl to convert.</param>
+    /// <returns>A Swift.URL representation of the NSUrl.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if nsUrl is null.</exception>
+    /// <exception cref="ArgumentException">Thrown if the NSUrl's AbsoluteString is not a valid URL.</exception>
+    public static URL FromNSUrl(Foundation.NSUrl nsUrl)
+    {
+        if (nsUrl == null)
+            throw new ArgumentNullException(nameof(nsUrl));
+
+        var absoluteString = nsUrl.AbsoluteString;
+        if (absoluteString == null)
+            throw new ArgumentException("NSUrl has no absolute string", nameof(nsUrl));
+
+        return FromString(absoluteString) ?? throw new ArgumentException("Invalid URL string", nameof(nsUrl));
+    }
+#endif
+
     /// <summary>
     /// Gets the absolute string representation of the URL.
     /// </summary>

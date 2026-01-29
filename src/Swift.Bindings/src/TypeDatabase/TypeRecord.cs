@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using Swift.Runtime;
@@ -22,6 +23,10 @@ public enum TypeRecordFlags
     // The 'RequiresMemoryManagement' flag indicates that the type is allocated on the heap (as in the case of classes)
     // or that it contains a heap-allocated property (for example, a struct with a reference property).
     RequiresMemoryManagement = 1 << 1,
+    // This flag indicates the type is an Objective-C bridged class (e.g., UIImage, NSImage, URLResponse).
+    // These types should be remapped to their .NET iOS binding equivalents (e.g., UIKit.UIImage)
+    // rather than custom Swift.* wrapper types.
+    ObjCBridged = 1 << 2,
 }
 
 /// <summary>

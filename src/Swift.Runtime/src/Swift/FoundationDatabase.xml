@@ -13,14 +13,14 @@
         <entity managedNameSpace="System" managedTypeName="Guid">
             <typedeclaration kind="struct" name="UUID" module="Foundation" mangledName="$s10Foundation4UUIDV" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="Swift" managedTypeName="OperationQueue">
-            <typedeclaration kind="class" name="OperationQueue" module="Foundation" mangledName="$sSo16NSOperationQueueC" frozen="false" requiresMemoryManagement="true" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSOperationQueue">
+            <typedeclaration kind="class" name="OperationQueue" module="Foundation" mangledName="$sSo16NSOperationQueueC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="Swift" managedTypeName="URLRequest">
             <typedeclaration kind="struct" name="URLRequest" module="Foundation" mangledName="$s10Foundation10URLRequestV" frozen="false" requiresMemoryManagement="true" />
         </entity>
-        <entity managedNameSpace="Swift" managedTypeName="URLResponse">
-            <typedeclaration kind="class" name="URLResponse" module="Foundation" mangledName="$sSo15NSURLResponseC" frozen="false" requiresMemoryManagement="true" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlResponse">
+            <typedeclaration kind="class" name="URLResponse" module="Foundation" mangledName="$sSo15NSURLResponseC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
     </entities>
 </swifttypedatabase>
