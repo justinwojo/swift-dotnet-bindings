@@ -216,7 +216,7 @@ public class ClosureHandler
     /// <summary>
     /// Translates a TypeSpec to its C# equivalent for delegate type parameters.
     /// </summary>
-    private string TranslateTypeSpecToCSharp(TypeSpec typeSpec)
+    public string TranslateTypeSpecToCSharp(TypeSpec typeSpec)
     {
         if (typeSpec is NamedTypeSpec namedType)
         {

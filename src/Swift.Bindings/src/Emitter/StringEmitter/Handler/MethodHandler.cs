@@ -390,7 +390,10 @@ namespace BindingsGeneration
         {
             var returnType = _env.MethodDecl.CSSignature.First();
 
-            if (_env.BoundGenericsHandler.IsBoundGeneric(returnType))
+            // For non-constructor methods, bound generics that require marshalling (SwiftArray, SwiftOptional, etc.)
+            // return IntPtr directly from PInvoke. Constructors need special handling via indirect result
+            // since failable initializers return Optional<Self> which can't be assigned to 'this'.
+            if (!_env.MethodDecl.IsConstructor && _env.BoundGenericsHandler.IsBoundGeneric(returnType))
             {
                 var csTypeParam = _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType) switch
                 {
@@ -1238,6 +1241,15 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Check indirect result first - it takes precedence since the result is stored there.
+            // This handles failable initializers (init?) that return SwiftOptional via indirect result.
+            if (_requiresIndirectResult)
+            {
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(new IntPtr(swiftIndirectResult.Value));");
+                return;
+            }
+
+            // Bound generics that return IntPtr directly (not via indirect result)
             if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
             {
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg)}>(new IntPtr(&result));");
@@ -1256,12 +1268,6 @@ namespace BindingsGeneration
                         """);
                     return;
                 }
-            }
-
-            if (_requiresIndirectResult)
-            {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(new IntPtr(swiftIndirectResult.Value));");
-                return;
             }
 
             if (returnArg.SwiftTypeSpec.IsEmptyTuple)

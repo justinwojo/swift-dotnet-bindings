@@ -50,11 +50,11 @@ public static class ClosureEmitter
         var parametersString = string.Join(", ", parameters);
 
         // Build argument list for invoking the delegate
-        // Convert byte to bool for Swift.Bool parameters
+        // Handle type conversions: byte->bool, void*->struct marshalling
         var invokeArgs = new List<string>();
         for (int i = 0; i < argIndex; i++)
         {
-            var argExpr = IsBoolType(argTypes[i]) ? $"arg{i} != 0" : $"arg{i}";
+            var argExpr = GetInvokeArgExpression(argTypes[i], i, closureHandler);
             invokeArgs.Add(argExpr);
         }
         var invokeArgsString = string.Join(", ", invokeArgs);
@@ -217,6 +217,36 @@ public static class ClosureEmitter
     {
         return typeSpec is NamedTypeSpec namedType && namedType.Name == "Swift.Bool";
     }
+
+    /// <summary>
+    /// Generates the expression to pass an argument when invoking the delegate.
+    /// Handles type conversions:
+    /// - byte -> bool for Swift.Bool
+    /// - void* -> struct marshalling for complex types
+    /// </summary>
+    /// <param name="typeSpec">The TypeSpec for the argument.</param>
+    /// <param name="argIndex">The argument index.</param>
+    /// <param name="closureHandler">The closure handler for type translation.</param>
+    /// <returns>The expression string to use when invoking the delegate.</returns>
+    private static string GetInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler closureHandler)
+    {
+        // Bool requires byte->bool conversion
+        if (IsBoolType(typeSpec))
+            return $"arg{argIndex} != 0";
+
+        // Check if this parameter needs marshalling from void*
+        var callbackType = GetCallbackParameterType(typeSpec, closureHandler);
+        if (callbackType == "void*" && typeSpec is NamedTypeSpec namedType && !IsPointerType(namedType))
+        {
+            // The callback receives void* but the delegate expects the actual type.
+            // Use SwiftMarshal.MarshalFromSwift to convert.
+            var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+            return $"SwiftMarshal.MarshalFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
+        }
+
+        return $"arg{argIndex}";
+    }
+
 
     /// <summary>
     /// Adds SwiftSelf context parameter to a function pointer type string.

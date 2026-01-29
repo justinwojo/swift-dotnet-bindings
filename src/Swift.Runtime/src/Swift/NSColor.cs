@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+// NSColor is only available on macOS/Mac Catalyst (AppKit).
+// Use explicit positive check to ensure base net10.0 target gets stubs.
+#if MACOS || MACCATALYST
+
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
@@ -133,3 +137,32 @@ public sealed class NSColor : ISwiftObject, IDisposable
 
     #endregion
 }
+
+#else // Stub for non-macOS platforms (iOS, tvOS, generic net10.0)
+
+using Swift.Runtime;
+
+namespace Swift;
+
+/// <summary>
+/// Stub for NSColor on non-macOS platforms. NSColor is only available on macOS/Mac Catalyst.
+/// This stub exists to allow code that references NSColor to compile on other platforms.
+/// </summary>
+public sealed class NSColor : ISwiftObject, IDisposable
+{
+    private NSColor() => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+
+    public SwiftSafeHandle<NSColor> Payload => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+
+    public static NSColor Black => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+    public static NSColor White => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+    public static NSColor Clear => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+
+    static TypeMetadata ISwiftObject.GetTypeMetadata() => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle) => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+    int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>() => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
+    public void Dispose() { }
+}
+
+#endif // MACOS || MACCATALYST
