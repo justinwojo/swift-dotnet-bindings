@@ -277,4 +277,97 @@ public static class ClosureEmitter
         // Insert ", SwiftSelf" after the last comma
         return funcPtrType.Insert(lastComma + 1, " SwiftSelf,");
     }
+
+    /// <summary>
+    /// Emits code to convert a SwiftClosureData return value into a C# delegate.
+    /// This creates an invoker delegate that calls the Swift function pointer with proper ARC handling.
+    /// </summary>
+    /// <param name="csWriter">The C# writer.</param>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <param name="closureHandler">The closure handler for type translation.</param>
+    /// <param name="resultVariableName">The name of the variable holding the SwiftClosureData result.</param>
+    public static void EmitClosureReturnMarshalling(
+        CSharpWriter csWriter,
+        ClosureTypeSpec closureTypeSpec,
+        ClosureHandler closureHandler,
+        string resultVariableName = "result")
+    {
+        var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
+        var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
+        var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+
+        // Build lambda parameter list
+        var parameters = new List<string>();
+        int argIndex = 0;
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            parameters.Add($"_arg{argIndex}");
+            argIndex++;
+        }
+        var parametersString = string.Join(", ", parameters);
+        var parameterListWithParens = parameters.Count == 1 ? parametersString : $"({parametersString})";
+
+        // Build argument list for invoking the Swift function
+        // Need to convert C# types to Swift types (e.g., bool -> byte)
+        var invokeArgs = new List<string>();
+        argIndex = 0;
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            var argExpr = GetSwiftInvokeArgExpression(arg, argIndex);
+            invokeArgs.Add(argExpr);
+            argIndex++;
+        }
+        // Add context (SwiftSelf) as last argument
+        invokeArgs.Add("_swiftSelf");
+        var invokeArgsString = string.Join(", ", invokeArgs);
+
+        var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
+        var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
+
+        // Generate the closure body
+        string invokeExpr = $"_fp({invokeArgsString})";
+        string returnExpr;
+        if (!hasReturn)
+        {
+            returnExpr = $"{invokeExpr};";
+        }
+        else if (returnIsBool)
+        {
+            returnExpr = $"return {invokeExpr} != 0;";
+        }
+        else
+        {
+            returnExpr = $"return {invokeExpr};";
+        }
+
+        csWriter.WriteLines($$"""
+            // Wrap Swift closure in SwiftEscapingClosure for ARC management
+            var _closureWrapper = SwiftEscapingClosure<{{delegateType}}>.FromSwift({{resultVariableName}}.FunctionPointer, {{resultVariableName}}.Context);
+
+            // Create invoker delegate that captures wrapper (keeps it alive for proper ARC)
+            {{delegateType}} _invoker = {{parameterListWithParens}} =>
+            {
+                unsafe
+                {
+                    var _fp = ({{funcPtrTypeWithContext}})_closureWrapper.FunctionPointer;
+                    var _swiftSelf = new SwiftSelf((void*)_closureWrapper.Context.ToPointer());
+                    {{returnExpr}}
+                }
+            };
+
+            return _invoker;
+            """);
+    }
+
+    /// <summary>
+    /// Generates the expression to convert a C# argument to Swift-compatible form when invoking a Swift closure.
+    /// </summary>
+    private static string GetSwiftInvokeArgExpression(TypeSpec typeSpec, int argIndex)
+    {
+        // Bool requires bool -> byte conversion
+        if (IsBoolType(typeSpec))
+            return $"(byte)(_arg{argIndex} ? 1 : 0)";
+
+        return $"_arg{argIndex}";
+    }
 }

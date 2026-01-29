@@ -440,6 +440,143 @@ public class ClosureHandlerTests
 
     #endregion
 
+    #region Closure Return Type Tests
+
+    [Fact]
+    public void IsSupportedClosure_WithValidReturnClosure_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int) -> Bool - should be supported
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+
+        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithAsyncClosure_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        closureTypeSpec.IsAsync = true;
+
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithThrowingClosure_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        closureTypeSpec.Throws = true;
+
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_VoidToVoidClosure_ReturnsAction()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Action", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_VoidToIntClosure_ReturnsFuncInt()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<System.Int64>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_IntToBoolClosure_ReturnsFuncIntBool()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<System.Int64, System.Boolean>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_MultipleArgsToVoid_ReturnsActionWithMultipleParams()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"),
+            new NamedTypeSpec("Swift.Double")
+        });
+        var closureTypeSpec = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Action<System.Int64, System.Boolean, System.Double>", result);
+    }
+
+    [Fact]
+    public void GetPInvokeFunctionPointerType_IntToBoolClosure_ReturnsCorrectPointerType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+
+        var result = handler.GetPInvokeFunctionPointerType(closureTypeSpec);
+
+        // Bool is mapped to byte in PInvoke
+        Assert.Equal("delegate* unmanaged[Swift]<System.Int64, byte>", result);
+    }
+
+    [Fact]
+    public void GetPInvokeFunctionPointerType_VoidToVoidClosure_ReturnsCorrectPointerType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+        var result = handler.GetPInvokeFunctionPointerType(closureTypeSpec);
+
+        Assert.Equal("delegate* unmanaged[Swift]<void>", result);
+    }
+
+    #endregion
+
     #region Mock Type Database
 
     private class MockTypeDatabase : ITypeDatabase

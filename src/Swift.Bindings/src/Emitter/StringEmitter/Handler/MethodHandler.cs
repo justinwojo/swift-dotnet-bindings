@@ -237,10 +237,19 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Closure return types are not supported yet (Phase 3)
+            // Handle closure return types
             if (_env.ClosureHandler.IsClosure(argument))
             {
-                SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
+                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                {
+                    var delegateType = _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
+                    SetReturnType(delegateType);
+                }
+                else
+                {
+                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                }
                 return;
             }
 
@@ -404,10 +413,18 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Closure return types are not supported yet (Phase 3)
+            // Handle closure return types - Swift returns closures as SwiftClosureData (function + context pointers)
             if (_env.ClosureHandler.IsClosure(returnType))
             {
-                SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnType)!;
+                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                {
+                    SetReturnType("SwiftClosureData");
+                }
+                else
+                {
+                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                }
                 return;
             }
 
@@ -1254,6 +1271,17 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg)}>(new IntPtr(&result));");
                 return;
+            }
+
+            // Handle closure return types - result is SwiftClosureData, wrap in delegate
+            if (_env.ClosureHandler.IsClosure(returnArg))
+            {
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
+                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                {
+                    ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                    return;
+                }
             }
 
             if (!returnArg.IsGeneric)

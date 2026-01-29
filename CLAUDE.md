@@ -130,6 +130,7 @@ Output: NuGet package with C# bindings
 | `src/Swift.Runtime/src/Swift/Runtime/InteropServices/SwiftMarshal.cs` | Type marshalling |
 | `src/Swift.Bindings/src/Marshaler/TupleHandler.cs` | Tuple type handling |
 | `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` | Closure type handling |
+| `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/OperatorHandler.cs` | Operator emission |
 | `src/docs/emitter-redesign-proposal.md` | Architecture improvement proposal |
 | `docs/binding-overview.md` | High-level binding philosophy |
 
@@ -144,6 +145,7 @@ Output: NuGet package with C# bindings
 - SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>
 - Closures (`@convention(c)` and `@escaping` with frozen types)
 - Tuples (1-7 elements with frozen types)
+- Operators (arithmetic, comparison, bitwise, unary; automatic pair synthesis)
 - StoreKit 2 bindings (published as experimental NuGet)
 
 **Example Usage** (from README):
@@ -162,13 +164,15 @@ await product.purchase(new SwiftSet<Product.PurchaseOption>());
 
 **Files:**
 - `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` - Closure detection and translation
-- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/ClosureHandlerTests.cs` - 29 tests
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ClosureEmitter.cs` - Closure emission (callback + return marshalling)
+- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/ClosureHandlerTests.cs` - 38 tests
 
 **What's supported:**
 - `@convention(c)` closures → C# delegates passed as function pointers
 - `@escaping` closures → C# delegates with thunk functions
 - Closures with primitive, frozen struct, and tuple parameters/returns
 - Pointer types (`UnsafePointer`, `UnsafeMutablePointer`, etc.) → `IntPtr`
+- **Closure return types** → Methods returning closures marshal to C# delegates with ARC management
 
 **Not yet supported:**
 - Async closures
@@ -182,6 +186,7 @@ await product.purchase(new SwiftSet<Product.PurchaseOption>());
 Swift: (Int, Bool) -> Void        →  Action<long, bool>
 Swift: (Int) -> String            →  Func<long, string>
 Swift: @convention(c) () -> Void  →  delegate* unmanaged[Cdecl]<void>
+Swift: func getCallback() -> (Int) -> Bool  →  Func<long, bool> (method return)
 ```
 
 ### Tuple Support (Issue #2873)
@@ -208,6 +213,31 @@ Swift: (Int, String)       →  (long, string) / ValueTuple<long, string>
 Swift: (x: Int, y: Bool)   →  (long x, bool y)
 ```
 
+### Operator Support
+
+**Files:**
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/OperatorHandler.cs` - Operator emission (411 lines)
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/OperatorHandlerTests.cs` - 68 tests
+
+**What's supported:**
+- Arithmetic: `+`, `-`, `*`, `/`, `%`
+- Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Bitwise: `&`, `|`, `^`, `<<`, `>>`
+- Unary: `!`, `~`
+- Automatic paired operator synthesis (e.g., `!=` from `==`, `>` from `<`)
+
+**Not supported (no C# equivalent):**
+- Logical operators: `&&`, `||` (C# doesn't allow overloading)
+- Optional operators: `??`, `?.`
+- Assignment operators: `=`, `+=`, `-=`, etc.
+- Lambda operator: `=>`
+
+**C# mapping:**
+```
+Swift: static func ==(lhs: T, rhs: T) -> Bool  →  public static bool operator ==(T left, T right)
+Swift: prefix static func !(v: T) -> Bool      →  public static bool operator !(T operand)
+```
+
 ## Critical Gaps & Limitations
 
 ### NOT IMPLEMENTED (Blocking for "any Swift library" goal)
@@ -217,7 +247,6 @@ Swift: (x: Int, y: Bool)   →  (long x, bool y)
 | **Existential Containers** | #2875 | Protocol composition types fail |
 | **Generic Types (unbound)** | Marked Unknown | Generic type definitions skipped |
 | **Async Properties** | #2996 | Properties with async getters unsupported |
-| **Operators** | Skipped | Operator overloads not generated |
 | **Actors** | No design | Swift actors unsupported |
 | **PATs (full)** | Partial | Protocols with associated types limited |
 
