@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <swifttypedatabase version="1.0" moduleName="UIKit" modulePath="/System/Library/Frameworks/UIKit.framework/UIKit">
     <entities>
-        <entity managedNameSpace="UIKit" managedTypeName="UIImage">
-            <typedeclaration kind="class" name="UIImage" module="UIKit" mangledName="$sSo7UIImageC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        <entity managedNameSpace="Swift" managedTypeName="UIImage">
+            <typedeclaration kind="class" name="UIImage" module="UIKit" mangledName="$sSo7UIImageC" frozen="false" requiresMemoryManagement="true" />
         </entity>
     </entities>
 </swifttypedatabase>
