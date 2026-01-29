@@ -65,6 +65,45 @@ public class MarshallingHelpersTests
 
     #endregion
 
+    #region IsObjCBridged Tests
+
+    [Fact]
+    public void IsObjCBridged_ReturnsTrueWhenFlagIsSet()
+    {
+        var typeRecord = CreateTypeRecord(TypeRecordFlags.ObjCBridged);
+        Assert.True(MarshallingHelpers.IsObjCBridged(typeRecord));
+    }
+
+    [Fact]
+    public void IsObjCBridged_ReturnsFalseWhenFlagIsNotSet()
+    {
+        var typeRecord = CreateTypeRecord(TypeRecordFlags.None);
+        Assert.False(MarshallingHelpers.IsObjCBridged(typeRecord));
+    }
+
+    [Fact]
+    public void IsObjCBridged_ReturnsTrueWhenObjCBridgedCombinedWithOtherFlags()
+    {
+        var typeRecord = CreateTypeRecord(TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement);
+        Assert.True(MarshallingHelpers.IsObjCBridged(typeRecord));
+    }
+
+    [Fact]
+    public void IsObjCBridged_ReturnsFalseForFrozenType()
+    {
+        var typeRecord = CreateTypeRecord(TypeRecordFlags.Frozen);
+        Assert.False(MarshallingHelpers.IsObjCBridged(typeRecord));
+    }
+
+    [Fact]
+    public void IsObjCBridged_ReturnsFalseForRequiresMemoryManagement()
+    {
+        var typeRecord = CreateTypeRecord(TypeRecordFlags.RequiresMemoryManagement);
+        Assert.False(MarshallingHelpers.IsObjCBridged(typeRecord));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MethodDecl CreateMethodDecl(string name)
@@ -94,6 +133,18 @@ public class MarshallingHelpersTests
             Throws = false,
             IsAsync = false,
             Visibility = Visibility.Private
+        };
+    }
+
+    private static TypeRecord CreateTypeRecord(TypeRecordFlags flags)
+    {
+        return new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "TestType"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.TestType"),
+            MetadataAccessor = "testAccessor",
+            Flags = flags,
+            Kind = TypeRecordKind.Class
         };
     }
 

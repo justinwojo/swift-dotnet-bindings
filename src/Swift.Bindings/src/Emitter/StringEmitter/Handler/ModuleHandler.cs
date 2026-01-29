@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.CodeDom.Compiler;
@@ -63,6 +64,9 @@ namespace BindingsGeneration
             var moduleEnv = (ModuleEnvironment)env;
             var moduleDecl = moduleEnv.ModuleDecl;
 
+            // Emit Swift imports at the top of the Swift wrapper file
+            EmitSwiftImports(swiftWriter, moduleDecl);
+
             var generatedNamespace = $"Swift.{moduleDecl.Name}";
 
             csWriter.WriteLine($"using System;");
@@ -111,6 +115,27 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
 
+        }
+
+        /// <summary>
+        /// Emits Swift import statements to the wrapper file.
+        /// </summary>
+        private void EmitSwiftImports(SwiftWriter swiftWriter, ModuleDecl moduleDecl)
+        {
+            // Always import the module being bound
+            swiftWriter.WriteLine($"import {moduleDecl.Name}");
+            swiftWriter.WriteLine("import Foundation");
+
+            // Add platform UI frameworks if present in dependencies
+            foreach (var dep in moduleDecl.Dependencies)
+            {
+                if (dep == "UIKit" || dep == "AppKit")
+                {
+                    swiftWriter.WriteLine($"import {dep}");
+                }
+            }
+
+            swiftWriter.WriteLine();
         }
     }
 }

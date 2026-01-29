@@ -1032,12 +1032,12 @@ namespace BindingsGeneration
                 $"let {p.Name}Copy = UnsafeMutablePointer<{p.SwiftTypeSpec}>.allocate(capacity: 1)\n        " +
                 $"{p.Name}Copy.initialize(from: {p.Name}.assumingMemoryBound(to: {p.SwiftTypeSpec}.self), count: 1)"));
 
-            // Generate defer cleanup code for non-frozen parameters (inside Task block)
-            var deferCleanupCode = nonFrozenParams.Count > 0
-                ? "defer {\n                    " +
-                  string.Join("\n                    ", nonFrozenParams.Select(p =>
-                      $"{p.Name}Copy.deinitialize(count: 1)\n                    {p.Name}Copy.deallocate()")) +
-                  "\n                }"
+            // Generate cleanup code for non-frozen parameters (executed AFTER callback, not in defer)
+            // Using defer causes use-after-free because the defer block runs when the Task scope exits,
+            // but Swift may still hold internal references after the callback fires.
+            var cleanupCode = nonFrozenParams.Count > 0
+                ? string.Join("\n                    ", nonFrozenParams.Select(p =>
+                      $"{p.Name}Copy.deinitialize(count: 1)\n                    {p.Name}Copy.deallocate()"))
                 : "";
 
             // Generate argument list for the actual Swift method call
@@ -1078,11 +1078,12 @@ namespace BindingsGeneration
                     {{copyAllocCode}}
 
                     Task {
-                        {{deferCleanupCode}}
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{(_env.MethodDecl.MethodType == MethodType.Static ? $"{parentTypeName.ModuleQualifiedName}." : "")}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
-                        callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task);
+                        callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
+                        // Clean up non-frozen parameter copies AFTER callback completes
+                        {{cleanupCode}}
                     }
                 }
             }

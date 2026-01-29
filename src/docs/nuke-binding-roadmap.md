@@ -624,7 +624,8 @@ Bindings still generate, but conformance information is incomplete.
 | Async non-frozen parameter copy | PASS | Swift wrapper uses proper copy semantics |
 | ObjC type remapping | PASS | UIImage returns as UIKit.UIImage |
 | Existential type handling | PASS | Generator handles `any Protocol` without crashing |
-| `pipeline.image(request)` | PENDING | Needs runtime test on iOS simulator |
+| `pipeline.image(request)` | PASS | Fixed defer cleanup issue |
+| Swift wrapper imports | PASS | Generator now emits imports automatically |
 
 ---
 
@@ -756,9 +757,130 @@ var image = response.Image; // UIImage
 - [x] **Async method support** - FIXED: Uses IntPtr + proper Swift copy semantics
 - [x] **ObjC type remapping for return types** - UIImage returns as UIKit.UIImage
 - [x] **Existential type handling** - Generator handles `any Protocol` without crashing
+- [x] **Swift wrapper imports** - Generator now emits imports automatically
+- [x] **Async non-frozen parameter cleanup** - FIXED: Cleanup runs after callback, not in defer
 - [ ] **Full ObjC type remapping** (UIImage, URL, etc. for parameters too) - High priority UX fix
 - [ ] Existential types (full support, not just crash handling)
 - [ ] Runtime testing of async methods on iOS simulator
+
+---
+
+## iOS Simulator Testing Workflow
+
+### Quick Deploy and Test
+
+The `dotnet build -t:Run` command times out waiting for the app to exit. For faster iteration:
+
+```bash
+# 1. Build the app
+cd /Users/wojo/Dev/swift-bindings
+dotnet build BindingTesting/Nuke/NukeTestApp -c Debug
+
+# 2. Install and launch with console output (backgrounded with timeout)
+xcrun simctl install booted BindingTesting/Nuke/NukeTestApp/bin/Debug/net10.0-ios/iossimulator-arm64/NukeTestApp.app && \
+(xcrun simctl launch --console --terminate-running-process booted com.swiftbindings.nuketestapp 2>&1 &); \
+sleep 5; echo "---DONE---"
+```
+
+The `sleep 5` captures the first 5 seconds of output. Adjust as needed.
+
+### Framework Resolution for Bundled Libraries
+
+Bundled frameworks (like Nuke) need a `NativeLibrary` resolver because `DllImport("Nuke")` doesn't know to look in `@rpath/Nuke.framework/Nuke`. Add this to your app's startup:
+
+```csharp
+using System.Reflection;
+using System.Runtime.InteropServices;
+
+public class Application
+{
+    static void Main(string[] args)
+    {
+        // Register resolver BEFORE any Swift types are accessed
+        NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), ResolveBundledFramework);
+        UIApplication.Main(args, null, typeof(AppDelegate));
+    }
+
+    static IntPtr ResolveBundledFramework(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+    {
+        if (libraryName == "Nuke" || libraryName == "SwiftBindings")
+        {
+            var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
+            if (NativeLibrary.TryLoad(frameworkPath, out var handle))
+            {
+                Console.WriteLine($"Resolved {libraryName} -> {frameworkPath}");
+                return handle;
+            }
+        }
+        return IntPtr.Zero; // Fall back to default resolution
+    }
+}
+```
+
+---
+
+## Known Runtime Issues
+
+### Async Methods with Non-Frozen Parameters Crash
+
+**Status**: FIXED (January 2026)
+
+**Symptom**: SIGSEGV crash in `swift::metadataimpl::ValueWitnesses<SwiftRetainableBox>::initializeWithCopy` when calling async methods like `ImagePipeline.image(ImageRequest)`.
+
+**Root Cause**: The Swift wrapper's `defer` block deallocated copied non-frozen parameters when the Task block exited, but the callback fired AFTER the defer ran. This caused use-after-free because Swift's internal references (e.g., in the async machinery) were invalidated.
+
+**Solution**: Moved the cleanup code AFTER the callback call instead of using `defer`. The generated Swift wrapper now properly manages the parameter lifetime:
+
+```swift
+Task {
+    let result = try! await actualMethod(param: paramCopy.pointee)
+    callback(result, task)
+    // Clean up AFTER callback completes (not in defer)
+    paramCopy.deinitialize(count: 1)
+    paramCopy.deallocate()
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Lines 1035-1090
+
+### Swift Wrapper Missing Imports
+
+**Status**: FIXED (January 2026)
+
+**Symptom**: Generated `Swift.Nuke.swift` didn't include `import` statements, causing compilation to fail.
+
+**Solution**: Added `EmitSwiftImports()` method to `ModuleHandler.cs` that emits import statements at the top of Swift wrapper files:
+- Always imports the module being bound (e.g., `import Nuke`)
+- Always imports `Foundation`
+- Imports `UIKit` or `AppKit` if present in module dependencies
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs` - Added `EmitSwiftImports()` method
+
+---
+
+## Rebuilding SwiftBindings.framework
+
+After regenerating bindings, recompile the Swift wrapper:
+
+```bash
+cd BindingTesting/Nuke/output-ios
+
+# Compile the Swift wrapper
+xcrun --sdk iphonesimulator swiftc -emit-library \
+  -target arm64-apple-ios15.0-simulator \
+  -module-name SwiftBindings \
+  -o SwiftBindings.framework/SwiftBindings \
+  Swift.Nuke.swift \
+  -F ../Nuke.xcframework/ios-arm64_x86_64-simulator \
+  -framework Nuke \
+  -sdk $(xcrun --sdk iphonesimulator --show-sdk-path) \
+  -Xlinker -install_name -Xlinker @rpath/SwiftBindings.framework/SwiftBindings
+
+# Verify the symbols
+nm SwiftBindings.framework/SwiftBindings | grep "_async"
+```
 
 ---
 

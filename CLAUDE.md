@@ -315,7 +315,7 @@ xcrun simctl install booted BindingTesting/Nuke/NukeTestApp/bin/Debug/net10.0-io
 sleep 5; echo "---DONE---"
 ```
 
-This captures console output (including crash logs) without waiting for app termination. Adjust `sleep` duration as needed. See `BindingTesting/Nuke/ROADMAP.md` for more details on framework resolution and known issues.
+This captures console output (including crash logs) without waiting for app termination. Adjust `sleep` duration as needed. See `src/docs/nuke-binding-roadmap.md` for more details on framework resolution and known issues.
 
 ## Architecture Notes
 
