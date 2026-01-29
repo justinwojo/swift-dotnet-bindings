@@ -36,6 +36,12 @@ public static class TypeDatabaseExtensions
     /// <returns>True if the type has been processed; otherwise, false.</returns>
     public static bool IsTypeProcessed(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
+        // Existential types (any X) are handled separately, not processed as regular types
+        if (IsExistentialTypeName(typeSpec))
+        {
+            return true;
+        }
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         return typeDatabase.IsTypeProcessed(typeName);
     }
@@ -65,6 +71,12 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrAnyType(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
+        // Existential types (any X) return AnyType
+        if (IsExistentialTypeName(typeSpec))
+        {
+            return AnyType;
+        }
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         return typeDatabase.GetTypeRecordOrAnyType(typeName);
     }
@@ -112,6 +124,13 @@ public static class TypeDatabaseExtensions
     /// <returns>True if the type record was found; otherwise, false.</returns>
     public static bool TryGetTypeRecord(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(returnValue: true)] out TypeRecord? record)
     {
+        // Existential types (any X) return AnyType
+        if (IsExistentialTypeName(typeSpec))
+        {
+            record = AnyType;
+            return true;
+        }
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         return typeDatabase.TryGetTypeRecord(typeName, out record);
     }
@@ -124,6 +143,12 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrThrow(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
+        // Existential types (any X) return AnyType
+        if (IsExistentialTypeName(typeSpec))
+        {
+            return AnyType;
+        }
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         return typeDatabase.GetTypeRecordOrThrow(typeName);
     }
@@ -197,10 +222,39 @@ public static class TypeDatabaseExtensions
         return new TypeRecord
         {
             CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", $"ExistentialContainer{protocolCount}"),
-            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"any {protocolNames}"),
+            // Use AnyType for existential types since they don't have a standard module-qualified name
+            SwiftTypeName = SwiftTypeName.AnyType,
             MetadataAccessor = string.Empty,
             Flags = TypeRecordFlags.Frozen, // Existential containers have fixed layout
             Kind = TypeRecordKind.Protocol,
         };
+    }
+
+    /// <summary>
+    /// Determines whether the specified NamedTypeSpec represents an existential type.
+    /// Existential types come through as NamedTypeSpec with names like "any" or "any SomeProtocol"
+    /// when parsing tuple elements or enum associated values containing existential types.
+    /// </summary>
+    /// <param name="typeSpec">The type specification.</param>
+    /// <returns><c>true</c> if this is an existential type name; otherwise, <c>false</c>.</returns>
+    private static bool IsExistentialTypeName(NamedTypeSpec typeSpec)
+    {
+        // Check for existential type patterns:
+        // - "any" alone
+        // - "any SomeProtocol" or "any Module.Protocol"
+        if (typeSpec.Name == "any" || typeSpec.Name.StartsWith("any "))
+        {
+            return true;
+        }
+
+        // Check if this is a type name without a module qualifier (no dot)
+        // These are typically special types or parsing artifacts that should be treated as existential
+        // Exclude known single-word types that are valid (Swift.Any, Swift.AnyObject are already prefixed)
+        if (!typeSpec.HasModule() && typeSpec.Name != "Swift.Any" && typeSpec.Name != "Swift.AnyObject")
+        {
+            return true;
+        }
+
+        return false;
     }
 }

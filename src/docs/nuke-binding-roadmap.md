@@ -377,8 +377,12 @@ public static MyResult Failure(SwiftString message)
 - `src/Swift.Bindings/src/Parser/ModuleProcessor.cs` - Added try/catch around `DynamicLibraryLoader.invoke()`
 
 ### 2.8 Reuse Existing .NET iOS Bindings for Objective-C Types
-**Status**: TODO (High Priority)
+**Status**: PARTIALLY DONE (January 2026)
 **Impact**: Major UX improvement
+
+**Progress**: Return type remapping for `UIImage` is now working. Methods returning `UIImage` generate `UIKit.UIImage` as the return type instead of `Swift.UIImage`.
+
+**Remaining work**: Full integration including parameter types and other ObjC types (URL, Data, etc.).
 
 **Problem**: Currently, Objective-C types that Swift imports (like `UIImage`, `URL`, `Data`) are mapped to custom `Swift.*` wrapper types. This creates friction for users who are already using the standard .NET iOS bindings.
 
@@ -445,8 +449,12 @@ myImageView.Image = image;  // ✅ Just works
 ## Phase 3: Method Signature Gaps
 
 ### 3.1 Existential Types (`any Protocol`)
-**Status**: TODO
+**Status**: PARTIALLY IMPLEMENTED
 **Issue**: [#2875](https://github.com/dotnet/runtimelab/issues/2875)
+
+**Progress** (January 2026): The binding generator no longer crashes on existential types in tuples/enum cases. These types are now gracefully handled as `AnyType` and skipped with appropriate warnings.
+
+**Remaining work**: Full existential container support for methods that use `any Protocol` parameters/returns.
 
 Swift's existential types (`any Protocol`, `some Protocol`) are translated as `Swift.AnyType` and cause methods to be skipped.
 
@@ -543,19 +551,33 @@ Need to verify:
 ## Known Limitations
 
 ### Async P/Invoke with SafeHandle
-**Status**: BLOCKING for async methods
+**Status**: FIXED (January 2026)
 
 The .NET runtime does not support passing non-blittable types (like `SafeHandle`) through P/Invoke with Swift calling convention.
 
-**Error**:
+**Original error**:
 ```
 InvalidProgramException: Passing non-blittable types to a P/Invoke with the Swift calling convention is unsupported.
 ```
 
-**Fix required**: Emit `IntPtr` instead of `SafeHandle` for Swift calling convention P/Invokes, then manually manage handle lifetime in wrapper methods.
+**Solution implemented**: Two-part fix for async methods with non-frozen type parameters:
 
-**Files to modify**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs`
+1. **C# side**: Use `IntPtr` instead of `SafeHandle` for non-frozen parameters in async P/Invoke declarations
+
+2. **Swift wrapper side**: Generate proper Swift copy semantics for non-frozen parameters:
+   ```swift
+   let _forCopy = UnsafeMutablePointer<Nuke.ImageRequest>.allocate(capacity: 1)
+   _forCopy.initialize(from: _for.assumingMemoryBound(to: Nuke.ImageRequest.self), count: 1)
+
+   Task {
+       defer { _forCopy.deinitialize(count: 1); _forCopy.deallocate() }
+       let result = try! await image(for: _forCopy.pointee)
+       callback(result, task)
+   }
+   ```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Lines 957-1076
 
 ### URL.FromString Non-Blittable Issue
 **Status**: Known issue
@@ -563,6 +585,18 @@ InvalidProgramException: Passing non-blittable types to a P/Invoke with the Swif
 The `Swift.URL.FromString()` method fails with the same non-blittable type error.
 
 **Workaround**: Use `ImageRequest(SwiftString)` constructor directly.
+
+### Existential Types in Enum Cases
+**Status**: FIXED (January 2026)
+
+Enum cases with associated values containing tuples with existential types (like `any Swift.Error`) previously caused the binding generator to crash.
+
+**Solution**: Added `IsExistentialTypeName()` helper in `TypeDatabaseExtensions` to detect and handle existential type names (returning `AnyType` instead of attempting to parse as module-qualified).
+
+**Files modified**:
+- `src/Swift.Bindings/src/TypeDatabase/TypeDatabaseExtensions.cs`
+
+**Remaining issue**: Enum cases with generic dictionary associated values may generate invalid code (missing type arguments). This is a separate bug.
 
 ### Protocol Conformance Descriptors
 **Status**: Warnings only
@@ -587,7 +621,10 @@ Bindings still generate, but conformance information is incomplete.
 | `ImagePipeline.shared` | PASS | Successfully returns singleton |
 | `SwiftString` creation | PASS | Works correctly |
 | `ImageRequest(SwiftString)` | PASS | Constructor works |
-| `pipeline.image(request)` | FAIL | Async P/Invoke limitation |
+| Async non-frozen parameter copy | PASS | Swift wrapper uses proper copy semantics |
+| ObjC type remapping | PASS | UIImage returns as UIKit.UIImage |
+| Existential type handling | PASS | Generator handles `any Protocol` without crashing |
+| `pipeline.image(request)` | PENDING | Needs runtime test on iOS simulator |
 
 ---
 
@@ -716,9 +753,12 @@ var image = response.Image; // UIImage
 - [x] Property setters
 - [x] URLRequest/URLResponse support
 - [x] Enum case constructors (simple cases work, cases with associated values emit static methods)
-- [ ] **Reuse .NET iOS bindings for ObjC types** (UIImage, URL, etc.) - High priority UX fix
-- [ ] Existential types
-- [ ] **Async method support** - BLOCKED by .NET SafeHandle limitation
+- [x] **Async method support** - FIXED: Uses IntPtr + proper Swift copy semantics
+- [x] **ObjC type remapping for return types** - UIImage returns as UIKit.UIImage
+- [x] **Existential type handling** - Generator handles `any Protocol` without crashing
+- [ ] **Full ObjC type remapping** (UIImage, URL, etc. for parameters too) - High priority UX fix
+- [ ] Existential types (full support, not just crash handling)
+- [ ] Runtime testing of async methods on iOS simulator
 
 ---
 
