@@ -174,6 +174,7 @@ namespace BindingsGeneration
             "AsyncCallback" => $"{modifier} void* {Name}",
             "AsyncContext" => $"{modifier} void* {Name}",
             "AsyncTask" => $"{modifier} IntPtr {Name}",
+            "IntPtrFromNonFrozen" => $"{modifier} IntPtr {Name}",
             _ => $"{modifier} {Type} {Name}"
         };
     }
@@ -197,6 +198,7 @@ namespace BindingsGeneration
             return parameter switch
             {
                 { Type: "SafeHandle" } => $"{parameter.Name}.Payload",
+                { Type: "IntPtrFromNonFrozen" } => $"{parameter.Name}Handle",
                 { Type: var type } when type.EndsWith(".Buffer") => $"{parameter.Name}Disposable.Buffer",
                 { Type: "AsyncCallback" } => $"{parameter.Name}",
                 { Type: "AsyncContext" } => "null",
@@ -539,7 +541,12 @@ namespace BindingsGeneration
                 TypeRecord argumentTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argument.SwiftTypeSpec);
                 if (!MarshallingHelpers.IsTypeFrozen(argumentTypeRecord))
                 {
-                    AddParameter("SafeHandle", argument.Name);
+                    // For async methods, SafeHandle cannot be used with Swift calling convention.
+                    // Use IntPtr and manage lifetime manually via DangerousAddRef/DangerousRelease.
+                    if (_env.MethodDecl.IsAsync)
+                        AddParameter("IntPtrFromNonFrozen", argument.Name);
+                    else
+                        AddParameter("SafeHandle", argument.Name);
                     continue;
                 }
 
@@ -1091,12 +1098,32 @@ namespace BindingsGeneration
                 }
             }
 
-            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a)))
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a)))
             {
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 {
                     csWriter.WriteLine($"using PayloadBuffer<{typeRecord.CSharpTypeName}.Buffer> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
+                }
+            }
+
+            // For async methods, non-frozen parameters need explicit lifetime management
+            // since we pass IntPtr instead of SafeHandle to the P/Invoke
+            if (_env.MethodDecl.IsAsync)
+            {
+                foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a =>
+                    !a.IsGeneric &&
+                    !_env.BoundGenericsHandler.IsBoundGeneric(a) &&
+                    !_env.ClosureHandler.IsClosure(a) &&
+                    !_env.TupleHandler.IsTuple(a)))
+                {
+                    TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
+                    if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
+                    {
+                        csWriter.WriteLine($"bool {argumentDecl.Name}Success = false;");
+                        csWriter.WriteLine($"{argumentDecl.Name}.Payload.DangerousAddRef(ref {argumentDecl.Name}Success);");
+                        csWriter.WriteLine($"IntPtr {argumentDecl.Name}Handle = {argumentDecl.Name}.Payload.DangerousGetHandle();");
+                    }
                 }
             }
         }
@@ -1140,6 +1167,24 @@ namespace BindingsGeneration
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) && _env.ClosureHandler.RequiresThunk(closureTypeSpec))
                     {
                         csWriter.WriteLine($"if ({argumentDecl.Name}Handle.IsAllocated) {argumentDecl.Name}Handle.Free();");
+                    }
+                }
+            }
+
+            // Release refs for async non-frozen parameters
+            if (_env.MethodDecl.IsAsync)
+            {
+                foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a =>
+                    !a.IsGeneric &&
+                    !_env.BoundGenericsHandler.IsBoundGeneric(a) &&
+                    !_env.ClosureHandler.IsClosure(a) &&
+                    !_env.TupleHandler.IsTuple(a)))
+                {
+                    TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
+                    if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
+                    {
+                        csWriter.WriteLine($"if ({argumentDecl.Name}Success)");
+                        csWriter.WriteLine($"    {argumentDecl.Name}.Payload.DangerousRelease();");
                     }
                 }
             }
