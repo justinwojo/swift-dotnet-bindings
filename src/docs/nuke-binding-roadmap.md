@@ -884,6 +884,61 @@ nm SwiftBindings.framework/SwiftBindings | grep "_async"
 
 ---
 
+## Current Investigation: Async Non-Frozen Parameter Memory Crash
+
+**Status**: UNDER INVESTIGATION (January 2026)
+
+**Symptom**: SIGSEGV crash when calling `ImagePipeline.image(ImageRequest)` on iOS simulator:
+
+```
+Got a SIGSEGV while executing native code.
+swift::metadataimpl::ValueWitnesses<SwiftRetainableBox>::initializeWithCopy
+...
+$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async
+```
+
+The crash occurs in the Swift wrapper when attempting to copy the `ImageRequest` parameter:
+
+```swift
+// Generated Swift wrapper (crashes at initialize line)
+let _forCopy = UnsafeMutablePointer<Nuke.ImageRequest>.allocate(capacity: 1)
+_forCopy.initialize(from: _for.assumingMemoryBound(to: Nuke.ImageRequest.self), count: 1)  // SIGSEGV
+```
+
+**What's happening**:
+1. C# creates an `ImageRequest` which stores a pointer to heap-allocated Swift memory in its `_payload` SafeHandle
+2. C# extracts that pointer via `_for.Payload.DangerousGetHandle()` and passes it as `IntPtr`
+3. Swift receives it as `UnsafeRawPointer` and tries to copy from that address
+4. Swift's `initializeWithCopy` value witness crashes when trying to retain reference-counted fields inside `ImageRequest`
+
+**Possible causes**:
+1. **Invalid pointer**: The pointer passed from C# doesn't point to valid Swift memory
+2. **Memory layout mismatch**: The memory layout C# created doesn't match what Swift expects
+3. **Reference counting issue**: Internal references (strings, nested objects) in `ImageRequest` have invalid retain counts
+4. **Object lifecycle**: The Swift object was deallocated or its internal state corrupted
+
+**What we've ruled out**:
+- ✅ `self` parameter was missing → Fixed, now passes `SwiftSelf` correctly
+- ✅ UIKit import was missing → Fixed, generator now auto-adds imports
+- ✅ ObjC callback marshalling → Fixed, uses `GetNSObject<T>` for UIImage
+
+**Investigation needed**:
+1. Trace how `ImageRequest` is constructed in C# - what memory does `_payload` actually point to?
+2. Verify the constructor P/Invoke properly allocates and initializes Swift memory
+3. Check if the returned pointer from the constructor is being used correctly
+4. Consider whether non-frozen struct parameters need a different passing strategy (copy-in on C# side?)
+
+**Workaround attempts**:
+- The Swift wrapper tries to copy the parameter to ensure it lives for the async task duration
+- This copy triggers the crash because the source memory appears invalid
+
+**Files involved**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Lines 969-1108 (async wrapper generation)
+- `BindingTesting/Nuke/output-ios/Swift.Nuke.swift` - Generated Swift wrapper
+- `BindingTesting/Nuke/output-ios/Swift.Nuke.cs` - Generated C# bindings
+
+---
+
 ## Related Issues
 
 - [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875)

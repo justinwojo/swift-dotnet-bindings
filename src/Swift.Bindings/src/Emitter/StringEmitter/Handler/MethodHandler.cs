@@ -612,9 +612,14 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleSwiftSelf()
         {
-            // Async methods call our generated Swift wrapper which handles self implicitly
-            if (_env.MethodDecl.IsAsync)
+            // Async methods need self passed to the Swift wrapper so it can call the actual method
+            // The Swift wrapper is an instance method extension that needs to know which instance to use
+            if (_env.MethodDecl.IsAsync && MarshallingHelpers.MethodRequiresSwiftSelf(_env))
+            {
+                // For async methods, pass self via SwiftSelf (uses the Swift calling convention register)
+                AddParameter("SwiftSelf", "self");
                 return;
+            }
 
             if (MarshallingHelpers.MethodRequiresSwiftSelf(_env))
             {
@@ -819,8 +824,9 @@ namespace BindingsGeneration
 
             _requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
             _requiresSwiftAsync = _env.MethodDecl.IsAsync;
-            // Async methods call our generated Swift wrapper which handles self/error internally
-            _requiresSwiftSelf = !_requiresSwiftAsync && MarshallingHelpers.MethodRequiresSwiftSelf(methodEnv);
+            // Async methods need SwiftSelf to pass self to the Swift wrapper
+            _requiresSwiftSelf = MarshallingHelpers.MethodRequiresSwiftSelf(methodEnv);
+            // Async methods call our generated Swift wrapper which handles errors internally
             _requiresSwiftError = !_requiresSwiftAsync && _env.MethodDecl.Throws;
 
             // Frozen struct setters need a fixed block to get a pointer to 'this'
@@ -1567,12 +1573,27 @@ namespace BindingsGeneration
             var returnType = _env.MethodDecl.CSSignature.First();
             TypeRecord returnTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
             var voidReturn = returnType.SwiftTypeSpec.IsEmptyTuple;
-            var requiresInitWithCopy = !voidReturn && (MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord) || returnType.IsGeneric);
+            var isObjCBridged = !voidReturn && MarshallingHelpers.IsObjCBridged(returnTypeRecord);
 
-            var marshallFromSwiftArgument = "new IntPtr(&rawResult)";
+            // ObjC bridged types don't need InitWithCopy - they use GetNSObject directly
+            var requiresInitWithCopy = !voidReturn && !isObjCBridged && (MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord) || returnType.IsGeneric);
 
             var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl);
             var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(_env.MethodDecl);
+
+            // For ObjC bridged types, the rawResult is the ObjC object pointer directly
+            // For Swift types, we need to marshal from Swift memory layout
+            string marshalResultCode;
+            if (isObjCBridged)
+            {
+                // ObjC types: rawResult is the ObjC object pointer, wrap with GetNSObject<T>
+                marshalResultCode = $"var result = ObjCRuntime.Runtime.GetNSObject<{_wrapperSignature.ReturnType}>(rawResult);";
+            }
+            else
+            {
+                marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(new IntPtr(&rawResult));";
+            }
+
             var text = $$"""
                         private static unsafe delegate* unmanaged[Cdecl]<{{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType}, ")}}IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -1581,7 +1602,7 @@ namespace BindingsGeneration
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
                             {
-                                {{(voidReturn ? "" : $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({marshallFromSwiftArgument});")}}
+                                {{(voidReturn ? "" : marshalResultCode)}}
                                 {{(requiresInitWithCopy ? $"var metadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();" : "")}}
                                 {{(requiresInitWithCopy ? $"Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];" : "")}}
                                 {{(requiresInitWithCopy ? $"IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));" : "")}}

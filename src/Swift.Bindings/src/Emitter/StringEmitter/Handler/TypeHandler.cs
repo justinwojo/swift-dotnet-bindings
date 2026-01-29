@@ -1853,6 +1853,12 @@ namespace BindingsGeneration
 
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
 
+            // ObjC bridged types use .Handle to get the native pointer
+            if (MarshallingHelpers.IsObjCBridged(typeRecord))
+            {
+                return $"{paramName}.Handle";
+            }
+
             // For types that have payloads (non-frozen structs, classes), access the Payload.DangerousGetHandle()
             if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
             {

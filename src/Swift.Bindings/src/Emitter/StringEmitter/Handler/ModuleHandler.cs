@@ -126,16 +126,75 @@ namespace BindingsGeneration
             swiftWriter.WriteLine($"import {moduleDecl.Name}");
             swiftWriter.WriteLine("import Foundation");
 
+            // Track which framework imports are needed
+            var neededImports = new HashSet<string>();
+
             // Add platform UI frameworks if present in dependencies
             foreach (var dep in moduleDecl.Dependencies)
             {
                 if (dep == "UIKit" || dep == "AppKit")
                 {
-                    swiftWriter.WriteLine($"import {dep}");
+                    neededImports.Add(dep);
                 }
             }
 
+            // Scan for UIKit/AppKit types used in async method return types
+            // These types appear in Swift callback signatures and need corresponding imports
+            ScanTypesForFrameworkImports(moduleDecl.Types, neededImports);
+
+            foreach (var import in neededImports.OrderBy(s => s))
+            {
+                swiftWriter.WriteLine($"import {import}");
+            }
+
             swiftWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Recursively scans types for async methods that return UIKit/AppKit types.
+        /// </summary>
+        private void ScanTypesForFrameworkImports(IEnumerable<TypeDecl> types, HashSet<string> neededImports)
+        {
+            foreach (var type in types)
+            {
+                // Check methods
+                var methods = type switch
+                {
+                    StructDecl s => s.Methods,
+                    ClassDecl c => c.Methods,
+                    _ => Enumerable.Empty<MethodDecl>()
+                };
+
+                foreach (var method in methods)
+                {
+                    // Check async methods - their return types appear in Swift callbacks
+                    if (method.IsAsync && method.CSSignature.Count > 0)
+                    {
+                        var returnType = method.CSSignature.First();
+                        CheckTypeForFrameworkImport(returnType.SwiftTypeSpec?.ToString(), neededImports);
+                    }
+                }
+
+                // Recursively check nested types
+                if (type.Types.Any())
+                {
+                    ScanTypesForFrameworkImports(type.Types, neededImports);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Checks if a type name requires UIKit/AppKit import.
+        /// </summary>
+        private void CheckTypeForFrameworkImport(string? typeName, HashSet<string> neededImports)
+        {
+            if (string.IsNullOrEmpty(typeName))
+                return;
+
+            if (typeName.StartsWith("UIKit."))
+                neededImports.Add("UIKit");
+            else if (typeName.StartsWith("AppKit."))
+                neededImports.Add("AppKit");
         }
     }
 }
