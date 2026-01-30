@@ -14,16 +14,33 @@ public record struct GenericParameterCSName(string TypeParameter);
 /// <summary>
 /// Provides methods for generating names.
 /// <summary>
-/// 
+///
 public static class NameProvider
 {
     // Dictionary of Swift property names that need to be renamed in C#
     // Temporary workaround for https://github.com/dotnet/runtimelab/issues/2997 to keep StoreKit tests passing
     private static readonly Dictionary<string, string> PropertyNameMappings = new()
     {
-        { "isEligibleForIntroOffer", "isEligibleForIntroOfferProperty" },
-        { "status", "statusProperty"}
+        { "isEligibleForIntroOffer", "IsEligibleForIntroOfferProperty" },
+        { "status", "StatusProperty"}
     };
+
+    /// <summary>
+    /// Converts a camelCase string to PascalCase by capitalizing the first letter.
+    /// </summary>
+    /// <param name="camelCase">The camelCase string to convert.</param>
+    /// <returns>The PascalCase string.</returns>
+    public static string ToPascalCase(string camelCase)
+    {
+        if (string.IsNullOrEmpty(camelCase))
+            return camelCase;
+
+        // Already PascalCase or all caps
+        if (char.IsUpper(camelCase[0]))
+            return camelCase;
+
+        return char.ToUpperInvariant(camelCase[0]) + camelCase.Substring(1);
+    }
 
     /// <summary>
     /// Provides the name of the PInvoke method.
@@ -99,14 +116,29 @@ public static class NameProvider
     };
 
     /// <summary>
-    /// Gets the C# property name for a given Swift property name, handling reserved keywords and special cases.
+    /// Gets the C# property name for a given Swift property name, converting to PascalCase
+    /// and handling reserved keywords and special cases.
     /// </summary>
     /// <param name="swiftPropertyName">The original Swift property name.</param>
-    /// <returns>The appropriate C# property name.</returns>
-    public static string GetPropertyName(string swiftPropertyName) =>
-        PropertyNameMappings.TryGetValue(swiftPropertyName, out var mappedName)
-            ? mappedName
-            : swiftPropertyName;
+    /// <param name="siblingNestedTypeNames">Optional set of nested type names in the same parent type, used for collision detection.</param>
+    /// <returns>The appropriate C# property name in PascalCase.</returns>
+    public static string GetPropertyName(string swiftPropertyName, IReadOnlySet<string>? siblingNestedTypeNames = null)
+    {
+        // Check for explicit mappings first
+        if (PropertyNameMappings.TryGetValue(swiftPropertyName, out var mappedName))
+            return mappedName;
+
+        var pascalName = ToPascalCase(swiftPropertyName);
+
+        // Check for collision with nested types (e.g., property "cacheType" -> "CacheType" collides with nested type "CacheType")
+        if (siblingNestedTypeNames != null && siblingNestedTypeNames.Contains(pascalName))
+        {
+            // Suffix with "Value" to avoid collision (e.g., "CacheType" -> "CacheTypeValue")
+            return $"{pascalName}Value";
+        }
+
+        return pascalName;
+    }
 
     /// <summary>
     /// Gets the C# variable name for the buffer of a bound generic type.
@@ -134,20 +166,21 @@ public static class NameProvider
     }
 
     /// <summary>
-    /// Gets the C# method name, resolving any collisions with property names.
+    /// Gets the C# method name, converting to PascalCase and resolving any collisions with property names.
     /// In Swift, a type can have both a property and a method with the same name,
     /// but C# does not allow this. Methods that collide with properties are suffixed.
     /// </summary>
     /// <param name="methodName">The original method name.</param>
-    /// <param name="propertyNames">Set of property names in the same type.</param>
-    /// <returns>A method name that doesn't collide with any property names.</returns>
+    /// <param name="propertyNames">Set of property names in the same type (already in PascalCase).</param>
+    /// <returns>A method name in PascalCase that doesn't collide with any property names.</returns>
     public static string GetMethodName(string methodName, IReadOnlySet<string>? propertyNames)
     {
-        if (propertyNames != null && propertyNames.Contains(methodName))
+        var pascalName = ToPascalCase(methodName);
+        if (propertyNames != null && propertyNames.Contains(pascalName))
         {
             // Append "Method" suffix to disambiguate from property
-            return $"{methodName}Method";
+            return $"{pascalName}Method";
         }
-        return methodName;
+        return pascalName;
     }
 }

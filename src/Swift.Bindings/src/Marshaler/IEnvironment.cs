@@ -130,7 +130,8 @@ namespace BindingsGeneration
     /// </remarks>
     /// <param name="propertyDecl">The property declaration.</param>
     /// <param name="typeDatabase">The type database instance.</param>
-    public class PropertyEnvironment(PropertyDecl propertyDecl, ITypeDatabase typeDatabase) : IEnvironment
+    /// <param name="siblingNestedTypeNames">Optional set of nested type names in the same parent type, used for collision detection.</param>
+    public class PropertyEnvironment(PropertyDecl propertyDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingNestedTypeNames = null) : IEnvironment
     {
         /// <summary>
         /// Gets the property declaration.
@@ -141,6 +142,11 @@ namespace BindingsGeneration
         /// Gets the TypeDatabase
         /// </summary>
         public ITypeDatabase TypeDatabase { get; } = typeDatabase;
+
+        /// <summary>
+        /// Gets the sibling nested type names for collision detection.
+        /// </summary>
+        public IReadOnlySet<string>? SiblingNestedTypeNames { get; } = siblingNestedTypeNames;
 
         /// <summary>
         /// Bound generic helper instance.

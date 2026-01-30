@@ -48,10 +48,6 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     public PropertyHandler(ILogger logger) : base(logger)
     {
     }
-    private static readonly Dictionary<string, string> PropertyNameMappings = new()
-    {
-        { "isEligibleForIntroOffer", "isEligibleForIntroOfferProperty" },
-    };
 
     /// <inheritdoc/>
     public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
@@ -105,8 +101,17 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         // TODO Detect and skip / Handle async properties https://github.com/dotnet/runtimelab/issues/2996
 
-        // Get the C# property name, handling reserved keywords and special cases
-        var propertyName = NameProvider.GetPropertyName(propertyDecl.Name);
+        // Get nested type names from parent for collision detection
+        // In Swift, a property can have the same name as its type (e.g., cacheType: CacheType)
+        // but in C# this causes a collision when both are PascalCase
+        IReadOnlySet<string>? nestedTypeNames = null;
+        if (propertyDecl.ParentDecl is TypeDecl parentTypeDecl)
+        {
+            nestedTypeNames = new HashSet<string>(parentTypeDecl.Types.Select(t => t.Name));
+        }
+
+        // Get the C# property name, handling reserved keywords, special cases, and nested type collisions
+        var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, nestedTypeNames);
 
         // Check if all accessor methods can be emitted before actually emitting them.
         // If any accessor would be skipped (due to unsupported types like AnyType),
@@ -172,7 +177,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// <param name="getter">The getter accessor declaration</param>
     private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter)
     {
-        csWriter.WriteLine($"get => {getter.Method.Name}();");
+        // Use PascalCase method name to match how MethodHandler emits the accessor method
+        var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
+        csWriter.WriteLine($"get => {methodName}();");
     }
 
     /// <summary>
@@ -182,7 +189,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// <param name="setter">The setter accessor declaration</param>
     private void EmitSetter(CSharpWriter csWriter, SetAccessorDecl setter)
     {
-        csWriter.WriteLine($"set => {setter.Method.Name}(value);");
+        // Use PascalCase method name to match how MethodHandler emits the accessor method
+        var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
+        csWriter.WriteLine($"set => {methodName}(value);");
     }
 }
 
