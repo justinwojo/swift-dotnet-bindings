@@ -12,11 +12,13 @@ public class ClosureHandler
 {
     private readonly ITypeDatabase _typeDatabase;
     private readonly TupleHandler _tupleHandler;
+    private readonly ExistentialHandler _existentialHandler;
 
     public ClosureHandler(ITypeDatabase typeDatabase)
     {
         _typeDatabase = typeDatabase;
         _tupleHandler = new TupleHandler(typeDatabase);
+        _existentialHandler = new ExistentialHandler(typeDatabase);
     }
 
     /// <summary>
@@ -154,6 +156,13 @@ public class ClosureHandler
     /// </summary>
     private bool IsSupportedClosureReturnType(TypeSpec typeSpec)
     {
+        // Existential return types supported
+        if (_existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            return protocolList != null && _existentialHandler.IsSupportedExistential(protocolList);
+        }
+
         if (typeSpec is NamedTypeSpec namedType)
         {
             // Pointer types are supported (map to IntPtr)
@@ -222,6 +231,13 @@ public class ClosureHandler
         // Closures within closures are not supported yet
         if (typeSpec is ClosureTypeSpec)
             return false;
+
+        // Existential types (any Protocol) are supported
+        if (_existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            return protocolList != null && _existentialHandler.IsSupportedExistential(protocolList);
+        }
 
         // Tuples are supported if they meet TupleHandler's criteria
         if (typeSpec is TupleTypeSpec tuple && !tuple.IsEmptyTuple)
@@ -353,6 +369,15 @@ public class ClosureHandler
     /// </summary>
     public string TranslateTypeSpecToCSharp(TypeSpec typeSpec)
     {
+        // Handle existential types
+        if (_existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
+                return _existentialHandler.GetCSharpExistentialType(protocolList);
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        }
+
         if (typeSpec is NamedTypeSpec namedType)
         {
             // Handle pointer types
@@ -410,6 +435,15 @@ public class ClosureHandler
     /// </summary>
     private string TranslateTypeSpecToPInvokeType(TypeSpec typeSpec)
     {
+        // Handle existential types
+        if (_existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
+                return _existentialHandler.GetPInvokeExistentialType(protocolList);
+            return "void*";
+        }
+
         if (typeSpec is NamedTypeSpec namedType)
         {
             // Handle pointer types - all map to void* or IntPtr

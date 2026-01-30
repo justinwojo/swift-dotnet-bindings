@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration;
@@ -58,13 +59,24 @@ public record SwiftTypeName
 
     /// <summary>
     /// Creates a new SwiftTypeName from a NamedTypeSpec.
+    /// Traverses the InnerType chain for nested types (e.g., Nuke.ImageRequest.UserInfoKey).
     /// </summary>
     /// <param name="namedTypeSpec">The NamedTypeSpec.</param>
     /// <returns>The SwiftTypeName.</returns>
     public static SwiftTypeName FromTypeSpec(NamedTypeSpec namedTypeSpec)
     {
         ArgumentNullException.ThrowIfNull(namedTypeSpec, nameof(namedTypeSpec));
-        return FromModuleQualifiedName(namedTypeSpec.Name);
+
+        // Build full name including nested types via InnerType chain
+        var fullName = namedTypeSpec.Name;
+        var innerType = namedTypeSpec.InnerType;
+        while (innerType != null)
+        {
+            fullName += "." + innerType.Name;
+            innerType = innerType.InnerType;
+        }
+
+        return FromModuleQualifiedName(fullName);
     }
 
     /// <summary>

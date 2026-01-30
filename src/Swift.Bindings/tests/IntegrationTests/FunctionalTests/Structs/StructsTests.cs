@@ -44,8 +44,8 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr y = 2;
 
             var frozen = new FrozenStruct(x, y);
-            var gotX = frozen.getX();
-            var gotY = frozen.getY();
+            var gotX = frozen.GetX();
+            var gotY = frozen.GetY();
 
             Assert.Equal(x, gotX);
             Assert.Equal(y, gotY);
@@ -58,8 +58,8 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr y = 2;
 
             var nonFrozen = new NonFrozenStruct(x, y);
-            var gotX = nonFrozen.getX();
-            var gotY = nonFrozen.getY();
+            var gotX = nonFrozen.GetX();
+            var gotY = nonFrozen.GetY();
 
             Assert.Equal(x, gotX);
             Assert.Equal(y, gotY);
@@ -77,13 +77,13 @@ namespace BindingsGeneration.FunctionalTests
             var nonFrozen = new NonFrozenStruct(nonFrozenX, nonFrozenY);
 
             var complexStruct = new NonFrozenStructWithNonFrozenMember(frozen, nonFrozen);
-            var gotF = complexStruct.getX();
-            var gotNF = complexStruct.getY();
+            var gotF = complexStruct.GetX();
+            var gotNF = complexStruct.GetY();
 
-            Assert.Equal(frozenX, gotF.getX());
-            Assert.Equal(frozenY, gotF.getY());
-            Assert.Equal(nonFrozenX, gotNF.getX());
-            Assert.Equal(nonFrozenY, gotNF.getY());
+            Assert.Equal(frozenX, gotF.GetX());
+            Assert.Equal(frozenY, gotF.GetY());
+            Assert.Equal(nonFrozenX, gotNF.GetX());
+            Assert.Equal(nonFrozenY, gotNF.GetY());
         }
 
         [Fact]
@@ -98,13 +98,13 @@ namespace BindingsGeneration.FunctionalTests
             var nonFrozen = new NonFrozenStruct(nonFrozenX, nonFrozenY);
 
             var complexStruct = new FrozenStructWithNonFrozenMember(frozen, nonFrozen);
-            var gotF = complexStruct.getX();
-            var gotNF = complexStruct.getY();
+            var gotF = complexStruct.GetX();
+            var gotNF = complexStruct.GetY();
 
-            Assert.Equal(frozenX, gotF.getX());
-            Assert.Equal(frozenY, gotF.getY());
-            Assert.Equal(nonFrozenX, gotNF.getX());
-            Assert.Equal(nonFrozenY, gotNF.getY());
+            Assert.Equal(frozenX, gotF.GetX());
+            Assert.Equal(frozenY, gotF.GetY());
+            Assert.Equal(nonFrozenX, gotNF.GetX());
+            Assert.Equal(nonFrozenY, gotNF.GetY());
         }
 
         [Fact]
@@ -115,7 +115,7 @@ namespace BindingsGeneration.FunctionalTests
             var innerStruct = new FrozenStructWithNonFrozenMemberDeclaredWithinTheStruct.InnerStruct(innerFieldValue);
             var outerStruct = new FrozenStructWithNonFrozenMemberDeclaredWithinTheStruct(innerStruct);
 
-            var gotInner = outerStruct.getInnerFieldValue();
+            var gotInner = outerStruct.GetInnerFieldValue();
 
             Assert.Equal(innerFieldValue, gotInner);
         }
@@ -128,7 +128,7 @@ namespace BindingsGeneration.FunctionalTests
 
             var frozen = new FrozenStruct(x, y);
 
-            var result = frozen.sum();
+            var result = frozen.Sum();
 
             Assert.Equal(1 + 2, result);
         }
@@ -141,7 +141,7 @@ namespace BindingsGeneration.FunctionalTests
 
             var nonFrozen = new NonFrozenStruct(x, y);
 
-            var result = nonFrozen.sum();
+            var result = nonFrozen.Sum();
 
             Assert.Equal(1 + 2, result);
         }
@@ -158,7 +158,7 @@ namespace BindingsGeneration.FunctionalTests
             var nonFrozen = new NonFrozenStruct(nonFrozenX, nonFrozenY);
             var complexStruct = new NonFrozenStructWithNonFrozenMember(frozen, nonFrozen);
 
-            var result = complexStruct.sum();
+            var result = complexStruct.Sum();
 
             Assert.Equal(1 + 2 + 30 + 40, result);
         }
@@ -175,7 +175,7 @@ namespace BindingsGeneration.FunctionalTests
             var nonFrozen = new NonFrozenStruct(nonFrozenX, nonFrozenY);
             var complexStruct = new FrozenStructWithNonFrozenMember(frozen, nonFrozen);
 
-            var result = complexStruct.sum();
+            var result = complexStruct.Sum();
 
             Assert.Equal(1 + 2 + 30 + 40, result);
         }
@@ -191,7 +191,7 @@ namespace BindingsGeneration.FunctionalTests
             var frozen = new FrozenStruct(frozenX, frozenY);
             var nonFrozen = new NonFrozenStruct(nonFrozenX, nonFrozenY);
 
-            var result = StructsTests.sumFrozenAndNonFrozen(frozen, nonFrozen);
+            var result = StructsTests.SumFrozenAndNonFrozen(frozen, nonFrozen);
 
             Assert.Equal(1 + 2 + 30 + 40, result);
         }
@@ -202,10 +202,10 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr x = 1;
             IntPtr y = 2;
 
-            var result = StructsTests.createFrozenStruct(x, y);
+            var result = StructsTests.CreateFrozenStruct(x, y);
 
-            Assert.Equal(x, result.getX());
-            Assert.Equal(y, result.getY());
+            Assert.Equal(x, result.GetX());
+            Assert.Equal(y, result.GetY());
         }
 
         [Fact]
@@ -214,10 +214,10 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr x = 1;
             IntPtr y = 2;
 
-            var result = StructsTests.createNonFrozenStruct(x, y);
+            var result = StructsTests.CreateNonFrozenStruct(x, y);
 
-            Assert.Equal(x, result.getX());
-            Assert.Equal(y, result.getY());
+            Assert.Equal(x, result.GetX());
+            Assert.Equal(y, result.GetY());
         }
 
         [Fact]
@@ -227,10 +227,10 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr y = 2;
             var structBuilder = new StructBuilder(x, y);
 
-            var result = structBuilder.createFrozenStruct();
+            var result = structBuilder.CreateFrozenStruct();
 
-            Assert.Equal(x, result.getX());
-            Assert.Equal(y, result.getY());
+            Assert.Equal(x, result.GetX());
+            Assert.Equal(y, result.GetY());
         }
 
         [Fact]
@@ -240,10 +240,10 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr y = 2;
             var structBuilder = new StructBuilder(x, y);
 
-            var result = structBuilder.createNonFrozenStruct();
+            var result = structBuilder.CreateNonFrozenStruct();
 
-            Assert.Equal(x, result.getX());
-            Assert.Equal(y, result.getY());
+            Assert.Equal(x, result.GetX());
+            Assert.Equal(y, result.GetY());
         }
 
         [Fact]
@@ -252,10 +252,10 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr x = 1;
             IntPtr y = 2;
 
-            var result = StructBuilder.createFrozenStruct(x, y);
+            var result = StructBuilder.CreateFrozenStruct(x, y);
 
-            Assert.Equal(x, result.getX());
-            Assert.Equal(y, result.getY());
+            Assert.Equal(x, result.GetX());
+            Assert.Equal(y, result.GetY());
         }
 
         [Fact]
@@ -264,10 +264,10 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr x = 1;
             IntPtr y = 2;
 
-            var result = StructBuilder.createNonFrozenStruct(x, y);
+            var result = StructBuilder.CreateNonFrozenStruct(x, y);
 
-            Assert.Equal(x, result.getX());
-            Assert.Equal(y, result.getY());
+            Assert.Equal(x, result.GetX());
+            Assert.Equal(y, result.GetY());
         }
 
         [Fact]
@@ -280,43 +280,43 @@ namespace BindingsGeneration.FunctionalTests
         public void TestInstanceMethodThrowingError()
         {
             var structWithThrowingMethods = new StructWithThrowingMethods(0, 0);
-            Assert.Throws<SwiftRuntimeException>(() => structWithThrowingMethods.sum());
+            Assert.Throws<SwiftRuntimeException>(() => structWithThrowingMethods.Sum());
         }
 
         [Fact]
         public void TestStaticMethodThrowingError()
         {
-            Assert.Throws<SwiftRuntimeException>(() => StructWithThrowingMethods.sum(0, 0));
+            Assert.Throws<SwiftRuntimeException>(() => StructWithThrowingMethods.Sum(0, 0));
         }
 
         [Fact]
         public void TestFrozenStructProperties()
         {
-            var staticPropertyValue = PropertiesTestStruct.staticLetProperty;
+            var staticPropertyValue = PropertiesTestStruct.StaticLetProperty;
             Assert.Equal(42, staticPropertyValue);
 
             var struct1 = new PropertiesTestStruct(letValue: 10, varValue: 20, multiplier: 3);
 
-            Assert.Equal(10, struct1.letProperty);
+            Assert.Equal(10, struct1.LetProperty);
 
-            Assert.Equal(20, struct1.varProperty);
+            Assert.Equal(20, struct1.VarProperty);
 
-            Assert.Equal(30, struct1.computedProperty);
+            Assert.Equal(30, struct1.ComputedProperty);
         }
 
         [Fact]
         public void TestNonFrozenStructProperties()
         {
-            var staticPropertyValue = NonFrozenPropertiesTestStruct.staticLetProperty;
+            var staticPropertyValue = NonFrozenPropertiesTestStruct.StaticLetProperty;
             Assert.Equal(42, staticPropertyValue);
 
             var struct1 = new NonFrozenPropertiesTestStruct(letValue: 10, varValue: 20, multiplier: 3);
 
-            Assert.Equal(10, struct1.letProperty);
+            Assert.Equal(10, struct1.LetProperty);
 
-            Assert.Equal(20, struct1.varProperty);
+            Assert.Equal(20, struct1.VarProperty);
 
-            Assert.Equal(30, struct1.computedProperty);
+            Assert.Equal(30, struct1.ComputedProperty);
         }
 
         [Fact]

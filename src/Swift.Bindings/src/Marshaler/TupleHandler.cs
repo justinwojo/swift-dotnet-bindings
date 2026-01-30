@@ -11,6 +11,7 @@ namespace BindingsGeneration;
 public class TupleHandler
 {
     private readonly ITypeDatabase _typeDatabase;
+    private readonly ExistentialHandler _existentialHandler;
 
     /// <summary>
     /// Maximum number of tuple elements supported in Phase 1.
@@ -21,6 +22,7 @@ public class TupleHandler
     public TupleHandler(ITypeDatabase typeDatabase)
     {
         _typeDatabase = typeDatabase;
+        _existentialHandler = new ExistentialHandler(typeDatabase);
     }
 
     /// <summary>
@@ -90,6 +92,13 @@ public class TupleHandler
         // Closures within tuples are not supported yet
         if (typeSpec is ClosureTypeSpec)
             return false;
+
+        // Existential types are supported
+        if (_existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            return protocolList != null && _existentialHandler.IsSupportedExistential(protocolList);
+        }
 
         // Named types should be resolvable in the type database and frozen
         if (typeSpec is NamedTypeSpec namedType)
@@ -184,6 +193,15 @@ public class TupleHandler
     /// </summary>
     private string TranslateElementTypeToCSharp(TypeSpec typeSpec)
     {
+        // Handle existential types
+        if (_existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
+                return _existentialHandler.GetCSharpExistentialType(protocolList);
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        }
+
         if (typeSpec is NamedTypeSpec namedType)
         {
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
@@ -199,6 +217,15 @@ public class TupleHandler
     /// </summary>
     private string TranslateElementTypeToPInvoke(TypeSpec typeSpec)
     {
+        // Handle existential types
+        if (_existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
+                return _existentialHandler.GetPInvokeExistentialType(protocolList);
+            return "void*";
+        }
+
         if (typeSpec is NamedTypeSpec namedType)
         {
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);

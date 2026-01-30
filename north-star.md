@@ -85,20 +85,20 @@ dotnet add package Nuke.Bindings
 
 | Feature | Status | Priority |
 |---------|--------|----------|
-| Async P/Invoke SafeHandle fix | In Progress | P0 |
-| Property setters | Not Started | P0 |
-| Enum case constructors | Stubbed | P1 |
-| Foundation type coverage (URL, Data, etc.) | Partial | P1 |
-| Cross-platform generation (iOS bindings on macOS) | Done | - |
+| Async P/Invoke SafeHandle fix | **Done** | P0 |
+| Property setters | **Done** | P0 |
+| Enum case constructors | **Done** | P1 |
+| Foundation type coverage (URL, Data, etc.) | **Done** | P1 |
+| Cross-platform generation (iOS bindings on macOS) | **Done** | - |
 
-**Success Criteria**: Nuke library async image loading works end-to-end.
+**Success Criteria**: Nuke library async image loading works end-to-end. ✅ ACHIEVED
 
 ### Phase 2: Type System Completeness
 **Goal**: Handle the full spectrum of Swift types.
 
 | Feature | Status | Priority |
 |---------|--------|----------|
-| Existential containers (`any Protocol`) | Not Started | P0 |
+| Existential containers (`any Protocol`) | **Done** | P0 |
 | Generic method support | Partial | P0 |
 | Protocol witness tables | Not Started | P1 |
 | Unbound generic types | Not Started | P1 |
@@ -159,29 +159,27 @@ To maintain focus, these are explicitly **out of scope**:
 
 ### What Works
 - Classes, structs (frozen and non-frozen)
-- Instance and static methods, property getters
-- Async methods (with frozen parameter types)
-- Closures (`@convention(c)`, `@escaping` with frozen types)
-- Tuples (1-7 elements with frozen types)
+- Instance and static methods, property getters and setters
+- Async methods (with frozen and non-frozen parameter types)
+- Closures (`@convention(c)`, `@escaping` with frozen types, bound generics, existentials)
+- Tuples (1-7 elements with frozen types and existentials)
 - Operators (arithmetic, comparison, bitwise, unary)
-- Basic enums (without payload construction)
-- SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>
+- Basic enums (with payload construction for associated values)
+- SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>, SwiftResult<S,F>
+- Existential types (`any Protocol`) - parameters, returns, properties, closures, tuples
+- Generic constructors
 - StoreKit 2 bindings (published as experimental NuGet)
+- 419 unit tests, 684 integration tests passing
 
 ### What Doesn't Work Yet
-- Existential types (`any Protocol`) - blocks many modern APIs
-- Generic methods - often skipped
-- Property setters - read-only bindings only
-- Async methods with non-frozen SafeHandle parameters
+- Generic methods - often skipped (unbound generics)
 - Actors - unsupported
 - Full protocol witness table handling
-- Enum case constructors
+- Protocols with Associated Types (PATs) - partial support
 
 ### Key Gaps (from Nuke Testing)
 The Nuke image library binding attempt revealed:
-- 86 methods with unsupported signatures (mostly existentials/generics)
-- Async P/Invoke crashes with SafeHandle + Swift calling convention
-- Enum cases all throw `NotImplementedException`
+- ~70 methods with unsupported signatures (mostly unbound generics)
 - See `/src/docs/nuke-binding-roadmap.md` for detailed tracking
 
 ---

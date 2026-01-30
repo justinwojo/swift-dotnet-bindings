@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
@@ -165,6 +166,115 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, IDisposable
     /// Returns true if the result is a failure case
     /// </summary>
     public bool IsFailure => Case == SwiftResultCase.Failure;
+
+    /// <summary>
+    /// Gets the success value. Throws if the result is a failure.
+    /// </summary>
+    public unsafe TSuccess Success
+    {
+        get
+        {
+            if (Case != SwiftResultCase.Success)
+                throw new InvalidOperationException("Cannot get Success when case is Failure");
+
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
+                Span<byte> payloadCopy = stackalloc byte[(int)_payloadSize];
+                new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(payloadCopy);
+                fixed (byte* payloadPtr = payloadCopy)
+                {
+                    return SwiftMarshal.MarshalFromSwift<TSuccess>(new IntPtr(payloadPtr));
+                }
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the failure value. Throws if the result is a success.
+    /// </summary>
+    public unsafe TFailure Failure
+    {
+        get
+        {
+            if (Case != SwiftResultCase.Failure)
+                throw new InvalidOperationException("Cannot get Failure when case is Success");
+
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
+                Span<byte> payloadCopy = stackalloc byte[(int)_payloadSize];
+                new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(payloadCopy);
+                fixed (byte* payloadPtr = payloadCopy)
+                {
+                    return SwiftMarshal.MarshalFromSwift<TFailure>(new IntPtr(payloadPtr));
+                }
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Attempts to get the success value.
+    /// </summary>
+    /// <param name="value">When this method returns, contains the success value if the result is a success case; otherwise, the default value.</param>
+    /// <returns><c>true</c> if the result is a success case; otherwise, <c>false</c>.</returns>
+    public bool TryGetSuccess([MaybeNullWhen(false)] out TSuccess value)
+    {
+        if (Case == SwiftResultCase.Success)
+        {
+            value = Success;
+            return true;
+        }
+        value = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Attempts to get the failure value.
+    /// </summary>
+    /// <param name="value">When this method returns, contains the failure value if the result is a failure case; otherwise, the default value.</param>
+    /// <returns><c>true</c> if the result is a failure case; otherwise, <c>false</c>.</returns>
+    public bool TryGetFailure([MaybeNullWhen(false)] out TFailure value)
+    {
+        if (Case == SwiftResultCase.Failure)
+        {
+            value = Failure;
+            return true;
+        }
+        value = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Pattern matching helper that calls the appropriate handler based on the result case.
+    /// </summary>
+    /// <typeparam name="TResult">The type of the result returned by the handlers.</typeparam>
+    /// <param name="onSuccess">The handler to call if the result is a success.</param>
+    /// <param name="onFailure">The handler to call if the result is a failure.</param>
+    /// <returns>The result from the appropriate handler.</returns>
+    public TResult Match<TResult>(Func<TSuccess, TResult> onSuccess, Func<TFailure, TResult> onFailure)
+    {
+        return Case switch
+        {
+            SwiftResultCase.Success => onSuccess(Success),
+            SwiftResultCase.Failure => onFailure(Failure),
+            _ => throw new InvalidOperationException($"Unknown case {Case}")
+        };
+    }
 
     /// <summary>
     /// Releases the resources used by the SwiftResult.

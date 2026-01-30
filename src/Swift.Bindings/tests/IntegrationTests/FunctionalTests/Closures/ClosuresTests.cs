@@ -43,7 +43,7 @@ namespace BindingsGeneration.FunctionalTests
         public void TestInt32Callback()
         {
             // Pass a C# delegate that doubles the input
-            int result = Bindings.ClosuresTests.callWithInt32(x => x * 2);
+            int result = Bindings.ClosuresTests.CallWithInt32(x => x * 2);
             Assert.Equal(84, result); // 42 * 2 = 84
         }
 
@@ -51,7 +51,7 @@ namespace BindingsGeneration.FunctionalTests
         public void TestVoidCallback()
         {
             bool wasCalled = false;
-            Bindings.ClosuresTests.callVoidCallback(() => { wasCalled = true; });
+            Bindings.ClosuresTests.CallVoidCallback(() => { wasCalled = true; });
             Assert.True(wasCalled);
         }
 
@@ -59,7 +59,7 @@ namespace BindingsGeneration.FunctionalTests
         public void TestMultiArgCallback()
         {
             // Swift calls callback(10, 20)
-            int result = Bindings.ClosuresTests.callMultiArg((a, b) => a + b);
+            int result = Bindings.ClosuresTests.CallMultiArg((a, b) => a + b);
             Assert.Equal(30, result); // 10 + 20 = 30
         }
 
@@ -67,14 +67,14 @@ namespace BindingsGeneration.FunctionalTests
         public void TestBoolCallback()
         {
             // Swift calls callback(true), we negate it
-            bool result = Bindings.ClosuresTests.callBoolCallback(b => !b);
+            bool result = Bindings.ClosuresTests.CallBoolCallback(b => !b);
             Assert.False(result);
         }
 
         [Fact]
         public void TestDoubleCallback()
         {
-            double result = Bindings.ClosuresTests.callDoubleCallback(d => d * 2.0);
+            double result = Bindings.ClosuresTests.CallDoubleCallback(d => d * 2.0);
             Assert.Equal(6.28318, result, precision: 4); // 3.14159 * 2
         }
 
@@ -85,14 +85,14 @@ namespace BindingsGeneration.FunctionalTests
         {
             var consumer = new Bindings.ClosureConsumer(multiplier: 3);
             // value * multiplier = 5 * 3 = 15, then transform adds 10
-            int result = consumer.applyToValue(5, x => x + 10);
+            int result = consumer.ApplyToValue(5, x => x + 10);
             Assert.Equal(25, result); // (5 * 3) + 10 = 25
         }
 
         [Fact]
         public void TestClosureConsumer_StaticMethod()
         {
-            int result = Bindings.ClosureConsumer.processWithClosure(7, x => x * x);
+            int result = Bindings.ClosureConsumer.ProcessWithClosure(7, x => x * x);
             Assert.Equal(49, result); // 7 * 7 = 49
         }
 
@@ -103,7 +103,7 @@ namespace BindingsGeneration.FunctionalTests
         {
             // callback is called with 1, 2, 3, 4, 5 and results are summed
             // If callback doubles input: 2 + 4 + 6 + 8 + 10 = 30
-            int result = Bindings.ClosuresTests.callMultipleTimes(x => x * 2, times: 5);
+            int result = Bindings.ClosuresTests.CallMultipleTimes(x => x * 2, times: 5);
             Assert.Equal(30, result);
         }
 
@@ -112,7 +112,7 @@ namespace BindingsGeneration.FunctionalTests
         {
             int counter = 0;
             // Each call increments counter and returns it
-            int result = Bindings.ClosuresTests.callMultipleTimes(x => { counter++; return x + counter; }, times: 3);
+            int result = Bindings.ClosuresTests.CallMultipleTimes(x => { counter++; return x + counter; }, times: 3);
             // i=1: counter=1, return 1+1=2
             // i=2: counter=2, return 2+2=4
             // i=3: counter=3, return 3+3=6

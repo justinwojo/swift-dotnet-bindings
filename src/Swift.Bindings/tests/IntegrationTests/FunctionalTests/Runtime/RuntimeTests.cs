@@ -53,7 +53,7 @@ namespace BindingsGeneration.FunctionalTests
         public void TestEmptyArray()
         {
             var array = Bindings.RuntimeTests.getArray(0);
-            Assert.Equal(0, array.Count);
+            Assert.Empty(array);
             Assert.Equal(0, Bindings.RuntimeTests.sumArray(array));
         }
 
@@ -61,7 +61,7 @@ namespace BindingsGeneration.FunctionalTests
         public void TestOneElementArray()
         {
             var array = Bindings.RuntimeTests.getArray(1);
-            Assert.Equal(1, array.Count);
+            Assert.Single(array);
             Assert.Equal(0, array[0]);
             Assert.Equal(0, Bindings.RuntimeTests.sumArray(array));
         }

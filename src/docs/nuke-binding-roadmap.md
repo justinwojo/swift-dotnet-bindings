@@ -494,8 +494,8 @@ private static extern void PInvoke_init(SwiftIndirectResult swiftIndirectResult,
 
 **Remaining work**:
 - ~~Properties with existential types (currently skipped)~~ FIXED (3.1.1)
-- Existentials inside closures (`(any Protocol) -> Void`)
-- Existentials inside tuples (`(Int, any Protocol)`)
+- ~~Existentials inside closures (`(any Protocol) -> Void`)~~ FIXED (2026-01-30)
+- ~~Existentials inside tuples (`(Int, any Protocol)`)~~ FIXED (2026-01-30)
 - Helper methods for constructing `ExistentialContainer{N}` from C# objects
 - Protocol witness table lookup at runtime
 
@@ -548,7 +548,8 @@ Protocols with associated types or generic requirements are skipped entirely.
 2. ✅ Added `Swift.Result` type mapping to `SwiftDatabase.xml`
 3. ✅ Created `SwiftResult<TSuccess, TFailure>` class in Swift.Runtime
 4. ✅ Callback names now include method hash for overload disambiguation
-5. ⚠️ Closures *returning* bound generic types not yet supported (excluded from generation)
+5. ✅ Closures *returning* bound generic types now supported via indirect return marshalling (3.3.1)
+6. ✅ `SwiftResult<T,E>` now has value extraction: `Success`, `Failure`, `TryGetSuccess`, `TryGetFailure`, `Match` (2026-01-30)
 
 **Implementation details**:
 - Added `IsSupportedGenericType()` to check if bound generic types are in the type database
@@ -591,7 +592,7 @@ private static void loadImage_completion_06E6974D_Callback(void* arg0, SwiftSelf
 
 **Current limitations**:
 - ~~Closures *returning* bound generic types (e.g., `Func<T, SwiftOptional<U>>`) are excluded~~ FIXED (3.3.1)
-- `SwiftResult<T,E>` has `IsSuccess`/`IsFailure` properties but value extraction not yet implemented
+- ~~`SwiftResult<T,E>` has `IsSuccess`/`IsFailure` properties but value extraction not yet implemented~~ FIXED (2026-01-30)
 
 ### 3.3.1 Closure Bound Generic Returns
 **Status**: IMPLEMENTED (January 2026)
@@ -944,7 +945,11 @@ var image = response.Image; // UIImage
 - [x] **Hasher type support** - `hash(into:)` methods now generate correctly (2026-01-30)
 - [x] **UIColor type support** - ObjC-bridged to `UIKit.UIColor` (2026-01-30)
 - [x] **URLSession types support** - URLSession, URLSessionConfiguration, URLCache ObjC-bridged (2026-01-30)
-- [ ] Existentials in closures/tuples
+- [x] Existentials in closures - ClosureHandler now supports `any Protocol` parameters/returns (2026-01-30)
+- [x] Existentials in tuples - TupleHandler now supports `any Protocol` elements (2026-01-30)
+- [x] SwiftResult value extraction - `Success`, `Failure`, `TryGetSuccess`, `TryGetFailure`, `Match` (2026-01-30)
+- [x] Nested type handling in generics - `SwiftTypeName.FromTypeSpec` traverses `InnerType` chain (2026-01-30)
+- [x] Integration tests fixed - Updated naming conventions (PascalCase), 684 tests pass (2026-01-30)
 - [x] Runtime testing of async methods on iOS simulator - VERIFIED (2026-01-30)
 
 ---
