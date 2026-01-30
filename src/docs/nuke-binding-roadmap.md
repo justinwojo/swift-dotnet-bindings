@@ -39,8 +39,8 @@ Initial binding generation revealed these gap categories:
 - **0 compilation errors** (down from 95+)
 
 **Remaining gaps**:
-- ~19 methods with unsupported signatures (skipped) - mostly due to `AnyType` (existential dictionary values)
 - ~10 properties with unsupported types (skipped) - reduced from 24
+- ~~19 methods with unsupported signatures (skipped) - mostly due to `AnyType` (existential dictionary values)~~ FIXED (3.5)
 - Enum cases with associated values may have unsupported parameter types
 - ~~Methods with unsupported closure parameter types (e.g., closures with `Result<T,E>` parameters)~~ FIXED (3.3)
 - ~~Closures that *return* bound generic types (e.g., `Func<T, SwiftOptional<U>>`)~~ FIXED (3.3.1)
@@ -60,6 +60,8 @@ Initial binding generation revealed these gap categories:
 - ~~Closures returning bound generics (SwiftOptional<T>, SwiftResult<S,E>) skipped~~ FIXED (Phase 3.3.1) - Now use indirect return marshalling
 - ~~Properties with existential types skipped~~ FIXED (Phase 3.1.1) - Now generate `ExistentialContainer{N}` types
 - ~~Generic constructors skipped~~ FIXED (Phase 3.4) - Now use same infrastructure as generic methods
+- ~~Dictionary<K, Any> unsupported~~ FIXED (Phase 3.5) - Existential values in generics now use ExistentialContainer0
+- ~~Closure callback signature mismatch~~ FIXED (Phase 3.5) - Function pointers and callbacks now use consistent blittable types
 
 ---
 
@@ -716,13 +718,51 @@ public unsafe GenericBox<T>(T value)
 
 **Also fixed**: Closures passed to constructors now properly emit callback functions and marshalling code (previously only methods handled closures).
 
-### 3.5 Dictionary with Custom Keys
-**Status**: TODO
+### 3.5 Dictionary with Existential Values (Any)
+**Status**: IMPLEMENTED (January 2026)
 
-Dictionaries with custom key types aren't handled:
+**Problem**: Dictionaries with `Any` (Swift's zero-protocol existential type) as values weren't handled:
 ```
 PropertyHandler: Couldn't process property userInfo of type Swift.Dictionary<Nuke.ImageRequest.UserInfoKey, Swift.Any>
 ```
+
+**Root Cause**: Two issues:
+1. `BoundGenericsHandler.TranslateTypeSpecToCSharp` didn't handle `ProtocolListTypeSpec` (which represents `Any` with 0 protocols)
+2. `TypeSpecParser` didn't recognize bare `"Any"` string as a `ProtocolListTypeSpec`
+3. `SwiftABIParser` didn't handle `ProtocolComposition` nodes in `CreateTypeSpec`
+
+**Solution**:
+1. Added `ExistentialHandler` to `BoundGenericsHandler` for existential type translation
+2. Added `ProtocolListTypeSpec` handling in `TranslateTypeSpecToCSharp` to map to `ExistentialContainer0`
+3. Updated `TypeSpecParser` to recognize `"Any"` as `ProtocolListTypeSpec` (empty protocol list)
+4. Added `CreateProtocolCompositionTypeSpec` to `SwiftABIParser` for `ProtocolComposition` nodes
+5. Updated `MethodHandler` to handle `ProtocolListTypeSpec` in both wrapper and P/Invoke signature builders
+6. Added `Swift.Dictionary` to `s_bufferTypeMap` in `BoundGenericsHandler`
+
+**Generated code example**:
+```csharp
+public SwiftDictionary<ImageRequest.UserInfoKey, ExistentialContainer0> UserInfo
+{
+    get => UserInfo_Get();
+    set => UserInfo_Set(value);
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/BoundGenericsHandler.cs` - Added ExistentialHandler, ProtocolListTypeSpec handling
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` - Added ProtocolComposition handling
+- `src/Swift.Bindings/src/Model/TypeSpecParsing/TypeSpecParser.cs` - Recognize "Any" as ProtocolListTypeSpec
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - ProtocolListTypeSpec in signature builders
+- `src/Swift.Runtime/src/Swift/Runtime/TypeMetadata.cs` - Added IExistentialContainer handling, swift_getExistentialTypeMetadata P/Invoke
+
+**Tests added**:
+- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/BoundGenericsHandlerTests.cs` - Tests for existential type arguments
+
+**Also fixed**: Closure callback signature mismatch (CS8757 error)
+- Made `TranslateTypeSpecToPInvokeType` public in `ClosureHandler`
+- Updated to only use direct types for known blittable primitives (nint, int, long, etc.)
+- All other types (including `Swift.Data`) now use `void*` for callback safety
+- `ClosureEmitter.GetCallbackParameterType` now delegates to `ClosureHandler` for consistency
 
 ---
 
@@ -845,6 +885,8 @@ Bindings still generate, but conformance information is incomplete.
 | UIColor type mapping | PASS | ObjC-bridged to UIKit.UIColor, 7 usages (2026-01-30) |
 | URLSession type mappings | PASS | URLSession, URLSessionConfiguration, URLCache ObjC-bridged, 8 usages (2026-01-30) |
 | Unbound generic method parsing | PASS | GenericTypeParam nodes parsed, where clauses emitted (2026-01-30) |
+| Dictionary with existential values | PASS | `Dictionary<K, Any>` now generates `SwiftDictionary<K, ExistentialContainer0>` (2026-01-30) |
+| Closure callback signature consistency | PASS | Function pointer and callback signatures now match (2026-01-30) |
 
 ---
 
@@ -910,9 +952,8 @@ dotnet run --project src/Swift.Bindings/src -c Release -- \
 # Build and run test app
 dotnet build BindingTesting/Nuke/NukeTestApp -c Debug -t:Run
 
-# Run unit tests
-dotnet test src/Swift.Bindings/tests/UnitTests
-dotnet test src/Swift.Runtime/tests
+# Run all tests (unit, integration, runtime)
+./run-tests.sh
 ```
 
 ### Building Nuke from Source
@@ -994,6 +1035,8 @@ var image = response.Image; // UIImage
 - [x] Integration tests fixed - Updated naming conventions (PascalCase), 684 tests pass (2026-01-30)
 - [x] Runtime testing of async methods on iOS simulator - VERIFIED (2026-01-30)
 - [x] **Unbound generic methods** - GenericTypeParam parsing, where clause emission, unknown protocol handling (2026-01-30)
+- [x] **Dictionary with existential values** - `Dictionary<K, Any>` now generates `SwiftDictionary<K, ExistentialContainer0>` (2026-01-30)
+- [x] **Closure callback signature fix** - Function pointer and callback signatures now consistently use blittable types (2026-01-30)
 
 ---
 
@@ -1291,7 +1334,7 @@ The `self` parameter passed from C# via SwiftSelf doesn't work correctly in asyn
 
 ## Related Issues
 
-- [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters & properties implemented (2026-01-30)
+- [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters, properties & bound generic arguments implemented (2026-01-30)
 - [#2996 - Async Properties](https://github.com/dotnet/runtimelab/issues/2996)
 - [#2873 - Tuple Support](https://github.com/dotnet/runtimelab/issues/2873) - Implemented
 - [#2874 - Closure Support](https://github.com/dotnet/runtimelab/issues/2874) - Implemented; Bound generic params & returns added (2026-01-30)

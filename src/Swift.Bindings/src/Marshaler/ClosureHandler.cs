@@ -433,7 +433,7 @@ public class ClosureHandler
     /// For UnmanagedCallersOnly compatibility, only blittable types can be used directly.
     /// Non-blittable types (including those requiring memory management) use void*.
     /// </summary>
-    private string TranslateTypeSpecToPInvokeType(TypeSpec typeSpec)
+    public string TranslateTypeSpecToPInvokeType(TypeSpec typeSpec)
     {
         // Handle existential types
         if (_existentialHandler.IsExistential(typeSpec))
@@ -450,27 +450,20 @@ public class ClosureHandler
             if (IsPointerType(namedType))
                 return "void*";
 
-            // Swift.Bool must be mapped to byte for UnmanagedCallersOnly
-            // (bool is non-blittable in .NET)
-            if (namedType.Name == "Swift.Bool")
-                return "byte";
+            // Check for known blittable primitive types first
+            // Only these can be safely passed directly in unmanaged function pointers
+            var primitiveType = GetBlittablePrimitiveType(namedType.Name);
+            if (primitiveType != null)
+                return primitiveType;
 
             // Bound generic types are passed as opaque pointers in P/Invoke
             if (namedType.ContainsGenericParameters)
                 return "void*";
 
-            var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
-
-            // For P/Invoke, non-frozen types need void* (opaque pointer)
-            if ((typeRecord.Flags & TypeRecordFlags.Frozen) == 0)
-                return "void*";
-
-            // Types requiring memory management (like SwiftString, SwiftArray) are not blittable
-            // They need to be passed as void* in UnmanagedCallersOnly callbacks
-            if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
-                return "void*";
-
-            return typeRecord.CSharpTypeName.FullyQualifiedName;
+            // All other types (structs, classes, etc.) must be passed as void*
+            // and marshalled manually, even if frozen - only primitives are safe
+            // to pass directly in unmanaged function pointers
+            return "void*";
         }
 
         if (typeSpec.IsEmptyTuple)
@@ -482,6 +475,32 @@ public class ClosureHandler
 
         // Fallback
         return "void*";
+    }
+
+    /// <summary>
+    /// Returns the blittable C# type for known Swift primitive types.
+    /// Returns null for non-primitive types that should use void*.
+    /// </summary>
+    private static string? GetBlittablePrimitiveType(string swiftTypeName)
+    {
+        return swiftTypeName switch
+        {
+            "Swift.Int" => "nint",
+            "Swift.UInt" => "nuint",
+            "Swift.Int8" => "sbyte",
+            "Swift.UInt8" => "byte",
+            "Swift.Int16" => "short",
+            "Swift.UInt16" => "ushort",
+            "Swift.Int32" => "int",
+            "Swift.UInt32" => "uint",
+            "Swift.Int64" => "long",
+            "Swift.UInt64" => "ulong",
+            "Swift.Float" => "float",
+            "Swift.Double" => "double",
+            // Bool is non-blittable, use byte instead (Swift.Bool is 1 byte)
+            "Swift.Bool" => "byte",
+            _ => null // Not a primitive - should use void*
+        };
     }
 
     /// <summary>

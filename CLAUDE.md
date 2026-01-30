@@ -97,7 +97,7 @@ swift-bindings/
 ├── docs/                        # Technical documentation (27 files)
 ├── eng/                         # Build infrastructure, Azure Pipelines
 ├── build.sh                     # Build the project
-├── run-tests.sh                 # Run unit tests (use this!)
+├── run-tests.sh                 # Run all tests (unit, integration, runtime)
 └── generate.sh                  # Apple framework binding generation
 ```
 
@@ -299,7 +299,7 @@ Swift: prefix static func !(v: T) -> Bool      →  public static bool operator 
 # Build the project
 ./build.sh
 
-# Run unit tests (handles DotNetHostPath workaround automatically)
+# Run all tests (unit, integration, runtime - handles DotNetHostPath workaround)
 ./run-tests.sh
 
 # Generate Apple framework bindings (StoreKit, etc.)
@@ -320,7 +320,7 @@ dotnet test src/Swift.Bindings/tests/UnitTests -- RunConfiguration.DotNetHostPat
 | Script | Purpose | When to Use |
 |--------|---------|-------------|
 | `./build.sh` | Build the entire project | After cloning, after code changes |
-| `./run-tests.sh` | Run unit tests with proper DotNetHostPath | **Always use this** instead of `dotnet test` directly |
+| `./run-tests.sh` | Run all tests (unit, integration, runtime) | **Always use this** instead of `dotnet test` directly |
 | `./generate.sh` | Generate bindings for Apple frameworks | When testing against StoreKit, SwiftUI, etc. |
 
 ### Nuke Testing Scripts (BindingTesting/Nuke/)
@@ -349,7 +349,7 @@ cd BindingTesting/Nuke
 ./build-testapp.sh && ./validate-sim.sh 15
 ```
 
-**Running unit tests:**
+**Running all tests:**
 ```bash
 ./run-tests.sh
 ```

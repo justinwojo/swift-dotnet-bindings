@@ -793,6 +793,12 @@ namespace BindingsGeneration
             {
                 case kNominal:
                 case kFunc:
+                    // Handle ProtocolComposition (existential types like 'Any', 'any P1 & P2')
+                    // In ABI JSON, 'Any' appears as TypeNominal with name="ProtocolComposition", printedName="Any"
+                    if (node.Name == "ProtocolComposition")
+                    {
+                        return CreateProtocolCompositionTypeSpec(node);
+                    }
                     var spec = TypeSpecParser.Parse(node.PrintedName);
                     if (spec is null)
                     {
@@ -811,6 +817,29 @@ namespace BindingsGeneration
                 default:
                     throw new NotImplementedException($"Can't handle node type {node.Kind} yet.");
             }
+        }
+
+        /// <summary>
+        /// Creates a ProtocolListTypeSpec from a ProtocolComposition node.
+        /// The node's children represent the protocols in the composition.
+        /// An empty composition (no children) represents 'Any'.
+        /// </summary>
+        private TypeSpec CreateProtocolCompositionTypeSpec(Node node)
+        {
+            var protocols = new List<NamedTypeSpec>();
+            foreach (var child in node.Children)
+            {
+                if (child.Kind == kNominal)
+                {
+                    // Parse the protocol name
+                    var childSpec = TypeSpecParser.Parse(child.PrintedName) as NamedTypeSpec;
+                    if (childSpec != null)
+                    {
+                        protocols.Add(childSpec);
+                    }
+                }
+            }
+            return new ProtocolListTypeSpec(protocols);
         }
 
         /// <summary>

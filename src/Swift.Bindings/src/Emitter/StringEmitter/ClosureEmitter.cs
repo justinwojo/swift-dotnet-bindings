@@ -156,30 +156,12 @@ public static class ClosureEmitter
 
     /// <summary>
     /// Gets the C# type for a closure callback parameter.
-    /// For UnmanagedCallersOnly callbacks, returns blittable types only.
-    /// Bound generic types (like Result&lt;T,E&gt;) are passed as void* and marshalled later.
+    /// Delegates to ClosureHandler.TranslateTypeSpecToPInvokeType for consistency
+    /// between the callback signature and function pointer type declaration.
     /// </summary>
     private static string GetCallbackParameterType(TypeSpec typeSpec, ClosureHandler closureHandler)
     {
-        if (typeSpec is NamedTypeSpec namedType)
-        {
-            // Check for pointer types
-            if (IsPointerType(namedType))
-                return "void*";
-
-            // Bound generic types are passed as opaque pointers in callbacks
-            // They will be marshalled using SwiftMarshal.MarshalFromSwift
-            if (namedType.ContainsGenericParameters)
-                return "void*";
-
-            // For basic types, use the blittable mapping
-            return GetBasicCSharpType(namedType.Name);
-        }
-
-        if (typeSpec.IsEmptyTuple)
-            return "void";
-
-        return "void*";
+        return closureHandler.TranslateTypeSpecToPInvokeType(typeSpec);
     }
 
     /// <summary>
@@ -193,33 +175,6 @@ public static class ClosureEmitter
                namedType.Name == "Swift.UnsafeMutableRawPointer" ||
                namedType.Name == "Swift.OpaquePointer" ||
                namedType.Name == "Builtin.RawPointer";
-    }
-
-    /// <summary>
-    /// Gets basic C# type mapping for common Swift types.
-    /// For UnmanagedCallersOnly callbacks, we use blittable types only.
-    /// </summary>
-    private static string GetBasicCSharpType(string swiftTypeName)
-    {
-        return swiftTypeName switch
-        {
-            "Swift.Int" => "nint",
-            "Swift.UInt" => "nuint",
-            "Swift.Int8" => "sbyte",
-            "Swift.UInt8" => "byte",
-            "Swift.Int16" => "short",
-            "Swift.UInt16" => "ushort",
-            "Swift.Int32" => "int",
-            "Swift.UInt32" => "uint",
-            "Swift.Int64" => "long",
-            "Swift.UInt64" => "ulong",
-            "Swift.Float" => "float",
-            "Swift.Double" => "double",
-            // Bool is non-blittable, use byte instead (Swift.Bool is 1 byte)
-            "Swift.Bool" => "byte",
-            "Swift.Void" => "void",
-            _ => "void*" // Default to pointer for unknown types
-        };
     }
 
     /// <summary>

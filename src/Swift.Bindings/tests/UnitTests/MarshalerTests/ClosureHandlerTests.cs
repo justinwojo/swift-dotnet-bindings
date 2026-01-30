@@ -577,8 +577,8 @@ public class ClosureHandlerTests
 
         var result = handler.GetPInvokeFunctionPointerType(closureTypeSpec);
 
-        // Bool is mapped to byte in PInvoke
-        Assert.Equal("delegate* unmanaged[Swift]<System.Int64, byte>", result);
+        // Bool is mapped to byte in PInvoke, Swift.Int is mapped to nint
+        Assert.Equal("delegate* unmanaged[Swift]<nint, byte>", result);
     }
 
     [Fact]
@@ -857,8 +857,8 @@ public class ClosureHandlerTests
 
         var result = handler.GetPInvokeFunctionPointerTypeWithIndirectReturn(closure);
 
-        // Indirect return: void* first, then args, then void return
-        Assert.Equal("delegate* unmanaged[Swift]<void*, System.Int64, void>", result);
+        // Indirect return: void* first, then args (Swift.Int -> nint), then void return
+        Assert.Equal("delegate* unmanaged[Swift]<void*, nint, void>", result);
     }
 
     [Fact]

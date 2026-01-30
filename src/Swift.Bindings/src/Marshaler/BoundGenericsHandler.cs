@@ -14,12 +14,14 @@ public class BoundGenericsHandler
     private readonly ITypeDatabase _typeDatabase;
     private readonly ClosureHandler _closureHandler;
     private readonly TupleHandler _tupleHandler;
+    private readonly ExistentialHandler _existentialHandler;
 
     public BoundGenericsHandler(ITypeDatabase typeDatabase)
     {
         _typeDatabase = typeDatabase;
         _closureHandler = new ClosureHandler(typeDatabase);
         _tupleHandler = new TupleHandler(typeDatabase);
+        _existentialHandler = new ExistentialHandler(typeDatabase);
     }
 
     // Almost all generics will be projected into C# as classes.
@@ -37,7 +39,8 @@ public class BoundGenericsHandler
         {
             { SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "IntPtr" },
             { SwiftTypeName.FromModuleQualifiedName("Swift.Set"), "IntPtr" },
-            { SwiftTypeName.FromModuleQualifiedName("Swift.Optional"), "IntPtr" }
+            { SwiftTypeName.FromModuleQualifiedName("Swift.Optional"), "IntPtr" },
+            { SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"), "IntPtr" }
         };
 
     /// <summary>
@@ -133,7 +136,7 @@ public class BoundGenericsHandler
 
     /// <summary>
     /// Translates any TypeSpec to its C# equivalent.
-    /// Handles NamedTypeSpec, ClosureTypeSpec, and TupleTypeSpec.
+    /// Handles NamedTypeSpec, ClosureTypeSpec, TupleTypeSpec, and ProtocolListTypeSpec (existentials).
     /// </summary>
     /// <param name="typeSpec">The type specification to translate.</param>
     /// <returns>The C# type name string.</returns>
@@ -142,6 +145,14 @@ public class BoundGenericsHandler
     /// </exception>
     private string TranslateTypeSpecToCSharp(TypeSpec typeSpec)
     {
+        // Handle existential types (including bare 'Any' with 0 protocols)
+        if (typeSpec is ProtocolListTypeSpec protocolListTypeSpec)
+        {
+            if (_existentialHandler.IsSupportedExistential(protocolListTypeSpec))
+                return _existentialHandler.GetCSharpExistentialType(protocolListTypeSpec);
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        }
+
         return typeSpec switch
         {
             NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec),

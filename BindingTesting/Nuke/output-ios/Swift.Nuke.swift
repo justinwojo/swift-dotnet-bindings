@@ -4,7 +4,7 @@ import UIKit
 
 extension Nuke.ImagePipeline {
     @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-    public  func PInvoke_image_755A9C2A(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+    public  func PInvoke_image_2855209A(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -20,7 +20,7 @@ extension Nuke.ImagePipeline {
 }
 extension Nuke.ImagePipeline {
     @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-    public  func PInvoke_image_3BE87CDB(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+    public  func PInvoke_image_21D66C93(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee

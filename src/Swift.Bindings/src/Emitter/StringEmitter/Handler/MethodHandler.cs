@@ -449,6 +449,14 @@ namespace BindingsGeneration
         /// </summary>
         private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
         {
+            // Handle existential types (ProtocolListTypeSpec) - including 'Any' with 0 protocols
+            if (typeSpec is ProtocolListTypeSpec protocolListTypeSpec)
+            {
+                if (_env.ExistentialHandler.IsSupportedExistential(protocolListTypeSpec))
+                    return _env.ExistentialHandler.GetCSharpExistentialType(protocolListTypeSpec);
+                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+            }
+
             if (typeSpec is NamedTypeSpec namedTypeSpec)
             {
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
@@ -1526,6 +1534,14 @@ namespace BindingsGeneration
         /// </summary>
         private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
         {
+            // Handle existential types (ProtocolListTypeSpec) - including 'Any' with 0 protocols
+            if (typeSpec is ProtocolListTypeSpec protocolListTypeSpec)
+            {
+                if (_env.ExistentialHandler.IsSupportedExistential(protocolListTypeSpec))
+                    return _env.ExistentialHandler.GetCSharpExistentialType(protocolListTypeSpec);
+                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+            }
+
             if (typeSpec is NamedTypeSpec namedTypeSpec)
             {
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);

@@ -103,6 +103,10 @@ public class TypeSpecParser
                             "Foundation" + token.Value.Substring("ObjectiveC".Length) : token.Value;
             if (tokenValue == "Swift.Void")
                 type = TupleTypeSpec.Empty;
+            else if (tokenValue == "Any")
+                // "Any" is Swift's existential type with zero protocols
+                // Represent it as an empty ProtocolListTypeSpec
+                type = new ProtocolListTypeSpec();
             else
                 type = new NamedTypeSpec(tokenValue);
         }

@@ -340,11 +340,59 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             return false;
         }
 
-        // TODO: handle existential containers https://github.com/dotnet/runtimelab/issues/2875
+        // Handle existential container types (ExistentialContainer0 through ExistentialContainer8)
+        if (typeof(IExistentialContainer).IsAssignableFrom(type))
+        {
+            var protocolCount = GetProtocolCountFromExistentialType(type);
+            var metadata = GetExistentialTypeMetadata(protocolCount);
+            if (metadata.IsValid)
+            {
+                cache.GetOrAdd(type, _ => metadata);
+                result = metadata;
+                return true;
+            }
+        }
 
         result = null;
         return false;
     }
+
+    /// <summary>
+    /// Gets the protocol count from an existential container type name.
+    /// </summary>
+    /// <param name="type">The existential container type.</param>
+    /// <returns>The number of protocols (0-8).</returns>
+    private static int GetProtocolCountFromExistentialType(Type type)
+    {
+        // ExistentialContainer0 -> 0, ExistentialContainer1 -> 1, etc.
+        var name = type.Name;
+        const string prefix = "ExistentialContainer";
+        if (name.StartsWith(prefix) &&
+            int.TryParse(name.AsSpan(prefix.Length), out var count))
+            return count;
+        return 0;
+    }
+
+    /// <summary>
+    /// Gets the type metadata for an existential type with the given number of protocol constraints.
+    /// </summary>
+    /// <param name="numProtocols">The number of protocols (0 for 'Any').</param>
+    /// <returns>The existential type metadata.</returns>
+    public static TypeMetadata GetExistentialTypeMetadata(int numProtocols)
+    {
+        // classConstraint: 0 = any type, 1 = class-only
+        // superclassConstraint: null for no superclass constraint
+        // numProtocols: number of protocol constraints
+        // protocols: pointer to array of protocol descriptors (null if numProtocols is 0)
+        return swift_getExistentialTypeMetadata(0, IntPtr.Zero, (nuint)numProtocols, IntPtr.Zero);
+    }
+
+    [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    private static extern TypeMetadata swift_getExistentialTypeMetadata(
+        int classConstraint,
+        IntPtr superclassConstraint,
+        nuint numProtocols,
+        IntPtr protocols);
 
     /// <summary>
     /// Returns an enumeration of known Type and TypeMetadata objects
