@@ -303,19 +303,40 @@ dotnet test src/Swift.Bindings/tests/IntegrationTests
 dotnet test src/Swift.Bindings/tests/UnitTests -- RunConfiguration.DotNetHostPath="C:\Program Files\dotnet\dotnet.exe"
 ```
 
-**iOS Simulator Testing**: The `dotnet build -t:Run` command times out waiting for the app to exit. For faster iteration when testing on iOS simulator:
+**iOS Simulator Testing**: Use the validation script for reliable testing on iOS simulator. This script handles app installation, launch, success/crash detection, and timeouts automatically.
 
 ```bash
-# Build the app
+# Full validation workflow (regenerate bindings, rebuild, test)
+dotnet run --project src/Swift.Bindings/src -- \
+  -a "BindingTesting/Nuke/Nuke.xcframework/ios-arm64_x86_64-simulator/Nuke.framework/Modules/Nuke.swiftmodule/arm64-apple-ios-simulator.abi.json" \
+  -d "BindingTesting/Nuke/Nuke.xcframework/ios-arm64_x86_64-simulator/Nuke.framework/Nuke" \
+  -t "BindingTesting/Nuke/output-ios/Nuke.tbd" \
+  -o "BindingTesting/Nuke/output-ios" -l Nuke
+
+# Rebuild Swift wrapper
+cd BindingTesting/Nuke/output-ios && \
+xcrun swiftc -emit-library -target arm64-apple-ios15.0-simulator \
+  -sdk $(xcrun --sdk iphonesimulator --show-sdk-path) \
+  -F ../Nuke.xcframework/ios-arm64_x86_64-simulator/ \
+  -module-name SwiftBindings \
+  -Xlinker -install_name -Xlinker @rpath/SwiftBindings.framework/SwiftBindings \
+  -o SwiftBindings.framework/SwiftBindings Swift.Nuke.swift && cd -
+
+# Build test app
 dotnet build BindingTesting/Nuke/NukeTestApp -c Debug
 
-# Install and launch with 5-second output capture
-xcrun simctl install booted BindingTesting/Nuke/NukeTestApp/bin/Debug/net10.0-ios/iossimulator-arm64/NukeTestApp.app && \
-(xcrun simctl launch --console --terminate-running-process booted com.swiftbindings.nuketestapp 2>&1 &); \
-sleep 5; echo "---DONE---"
+# Run validation (15 second timeout)
+cd BindingTesting/Nuke && ./validate-sim.sh 15
 ```
 
-This captures console output (including crash logs) without waiting for app termination. Adjust `sleep` duration as needed. See `src/docs/nuke-binding-roadmap.md` for more details on framework resolution and known issues.
+The `validate-sim.sh` script:
+- Installs and launches the app on the booted simulator
+- Watches for `TEST SUCCESS` marker (exits early on success)
+- Detects crashes via console output and crash log files
+- Returns exit code 0 on success, 1 on failure/crash/timeout
+- Shows `=== VALIDATION PASSED ===` or `=== CRASH DETECTED ===` / `=== TIMEOUT ===`
+
+**Important**: Always use `./validate-sim.sh` instead of manual `xcrun simctl` commands. The script provides reliable pass/fail detection without arbitrary sleep timers.
 
 ## Architecture Notes
 

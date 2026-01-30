@@ -8,6 +8,17 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration
 {
     /// <summary>
+    /// Wraps a retained Swift class pointer for async operations.
+    /// Used to track self pointers that were explicitly retained via Arc.Retain()
+    /// before calling async Swift methods. Must be released via Arc.Release() after callback.
+    /// </summary>
+    internal readonly struct RetainedSelfPtr
+    {
+        public readonly IntPtr Ptr;
+        public RetainedSelfPtr(IntPtr ptr) => Ptr = ptr;
+    }
+
+    /// <summary>
     /// Factory class for creating instances of ConstructorHandler.
     /// </summary>
     public class ConstructorHandlerFactory : HandlerFactory, IFactory<BaseDecl, IMethodHandler>
@@ -966,6 +977,8 @@ namespace BindingsGeneration
                 return;
 
             bool isEmptyTuple = _env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
+            bool isInstanceMethod = _env.MethodDecl.MethodType != MethodType.Static;
+            bool isSwiftClass = _env.ParentDecl is ClassDecl;
 
             // Identify non-frozen parameters that need to be kept alive until callback
             var nonFrozenParams = _env.MethodDecl.CSSignature
@@ -1006,21 +1019,58 @@ namespace BindingsGeneration
                 // Also keep 'this' alive for instance methods since SwiftSelf doesn't prevent GC
                 var copyBufferList = string.Join(", ", nonFrozenParams.Select(p => $"{p.Name}CopyBuffer"));
                 var originalParamList = string.Join(", ", nonFrozenParams.Select(p => $"(object){p.Name}"));
-                var selfInHolder = (_env.MethodDecl.MethodType != MethodType.Static) ? ", (object)this" : "";
+
+                // For Swift classes, Arc.Retain the self pointer before async call.
+                // SwiftSelf passes a raw pointer - no ARC semantics. By the time Swift's Task{}
+                // closure runs, 'self' may be deallocated. Retain ensures Swift ARC tracks it.
+                string selfInHolder;
+                if (isInstanceMethod && isSwiftClass)
+                {
+                    // For Swift classes, retain self and store a RetainedSelfPtr marker
+                    csWriter.WriteLines($$"""
+            IntPtr _selfPtr = _payload.DangerousGetHandle();
+            Arc.Retain(_selfPtr);
+            """);
+                    selfInHolder = ", new RetainedSelfPtr(_selfPtr), (object)this";
+                }
+                else if (isInstanceMethod)
+                {
+                    // For structs, just keep 'this' alive (no Arc needed)
+                    selfInHolder = ", (object)this";
+                }
+                else
+                {
+                    selfInHolder = "";
+                }
+
                 csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
             object[] _asyncCallHolder = new object[] { task, {{copyBufferList}}, {{originalParamList}}{{selfInHolder}} };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }
-            else if (_env.MethodDecl.MethodType != MethodType.Static)
+            else if (isInstanceMethod)
             {
                 // No non-frozen parameters, but still need to keep 'this' alive for instance methods
-                csWriter.WriteLines($$"""
+                // For Swift classes, also retain self to prevent deallocation during async execution
+                if (isSwiftClass)
+                {
+                    csWriter.WriteLines($$"""
+            TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
+            IntPtr _selfPtr = _payload.DangerousGetHandle();
+            Arc.Retain(_selfPtr);
+            object[] _asyncCallHolder = new object[] { task, new RetainedSelfPtr(_selfPtr), (object)this };
+            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
+            """);
+                }
+                else
+                {
+                    csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
             object[] _asyncCallHolder = new object[] { task, (object)this };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
+                }
             }
             else
             {
@@ -1118,12 +1168,12 @@ namespace BindingsGeneration
 
             var parentTypeName = (_env.ParentDecl as TypeDecl)!.SwiftTypeName;
 
-            // NOTE: Async instance methods have a known issue - 'self' from SwiftSelf doesn't work
-            // correctly in async Task closures. Various retention approaches crash.
-            // For singleton classes, manually edit the generated Swift to use the singleton accessor.
-            // TODO: Investigate proper fix for self handling in async context
-            var isInstanceMethod = _env.MethodDecl.MethodType != MethodType.Static;
-            var selfWarningCode = isInstanceMethod ? "// WARNING: 'self' from SwiftSelf may not work in async context\n            // For singletons, consider using TypeName.shared instead" : "";
+            // For async instance methods on Swift classes, C# calls Arc.Retain on self before
+            // invoking this wrapper, ensuring Swift ARC keeps self alive through the Task closure.
+            // The matching Arc.Release is called in the C# callback after async completion.
+            var selfComment = (isInstanceMethod && isSwiftClass)
+                ? "// self is safe - C# called Arc.Retain before invoking this method"
+                : "";
 
             // Generate the Swift wrapper with proper non-frozen parameter handling
             if (nonFrozenParams.Count > 0)
@@ -1135,7 +1185,7 @@ namespace BindingsGeneration
                     // Read non-frozen parameters via .pointee (bitwise copy)
                     // C# created copies using InitializeWithCopy (owns a proper reference)
                     {{readCode}}
-                    {{selfWarningCode}}
+                    {{selfComment}}
 
                     Task {
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{(_env.MethodDecl.MethodType == MethodType.Static ? $"{parentTypeName.ModuleQualifiedName}." : "")}}{{_env.MethodDecl.Name}}(
@@ -1154,7 +1204,7 @@ namespace BindingsGeneration
             extension {{parentTypeName.ModuleQualifiedName}} {
                 @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{(_env.MethodDecl.MethodType == MethodType.Static ? "static " : "")}} func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
-                    {{selfWarningCode}}
+                    {{selfComment}}
                     Task {
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{(_env.MethodDecl.MethodType == MethodType.Static ? $"{parentTypeName.ModuleQualifiedName}." : "")}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
@@ -1631,12 +1681,17 @@ namespace BindingsGeneration
                                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} holderTcs)
                                 {
-                                    // Free copy buffer memory for non-frozen params
+                                    // Free copy buffer memory for non-frozen params and release retained self
                                     // Note: Original params in holder keep internal storage alive
                                     // TODO: Call Destroy on copy buffers to properly release refs (needs type info)
                                     for (int i = 1; i < holder.Length; i++)
                                     {
-                                        if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            // Release the extra retain added for async safety
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
                                         {
                                             NativeMemory.Free((void*)copyBuffer);
                                         }

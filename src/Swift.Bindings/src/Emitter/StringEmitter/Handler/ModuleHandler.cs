@@ -82,6 +82,21 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            // Emit helper struct for tracking retained self pointers in async operations
+            csWriter.WriteLines("""
+                /// <summary>
+                /// Wraps a retained Swift class pointer for async operations.
+                /// Used to track self pointers that were explicitly retained via Arc.Retain()
+                /// before calling async Swift methods. Must be released via Arc.Release() after callback.
+                /// </summary>
+                internal readonly struct RetainedSelfPtr
+                {
+                    public readonly IntPtr Ptr;
+                    public RetainedSelfPtr(IntPtr ptr) => Ptr = ptr;
+                }
+
+                """);
+
             // Emit top-level methods
             if (moduleDecl.Methods.Any())
             {
