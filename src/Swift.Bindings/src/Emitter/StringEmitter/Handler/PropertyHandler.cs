@@ -72,18 +72,22 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var propertyEnv = (PropertyEnvironment)env;
         var propertyDecl = propertyEnv.PropertyDecl;
 
-        // Skip properties with existential types (any Protocol)
-        // Existential types have complex memory layout and need special handling not yet implemented
-        var existentialHandler = new ExistentialHandler(propertyEnv.TypeDatabase);
-        if (existentialHandler.IsExistential(propertyDecl.SwiftTypeSpec))
+        // Handle existential types (any Protocol) - check if supported (0-8 protocols)
+        bool isExistential = propertyEnv.ExistentialHandler.IsExistential(propertyDecl.SwiftTypeSpec);
+        if (isExistential)
         {
-            _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with existential type. Existential properties not yet supported.");
-            return;
+            var protocolList = propertyEnv.ExistentialHandler.ToProtocolListTypeSpec(propertyDecl.SwiftTypeSpec);
+            if (protocolList == null || !propertyEnv.ExistentialHandler.IsSupportedExistential(protocolList))
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported existential (9+ protocols).");
+                return;
+            }
         }
 
         bool processed = propertyEnv.TypeDatabase.TryGetTypeRecord(propertyDecl.SwiftTypeSpec, out var typeRecord);
 
-        if (!processed)
+        // Only skip if not an existential (existentials don't have type records in the database)
+        if (!processed && !isExistential)
         {
             _logger.LogWarning($"PropertyHandler: Couldn't process property {propertyDecl.Name} of type {propertyDecl.SwiftTypeSpec}. Skipping.");
             return;
@@ -95,11 +99,20 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        var csTypeName = propertyEnv.BoundGenericsHandler.IsBoundGeneric(propertyDecl) switch
+        string csTypeName;
+        if (isExistential)
         {
-            true => propertyEnv.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl),
-            false => typeRecord!.CSharpTypeName.FullyQualifiedName
-        };
+            var protocolList = propertyEnv.ExistentialHandler.ToProtocolListTypeSpec(propertyDecl.SwiftTypeSpec)!;
+            csTypeName = propertyEnv.ExistentialHandler.GetCSharpExistentialType(protocolList);
+        }
+        else if (propertyEnv.BoundGenericsHandler.IsBoundGeneric(propertyDecl))
+        {
+            csTypeName = propertyEnv.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl);
+        }
+        else
+        {
+            csTypeName = typeRecord!.CSharpTypeName.FullyQualifiedName;
+        }
 
         // Skip properties with AnyType - the accessor methods will be skipped due to unsupported types
         if (csTypeName.Contains("AnyType"))

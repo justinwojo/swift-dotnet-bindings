@@ -167,5 +167,10 @@ namespace BindingsGeneration
         /// Type conversion handler instance for automatic .NET type conversions.
         /// </summary>
         public TypeConversionHandler TypeConversionHandler { get; } = new TypeConversionHandler(typeDatabase);
+
+        /// <summary>
+        /// Existential handler instance for handling protocol existential types.
+        /// </summary>
+        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase);
     }
 }

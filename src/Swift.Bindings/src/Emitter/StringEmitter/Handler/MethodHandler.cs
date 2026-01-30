@@ -78,13 +78,6 @@ namespace BindingsGeneration
             var methodEnv = (MethodEnvironment)env;
             var signatureHandler = new SignatureHandler(methodEnv);
 
-            if (methodEnv.MethodDecl.IsGeneric)
-            {
-                // TODO: This should revert writing the entire struct: https://github.com/dotnet/runtimelab/issues/2890
-                _logger.LogWarning($"Constructor {methodEnv.MethodDecl.Name} has unsupported generic parameters");
-                return;
-            }
-
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
             {
                 _logger.LogWarning($"Constructor {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
@@ -983,16 +976,56 @@ namespace BindingsGeneration
         /// <param name="writer">The IndentedTextWriter instance.</param>
         internal void EmitConstructor(CSharpWriter csWriter)
         {
+            bool isGeneric = _env.MethodDecl.IsGeneric;
+            bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
+            bool needsTryFinally = isGeneric || hasClosures;
+
+            // Emit closure callbacks before constructor body (like methods do)
+            if (hasClosures)
+            {
+                EmitClosureCallbacks(csWriter);
+            }
+
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
             EmitSafeHandleAddRef(csWriter);
+
+            // Declare TypeMetadata, payload, and GCHandle variables
+            if (needsTryFinally)
+            {
+                EmitDeclarationsForAllocations(csWriter);
+                EmitTryBlockStart(csWriter);
+            }
+
             EmitSwiftSelf(csWriter);
-            EmitTypeConversions(csWriter);
-            EmitBoundGenericArguments(csWriter);
             EmitIndirectResultConstructor(csWriter);
+
+            // For generic constructors, marshal generic arguments and get witness tables
+            if (isGeneric)
+            {
+                EmitGenericArguments(csWriter);
+            }
+
+            EmitBoundGenericArguments(csWriter);
+            EmitClosureMarshalling(csWriter);
+            EmitTypeConversions(csWriter);
+
+            if (isGeneric)
+            {
+                EmitProtocolWitnessTables(csWriter);
+            }
+
             EmitPInvokeCall(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnConstructor(csWriter);
+
+            // Add cleanup in finally block for generics and closures
+            if (needsTryFinally)
+            {
+                EmitTryBlockEnd(csWriter);
+                EmitFinally(csWriter);
+            }
+
             EmitBodyEnd(csWriter);
         }
 
@@ -1530,8 +1563,17 @@ namespace BindingsGeneration
 
                 if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
-                    ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
-                    ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    // Check if this closure needs indirect return marshalling
+                    if (_env.ClosureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec))
+                    {
+                        ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    }
+                    else
+                    {
+                        ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    }
                     csWriter.WriteLine();
                 }
             }

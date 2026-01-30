@@ -752,6 +752,147 @@ public class ClosureHandlerTests
 
     #endregion
 
+    #region Indirect Return Marshalling Tests
+
+    [Fact]
+    public void RequiresIndirectReturnMarshalling_WithVoidReturn_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+
+        Assert.False(handler.RequiresIndirectReturnMarshalling(closure));
+    }
+
+    [Fact]
+    public void RequiresIndirectReturnMarshalling_WithPrimitiveReturn_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int"));
+
+        Assert.False(handler.RequiresIndirectReturnMarshalling(closure));
+    }
+
+    [Fact]
+    public void RequiresIndirectReturnMarshalling_WithOptionalReturn_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: () -> Optional<Int>
+        var optionalInt = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalInt);
+
+        Assert.True(handler.RequiresIndirectReturnMarshalling(closure));
+    }
+
+    [Fact]
+    public void RequiresIndirectReturnMarshalling_WithResultReturn_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: () -> Result<Int, Error>
+        var resultType = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Error"));
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, resultType);
+
+        Assert.True(handler.RequiresIndirectReturnMarshalling(closure));
+    }
+
+    [Fact]
+    public void RequiresIndirectReturnMarshalling_WithArrayReturn_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: () -> Array<Int>
+        var arrayType = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, arrayType);
+
+        Assert.True(handler.RequiresIndirectReturnMarshalling(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithOptionalReturn_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int) -> Optional<Bool> - should now be supported via indirect return
+        var optionalBool = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Bool"));
+        var closure = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), optionalBool);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithResultReturn_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: () -> Result<Int, Error> - should now be supported via indirect return
+        var resultType = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Error"));
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, resultType);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void GetPInvokeFunctionPointerTypeWithIndirectReturn_ReturnsCorrectType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int) -> Optional<Bool>
+        var optionalBool = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Bool"));
+        var closure = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), optionalBool);
+
+        var result = handler.GetPInvokeFunctionPointerTypeWithIndirectReturn(closure);
+
+        // Indirect return: void* first, then args, then void return
+        Assert.Equal("delegate* unmanaged[Swift]<void*, System.Int64, void>", result);
+    }
+
+    [Fact]
+    public void GetPInvokeFunctionPointerTypeWithIndirectReturn_NoArgs_ReturnsCorrectType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: () -> Optional<Int>
+        var optionalInt = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalInt);
+
+        var result = handler.GetPInvokeFunctionPointerTypeWithIndirectReturn(closure);
+
+        Assert.Equal("delegate* unmanaged[Swift]<void*, void>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_WithOptionalReturn_ReturnsCorrectType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: () -> Optional<Int>
+        var optionalInt = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalInt);
+
+        var result = handler.GetCSharpDelegateType(closure);
+
+        Assert.Equal("Func<Swift.SwiftOptional<System.Int64>>", result);
+    }
+
+    #endregion
+
     #region Mock Type Database
 
     private class MockTypeDatabase : ITypeDatabase

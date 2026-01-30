@@ -119,10 +119,38 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Determines if a closure return type requires indirect return marshalling.
+    /// Indirect return is needed for non-blittable types that cannot be returned
+    /// directly from [UnmanagedCallersOnly] callbacks.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>True if the closure return type requires indirect marshalling.</returns>
+    public bool RequiresIndirectReturnMarshalling(ClosureTypeSpec closureTypeSpec)
+    {
+        if (closureTypeSpec.ReturnType.IsEmptyTuple)
+            return false;
+
+        if (closureTypeSpec.ReturnType is NamedTypeSpec namedType)
+        {
+            // Bound generic return types require indirect marshalling
+            if (namedType.ContainsGenericParameters)
+                return true;
+
+            // Check if type requires memory management
+            var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
+            {
+                if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a return type is supported for closure callbacks.
-    /// Only primitive/blittable return types are currently supported.
-    /// Complex types (bound generics, types requiring memory management) need
-    /// native buffer allocation and marshalling which isn't implemented yet.
+    /// Now supports bound generic return types via indirect return marshalling.
     /// </summary>
     private bool IsSupportedClosureReturnType(TypeSpec typeSpec)
     {
@@ -132,17 +160,29 @@ public class ClosureHandler
             if (IsPointerType(namedType))
                 return true;
 
-            // Bound generic return types not yet supported (need complex marshalling)
+            // Bound generic return types are now supported via indirect return marshalling
             if (namedType.ContainsGenericParameters)
-                return false;
-
-            // Check if type requires memory management (not blittable)
-            var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-            if (_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
             {
-                // Types requiring memory management need complex return marshalling
-                if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
+                // Check that the base type is in the database
+                var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out _))
                     return false;
+
+                // Recursively check all generic parameters are supported
+                foreach (var genericParam in namedType.GenericParameters)
+                {
+                    if (!IsSupportedClosureParameterType(genericParam))
+                        return false;
+                }
+                return true;
+            }
+
+            // Check if type requires memory management - now supported via indirect return
+            var baseType = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (_typeDatabase.TryGetTypeRecord(baseType, out var typeRecord))
+            {
+                // Types requiring memory management are now supported via indirect return
+                // They just need to be in the database
             }
 
             return true;
@@ -288,6 +328,24 @@ public class ClosureHandler
             return $"delegate* unmanaged[Swift]<{returnType}>";
 
         return $"delegate* unmanaged[Swift]<{string.Join(", ", argTypes)}, {returnType}>";
+    }
+
+    /// <summary>
+    /// Gets the P/Invoke function pointer type for a closure callback that uses indirect return.
+    /// The indirect result pointer is passed as the first parameter (void*), and the callback returns void.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>The unmanaged function pointer type string with indirect return.</returns>
+    public string GetPInvokeFunctionPointerTypeWithIndirectReturn(ClosureTypeSpec closureTypeSpec)
+    {
+        var argTypes = new List<string> { "void*" }; // indirectResult first
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            argTypes.Add(TranslateTypeSpecToPInvokeType(arg));
+        }
+
+        // Use Swift calling convention, return type is always void with indirect return
+        return $"delegate* unmanaged[Swift]<{string.Join(", ", argTypes)}, void>";
     }
 
     /// <summary>
