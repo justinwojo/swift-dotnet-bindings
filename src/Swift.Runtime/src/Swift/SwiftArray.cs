@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -22,7 +23,7 @@ public interface ISwiftCollection { }
 /// Represents a Swift array.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the array.</typeparam>
-public class SwiftArray<Element> : ISwiftObject
+public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDisposable
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata().Size;
 
@@ -240,6 +241,49 @@ public class SwiftArray<Element> : ISwiftObject
             SwiftMarshal.MarshalToSwift(value, ref span);
             SwiftArrayPInvokes.Set(payload, index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
         }
+    }
+
+    /// <summary>
+    /// Returns an enumerator that iterates through the array.
+    /// </summary>
+    public IEnumerator<Element> GetEnumerator()
+    {
+        int count = Count;
+        for (int i = 0; i < count; i++)
+        {
+            yield return this[i];
+        }
+    }
+
+    /// <summary>
+    /// Returns an enumerator that iterates through the array.
+    /// </summary>
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    /// <summary>
+    /// Creates a new SwiftArray from an IEnumerable source.
+    /// </summary>
+    /// <param name="source">The source enumerable to copy elements from.</param>
+    /// <returns>A new SwiftArray containing the elements from the source.</returns>
+    public static SwiftArray<Element> FromEnumerable(IEnumerable<Element> source)
+    {
+        if (source == null)
+            throw new ArgumentNullException(nameof(source));
+
+        var array = new SwiftArray<Element>();
+        foreach (var item in source)
+        {
+            array.Append(item);
+        }
+        return array;
+    }
+
+    /// <summary>
+    /// Releases the resources used by the SwiftArray.
+    /// </summary>
+    public void Dispose()
+    {
+        _payload?.Dispose();
     }
 }
 

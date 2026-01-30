@@ -247,6 +247,21 @@ namespace BindingsGeneration
         {
             var argument = _env.MethodDecl.CSSignature.First();
 
+            // Check for automatic .NET type conversion FIRST (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
+            // Skip for property accessors to avoid type mismatch with property declaration
+            if (!_env.MethodDecl.IsAccessor)
+            {
+                var idiomaticType = _env.TypeConversionHandler.GetIdiomaticCSharpType(
+                    argument.SwiftTypeSpec,
+                    isParameter: false,
+                    typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                if (idiomaticType != null)
+                {
+                    SetReturnType(idiomaticType);
+                    return;
+                }
+            }
+
             if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
             {
                 var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument);
@@ -305,6 +320,21 @@ namespace BindingsGeneration
         {
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
             {
+                // Check for automatic .NET type conversion FIRST (SwiftString -> string, SwiftArray -> IEnumerable, etc.)
+                // Skip for property accessors to avoid type mismatch with property declaration
+                if (!_env.MethodDecl.IsAccessor)
+                {
+                    var idiomaticType = _env.TypeConversionHandler.GetIdiomaticCSharpType(
+                        argument.SwiftTypeSpec,
+                        isParameter: true,
+                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                    if (idiomaticType != null)
+                    {
+                        AddParameter(idiomaticType, argument.Name);
+                        continue;
+                    }
+                }
+
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
                 {
                     var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument);
@@ -386,6 +416,36 @@ namespace BindingsGeneration
         private void AddParameter(string type, string name)
         {
             _parameters.Add(new Parameter(type, name));
+        }
+
+        /// <summary>
+        /// Translates a TypeSpec to C# type name for use in type conversion handlers.
+        /// Handles generic types by translating their type parameters.
+        /// </summary>
+        private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
+        {
+            if (typeSpec is NamedTypeSpec namedTypeSpec)
+            {
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
+
+                // If the type falls back to AnyType, don't append generic parameters
+                if (typeRecord == TypeDatabaseExtensions.AnyType)
+                {
+                    return typeRecord.CSharpTypeName.FullyQualifiedName;
+                }
+
+                // Handle generic parameters
+                if (namedTypeSpec.GenericParameters.Count > 0)
+                {
+                    var translatedParams = namedTypeSpec.GenericParameters
+                        .Select(p => TranslateTypeSpecForConversion(p))
+                        .ToList();
+                    return $"{typeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>";
+                }
+
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+            }
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
     }
 
@@ -863,6 +923,7 @@ namespace BindingsGeneration
             EmitBodyStart(csWriter);
             EmitSafeHandleAddRef(csWriter);
             EmitSwiftSelf(csWriter);
+            EmitTypeConversions(csWriter);
             EmitBoundGenericArguments(csWriter);
             EmitIndirectResultConstructor(csWriter);
             EmitPInvokeCall(csWriter);
@@ -894,6 +955,7 @@ namespace BindingsGeneration
             EmitGenericArguments(csWriter);
             EmitBoundGenericArguments(csWriter);
             EmitClosureMarshalling(csWriter);
+            EmitTypeConversions(csWriter);
             EmitProtocolWitnessTables(csWriter);
             EmitPInvokeCall(csWriter);
             EmitSwiftError(csWriter);
@@ -1261,11 +1323,17 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits bound generic argument marshalling.
+        /// Skips arguments that have type conversion (those are handled by EmitTypeConversions).
         /// </summary>
         private void EmitBoundGenericArguments(CSharpWriter csWriter)
         {
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.BoundGenericsHandler.IsBoundGeneric))
             {
+                // Skip if this argument uses type conversion (already handled in EmitTypeConversions)
+                // But for property accessors, type conversion is disabled so don't skip
+                if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(argumentDecl.SwiftTypeSpec))
+                    continue;
+
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
                 {
                     var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
@@ -1309,6 +1377,83 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits type conversions for parameters that use idiomatic .NET types.
+        /// Converts string -> SwiftString, IEnumerable&lt;T&gt; -> SwiftArray&lt;T&gt;, T? -> SwiftOptional&lt;T&gt;.
+        /// Also handles payload buffer creation for bound generic types that have been type-converted.
+        /// </summary>
+        private void EmitTypeConversions(CSharpWriter csWriter)
+        {
+            // Skip type conversions for property accessors
+            if (_env.MethodDecl.IsAccessor)
+                return;
+
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (_env.TypeConversionHandler.IsSwiftString(argumentDecl.SwiftTypeSpec))
+                {
+                    // string -> SwiftString (using pattern for automatic disposal)
+                    csWriter.WriteLine($"using var {argumentDecl.Name}Swift = new SwiftString({argumentDecl.Name});");
+                    csWriter.WriteLine($"using PayloadBuffer<SwiftString.Buffer> {argumentDecl.Name}Disposable = {argumentDecl.Name}Swift.PayloadBuffer;");
+                }
+                else if (_env.TypeConversionHandler.IsSwiftArray(argumentDecl.SwiftTypeSpec))
+                {
+                    // IEnumerable<T> -> SwiftArray<T>
+                    var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
+                        argumentDecl.SwiftTypeSpec,
+                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                    csWriter.WriteLine($"using var {argumentDecl.Name}Swift = {swiftType}.FromEnumerable({argumentDecl.Name});");
+                    // Create payload buffer for P/Invoke (same as bound generic handling)
+                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}Swift.PayloadBuffer;");
+                    var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
+                    csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                }
+                else if (_env.TypeConversionHandler.IsSwiftOptional(argumentDecl.SwiftTypeSpec))
+                {
+                    // T? -> SwiftOptional<T>
+                    // Use pattern matching which works for both nullable value types and reference types
+                    var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
+                        argumentDecl.SwiftTypeSpec,
+                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                    csWriter.WriteLine($"using var {argumentDecl.Name}Swift = {argumentDecl.Name} is {{}} {argumentDecl.Name}Value ? {swiftType}.NewSome({argumentDecl.Name}Value) : {swiftType}.NewNone();");
+                    // Create payload buffer for P/Invoke (same as bound generic handling)
+                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}Swift.PayloadBuffer;");
+                    var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
+                    csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Translates a TypeSpec to C# type name for use in type conversion handlers.
+        /// Handles generic types by translating their type parameters.
+        /// </summary>
+        private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
+        {
+            if (typeSpec is NamedTypeSpec namedTypeSpec)
+            {
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
+
+                // If the type falls back to AnyType, don't append generic parameters
+                if (typeRecord == TypeDatabaseExtensions.AnyType)
+                {
+                    return typeRecord.CSharpTypeName.FullyQualifiedName;
+                }
+
+                // Handle generic parameters
+                if (namedTypeSpec.GenericParameters.Count > 0)
+                {
+                    var translatedParams = namedTypeSpec.GenericParameters
+                        .Select(p => TranslateTypeSpecForConversion(p))
+                        .ToList();
+                    return $"{typeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>";
+                }
+
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+            }
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
         /// Emits callback functions and pointers for escaping closures.
         /// </summary>
         private void EmitClosureCallbacks(CSharpWriter csWriter)
@@ -1349,7 +1494,8 @@ namespace BindingsGeneration
                 }
             }
 
-            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a)))
+            // For property accessors, don't skip convertible types since type conversion is not applied
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a) && (_env.MethodDecl.IsAccessor || !_env.TypeConversionHandler.IsConvertibleType(a.SwiftTypeSpec))))
             {
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
 
@@ -1537,7 +1683,21 @@ namespace BindingsGeneration
             // This handles failable initializers (init?) that return SwiftOptional via indirect result.
             if (_requiresIndirectResult)
             {
+                // Handle type conversion for indirect result
+                if (_env.TypeConversionHandler.IsConvertibleType(returnArg.SwiftTypeSpec))
+                {
+                    EmitTypeConvertedIndirectReturn(csWriter, returnArg);
+                    return;
+                }
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(new IntPtr(swiftIndirectResult.Value));");
+                return;
+            }
+
+            // Handle type conversion for return values FIRST
+            // Skip for property accessors to avoid type mismatch with property declaration
+            if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(returnArg.SwiftTypeSpec))
+            {
+                EmitTypeConvertedReturn(csWriter, returnArg);
                 return;
             }
 
@@ -1588,6 +1748,73 @@ namespace BindingsGeneration
             }
 
             csWriter.WriteLine("return result;");
+        }
+
+        /// <summary>
+        /// Emits return handling for type-converted return values.
+        /// Converts Swift types (SwiftString, SwiftArray, SwiftOptional) to idiomatic .NET types.
+        /// </summary>
+        private void EmitTypeConvertedReturn(CSharpWriter csWriter, ArgumentDecl returnArg)
+        {
+            if (_env.TypeConversionHandler.IsSwiftString(returnArg.SwiftTypeSpec))
+            {
+                // SwiftString.Buffer -> string
+                // Marshal from buffer to SwiftString, then convert to string
+                csWriter.WriteLines($$"""
+                    unsafe {
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
+                        return swiftResult.ToString();
+                    }
+                    """);
+            }
+            else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
+            {
+                // SwiftArray<T> -> IReadOnlyList<T>
+                // SwiftArray already implements IReadOnlyList, so marshal and return directly
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg);
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(&result));");
+            }
+            else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
+            {
+                // SwiftOptional<T> -> T?
+                // Marshal to SwiftOptional, then convert to nullable
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg);
+                csWriter.WriteLines($$"""
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
+                    return swiftResult.ToNullable();
+                    """);
+            }
+        }
+
+        /// <summary>
+        /// Emits return handling for type-converted return values via indirect result.
+        /// Converts Swift types (SwiftString, SwiftArray, SwiftOptional) to idiomatic .NET types.
+        /// </summary>
+        private void EmitTypeConvertedIndirectReturn(CSharpWriter csWriter, ArgumentDecl returnArg)
+        {
+            if (_env.TypeConversionHandler.IsSwiftString(returnArg.SwiftTypeSpec))
+            {
+                // SwiftString -> string via indirect result
+                csWriter.WriteLines($$"""
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(swiftIndirectResult.Value));
+                    return swiftResult.ToString();
+                    """);
+            }
+            else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
+            {
+                // SwiftArray<T> -> IReadOnlyList<T> via indirect result
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg);
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(swiftIndirectResult.Value));");
+            }
+            else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
+            {
+                // SwiftOptional<T> -> T? via indirect result
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg);
+                csWriter.WriteLines($$"""
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(swiftIndirectResult.Value));
+                    return swiftResult.ToNullable();
+                    """);
+            }
         }
 
         /// <summary>

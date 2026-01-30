@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Reflection;
@@ -6,6 +7,9 @@ using System.Runtime.InteropServices;
 using Swift;
 using Swift.Runtime;
 using Xunit;
+
+// Disable xUnit collection size analyzer - we're testing Count property directly
+#pragma warning disable xUnit2013
 
 namespace BindingsGeneration.Tests;
 

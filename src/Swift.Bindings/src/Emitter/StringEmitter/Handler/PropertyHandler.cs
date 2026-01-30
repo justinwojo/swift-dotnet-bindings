@@ -135,6 +135,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         {
             if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
             {
+                // Mark the method as an accessor to prevent type conversions
+                // Type conversions would cause a mismatch between property type and accessor return/param types
+                accessor.Method.IsAccessor = true;
                 var accessorEnv = methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
                 methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor);
             }

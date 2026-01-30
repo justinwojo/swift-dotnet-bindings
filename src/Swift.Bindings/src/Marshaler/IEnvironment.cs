@@ -106,6 +106,11 @@ namespace BindingsGeneration
         public TupleHandler TupleHandler { get; } = new TupleHandler(typeDatabase);
 
         /// <summary>
+        /// Type conversion handler instance for automatic .NET type conversions.
+        /// </summary>
+        public TypeConversionHandler TypeConversionHandler { get; } = new TypeConversionHandler(typeDatabase);
+
+        /// <summary>
         /// Gets the set of property names in the same parent type.
         /// Used to detect and resolve method/property name collisions.
         /// </summary>
@@ -146,5 +151,10 @@ namespace BindingsGeneration
         /// Tuple handler instance.
         /// </summary>
         public TupleHandler TupleHandler { get; } = new TupleHandler(typeDatabase);
+
+        /// <summary>
+        /// Type conversion handler instance for automatic .NET type conversions.
+        /// </summary>
+        public TypeConversionHandler TypeConversionHandler { get; } = new TypeConversionHandler(typeDatabase);
     }
 }

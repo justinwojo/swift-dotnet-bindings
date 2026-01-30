@@ -20,7 +20,7 @@ public enum SwiftOptionalCases : uint
 /// <summary>
 /// Represents a Swift Optional type
 /// </summary>
-public class SwiftOptional<T> : ISwiftObject
+public class SwiftOptional<T> : ISwiftObject, IDisposable
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata().Size;
 
@@ -237,6 +237,55 @@ public class SwiftOptional<T> : ISwiftObject
     /// Returns true if the case is Some
     /// </summary>
     public bool HasValue => Case == SwiftOptionalCases.Some;
+
+    /// <summary>
+    /// Creates a SwiftOptional from a nullable value.
+    /// Returns None if the value is null, otherwise returns Some with the value.
+    /// </summary>
+    /// <param name="value">The nullable value to convert.</param>
+    /// <returns>A SwiftOptional representing the nullable value.</returns>
+    public static SwiftOptional<T> FromNullable(T? value)
+    {
+        if (value == null)
+            return NewNone();
+        return NewSome(value);
+    }
+
+    /// <summary>
+    /// Converts the SwiftOptional to a nullable value.
+    /// Returns null if the case is None, otherwise returns the unwrapped value.
+    /// </summary>
+    /// <returns>The nullable value representation.</returns>
+    public T? ToNullable()
+    {
+        return Case == SwiftOptionalCases.Some ? Some : default;
+    }
+
+    /// <summary>
+    /// Implicitly converts a SwiftOptional to a nullable value.
+    /// </summary>
+    public static implicit operator T?(SwiftOptional<T> optional)
+    {
+        if (optional == null)
+            return default;
+        return optional.ToNullable();
+    }
+
+    /// <summary>
+    /// Implicitly converts a nullable value to a SwiftOptional.
+    /// </summary>
+    public static implicit operator SwiftOptional<T>(T? value)
+    {
+        return FromNullable(value);
+    }
+
+    /// <summary>
+    /// Releases the resources used by the SwiftOptional.
+    /// </summary>
+    public void Dispose()
+    {
+        _payload?.Dispose();
+    }
 }
 
 internal static class PInvokesForSwiftOptional

@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -17,7 +18,7 @@ namespace Swift;
 /// <summary>
 /// Represents a Swift string with Foundation.Data payload.
 /// </summary>
-public class SwiftString : ISwiftObject
+public class SwiftString : ISwiftObject, IDisposable
 {
     private static nuint _payloadSize = SwiftObjectHelper<SwiftString>.GetTypeMetadata().Size;
 
@@ -189,6 +190,34 @@ public class SwiftString : ISwiftObject
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$ss15ContiguousArrayV15withUnsafeBytesyqd__qd__SWKXEKlF")]
     public static extern unsafe IntPtr PInvoke_WithUnsafeBytes(delegate* unmanaged[Swift]<byte*, SwiftSelf, IntPtr> callback, void* context, IntPtr contiguousArray, TypeMetadata elementType, TypeMetadata resultType);
+
+    /// <summary>
+    /// Implicitly converts a C# string to a SwiftString.
+    /// </summary>
+    public static implicit operator SwiftString(string value)
+    {
+        if (value == null)
+            throw new ArgumentNullException(nameof(value));
+        return new SwiftString(value);
+    }
+
+    /// <summary>
+    /// Implicitly converts a SwiftString to a C# string.
+    /// </summary>
+    public static implicit operator string(SwiftString value)
+    {
+        if (value == null)
+            throw new ArgumentNullException(nameof(value));
+        return value.ToString();
+    }
+
+    /// <summary>
+    /// Releases the resources used by the SwiftString.
+    /// </summary>
+    public void Dispose()
+    {
+        _payload?.Dispose();
+    }
 
     private struct ToStringCallbackContext
     {

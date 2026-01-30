@@ -52,6 +52,12 @@ namespace BindingsGeneration
         /// Gets or sets the visibility of the method.
         /// </summary>
         public required Visibility Visibility { get; set; } = Visibility.Public;
+
+        /// <summary>
+        /// Indicates if this method is a property accessor (getter or setter).
+        /// When true, automatic type conversions should not be applied.
+        /// </summary>
+        public bool IsAccessor { get; set; } = false;
     }
 
     /// <summary>
