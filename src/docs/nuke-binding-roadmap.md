@@ -43,8 +43,9 @@ Initial binding generation revealed these gap categories:
 - ~10 properties with unsupported types (skipped) - reduced from 24
 - Enum cases with associated values may have unsupported parameter types
 - ~~Methods with unsupported closure parameter types (e.g., closures with `Result<T,E>` parameters)~~ FIXED (3.3)
-- Closures that *return* bound generic types (e.g., `Func<T, SwiftOptional<U>>`) are not yet supported
-- Properties with existential types are skipped (existential properties not yet supported)
+- ~~Closures that *return* bound generic types (e.g., `Func<T, SwiftOptional<U>>`)~~ FIXED (3.3.1)
+- ~~Properties with existential types are skipped~~ FIXED (3.1.1)
+- ~~Generic constructors skipped~~ FIXED (3.4)
 - **ObjC types use `Swift.*` wrappers instead of existing .NET iOS bindings** (see 2.8) - Major UX issue
 
 **Fixed issues**:
@@ -56,6 +57,9 @@ Initial binding generation revealed these gap categories:
 - ~~3 naming collision errors~~ FIXED (Phase 2.2.1)
 - ~~Methods with existential parameters skipped~~ FIXED (Phase 3.1) - Now generate `ExistentialContainer{N}` types
 - ~~Closures with bound generic parameters (Result<T,E>, Array<T>, etc.) skipped~~ FIXED (Phase 3.3) - Now properly marshal to C# delegates
+- ~~Closures returning bound generics (SwiftOptional<T>, SwiftResult<S,E>) skipped~~ FIXED (Phase 3.3.1) - Now use indirect return marshalling
+- ~~Properties with existential types skipped~~ FIXED (Phase 3.1.1) - Now generate `ExistentialContainer{N}` types
+- ~~Generic constructors skipped~~ FIXED (Phase 3.4) - Now use same infrastructure as generic methods
 
 ---
 
@@ -481,11 +485,37 @@ private static extern void PInvoke_init(SwiftIndirectResult swiftIndirectResult,
 ```
 
 **Remaining work**:
-- Properties with existential types (currently skipped)
+- ~~Properties with existential types (currently skipped)~~ FIXED (3.1.1)
 - Existentials inside closures (`(any Protocol) -> Void`)
 - Existentials inside tuples (`(Int, any Protocol)`)
 - Helper methods for constructing `ExistentialContainer{N}` from C# objects
 - Protocol witness table lookup at runtime
+
+### 3.1.1 Existential Properties
+**Status**: IMPLEMENTED (January 2026)
+
+**Problem**: Properties with existential types (`any Protocol`) were completely skipped.
+
+**Solution**: Extended the existential handling from methods to properties:
+1. Added `ExistentialHandler` to `PropertyEnvironment`
+2. Updated `PropertyHandler` to allow supported existentials (0-8 protocols) through
+3. Generate correct C# type name (`ExistentialContainer1`, `ExistentialContainer2`, etc.)
+4. Skip unsupported existentials (9+ protocols) with warning
+
+**Generated code example**:
+```csharp
+public Swift.Runtime.ExistentialContainer1 DataLoader
+{
+    get => DataLoader_Get();
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/IEnvironment.cs` - Added `ExistentialHandler` to `PropertyEnvironment`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs` - Existential type handling
+
+**Tests added**:
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/PropertyHandlerTests.cs` - 8 new tests for existential properties
 
 **Note**: Many "unsupported signature" warnings in Nuke are due to **unsupported closure types** (closures with `Result<T,E>` parameters), not existential types. The closure handler needs to be extended to support more complex closure signatures.
 
@@ -552,17 +582,89 @@ private static void loadImage_completion_06E6974D_Callback(void* arg0, SwiftSelf
 - `src/Swift.Bindings/tests/UnitTests/MarshalerTests/ClosureHandlerTests.cs` - 11 new tests (402 total)
 
 **Current limitations**:
-- Closures *returning* bound generic types (e.g., `Func<T, SwiftOptional<U>>`) are excluded
-- Return value marshalling requires native buffer allocation which isn't implemented yet
+- ~~Closures *returning* bound generic types (e.g., `Func<T, SwiftOptional<U>>`) are excluded~~ FIXED (3.3.1)
 - `SwiftResult<T,E>` has `IsSuccess`/`IsFailure` properties but value extraction not yet implemented
 
-### 3.4 Generic Methods
-**Status**: Limited
+### 3.3.1 Closure Bound Generic Returns
+**Status**: IMPLEMENTED (January 2026)
 
-Methods with generic type parameters are often skipped:
+**Problem**: Closures returning bound generic types (like `SwiftOptional<T>`, `SwiftResult<S,E>`) were excluded because `[UnmanagedCallersOnly]` callbacks require blittable return types.
+
+**Solution**: Implemented indirect return pattern where the callback receives a buffer pointer and marshals the result into it:
+1. Added `RequiresIndirectReturnMarshalling()` to detect closures needing indirect return
+2. Added `GetPInvokeFunctionPointerTypeWithIndirectReturn()` for modified function pointer signature
+3. Added `EmitIndirectReturnCallback()` to generate callbacks that marshal to buffer
+4. Updated `IsSupportedClosureReturnType()` to allow bound generics via indirect return
+
+**Generated code example**:
+```csharp
+// Closure: (UIImage) -> SwiftOptional<UIImage>
+[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
+private static void Anonymous_arg1_Callback(void* indirectResult, void* arg0, SwiftSelf context)
+{
+    var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<UIImage, SwiftOptional<UIImage>>>(new IntPtr(context.Value));
+    var result = del(SwiftMarshal.MarshalFromSwift<UIImage>(new IntPtr(arg0)));
+
+    var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<UIImage>>();
+    var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+    SwiftMarshal.MarshalToSwift(result, ref resultSpan);
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` - Indirect return detection and function pointer types
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ClosureEmitter.cs` - Indirect return callback emission
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Route to indirect return emission
+
+**Tests added**:
+- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/ClosureHandlerTests.cs` - 12 new tests for indirect return
+
+### 3.4 Generic Constructors
+**Status**: IMPLEMENTED (January 2026)
+
+**Problem**: Generic constructors were explicitly skipped with TODO referencing issue #2890:
 ```
 Constructor init has unsupported generic parameters
 ```
+
+**Key Insight**: Generic static methods already work! The infrastructure for TypeMetadata retrieval, payload marshalling, protocol witness tables, and try/finally cleanup was already in place for `EmitMethod`. It just needed to be applied to `EmitConstructor`.
+
+**Solution**: Updated `WrapperEmitter.EmitConstructor()` to include generic handling:
+1. Detect if constructor has generic parameters or closure parameters
+2. Call `EmitClosureCallbacks()` to emit callback functions for closures
+3. Call `EmitDeclarationsForAllocations()` to declare TypeMetadata and payload variables
+4. Wrap in try/finally block for proper cleanup
+5. Call `EmitGenericArguments()` to marshal generic params via stackalloc
+6. Call `EmitProtocolWitnessTables()` to retrieve witness tables
+7. Call `EmitFinally()` for cleanup
+
+**Generated code example**:
+```csharp
+public unsafe GenericBox<T>(T value)
+{
+    TypeMetadata TMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+    IntPtr valuePayload = IntPtr.Zero;
+    try
+    {
+        Span<byte> valuePayloadSpan = stackalloc byte[(int)TMetadata.Size];
+        valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valuePayloadSpan));
+        SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);
+
+        var TProtocolWitnessTable = ProtocolWitnessTable.GetOrThrow<T, IEquatable>();
+
+        PInvoke_init(swiftIndirectResult, valuePayload, TMetadata, TProtocolWitnessTable);
+    }
+    finally
+    {
+        // cleanup
+    }
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Removed skip logic, added generic infrastructure to EmitConstructor
+
+**Also fixed**: Closures passed to constructors now properly emit callback functions and marshalling code (previously only methods handled closures).
 
 ### 3.5 Dictionary with Custom Keys
 **Status**: TODO
@@ -685,6 +787,10 @@ Bindings still generate, but conformance information is incomplete.
 | `pipeline.image(request)` | PASS | Fixed defer cleanup issue |
 | Swift wrapper imports | PASS | Generator now emits imports automatically |
 | Closure bound generic params | PASS | `loadImage(completion:)` generates with `Action<SwiftResult<...>>` (2026-01-30) |
+| Closure bound generic returns | PASS | Closures returning `SwiftOptional<T>` use indirect return marshalling (2026-01-30) |
+| Existential properties | PASS | Properties with `any Protocol` generate `ExistentialContainer{N}` (2026-01-30) |
+| Generic constructors | PASS | Constructors with generic params use TypeMetadata/witness tables (2026-01-30) |
+| Closures in constructors | PASS | Constructors with closure params emit callbacks and marshalling (2026-01-30) |
 
 ---
 
@@ -821,8 +927,9 @@ var image = response.Image; // UIImage
 - [x] **ObjC/Swift type strategy complete** - ObjC classes (UIImage, etc.) map to .NET iOS types; Swift structs (URL, Data) intentionally kept as Swift.* wrappers (see 2.8)
 - [x] **Existential parameters** - Methods with `any Protocol` parameters now generate valid `ExistentialContainer{N}` types (2026-01-30)
 - [x] **Closure bound generic parameters** - Closures accepting `Result<T,E>`, `Array<T>`, `Optional<T>`, etc. now generate valid C# code (2026-01-30)
-- [ ] Closure bound generic returns - Closures returning bound generics need return value marshalling
-- [ ] Existential properties (currently skipped, need type matching between property and accessors)
+- [x] **Closure bound generic returns** - Closures returning `SwiftOptional<T>`, `SwiftResult<S,E>`, etc. now use indirect return marshalling (2026-01-30)
+- [x] **Existential properties** - Properties with `any Protocol` types now generate `ExistentialContainer{N}` types (2026-01-30)
+- [x] **Generic constructors** - Constructors with generic parameters now work using same infrastructure as methods (2026-01-30)
 - [ ] Existentials in closures/tuples
 - [x] Runtime testing of async methods on iOS simulator - VERIFIED (2026-01-30)
 
@@ -1122,7 +1229,8 @@ The `self` parameter passed from C# via SwiftSelf doesn't work correctly in asyn
 
 ## Related Issues
 
-- [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters implemented (2026-01-30)
+- [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters & properties implemented (2026-01-30)
 - [#2996 - Async Properties](https://github.com/dotnet/runtimelab/issues/2996)
 - [#2873 - Tuple Support](https://github.com/dotnet/runtimelab/issues/2873) - Implemented
-- [#2874 - Closure Support](https://github.com/dotnet/runtimelab/issues/2874) - Implemented; Bound generic parameters added (2026-01-30)
+- [#2874 - Closure Support](https://github.com/dotnet/runtimelab/issues/2874) - Implemented; Bound generic params & returns added (2026-01-30)
+- [#2890 - Generic Constructors](https://github.com/dotnet/runtimelab/issues/2890) - Implemented (2026-01-30)
