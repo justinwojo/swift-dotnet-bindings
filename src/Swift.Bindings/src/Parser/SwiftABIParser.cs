@@ -235,6 +235,9 @@ namespace BindingsGeneration
                         else
                             result = CreatePropertyDecl(node, parentDecl, moduleDecl);
                         break;
+                    case "Subscript":
+                        result = CreateSubscriptDecl(node, parentDecl, moduleDecl);
+                        break;
                     case "Import":
                         break;
                     default:
@@ -313,6 +316,7 @@ namespace BindingsGeneration
                 decl.Methods.AddRange(childDecls.OfType<MethodDecl>());
                 decl.Types.AddRange(childDecls.OfType<TypeDecl>());
                 decl.Operators.AddRange(childDecls.OfType<OperatorDecl>());
+                decl.Subscripts.AddRange(childDecls.OfType<SubscriptDecl>());
                 decl.GenericParameters = genericParameters;
 
                 // Collect enum cases if this is an EnumDecl
@@ -788,6 +792,230 @@ namespace BindingsGeneration
                 HasStorage = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "HasStorage") != -1,
                 Accessors = HandleAccessors(node.Accessors, node.Name, parentDecl, moduleDecl)
             };
+        }
+
+        /// <summary>
+        /// Creates a subscript declaration from a node.
+        /// Subscripts have children where:
+        /// - Child[0] is the return type
+        /// - Child[1..n] are the index parameters
+        /// </summary>
+        /// <param name="node">The node representing the subscript declaration.</param>
+        /// <param name="parentDecl">The parent declaration.</param>
+        /// <param name="moduleDecl">The module declaration.</param>
+        /// <returns>The subscript declaration.</returns>
+        private SubscriptDecl CreateSubscriptDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        {
+            var children = node.Children.ToList();
+            if (children.Count < 2)
+            {
+                throw new InvalidOperationException($"Subscript '{node.Name}' has insufficient children (expected at least 2).");
+            }
+
+            // First child is the return type
+            var returnTypeSpec = CreateTypeSpec(children[0]);
+
+            // Remaining children are index parameters
+            var indexParameters = new List<ArgumentDecl>();
+            var paramNames = ExtractSubscriptParameterNames(node.PrintedName);
+
+            for (int i = 1; i < children.Count; i++)
+            {
+                var paramName = i - 1 < paramNames.Count ? paramNames[i - 1] : $"index{i - 1}";
+                indexParameters.Add(new ArgumentDecl
+                {
+                    SwiftTypeSpec = CreateTypeSpec(children[i]),
+                    Name = paramName,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                });
+            }
+
+            return new SubscriptDecl
+            {
+                Name = "subscript",
+                MangledName = node.MangledName,
+                ReturnTypeSpec = returnTypeSpec,
+                IndexParameters = indexParameters,
+                IsStatic = node.@static ?? false,
+                Accessors = HandleSubscriptAccessors(node.Accessors, indexParameters, returnTypeSpec, parentDecl, moduleDecl),
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            };
+        }
+
+        /// <summary>
+        /// Extracts parameter names from a subscript's printed name.
+        /// Examples: "subscript(_:)" -> ["_"], "subscript(row:column:)" -> ["row", "column"]
+        /// </summary>
+        private List<string> ExtractSubscriptParameterNames(string printedName)
+        {
+            var result = new List<string>();
+            var start = printedName.IndexOf('(');
+            var end = printedName.LastIndexOf(')');
+
+            if (start < 0 || end < 0 || start >= end)
+                return result;
+
+            var paramPart = printedName.Substring(start + 1, end - start - 1);
+            var paramNames = paramPart.Split(':').Where(s => !string.IsNullOrEmpty(s)).ToList();
+
+            for (int i = 0; i < paramNames.Count; i++)
+            {
+                var name = paramNames[i].Trim();
+                // If the parameter name is just "_", generate a unique name
+                if (name == "_")
+                {
+                    result.Add($"index{i}");
+                }
+                else
+                {
+                    result.Add(ExtractUniqueName(name));
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Handles accessors for a subscript declaration.
+        /// Similar to HandleAccessors but subscript accessors have index parameters.
+        /// </summary>
+        private List<AccessorDecl> HandleSubscriptAccessors(
+            IEnumerable<Node> accessors,
+            IReadOnlyList<ArgumentDecl> indexParameters,
+            TypeSpec returnTypeSpec,
+            BaseDecl parentDecl,
+            ModuleDecl moduleDecl)
+        {
+            var result = new List<AccessorDecl>();
+
+            foreach (var accessor in accessors)
+            {
+                switch (accessor.AccessorKind)
+                {
+                    case "get":
+                        result.Add(CreateSubscriptGetAccessor(accessor, indexParameters, returnTypeSpec, parentDecl, moduleDecl));
+                        break;
+                    case "set":
+                        result.Add(CreateSubscriptSetAccessor(accessor, indexParameters, returnTypeSpec, parentDecl, moduleDecl));
+                        break;
+                    case "_modify":
+                    case "_read":
+                        // Coroutine accessors - skip these for now
+                        break;
+                    default:
+                        _logger.LogWarning($"Unsupported subscript accessor kind '{accessor.AccessorKind}' encountered.");
+                        break;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Creates a getter accessor for a subscript.
+        /// </summary>
+        private GetAccessorDecl CreateSubscriptGetAccessor(
+            Node accessor,
+            IReadOnlyList<ArgumentDecl> indexParameters,
+            TypeSpec returnTypeSpec,
+            BaseDecl parentDecl,
+            ModuleDecl moduleDecl)
+        {
+            // Build signature: [0] = return type, [1..n] = index parameters
+            var signature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = returnTypeSpec,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            };
+            signature.AddRange(indexParameters);
+
+            var methodDecl = new MethodDecl
+            {
+                Name = "subscript_Get",
+                MangledName = accessor.MangledName,
+                MethodType = accessor.@static ?? false ? MethodType.Static : MethodType.Instance,
+                IsConstructor = false,
+                CSSignature = signature,
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl,
+                Throws = false,
+                IsAsync = false,
+                Visibility = Visibility.Private,
+                IsAccessor = true
+            };
+
+            return new GetAccessorDecl { Method = methodDecl };
+        }
+
+        /// <summary>
+        /// Creates a setter accessor for a subscript.
+        /// </summary>
+        private SetAccessorDecl CreateSubscriptSetAccessor(
+            Node accessor,
+            IReadOnlyList<ArgumentDecl> indexParameters,
+            TypeSpec returnTypeSpec,
+            BaseDecl parentDecl,
+            ModuleDecl moduleDecl)
+        {
+            // Build signature: [0] = void (return), [1] = newValue, [2..n] = index parameters
+            var signature = new List<ArgumentDecl>
+            {
+                // Return type (void for setters)
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                },
+                // The new value parameter
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = returnTypeSpec,
+                    Name = "newValue",
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            };
+            signature.AddRange(indexParameters);
+
+            var methodDecl = new MethodDecl
+            {
+                Name = "subscript_Set",
+                MangledName = accessor.MangledName,
+                MethodType = accessor.@static ?? false ? MethodType.Static : MethodType.Instance,
+                IsConstructor = false,
+                CSSignature = signature,
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl,
+                Throws = false,
+                IsAsync = false,
+                Visibility = Visibility.Private,
+                IsAccessor = true
+            };
+
+            return new SetAccessorDecl { Method = methodDecl };
         }
 
         /// <summary>

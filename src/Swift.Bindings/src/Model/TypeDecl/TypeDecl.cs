@@ -40,6 +40,11 @@ namespace BindingsGeneration
         public required List<OperatorDecl> Operators { get; set; }
 
         /// <summary>
+        /// Subscript declarations within the type.
+        /// </summary>
+        public List<SubscriptDecl> Subscripts { get; set; } = new();
+
+        /// <summary>
         /// Generic type parameters for this type declaration.
         /// Empty for non-generic types.
         /// </summary>

@@ -145,11 +145,12 @@ public class BoundGenericsHandler
     /// </exception>
     private string TranslateTypeSpecToCSharp(TypeSpec typeSpec)
     {
-        // Handle existential types (including bare 'Any' with 0 protocols)
-        if (typeSpec is ProtocolListTypeSpec protocolListTypeSpec)
+        // Handle existential types (including bare 'Any' with 0 protocols and 'any Protocol' syntax)
+        if (_existentialHandler.IsExistential(typeSpec))
         {
-            if (_existentialHandler.IsSupportedExistential(protocolListTypeSpec))
-                return _existentialHandler.GetCSharpExistentialType(protocolListTypeSpec);
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
+                return _existentialHandler.GetCSharpExistentialType(protocolList);
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 

@@ -1364,6 +1364,7 @@ namespace BindingsGeneration
             // Track emitted members to avoid duplicates
             var emittedProperties = new HashSet<string>();
             var emittedMethods = new HashSet<string>();
+            var emittedSubscripts = new HashSet<string>();
 
             // Emit properties as interface members
             foreach (var propertyDecl in protocolDecl.Properties)
@@ -1377,6 +1378,20 @@ namespace BindingsGeneration
                 }
                 emittedProperties.Add(propertyKey);
                 EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase, protocolDecl);
+            }
+
+            // Emit subscripts as interface indexers
+            foreach (var subscriptDecl in protocolDecl.Subscripts)
+            {
+                // Create a unique key for the subscript based on index parameter types
+                var subscriptKey = GetSubscriptSignatureKey(subscriptDecl, env.TypeDatabase, protocolDecl);
+                if (emittedSubscripts.Contains(subscriptKey))
+                {
+                    _logger.LogDebug($"Skipping duplicate subscript in interface {protocolDecl.Name}");
+                    continue;
+                }
+                emittedSubscripts.Add(subscriptKey);
+                EmitInterfaceSubscript(csWriter, subscriptDecl, env.TypeDatabase, protocolDecl);
             }
 
             // Emit methods as interface members
@@ -1430,6 +1445,41 @@ namespace BindingsGeneration
                 }
             }
             return $"{methodDecl.Name}({string.Join(",", paramTypes)})";
+        }
+
+        /// <summary>
+        /// Creates a unique signature key for a subscript based on index parameter types.
+        /// </summary>
+        private string GetSubscriptSignatureKey(SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
+        {
+            var paramTypes = new List<string>();
+            foreach (var param in subscriptDecl.IndexParameters)
+            {
+                try
+                {
+                    // Handle associated type references for protocols
+                    if (param.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
+                    {
+                        paramTypes.Add(MapAssociatedTypeToGenericParam(assocRef, protocolContext));
+                    }
+                    else if (param.SwiftTypeSpec != null)
+                    {
+                        var typeRecord = typeDatabase.GetTypeRecordOrAnyType(param.SwiftTypeSpec);
+                        paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                    }
+                    else
+                    {
+                        paramTypes.Add("unknown");
+                    }
+                }
+                catch
+                {
+                    // For generic type parameters or other unsupported types,
+                    // use the string representation of the type spec
+                    paramTypes.Add(param.SwiftTypeSpec?.ToString() ?? "unknown");
+                }
+            }
+            return $"subscript[{string.Join(",", paramTypes)}]";
         }
 
         /// <summary>
@@ -1522,6 +1572,76 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits a subscript declaration as a C# indexer for an interface.
+        /// Swift: subscript(key: ImageCacheKey) -> ImageContainer? { get set }
+        /// C#:   SwiftOptional<ImageContainer> this[ImageCacheKey key] { get; set; }
+        /// </summary>
+        private void EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Get return type
+            string returnTypeName;
+            if (subscriptDecl.ReturnTypeSpec is AssociatedTypeReferenceSpec assocRef)
+            {
+                returnTypeName = MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+            }
+            else if (subscriptDecl.ReturnTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            {
+                // Create a temporary property to use the BoundGenericsHandler
+                var tempProperty = new PropertyDecl
+                {
+                    Name = "_temp",
+                    SwiftTypeSpec = subscriptDecl.ReturnTypeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                };
+                returnTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+            }
+            else
+            {
+                returnTypeName = typeDatabase.GetTypeRecordOrAnyType(subscriptDecl.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
+            }
+
+            // Build index parameters
+            var parameters = new List<string>();
+            foreach (var param in subscriptDecl.IndexParameters)
+            {
+                var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                var paramName = string.IsNullOrEmpty(param.Name) ? "index" : param.Name;
+                parameters.Add($"{paramTypeName} {paramName}");
+            }
+
+            // Determine accessors
+            var hasGetter = subscriptDecl.HasGetter;
+            var hasSetter = subscriptDecl.HasSetter;
+
+            string accessors;
+            if (hasGetter && hasSetter)
+            {
+                accessors = "{ get; set; }";
+            }
+            else if (hasGetter)
+            {
+                accessors = "{ get; }";
+            }
+            else if (hasSetter)
+            {
+                accessors = "{ set; }";
+            }
+            else
+            {
+                // Default to get-only if no accessors found
+                accessors = "{ get; }";
+            }
+
+            csWriter.WriteLine($"{returnTypeName} this[{string.Join(", ", parameters)}] {accessors}");
+        }
+
+        /// <summary>
         /// Emits a method declaration for an interface.
         /// </summary>
         private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
@@ -1578,6 +1698,8 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Gets the C# type name for a Swift type specification, handling bound generics and associated types.
+        /// For protocol interfaces, this also handles closures, tuples, and existentials with relaxed requirements
+        /// since we're just emitting signatures, not PInvoke implementations.
         /// </summary>
         private string GetCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler, ProtocolDecl? protocolContext = null)
         {
@@ -1585,6 +1707,29 @@ namespace BindingsGeneration
             if (typeSpec is AssociatedTypeReferenceSpec assocRef)
             {
                 return MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+            }
+
+            // Handle existential types (any Protocol, protocol compositions)
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                {
+                    return existentialHandler.GetCSharpExistentialType(protocolList);
+                }
+            }
+
+            // Handle closures - translate to C# delegate types for protocol interfaces
+            if (typeSpec is ClosureTypeSpec closureTypeSpec)
+            {
+                return GetClosureCSharpType(closureTypeSpec, typeDatabase, protocolContext);
+            }
+
+            // Handle tuples - translate to C# ValueTuple types for protocol interfaces
+            if (typeSpec is TupleTypeSpec tupleTypeSpec && !tupleTypeSpec.IsEmptyTuple)
+            {
+                return GetTupleCSharpType(tupleTypeSpec, typeDatabase, protocolContext);
             }
 
             // Handle bound generics (e.g., Optional<T>, Array<T>)
@@ -1606,6 +1751,68 @@ namespace BindingsGeneration
 
             // For non-generic types, use the standard lookup
             return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
+        /// Translates a Swift closure type to a C# delegate type for protocol interface emission.
+        /// This is less restrictive than the full closure handler since we're just emitting signatures.
+        /// </summary>
+        private string GetClosureCSharpType(ClosureTypeSpec closureTypeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Build parameter types
+            var paramTypes = new List<string>();
+            foreach (var arg in closureTypeSpec.EachArgument())
+            {
+                paramTypes.Add(GetCSharpTypeName(arg, typeDatabase, boundGenericsHandler, protocolContext));
+            }
+
+            // Get return type
+            var returnType = closureTypeSpec.ReturnType;
+            bool hasReturn = !returnType.IsEmptyTuple;
+
+            if (!hasReturn)
+            {
+                // Action delegate
+                if (paramTypes.Count == 0)
+                    return "Action";
+                return $"Action<{string.Join(", ", paramTypes)}>";
+            }
+            else
+            {
+                // Func delegate
+                var returnTypeName = GetCSharpTypeName(returnType, typeDatabase, boundGenericsHandler, protocolContext);
+                if (paramTypes.Count == 0)
+                    return $"Func<{returnTypeName}>";
+                return $"Func<{string.Join(", ", paramTypes)}, {returnTypeName}>";
+            }
+        }
+
+        /// <summary>
+        /// Translates a Swift tuple type to a C# ValueTuple type for protocol interface emission.
+        /// </summary>
+        private string GetTupleCSharpType(TupleTypeSpec tupleTypeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var elements = new List<string>();
+
+            foreach (var element in tupleTypeSpec.Elements)
+            {
+                var typeName = GetCSharpTypeName(element, typeDatabase, boundGenericsHandler, protocolContext);
+
+                // Include label if present
+                if (!string.IsNullOrEmpty(element.TypeLabel))
+                {
+                    elements.Add($"{typeName} {element.TypeLabel}");
+                }
+                else
+                {
+                    elements.Add(typeName);
+                }
+            }
+
+            return $"({string.Join(", ", elements)})";
         }
 
         /// <summary>

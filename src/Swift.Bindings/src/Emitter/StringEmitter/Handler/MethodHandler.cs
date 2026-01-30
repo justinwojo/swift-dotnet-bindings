@@ -449,11 +449,12 @@ namespace BindingsGeneration
         /// </summary>
         private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
         {
-            // Handle existential types (ProtocolListTypeSpec) - including 'Any' with 0 protocols
-            if (typeSpec is ProtocolListTypeSpec protocolListTypeSpec)
+            // Handle existential types (ProtocolListTypeSpec and NamedTypeSpec with IsAny)
+            if (_env.ExistentialHandler.IsExistential(typeSpec))
             {
-                if (_env.ExistentialHandler.IsSupportedExistential(protocolListTypeSpec))
-                    return _env.ExistentialHandler.GetCSharpExistentialType(protocolListTypeSpec);
+                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null && _env.ExistentialHandler.IsSupportedExistential(protocolList))
+                    return _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
             }
 
@@ -1534,11 +1535,12 @@ namespace BindingsGeneration
         /// </summary>
         private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
         {
-            // Handle existential types (ProtocolListTypeSpec) - including 'Any' with 0 protocols
-            if (typeSpec is ProtocolListTypeSpec protocolListTypeSpec)
+            // Handle existential types (ProtocolListTypeSpec and NamedTypeSpec with IsAny)
+            if (_env.ExistentialHandler.IsExistential(typeSpec))
             {
-                if (_env.ExistentialHandler.IsSupportedExistential(protocolListTypeSpec))
-                    return _env.ExistentialHandler.GetCSharpExistentialType(protocolListTypeSpec);
+                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null && _env.ExistentialHandler.IsSupportedExistential(protocolList))
+                    return _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
             }
 
