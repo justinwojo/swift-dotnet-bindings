@@ -79,5 +79,8 @@
         <entity managedNameSpace="Swift" managedTypeName="SwiftOptional">
             <typedeclaration kind="struct" name="Optional" module="Swift" mangledName="$sSq" frozen="true" requiresMemoryManagement="true" />
         </entity>
+        <entity managedNameSpace="Swift" managedTypeName="SwiftResult">
+            <typedeclaration kind="enum" name="Result" module="Swift" mangledName="$ss6ResultO" frozen="true" requiresMemoryManagement="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

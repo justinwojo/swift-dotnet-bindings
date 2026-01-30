@@ -226,9 +226,13 @@ public class ClosureHandlerTests
     [Fact]
     public void GetCallbackFunctionName_GeneratesCorrectFormat()
     {
-        var result = ClosureHandler.GetCallbackFunctionName("doSomething", "callback");
+        var mangledName = "$s4test11doSomething8callbackyyyXE_tF";
+        var result = ClosureHandler.GetCallbackFunctionName("doSomething", "callback", mangledName);
 
-        Assert.Equal("doSomething_callback_Callback", result);
+        // Verify format: methodName_parameterName_hash_Callback
+        Assert.StartsWith("doSomething_callback_", result);
+        Assert.EndsWith("_Callback", result);
+        Assert.Contains("_", result.Substring("doSomething_callback_".Length));
     }
 
     [Fact]
@@ -242,9 +246,24 @@ public class ClosureHandlerTests
     [Fact]
     public void GetCallbackFunctionName_WithSpecialCharacters_GeneratesCorrectFormat()
     {
-        var result = ClosureHandler.GetCallbackFunctionName("on_complete", "handler");
+        var mangledName = "$s4test11on_complete7handleryyyXE_tF";
+        var result = ClosureHandler.GetCallbackFunctionName("on_complete", "handler", mangledName);
 
-        Assert.Equal("on_complete_handler_Callback", result);
+        Assert.StartsWith("on_complete_handler_", result);
+        Assert.EndsWith("_Callback", result);
+    }
+
+    [Fact]
+    public void GetCallbackFunctionName_SameMethodDifferentMangledNames_GeneratesDifferentNames()
+    {
+        var mangledName1 = "$s4test9loadImage10completionyAA5ImageC_tF";
+        var mangledName2 = "$s4test9loadImage10completiony10Foundation3URLV_tF";
+
+        var result1 = ClosureHandler.GetCallbackFunctionName("loadImage", "completion", mangledName1);
+        var result2 = ClosureHandler.GetCallbackFunctionName("loadImage", "completion", mangledName2);
+
+        // Different mangled names should produce different callback names
+        Assert.NotEqual(result1, result2);
     }
 
     #endregion
@@ -577,6 +596,162 @@ public class ClosureHandlerTests
 
     #endregion
 
+    #region Bound Generic Closure Tests
+
+    [Fact]
+    public void IsSupportedClosure_WithResultParameter_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Result<Int, Error>) -> Void
+        var resultType = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Error"));
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec> { resultType });
+        var closure = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithArrayParameter_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Array<Int>) -> Void
+        var arrayType = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec> { arrayType });
+        var closure = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithNestedGenericParameter_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Optional<Array<Int>>) -> Void
+        var arrayType = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var optionalType = new NamedTypeSpec("Swift.Optional", arrayType);
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec> { optionalType });
+        var closure = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithUnknownGenericBaseType_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (UnknownGeneric<Int>) -> Void - UnknownGeneric is not in type database
+        var unknownType = new NamedTypeSpec("SomeModule.UnknownGeneric", new NamedTypeSpec("Swift.Int"));
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec> { unknownType });
+        var closure = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithUnsupportedGenericParameter_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Array<UnknownType>) -> Void - inner generic param is unknown
+        var arrayType = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("SomeModule.UnknownType"));
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec> { arrayType });
+        var closure = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        // This should return true because we only check the base type exists,
+        // but the inner parameter resolution happens at C# compilation time
+        // Actually - we should recursively check, so this returns false
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_WithResultParameter_ReturnsCorrectType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Result<Int, Error>) -> Void
+        var resultType = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Error"));
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec> { resultType });
+        var closure = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        var result = handler.GetCSharpDelegateType(closure);
+
+        Assert.Equal("Action<Swift.SwiftResult<System.Int64, Swift.SwiftError>>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_WithArrayReturn_ReturnsCorrectType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: () -> Array<Bool>
+        var arrayType = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Bool"));
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, arrayType);
+
+        var result = handler.GetCSharpDelegateType(closure);
+
+        Assert.Equal("Func<Swift.SwiftArray<System.Boolean>>", result);
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_WithBoundGeneric_ReturnsFullTypeName()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var optionalInt = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
+        var result = handler.TranslateTypeSpecToCSharp(optionalInt);
+
+        Assert.Equal("Swift.SwiftOptional<System.Int64>", result);
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_WithNestedBoundGeneric_ReturnsFullTypeName()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Result<Array<Int>, Error>
+        var arrayInt = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var resultType = new NamedTypeSpec("Swift.Result", arrayInt, new NamedTypeSpec("Swift.Error"));
+
+        var result = handler.TranslateTypeSpecToCSharp(resultType);
+
+        Assert.Equal("Swift.SwiftResult<Swift.SwiftArray<System.Int64>, Swift.SwiftError>", result);
+    }
+
+    [Fact]
+    public void GetPInvokeFunctionPointerType_WithBoundGenericParameter_ReturnsVoidPointer()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Array<Int>) -> Void - bound generics are passed as void* in P/Invoke
+        var arrayType = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec> { arrayType });
+        var closure = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        var result = handler.GetPInvokeFunctionPointerType(closure);
+
+        Assert.Equal("delegate* unmanaged[Swift]<void*, void>", result);
+    }
+
+    #endregion
+
     #region Mock Type Database
 
     private class MockTypeDatabase : ITypeDatabase
@@ -618,6 +793,38 @@ public class ClosureHandlerTests
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
                     Kind = TypeRecordKind.Struct
+                },
+                ["Swift.Array"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["Swift.Optional"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["Swift.Result"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftResult"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Result"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Enum
+                },
+                ["Swift.Error"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftError"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Protocol
                 }
             };
         }

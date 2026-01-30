@@ -1431,7 +1431,7 @@ namespace BindingsGeneration
                 else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
                     // For escaping closures, create a SwiftClosureData struct with thunk pointer and delegate in context
-                    var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name);
+                    var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
                     csWriter.WriteLines($"""
                         {argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});
                         var {argumentDecl.Name}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({argumentDecl.Name}Handle));
@@ -1530,8 +1530,8 @@ namespace BindingsGeneration
 
                 if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
-                    ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler);
-                    ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler);
+                    ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
                     csWriter.WriteLine();
                 }
             }

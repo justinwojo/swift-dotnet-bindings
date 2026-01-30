@@ -18,14 +18,16 @@ public static class ClosureEmitter
     /// <param name="parameterName">The name of the closure parameter.</param>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
+    /// <param name="mangledName">The mangled name of the method (for callback disambiguation).</param>
     public static void EmitEscapingClosureCallback(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
         ClosureTypeSpec closureTypeSpec,
-        ClosureHandler closureHandler)
+        ClosureHandler closureHandler,
+        string mangledName)
     {
-        var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName);
+        var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
 
         // Build parameter list for the callback (arguments + context as last param)
@@ -95,14 +97,16 @@ public static class ClosureEmitter
     /// <param name="parameterName">The name of the closure parameter.</param>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
+    /// <param name="mangledName">The mangled name of the method (for callback disambiguation).</param>
     public static void EmitClosureCallbackPointer(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
         ClosureTypeSpec closureTypeSpec,
-        ClosureHandler closureHandler)
+        ClosureHandler closureHandler,
+        string mangledName)
     {
-        var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName);
+        var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
 
         // Add context parameter to the function pointer type
@@ -118,13 +122,15 @@ public static class ClosureEmitter
     /// <param name="methodName">The name of the method containing the closure parameter.</param>
     /// <param name="parameterName">The name of the closure parameter.</param>
     /// <param name="closureHandler">The closure handler.</param>
+    /// <param name="mangledName">The mangled name of the method (for callback disambiguation).</param>
     public static void EmitEscapingClosureMarshallingSetup(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
-        ClosureHandler closureHandler)
+        ClosureHandler closureHandler,
+        string mangledName)
     {
-        var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName);
+        var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var closureDataVar = $"{parameterName}ClosureData";
         var handleVar = $"{parameterName}Handle";
 
@@ -150,6 +156,8 @@ public static class ClosureEmitter
 
     /// <summary>
     /// Gets the C# type for a closure callback parameter.
+    /// For UnmanagedCallersOnly callbacks, returns blittable types only.
+    /// Bound generic types (like Result&lt;T,E&gt;) are passed as void* and marshalled later.
     /// </summary>
     private static string GetCallbackParameterType(TypeSpec typeSpec, ClosureHandler closureHandler)
     {
@@ -159,8 +167,12 @@ public static class ClosureEmitter
             if (IsPointerType(namedType))
                 return "void*";
 
-            // For now, use the basic translation
-            // In a full implementation, we'd use the type database
+            // Bound generic types are passed as opaque pointers in callbacks
+            // They will be marshalled using SwiftMarshal.MarshalFromSwift
+            if (namedType.ContainsGenericParameters)
+                return "void*";
+
+            // For basic types, use the blittable mapping
             return GetBasicCSharpType(namedType.Name);
         }
 

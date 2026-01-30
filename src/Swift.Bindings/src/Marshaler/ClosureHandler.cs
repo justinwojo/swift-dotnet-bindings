@@ -74,6 +74,7 @@ public class ClosureHandler
     /// - @convention(c) closures (Phase 1)
     /// - Escaping closures with concrete types (Phase 2)
     /// Both must be synchronous, non-throwing, and have concrete (non-generic) argument/return types.
+    /// Return types must be primitive/blittable (complex return type marshalling not yet implemented).
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns><c>true</c> if the closure is supported; otherwise, <c>false</c>.</returns>
@@ -101,8 +102,62 @@ public class ClosureHandler
         }
 
         // Check that return type is supported
-        if (!closureTypeSpec.ReturnType.IsEmptyTuple && !IsSupportedClosureParameterType(closureTypeSpec.ReturnType))
-            return false;
+        if (!closureTypeSpec.ReturnType.IsEmptyTuple)
+        {
+            if (!IsSupportedClosureParameterType(closureTypeSpec.ReturnType))
+                return false;
+
+            // Closures with return types that require complex marshalling are not yet supported.
+            // This includes bound generic types (like Optional<T>, Result<T,E>) and types
+            // requiring memory management (like SwiftString). These need native buffer
+            // allocation and marshalling which isn't implemented for return values yet.
+            if (!IsSupportedClosureReturnType(closureTypeSpec.ReturnType))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a return type is supported for closure callbacks.
+    /// Only primitive/blittable return types are currently supported.
+    /// Complex types (bound generics, types requiring memory management) need
+    /// native buffer allocation and marshalling which isn't implemented yet.
+    /// </summary>
+    private bool IsSupportedClosureReturnType(TypeSpec typeSpec)
+    {
+        if (typeSpec is NamedTypeSpec namedType)
+        {
+            // Pointer types are supported (map to IntPtr)
+            if (IsPointerType(namedType))
+                return true;
+
+            // Bound generic return types not yet supported (need complex marshalling)
+            if (namedType.ContainsGenericParameters)
+                return false;
+
+            // Check if type requires memory management (not blittable)
+            var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
+            {
+                // Types requiring memory management need complex return marshalling
+                if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
+                    return false;
+            }
+
+            return true;
+        }
+
+        // Tuples as return types - check all elements
+        if (typeSpec is TupleTypeSpec tuple)
+        {
+            foreach (var element in tuple.Elements)
+            {
+                if (!IsSupportedClosureReturnType(element))
+                    return false;
+            }
+            return true;
+        }
 
         return true;
     }
@@ -135,11 +190,21 @@ public class ClosureHandler
         // Named types should be resolvable in the type database
         if (typeSpec is NamedTypeSpec namedType)
         {
-            // Generic parameters in closures not supported yet
+            // Pointer types are always supported
+            if (IsPointerType(namedType))
+                return true;
+
+            // Generic types require special handling
             if (namedType.ContainsGenericParameters)
             {
-                // Exception: some known generic types like pointers are OK
-                if (!IsKnownSupportedGenericType(namedType))
+                if (!IsSupportedGenericType(namedType))
+                    return false;
+            }
+            else
+            {
+                // Non-generic named types must be in the type database
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out _))
                     return false;
             }
         }
@@ -148,16 +213,28 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Checks if a generic type is known to be supported.
+    /// Checks if a generic type is supported in closures.
+    /// Supports pointer types and bound generic types whose base type is in the type database.
     /// </summary>
-    private static bool IsKnownSupportedGenericType(NamedTypeSpec namedType)
+    private bool IsSupportedGenericType(NamedTypeSpec namedType)
     {
-        // Swift pointer types map to IntPtr
-        return namedType.Name == "Swift.UnsafePointer" ||
-               namedType.Name == "Swift.UnsafeMutablePointer" ||
-               namedType.Name == "Swift.UnsafeRawPointer" ||
-               namedType.Name == "Swift.UnsafeMutableRawPointer" ||
-               namedType.Name == "Swift.OpaquePointer";
+        // Pointer types always supported - they map to IntPtr
+        if (IsPointerType(namedType))
+            return true;
+
+        // Check if base type is in type database
+        var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out _))
+            return false;
+
+        // Recursively check all generic parameters are supported
+        foreach (var genericParam in namedType.GenericParameters)
+        {
+            if (!IsSupportedClosureParameterType(genericParam))
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -224,6 +301,10 @@ public class ClosureHandler
             if (IsPointerType(namedType))
                 return "IntPtr";
 
+            // Handle bound generic types (e.g., Result<T, E>, Array<T>)
+            if (namedType.ContainsGenericParameters)
+                return TranslateBoundGenericToCSharp(namedType);
+
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
             return typeRecord.CSharpTypeName.FullyQualifiedName;
         }
@@ -240,8 +321,34 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Translates a bound generic NamedTypeSpec to its full C# type name with generic parameters.
+    /// </summary>
+    private string TranslateBoundGenericToCSharp(NamedTypeSpec namedType)
+    {
+        var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
+        {
+            // Fallback if base type not in database
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        }
+
+        // Recursively translate all generic parameters
+        var translatedParams = new List<string>();
+        foreach (var genericParam in namedType.GenericParameters)
+        {
+            translatedParams.Add(TranslateTypeSpecToCSharp(genericParam));
+        }
+
+        // Build full type name with generics
+        return translatedParams.Count > 0
+            ? $"{typeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>"
+            : typeRecord.CSharpTypeName.FullyQualifiedName;
+    }
+
+    /// <summary>
     /// Translates a TypeSpec to its P/Invoke equivalent type.
-    /// For UnmanagedCallersOnly compatibility, bool is mapped to byte.
+    /// For UnmanagedCallersOnly compatibility, only blittable types can be used directly.
+    /// Non-blittable types (including those requiring memory management) use void*.
     /// </summary>
     private string TranslateTypeSpecToPInvokeType(TypeSpec typeSpec)
     {
@@ -256,10 +363,19 @@ public class ClosureHandler
             if (namedType.Name == "Swift.Bool")
                 return "byte";
 
+            // Bound generic types are passed as opaque pointers in P/Invoke
+            if (namedType.ContainsGenericParameters)
+                return "void*";
+
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
 
-            // For P/Invoke, non-frozen types need special handling
+            // For P/Invoke, non-frozen types need void* (opaque pointer)
             if ((typeRecord.Flags & TypeRecordFlags.Frozen) == 0)
+                return "void*";
+
+            // Types requiring memory management (like SwiftString, SwiftArray) are not blittable
+            // They need to be passed as void* in UnmanagedCallersOnly callbacks
+            if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
                 return "void*";
 
             return typeRecord.CSharpTypeName.FullyQualifiedName;
@@ -291,13 +407,16 @@ public class ClosureHandler
 
     /// <summary>
     /// Generates the callback function name for a closure parameter.
+    /// Includes a hash of the method's mangled name to disambiguate overloads.
     /// </summary>
     /// <param name="methodName">The name of the method containing the closure.</param>
     /// <param name="parameterName">The name of the closure parameter.</param>
+    /// <param name="mangledName">The mangled name of the method (used to create a unique hash).</param>
     /// <returns>The callback function name.</returns>
-    public static string GetCallbackFunctionName(string methodName, string parameterName)
+    public static string GetCallbackFunctionName(string methodName, string parameterName, string mangledName)
     {
-        return $"{methodName}_{parameterName}_Callback";
+        var mangledHash = Math.Abs(mangledName.GetHashCode()).ToString("X8");
+        return $"{methodName}_{parameterName}_{mangledHash}_Callback";
     }
 
     /// <summary>

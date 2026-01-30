@@ -42,7 +42,8 @@ Initial binding generation revealed these gap categories:
 - ~70 methods with unsupported signatures (skipped) - reduced due to existential parameter support
 - ~10 properties with unsupported types (skipped) - reduced from 24
 - Enum cases with associated values may have unsupported parameter types
-- Methods with unsupported closure parameter types (e.g., closures with `Result<T,E>` parameters)
+- ~~Methods with unsupported closure parameter types (e.g., closures with `Result<T,E>` parameters)~~ FIXED (3.3)
+- Closures that *return* bound generic types (e.g., `Func<T, SwiftOptional<U>>`) are not yet supported
 - Properties with existential types are skipped (existential properties not yet supported)
 - **ObjC types use `Swift.*` wrappers instead of existing .NET iOS bindings** (see 2.8) - Major UX issue
 
@@ -54,6 +55,7 @@ Initial binding generation revealed these gap categories:
 - ~~24 compilation errors from other code generation issues~~ FIXED (Phase 1.5)
 - ~~3 naming collision errors~~ FIXED (Phase 2.2.1)
 - ~~Methods with existential parameters skipped~~ FIXED (Phase 3.1) - Now generate `ExistentialContainer{N}` types
+- ~~Closures with bound generic parameters (Result<T,E>, Array<T>, etc.) skipped~~ FIXED (Phase 3.3) - Now properly marshal to C# delegates
 
 ---
 
@@ -500,13 +502,59 @@ Protocols with associated types or generic requirements are skipped entirely.
 - `ImagePipelineDelegate` - Pipeline delegate protocol
 
 ### 3.3 Closure/Callback Parameters
-**Status**: Partially Implemented
+**Status**: BOUND GENERIC PARAMETERS IMPLEMENTED (January 2026)
 **Issue**: [#2874](https://github.com/dotnet/runtimelab/issues/2874) - Implemented
 
-Methods with closure parameters may not work correctly in all cases.
+**Progress** (January 2026):
+1. ✅ Closures accepting bound generic parameters (e.g., `Action<Result<T,E>>`) now generate valid C# code
+2. ✅ Added `Swift.Result` type mapping to `SwiftDatabase.xml`
+3. ✅ Created `SwiftResult<TSuccess, TFailure>` class in Swift.Runtime
+4. ✅ Callback names now include method hash for overload disambiguation
+5. ⚠️ Closures *returning* bound generic types not yet supported (excluded from generation)
 
-**Files to check**:
-- `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs`
+**Implementation details**:
+- Added `IsSupportedGenericType()` to check if bound generic types are in the type database
+- Added `TranslateBoundGenericToCSharp()` to translate bound generics to C# type names (e.g., `Result<ImageResponse, Error>` → `SwiftResult<ImageResponse, ImagePipeline.Error>`)
+- Updated `TranslateTypeSpecToPInvokeType()` to return `void*` for non-blittable types (types requiring memory management)
+- Added `IsSupportedClosureReturnType()` to exclude closures with complex return types
+- Updated `GetCallbackFunctionName()` to include mangled name hash for uniqueness
+
+**Supported closure parameter types**:
+- `Action<Result<T,E>>` - Result type with success/failure
+- `Action<Array<T>>` - Swift arrays
+- `Action<Optional<T>>` - Swift optionals
+- `Action<Set<T>>` - Swift sets
+- `Action<Dictionary<K,V>>` - Swift dictionaries
+
+**Generated code example** (Nuke's `loadImage` method):
+```csharp
+public ImageTask LoadImage(URL with, Action<SwiftResult<ImageResponse, ImagePipeline.Error>> completion)
+{
+    // Closure receives Result as void*, marshals to SwiftResult<T,E>
+}
+
+[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
+private static void loadImage_completion_06E6974D_Callback(void* arg0, SwiftSelf context)
+{
+    var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<SwiftResult<ImageResponse, ImagePipeline.Error>>>(new IntPtr(context.Value));
+    del(SwiftMarshal.MarshalFromSwift<SwiftResult<ImageResponse, ImagePipeline.Error>>(new IntPtr(arg0)));
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` - Core bound generic support
+- `src/Swift.Runtime/src/Swift/SwiftDatabase.xml` - Added Swift.Result mapping
+- `src/Swift.Runtime/src/Swift/SwiftResult.cs` - New SwiftResult<T,E> class
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ClosureEmitter.cs` - Callback marshalling
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Pass mangled name for hash
+
+**Tests added**:
+- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/ClosureHandlerTests.cs` - 11 new tests (402 total)
+
+**Current limitations**:
+- Closures *returning* bound generic types (e.g., `Func<T, SwiftOptional<U>>`) are excluded
+- Return value marshalling requires native buffer allocation which isn't implemented yet
+- `SwiftResult<T,E>` has `IsSuccess`/`IsFailure` properties but value extraction not yet implemented
 
 ### 3.4 Generic Methods
 **Status**: Limited
@@ -636,6 +684,7 @@ Bindings still generate, but conformance information is incomplete.
 | Existential parameters | PASS | Methods/constructors with `any Protocol` params generate `ExistentialContainer{N}` |
 | `pipeline.image(request)` | PASS | Fixed defer cleanup issue |
 | Swift wrapper imports | PASS | Generator now emits imports automatically |
+| Closure bound generic params | PASS | `loadImage(completion:)` generates with `Action<SwiftResult<...>>` (2026-01-30) |
 
 ---
 
@@ -771,6 +820,8 @@ var image = response.Image; // UIImage
 - [x] **Async non-frozen parameter cleanup** - FIXED: Cleanup runs after callback, not in defer
 - [x] **ObjC/Swift type strategy complete** - ObjC classes (UIImage, etc.) map to .NET iOS types; Swift structs (URL, Data) intentionally kept as Swift.* wrappers (see 2.8)
 - [x] **Existential parameters** - Methods with `any Protocol` parameters now generate valid `ExistentialContainer{N}` types (2026-01-30)
+- [x] **Closure bound generic parameters** - Closures accepting `Result<T,E>`, `Array<T>`, `Optional<T>`, etc. now generate valid C# code (2026-01-30)
+- [ ] Closure bound generic returns - Closures returning bound generics need return value marshalling
 - [ ] Existential properties (currently skipped, need type matching between property and accessors)
 - [ ] Existentials in closures/tuples
 - [x] Runtime testing of async methods on iOS simulator - VERIFIED (2026-01-30)
@@ -1074,4 +1125,4 @@ The `self` parameter passed from C# via SwiftSelf doesn't work correctly in asyn
 - [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters implemented (2026-01-30)
 - [#2996 - Async Properties](https://github.com/dotnet/runtimelab/issues/2996)
 - [#2873 - Tuple Support](https://github.com/dotnet/runtimelab/issues/2873) - Implemented
-- [#2874 - Closure Support](https://github.com/dotnet/runtimelab/issues/2874) - Implemented
+- [#2874 - Closure Support](https://github.com/dotnet/runtimelab/issues/2874) - Implemented; Bound generic parameters added (2026-01-30)
