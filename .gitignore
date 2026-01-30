@@ -192,18 +192,32 @@ Session.vim
 # VS debug support files
 launchSettings.json
 
-# Swift output files
-*.swiftinterface*
-*.swiftdoc*
-*.swiftmodule*
-*.abi*
-*.swiftsourceinfo*
-*.dylib
+# Swift output files (generated during build)
+# Note: These patterns are intentionally broad to catch generated files
+# For BindingTesting xcframeworks, we force-add the needed files
+*.swiftdoc
+*.swiftsourceinfo
+# Only exclude .dylib at root level (BindingTesting handles its own)
+/*.dylib
 
 # Testing artifacts
 testing/
 src/samples/
-BindingTesting/
+
+# BindingTesting - commit source files but not build artifacts
+# Exclude build outputs
+BindingTesting/**/bin/
+BindingTesting/**/obj/
+BindingTesting/**/DerivedData/
+BindingTesting/**/*.dylib
+BindingTesting/**/SwiftBindings.framework/
+BindingTesting/**/SwiftBindings.xcframework/
+# Exclude Nuke source clone (large, can be re-cloned)
+BindingTesting/**/NukeSource/
+# Exclude nested BindingTesting directories (stale outputs)
+BindingTesting/**/output*/BindingTesting/
+# Include abi.json files inside xcframeworks (needed for binding generation)
+!BindingTesting/**/*.xcframework/**/*.abi.json
 
 # Claude Code local settings
 .claude/settings.local.json

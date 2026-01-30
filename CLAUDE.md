@@ -59,7 +59,7 @@ See also: `/src/docs/nuke-binding-roadmap.md` for real-world gap tracking from N
 ## Repository Structure
 
 ```
-runtimelab/
+swift-bindings/
 ├── src/
 │   ├── Swift.Bindings/          # Core binding generator tool
 │   │   ├── src/                 # Generator source (73 C# files)
@@ -83,10 +83,22 @@ runtimelab/
 │   ├── samples/                 # HelloWorld, HikingApp examples
 │   └── docs/                    # Emitter redesign proposal
 │
+├── BindingTesting/              # Real-world binding test projects
+│   └── Nuke/                    # Nuke image library test case
+│       ├── Nuke.xcframework/    # Prebuilt Nuke framework
+│       ├── NukeTestApp/         # .NET iOS test application
+│       ├── output-ios/          # Generated bindings output
+│       ├── build-all.sh         # Full rebuild script
+│       ├── regenerate-bindings.sh
+│       ├── build-swift-wrapper.sh
+│       ├── build-testapp.sh
+│       └── validate-sim.sh      # iOS Simulator validation
+│
 ├── docs/                        # Technical documentation (27 files)
 ├── eng/                         # Build infrastructure, Azure Pipelines
-├── build.sh / build.cmd         # Build scripts
-└── generate.sh                  # Framework binding generation
+├── build.sh                     # Build the project
+├── run-tests.sh                 # Run unit tests (use this!)
+└── generate.sh                  # Apple framework binding generation
 ```
 
 ## How It Works
@@ -281,55 +293,70 @@ Swift: prefix static func !(v: T) -> Bool      →  public static bool operator 
 
 **Prerequisites**: macOS with Xcode, .NET 10.0 SDK
 
+**IMPORTANT**: Use the helper scripts documented below instead of running commands manually. The scripts handle edge cases, proper paths, and provide consistent behavior.
+
 ```bash
-# Build (macOS only for full build)
+# Build the project
 ./build.sh
 
-# Generate framework bindings
-./generate.sh
+# Run unit tests (handles DotNetHostPath workaround automatically)
+./run-tests.sh
 
-# Run tests
-dotnet test src/Swift.Bindings/tests/UnitTests
-dotnet test src/Swift.Runtime/tests
-
-# Integration tests require Swift toolchain
-dotnet test src/Swift.Bindings/tests/IntegrationTests
+# Generate Apple framework bindings (StoreKit, etc.)
+./generate.sh --platform iPhoneSimulator --framework StoreKit
 ```
 
-**Windows**: Only builds Swift.Bindings tool (no runtime/tests)
-
-**Windows Test Workaround**: The Arcade SDK generates a `.runsettings` file with a relative `DotNetHostPath`, causing test discovery to fail. Use the explicit path override:
+**Windows**: Only builds Swift.Bindings tool (no runtime/tests). Use the explicit path override for tests:
 ```bash
 dotnet test src/Swift.Bindings/tests/UnitTests -- RunConfiguration.DotNetHostPath="C:\Program Files\dotnet\dotnet.exe"
 ```
 
-**iOS Simulator Testing**: Use the validation script for reliable testing on iOS simulator. This script handles app installation, launch, success/crash detection, and timeouts automatically.
+## Helper Scripts Reference
 
+**ALWAYS use these scripts** instead of running the underlying commands manually. They handle edge cases, proper working directories, and provide consistent behavior.
+
+### Root-Level Scripts
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| `./build.sh` | Build the entire project | After cloning, after code changes |
+| `./run-tests.sh` | Run unit tests with proper DotNetHostPath | **Always use this** instead of `dotnet test` directly |
+| `./generate.sh` | Generate bindings for Apple frameworks | When testing against StoreKit, SwiftUI, etc. |
+
+### Nuke Testing Scripts (BindingTesting/Nuke/)
+
+These scripts are for testing bindings against the Nuke image loading library on iOS Simulator.
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| `./build-all.sh` | Full rebuild: bindings + Swift wrapper + test app | After generator code changes |
+| `./regenerate-bindings.sh` | Regenerate C# bindings only | After changing emitter/marshaler code |
+| `./build-swift-wrapper.sh` | Rebuild the Swift wrapper library | After bindings regeneration |
+| `./build-testapp.sh` | Build the NukeTestApp | After changing test app code |
+| `./validate-sim.sh [timeout]` | Run test app on iOS Simulator | **Always use this** for simulator testing |
+
+### Typical Workflows
+
+**After modifying generator code:**
 ```bash
-# Full validation workflow (regenerate bindings, rebuild, test)
-dotnet run --project src/Swift.Bindings/src -- \
-  -a "BindingTesting/Nuke/Nuke.xcframework/ios-arm64_x86_64-simulator/Nuke.framework/Modules/Nuke.swiftmodule/arm64-apple-ios-simulator.abi.json" \
-  -d "BindingTesting/Nuke/Nuke.xcframework/ios-arm64_x86_64-simulator/Nuke.framework/Nuke" \
-  -t "BindingTesting/Nuke/output-ios/Nuke.tbd" \
-  -o "BindingTesting/Nuke/output-ios" -l Nuke
-
-# Rebuild Swift wrapper
-cd BindingTesting/Nuke/output-ios && \
-xcrun swiftc -emit-library -target arm64-apple-ios15.0-simulator \
-  -sdk $(xcrun --sdk iphonesimulator --show-sdk-path) \
-  -F ../Nuke.xcframework/ios-arm64_x86_64-simulator/ \
-  -module-name SwiftBindings \
-  -Xlinker -install_name -Xlinker @rpath/SwiftBindings.framework/SwiftBindings \
-  -o SwiftBindings.framework/SwiftBindings Swift.Nuke.swift && cd -
-
-# Build test app
-dotnet build BindingTesting/Nuke/NukeTestApp -c Debug
-
-# Run validation (15 second timeout)
-cd BindingTesting/Nuke && ./validate-sim.sh 15
+cd BindingTesting/Nuke
+./build-all.sh && ./validate-sim.sh 15
 ```
 
-The `validate-sim.sh` script:
+**After modifying only the test app:**
+```bash
+cd BindingTesting/Nuke
+./build-testapp.sh && ./validate-sim.sh 15
+```
+
+**Running unit tests:**
+```bash
+./run-tests.sh
+```
+
+### validate-sim.sh Details
+
+The `validate-sim.sh` script provides reliable iOS Simulator testing:
 - Installs and launches the app on the booted simulator
 - Watches for `TEST SUCCESS` marker (exits early on success)
 - Detects crashes via console output and crash log files
