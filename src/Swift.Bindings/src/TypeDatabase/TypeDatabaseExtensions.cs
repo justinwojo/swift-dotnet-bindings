@@ -226,7 +226,7 @@ public static class TypeDatabaseExtensions
             SwiftTypeName = SwiftTypeName.AnyType,
             MetadataAccessor = string.Empty,
             Flags = TypeRecordFlags.Frozen, // Existential containers have fixed layout
-            Kind = TypeRecordKind.Protocol,
+            Kind = TypeRecordKind.Existential,
         };
     }
 

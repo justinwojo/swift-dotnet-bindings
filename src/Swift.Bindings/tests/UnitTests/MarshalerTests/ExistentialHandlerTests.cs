@@ -50,6 +50,21 @@ public class ExistentialHandlerTests
     }
 
     [Fact]
+    public void IsExistential_WithNamedTypeSpecIsAny_ReturnsTrue()
+    {
+        // Single protocol existential: "any SomeProtocol" is parsed as NamedTypeSpec with IsAny=true
+        var namedType = new NamedTypeSpec("Swift.Equatable") { IsAny = true };
+        Assert.True(_handler.IsExistential(namedType));
+    }
+
+    [Fact]
+    public void IsExistential_WithNamedTypeSpecNotAny_ReturnsFalse()
+    {
+        var namedType = new NamedTypeSpec("Swift.Equatable") { IsAny = false };
+        Assert.False(_handler.IsExistential(namedType));
+    }
+
+    [Fact]
     public void IsExistential_ArgumentDecl_WithProtocolList_ReturnsTrue()
     {
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
@@ -362,6 +377,127 @@ public class ExistentialHandlerTests
             ParentDecl = null,
             ModuleDecl = null
         };
+    }
+
+    #endregion
+
+    #region TypeRecordKind Tests
+
+    [Fact]
+    public void GetExistentialTypeRecord_SetsKindToExistential()
+    {
+        // Use the TypeDatabaseExtensions to get a type record for an existential
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(protocolList);
+
+        Assert.Equal(TypeRecordKind.Existential, typeRecord.Kind);
+    }
+
+    [Fact]
+    public void GetExistentialTypeRecord_ForEmptyProtocolList_SetsKindToExistential()
+    {
+        var protocolList = new ProtocolListTypeSpec();
+
+        var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(protocolList);
+
+        Assert.Equal(TypeRecordKind.Existential, typeRecord.Kind);
+    }
+
+    [Fact]
+    public void GetExistentialTypeRecord_HasFrozenFlag()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(protocolList);
+
+        Assert.True(typeRecord.Flags.HasFlag(TypeRecordFlags.Frozen));
+    }
+
+    [Fact]
+    public void GetExistentialTypeRecord_MapsToCSharpExistentialContainer()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Equatable"),
+            new NamedTypeSpec("Swift.Hashable")
+        });
+
+        var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(protocolList);
+
+        Assert.Equal("Swift.Runtime.ExistentialContainer2", typeRecord.CSharpTypeName.FullyQualifiedName);
+    }
+
+    #endregion
+
+    #region GetPInvokeExistentialType Tests
+
+    [Fact]
+    public void GetPInvokeExistentialType_MatchesCSharpType()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        var csType = _handler.GetCSharpExistentialType(protocolList);
+        var pinvokeType = _handler.GetPInvokeExistentialType(protocolList);
+
+        Assert.Equal(csType, pinvokeType);
+    }
+
+    #endregion
+
+    #region ToProtocolListTypeSpec Tests
+
+    [Fact]
+    public void ToProtocolListTypeSpec_WithProtocolList_ReturnsSameInstance()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        var result = _handler.ToProtocolListTypeSpec(protocolList);
+
+        Assert.Same(protocolList, result);
+    }
+
+    [Fact]
+    public void ToProtocolListTypeSpec_WithNamedTypeSpecIsAny_CreatesProtocolList()
+    {
+        var namedType = new NamedTypeSpec("Swift.Equatable") { IsAny = true };
+
+        var result = _handler.ToProtocolListTypeSpec(namedType);
+
+        Assert.NotNull(result);
+        Assert.Single(result!.Protocols);
+        Assert.Equal("Swift.Equatable", result.Protocols.Keys.First().Name);
+    }
+
+    [Fact]
+    public void ToProtocolListTypeSpec_WithNamedTypeSpecNotAny_ReturnsNull()
+    {
+        var namedType = new NamedTypeSpec("Swift.Equatable") { IsAny = false };
+
+        var result = _handler.ToProtocolListTypeSpec(namedType);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ToProtocolListTypeSpec_WithTupleTypeSpec_ReturnsNull()
+    {
+        var tuple = new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") });
+
+        var result = _handler.ToProtocolListTypeSpec(tuple);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ToProtocolListTypeSpec_SingleProtocolExistential_GeneratesExistentialContainer1()
+    {
+        var namedType = new NamedTypeSpec("Nuke.DataLoading") { IsAny = true };
+
+        var protocolList = _handler.ToProtocolListTypeSpec(namedType);
+        var csType = _handler.GetCSharpExistentialType(protocolList!);
+
+        Assert.Equal("Swift.Runtime.ExistentialContainer1", csType);
     }
 
     #endregion

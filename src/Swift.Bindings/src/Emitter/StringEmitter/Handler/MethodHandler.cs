@@ -303,6 +303,22 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Handle existential return types (any Protocol)
+            if (_env.ExistentialHandler.IsExistential(argument.SwiftTypeSpec))
+            {
+                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
+                if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
+                {
+                    var existentialType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+                    SetReturnType(existentialType);
+                }
+                else
+                {
+                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                }
+                return;
+            }
+
             var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
             // Protocol types (interfaces) are not supported as return types because they don't have Payload property
             if (typeRecord.Kind == TypeRecordKind.Protocol)
@@ -367,6 +383,22 @@ namespace BindingsGeneration
                         AddParameter(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec), argument.Name);
                     else
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    continue;
+                }
+
+                // Handle existential arguments (any Protocol)
+                if (_env.ExistentialHandler.IsExistential(argument.SwiftTypeSpec))
+                {
+                    var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
+                    if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
+                    {
+                        var existentialType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+                        AddParameter(existentialType, argument.Name);
+                    }
+                    else
+                    {
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    }
                     continue;
                 }
 
@@ -516,6 +548,22 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Handle existential return types (any Protocol)
+            if (_env.ExistentialHandler.IsExistential(returnType.SwiftTypeSpec))
+            {
+                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnType.SwiftTypeSpec)!;
+                if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
+                {
+                    var existentialType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
+                    SetReturnType(existentialType);
+                }
+                else
+                {
+                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                }
+                return;
+            }
+
             if (MarshallingHelpers.MethodRequiresIndirectResult(_env))
             {
                 AddParameter("SwiftIndirectResult", "swiftIndirectResult");
@@ -612,6 +660,22 @@ namespace BindingsGeneration
                         AddParameter(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec), argument.Name);
                     else
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    continue;
+                }
+
+                // Handle existential arguments (any Protocol) - pass container by value
+                if (_env.ExistentialHandler.IsExistential(argument.SwiftTypeSpec))
+                {
+                    var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
+                    if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
+                    {
+                        var existentialType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
+                        AddParameter(existentialType, argument.Name);
+                    }
+                    else
+                    {
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    }
                     continue;
                 }
 

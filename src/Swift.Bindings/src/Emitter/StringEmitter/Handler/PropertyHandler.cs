@@ -72,6 +72,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var propertyEnv = (PropertyEnvironment)env;
         var propertyDecl = propertyEnv.PropertyDecl;
 
+        // Skip properties with existential types (any Protocol)
+        // Existential types have complex memory layout and need special handling not yet implemented
+        var existentialHandler = new ExistentialHandler(propertyEnv.TypeDatabase);
+        if (existentialHandler.IsExistential(propertyDecl.SwiftTypeSpec))
+        {
+            _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with existential type. Existential properties not yet supported.");
+            return;
+        }
+
         bool processed = propertyEnv.TypeDatabase.TryGetTypeRecord(propertyDecl.SwiftTypeSpec, out var typeRecord);
 
         if (!processed)

@@ -39,10 +39,11 @@ Initial binding generation revealed these gap categories:
 - **0 compilation errors** (down from 95+)
 
 **Remaining gaps**:
-- 86 methods with unsupported signatures (skipped)
+- ~70 methods with unsupported signatures (skipped) - reduced due to existential parameter support
 - ~10 properties with unsupported types (skipped) - reduced from 24
 - Enum cases with associated values may have unsupported parameter types
-- 4 remaining AnyType references (existential types and closures - not enums)
+- Methods with unsupported closure parameter types (e.g., closures with `Result<T,E>` parameters)
+- Properties with existential types are skipped (existential properties not yet supported)
 - **ObjC types use `Swift.*` wrappers instead of existing .NET iOS bindings** (see 2.8) - Major UX issue
 
 **Fixed issues**:
@@ -52,6 +53,7 @@ Initial binding generation revealed these gap categories:
 - ~~95 compilation errors from code generation bugs~~ FIXED (Phase 1.4)
 - ~~24 compilation errors from other code generation issues~~ FIXED (Phase 1.5)
 - ~~3 naming collision errors~~ FIXED (Phase 2.2.1)
+- ~~Methods with existential parameters skipped~~ FIXED (Phase 3.1) - Now generate `ExistentialContainer{N}` types
 
 ---
 
@@ -377,106 +379,113 @@ public static MyResult Failure(SwiftString message)
 - `src/Swift.Bindings/src/Parser/ModuleProcessor.cs` - Added try/catch around `DynamicLibraryLoader.invoke()`
 
 ### 2.8 Reuse Existing .NET iOS Bindings for Objective-C Types
-**Status**: PARTIALLY DONE (January 2026)
-**Impact**: Major UX improvement
+**Status**: COMPLETE (January 2026)
+**Impact**: Major UX improvement for ObjC-imported types
 
-**Progress**: Return type remapping for `UIImage` is now working. Methods returning `UIImage` generate `UIKit.UIImage` as the return type instead of `Swift.UIImage`.
+**Key Discovery**: There are two categories of types here with very different characteristics:
 
-**Remaining work**: Full integration including parameter types and other ObjC types (URL, Data, etc.).
+1. **ObjC classes imported into Swift** (mangled with `So` prefix, `C` suffix) - These ARE the same ObjC objects and can be directly mapped to .NET iOS bindings. ✅ **Done**
 
-**Problem**: Currently, Objective-C types that Swift imports (like `UIImage`, `URL`, `Data`) are mapped to custom `Swift.*` wrapper types. This creates friction for users who are already using the standard .NET iOS bindings.
+2. **Swift native structs** (mangled with `s10Foundation` prefix, `V` suffix) - These are VALUE types with different ABI. Remapping is not practical. ✅ **Conscious decision to keep as Swift.* wrappers**
 
-**Current behavior** (problematic):
+**ObjC Classes - DONE ✅**
+
+| Swift Type | Mangled Name | .NET iOS Type | Status |
+|------------|--------------|---------------|--------|
+| `UIImage` | `$sSo7UIImageC` | `UIKit.UIImage` | ✅ Working |
+| `URLResponse` | `$sSo15NSURLResponseC` | `Foundation.NSUrlResponse` | ✅ Working |
+| `OperationQueue` | `$sSo16NSOperationQueueC` | `Foundation.NSOperationQueue` | ✅ Working |
+| `NSImage` | `$sSo7NSImageC` | `AppKit.NSImage` | ✅ Working |
+
+These use `objcBridged="true"` in the type database and work because Swift literally imports the ObjC class - the pointer is the same `objc_object*`.
+
+**Swift Structs - Intentionally Kept as Swift.* Wrappers ✅**
+
+| Swift Type | Mangled Name | C# Type | Decision |
+|------------|--------------|---------|----------|
+| `URL` | `$s10Foundation3URLV` | `Swift.URL` | Keep as-is |
+| `Data` | `s10Foundation4DataV` | `Swift.Data` | Keep as-is |
+| `URLRequest` | `$s10Foundation10URLRequestV` | `Swift.URLRequest` | Keep as-is |
+
+**Why this is the right decision:**
+
+These Swift structs are fundamentally different from their ObjC counterparts:
+- **Different memory layout**: Swift structs are value types (16+ bytes inline), ObjC classes are pointers (8 bytes)
+- **Different ABI**: Swift expects struct bytes passed by value, not an `objc_object*` pointer
+- **Different semantics**: Value types copy on assignment, reference types share
+
+Bridging would require calling Swift's internal `_bridgeToObjectiveC()` functions at every boundary crossing - significant complexity for marginal benefit.
+
+**Practical impact is low** because these types are typically **inputs** you construct:
 ```csharp
-// Nuke returns Swift.UIImage
-var response = await pipeline.Image(request);
-Swift.UIImage swiftImage = response.Image;
+// This is fine - construct from string
+var request = new ImageRequest(new SwiftString("https://example.com/image.jpg"));
 
-// Can't use directly with UIKit - wrong type!
-myImageView.Image = swiftImage;  // ❌ Compile error
-
-// User would need awkward conversion
-myImageView.Image = swiftImage.ToUIImage();  // Friction
+// The important outputs (UIImage) already use .NET iOS types
+UIImage image = response.Image;  // ✅ Works seamlessly
 ```
 
-**Desired behavior**:
-```csharp
-// Nuke returns UIKit.UIImage directly
-var response = await pipeline.Image(request);
-UIImage image = response.Image;  // Standard .NET iOS type
-
-myImageView.Image = image;  // ✅ Just works
-```
-
-**Why this works**: Swift's `UIImage` is literally the same Objective-C `UIImage` class - Swift just imports it. The pointer Swift returns is the same `objc_object*` that .NET's existing bindings wrap. There's no "SwiftUIImage" - it's the same type.
-
-**Types to remap**:
-| Current (`Swift.*`) | Should map to (.NET iOS) |
-|---------------------|--------------------------|
-| `Swift.UIImage` | `UIKit.UIImage` |
-| `Swift.NSImage` | `AppKit.NSImage` |
-| `Swift.URL` | `Foundation.NSUrl` |
-| `Swift.URLRequest` | `Foundation.NSUrlRequest` |
-| `Swift.URLResponse` | `Foundation.NSUrlResponse` |
-| `Swift.Data` | `Foundation.NSData` |
-| `Swift.OperationQueue` | `Foundation.NSOperationQueue` |
-| `Swift.DispatchQueue` | `CoreFoundation.DispatchQueue` |
-
-**Types that still need `Swift.*` wrappers** (pure Swift, no ObjC equivalent):
-- `SwiftString` (Swift.String is not NSString in many contexts)
+**Types that inherently need Swift.* wrappers** (pure Swift, no ObjC equivalent):
+- `SwiftString` (Swift.String has different internal representation than NSString)
 - `SwiftArray<T>`, `SwiftSet<T>`, `SwiftDictionary<K,V>` (Swift collections)
 - `SwiftOptional<T>`
 - All generated types from Swift libraries (e.g., `Nuke.ImagePipeline`, `Nuke.ImageRequest`)
-
-**Implementation approach**:
-1. Update type database mappings to point to .NET iOS types
-2. Modify marshalling to use `ObjCRuntime.Runtime.GetNSObject<T>(ptr)` for return values
-3. For parameters, extract the native handle from the .NET type
-4. Remove unnecessary `Swift.UIImage`, `Swift.URL`, etc. wrapper classes
-5. Add dependency on `Microsoft.iOS` (or platform-specific) workload types
-
-**Complexity**: Medium - requires careful integration with .NET iOS binding infrastructure
-
-**Files to modify**:
-- `src/Swift.Runtime/src/Swift/FoundationDatabase.xml`
-- `src/Swift.Runtime/src/Swift/UIKitDatabase.xml`
-- `src/Swift.Runtime/src/Swift/AppKitDatabase.xml`
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - marshalling logic
-- Remove: `Swift.UIImage.cs`, `Swift.URL.cs`, `Swift.URLRequest.cs`, `Swift.URLResponse.cs`, etc.
 
 ---
 
 ## Phase 3: Method Signature Gaps
 
 ### 3.1 Existential Types (`any Protocol`)
-**Status**: PARTIALLY IMPLEMENTED
+**Status**: PARAMETERS IMPLEMENTED (January 2026)
 **Issue**: [#2875](https://github.com/dotnet/runtimelab/issues/2875)
 
-**Progress** (January 2026): The binding generator no longer crashes on existential types in tuples/enum cases. These types are now gracefully handled as `AnyType` and skipped with appropriate warnings.
+**Progress** (January 2026):
+1. ✅ Existential parameters now generate valid C# code using `ExistentialContainer{N}` structs
+2. ✅ Existential return types now generate valid C# code
+3. ✅ Single-protocol existentials (`any Protocol`) are handled via `NamedTypeSpec.IsAny`
+4. ✅ Protocol compositions (`any P1 & P2`) are handled via `ProtocolListTypeSpec`
+5. ✅ Added `TypeRecordKind.Existential` to distinguish from protocol interfaces
+6. ✅ Properties with existential types are explicitly skipped with warnings (future work)
 
-**Remaining work**: Full existential container support for methods that use `any Protocol` parameters/returns.
+**Implementation details**:
+- Added `ExistentialHandler` to `MethodEnvironment` for unified existential handling
+- Updated `WrapperSignatureBuilder` and `PInvokeSignatureBuilder` to use `ExistentialContainer{N}` types
+- Single-protocol existentials (`any DataLoading`) → `ExistentialContainer1`
+- Protocol compositions (`any P1 & P2 & P3`) → `ExistentialContainer3`
+- Up to 8 protocols supported (`ExistentialContainer0` through `ExistentialContainer8`)
 
-Swift's existential types (`any Protocol`, `some Protocol`) are translated as `Swift.AnyType` and cause methods to be skipped.
+**Files modified**:
+- `src/Swift.Bindings/src/TypeDatabase/TypeRecord.cs` - Added `Existential` enum value
+- `src/Swift.Bindings/src/TypeDatabase/TypeDatabaseExtensions.cs` - Use `Existential` kind
+- `src/Swift.Bindings/src/Marshaler/IEnvironment.cs` - Added `ExistentialHandler` property
+- `src/Swift.Bindings/src/Marshaler/ExistentialHandler.cs` - Extended for single-protocol existentials
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Existential signature handling
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs` - Skip existential properties
 
-**Examples**:
+**Tests added**:
+- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/ExistentialHandlerTests.cs` - 7 new tests (391 total)
+
+**Generated code example**:
+```csharp
+// Constructor with existential parameter
+public unsafe Configuration(Swift.Runtime.ExistentialContainer1 dataLoader)
+{
+    PInvoke_init(swiftIndirectResult, dataLoader);
+}
+
+[DllImport("Nuke", EntryPoint = "...")]
+private static extern void PInvoke_init(SwiftIndirectResult swiftIndirectResult,
+    Swift.Runtime.ExistentialContainer1 dataLoader);
 ```
-Method loadImage has unsupported signature: ( Swift.AnyType with,  Swift.AnyType completion) -> Swift.Nuke.ImageTask
-Method process has unsupported signature: ( Swift.AnyType arg0) -> Swift.AnyType<Swift.AnyType>
-```
 
-**Affected Nuke APIs**:
-- `loadImage(with:completion:)` - The main API for loading images
-- `loadData(with:completion:)` - Data loading API
-- `imagePublisher(with:)` - Combine publishers
+**Remaining work**:
+- Properties with existential types (currently skipped)
+- Existentials inside closures (`(any Protocol) -> Void`)
+- Existentials inside tuples (`(Int, any Protocol)`)
+- Helper methods for constructing `ExistentialContainer{N}` from C# objects
+- Protocol witness table lookup at runtime
 
-**Potential solutions**:
-1. Implement Swift existential container layout in C#
-2. Generate appropriate witness table handling
-3. Generate wrapper types that can hold existentials
-
-**Files to check**:
-- `src/Swift.Bindings/src/Marshaler/ExistentialHandler.cs`
-- `src/Swift.Runtime/src/Swift/Runtime/ExistentialContainer.cs`
+**Note**: Many "unsupported signature" warnings in Nuke are due to **unsupported closure types** (closures with `Result<T,E>` parameters), not existential types. The closure handler needs to be extended to support more complex closure signatures.
 
 ### 3.2 Generic Protocol Types
 **Status**: TODO
@@ -624,6 +633,7 @@ Bindings still generate, but conformance information is incomplete.
 | Async non-frozen parameter copy | PASS | Swift wrapper uses proper copy semantics |
 | ObjC type remapping | PASS | UIImage returns as UIKit.UIImage |
 | Existential type handling | PASS | Generator handles `any Protocol` without crashing |
+| Existential parameters | PASS | Methods/constructors with `any Protocol` params generate `ExistentialContainer{N}` |
 | `pipeline.image(request)` | PASS | Fixed defer cleanup issue |
 | Swift wrapper imports | PASS | Generator now emits imports automatically |
 
@@ -755,13 +765,15 @@ var image = response.Image; // UIImage
 - [x] URLRequest/URLResponse support
 - [x] Enum case constructors (simple cases work, cases with associated values emit static methods)
 - [x] **Async method support** - FIXED: Uses IntPtr + proper Swift copy semantics
-- [x] **ObjC type remapping for return types** - UIImage returns as UIKit.UIImage
+- [x] **ObjC type remapping** - ObjC classes (UIImage, URLResponse, OperationQueue) map to .NET iOS types for both params and returns
 - [x] **Existential type handling** - Generator handles `any Protocol` without crashing
 - [x] **Swift wrapper imports** - Generator now emits imports automatically
 - [x] **Async non-frozen parameter cleanup** - FIXED: Cleanup runs after callback, not in defer
-- [ ] **Full ObjC type remapping** (UIImage, URL, etc. for parameters too) - High priority UX fix
-- [ ] Existential types (full support, not just crash handling)
-- [ ] Runtime testing of async methods on iOS simulator
+- [x] **ObjC/Swift type strategy complete** - ObjC classes (UIImage, etc.) map to .NET iOS types; Swift structs (URL, Data) intentionally kept as Swift.* wrappers (see 2.8)
+- [x] **Existential parameters** - Methods with `any Protocol` parameters now generate valid `ExistentialContainer{N}` types (2026-01-30)
+- [ ] Existential properties (currently skipped, need type matching between property and accessors)
+- [ ] Existentials in closures/tuples
+- [x] Runtime testing of async methods on iOS simulator - VERIFIED (2026-01-30)
 
 ---
 
@@ -886,7 +898,7 @@ nm SwiftBindings.framework/SwiftBindings | grep "_async"
 
 ## Current Investigation: SwiftSelf Retention in Async Methods
 
-**Status**: ROOT CAUSE IDENTIFIED - FIX IMPLEMENTED BUT NEEDS TESTING (January 2026)
+**Status**: VERIFIED WORKING (2026-01-30)
 
 ### Key Discovery
 
@@ -939,7 +951,7 @@ extension ImagePipeline {
 **Testing status**:
 - Fix is implemented in code generator
 - Generated bindings include retain/release
-- Need to verify the fix works in runtime testing
+- ✅ Verified working in runtime testing (2026-01-30)
 
 ### Additional Findings from Investigation
 
@@ -1059,7 +1071,7 @@ The `self` parameter passed from C# via SwiftSelf doesn't work correctly in asyn
 
 ## Related Issues
 
-- [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875)
+- [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters implemented (2026-01-30)
 - [#2996 - Async Properties](https://github.com/dotnet/runtimelab/issues/2996)
 - [#2873 - Tuple Support](https://github.com/dotnet/runtimelab/issues/2873) - Implemented
 - [#2874 - Closure Support](https://github.com/dotnet/runtimelab/issues/2874) - Implemented

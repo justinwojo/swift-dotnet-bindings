@@ -38,6 +38,11 @@ public enum TypeRecordKind
     Enum,
     Class,
     Protocol,
+    /// <summary>
+    /// Existential containers (any Protocol) - fixed-size structs that can be marshalled.
+    /// Distinct from Protocol which represents abstract C# interfaces.
+    /// </summary>
+    Existential,
 }
 
 /// <summary>

@@ -42,11 +42,14 @@ public class ExistentialHandler
 
     /// <summary>
     /// Determines whether the specified type spec represents an existential type.
+    /// This includes both protocol compositions (ProtocolListTypeSpec) and single-protocol
+    /// existentials (NamedTypeSpec with IsAny = true).
     /// </summary>
     /// <param name="typeSpec">The type specification.</param>
     /// <returns><c>true</c> if the type spec is an existential; otherwise, <c>false</c>.</returns>
     public bool IsExistential(TypeSpec typeSpec) =>
-        typeSpec is ProtocolListTypeSpec;
+        typeSpec is ProtocolListTypeSpec ||
+        (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.IsAny);
 
     /// <summary>
     /// Gets the ProtocolListTypeSpec from an argument declaration.
@@ -63,6 +66,27 @@ public class ExistentialHandler
     /// <returns>The ProtocolListTypeSpec if the property is an existential; otherwise, null.</returns>
     public ProtocolListTypeSpec? GetProtocolListTypeSpec(PropertyDecl propertyDecl) =>
         propertyDecl.SwiftTypeSpec as ProtocolListTypeSpec;
+
+    /// <summary>
+    /// Converts a type spec to a ProtocolListTypeSpec if it represents an existential.
+    /// For ProtocolListTypeSpec, returns as-is.
+    /// For NamedTypeSpec with IsAny=true (single protocol existential), creates a ProtocolListTypeSpec with one protocol.
+    /// </summary>
+    /// <param name="typeSpec">The type specification.</param>
+    /// <returns>A ProtocolListTypeSpec representing the existential, or null if not an existential.</returns>
+    public ProtocolListTypeSpec? ToProtocolListTypeSpec(TypeSpec typeSpec)
+    {
+        if (typeSpec is ProtocolListTypeSpec protocolList)
+            return protocolList;
+
+        if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.IsAny)
+        {
+            // Single protocol existential: "any SomeProtocol" → ProtocolListTypeSpec with one protocol
+            return new ProtocolListTypeSpec(new[] { namedTypeSpec });
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Gets the number of protocols in an existential type.

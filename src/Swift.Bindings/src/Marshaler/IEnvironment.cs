@@ -111,6 +111,11 @@ namespace BindingsGeneration
         public TypeConversionHandler TypeConversionHandler { get; } = new TypeConversionHandler(typeDatabase);
 
         /// <summary>
+        /// Existential handler instance for handling protocol existential types.
+        /// </summary>
+        public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase);
+
+        /// <summary>
         /// Gets the set of property names in the same parent type.
         /// Used to detect and resolve method/property name collisions.
         /// </summary>
