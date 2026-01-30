@@ -4,5 +4,8 @@
         <entity managedNameSpace="UIKit" managedTypeName="UIImage">
             <typedeclaration kind="class" name="UIImage" module="UIKit" mangledName="$sSo7UIImageC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <entity managedNameSpace="UIKit" managedTypeName="UIColor" objcBridged="true">
+            <typedeclaration kind="class" name="UIColor" module="UIKit" mangledName="$sSo7UIColorC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

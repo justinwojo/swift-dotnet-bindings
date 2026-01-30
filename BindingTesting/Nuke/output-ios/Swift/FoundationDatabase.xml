@@ -22,5 +22,14 @@
         <entity managedNameSpace="Foundation" managedTypeName="NSUrlResponse">
             <typedeclaration kind="class" name="URLResponse" module="Foundation" mangledName="$sSo15NSURLResponseC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSession" objcBridged="true">
+            <typedeclaration kind="class" name="URLSession" module="Foundation" mangledName="$sSo12NSURLSessionC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionConfiguration" objcBridged="true">
+            <typedeclaration kind="class" name="URLSessionConfiguration" module="Foundation" mangledName="$sSo27NSURLSessionConfigurationC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlCache" objcBridged="true">
+            <typedeclaration kind="class" name="URLCache" module="Foundation" mangledName="$sSo10NSURLCacheC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

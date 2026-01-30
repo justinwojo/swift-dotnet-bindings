@@ -31,7 +31,7 @@ Initial binding generation revealed these gap categories:
 
 ## Current State
 
-**Generated**: ~9,000+ lines of C# code
+**Generated**: ~15,400+ lines of C# code
 - 30+ classes implementing `ISwiftObject`
 - 8 protocol interfaces
 - Property getters and setters
@@ -207,6 +207,11 @@ Skipping property 'url' of type 'Optional' from module 'Swift'
 | `UIImage` | DONE | `Swift.UIImage` | UIKit |
 | `URLRequest` | DONE | `Swift.URLRequest` with `SwiftSafeHandle` | Foundation |
 | `URLResponse` | DONE | `Swift.URLResponse` with `SwiftSafeHandle` | Foundation |
+| `Hasher` | DONE | `Swift.Hasher` with `SwiftSafeHandle` | Swift |
+| `UIColor` | DONE | `UIKit.UIColor` (ObjC-bridged) | UIKit |
+| `URLSession` | DONE | `Foundation.NSUrlSession` (ObjC-bridged) | Foundation |
+| `URLSessionConfiguration` | DONE | `Foundation.NSUrlSessionConfiguration` (ObjC-bridged) | Foundation |
+| `URLCache` | DONE | `Foundation.NSUrlCache` (ObjC-bridged) | Foundation |
 
 > **Note**: These `Swift.*` wrapper types work but create UX friction. Section 2.8 describes the planned refactoring to instead map these Objective-C types to the existing .NET iOS bindings (e.g., `UIKit.UIImage` instead of `Swift.UIImage`). This will allow seamless interop with standard .NET iOS code.
 
@@ -219,13 +224,16 @@ Skipping property 'url' of type 'Optional' from module 'Swift'
 - `src/Swift.Runtime/src/Swift/UIImage.cs`
 - `src/Swift.Runtime/src/Swift/URLRequest.cs`
 - `src/Swift.Runtime/src/Swift/URLResponse.cs`
+- `src/Swift.Runtime/src/Swift/Hasher.cs`
 - `src/Swift.Runtime/src/Swift/DispatchDatabase.xml`
 - `src/Swift.Runtime/src/Swift/AppKitDatabase.xml`
 - `src/Swift.Runtime/src/Swift/CoreImageDatabase.xml`
 - `src/Swift.Runtime/src/Swift/UIKitDatabase.xml`
 
 **Files modified**:
-- `src/Swift.Runtime/src/Swift/FoundationDatabase.xml` - Added OperationQueue, URLRequest, URLResponse mappings
+- `src/Swift.Runtime/src/Swift/FoundationDatabase.xml` - Added OperationQueue, URLRequest, URLResponse, URLSession, URLSessionConfiguration, URLCache mappings
+- `src/Swift.Runtime/src/Swift/SwiftDatabase.xml` - Added Hasher mapping
+- `src/Swift.Runtime/src/Swift/UIKitDatabase.xml` - Added UIColor mapping
 - `src/Swift.Runtime/src/Swift/Runtime/KnownLibraries.cs` - Added library paths
 - `src/Swift.Bindings/src/Program.cs` - Load new database files
 
@@ -791,6 +799,9 @@ Bindings still generate, but conformance information is incomplete.
 | Existential properties | PASS | Properties with `any Protocol` generate `ExistentialContainer{N}` (2026-01-30) |
 | Generic constructors | PASS | Constructors with generic params use TypeMetadata/witness tables (2026-01-30) |
 | Closures in constructors | PASS | Constructors with closure params emit callbacks and marshalling (2026-01-30) |
+| Hasher type mapping | PASS | 21 new `hash(into:)` methods generated (2026-01-30) |
+| UIColor type mapping | PASS | ObjC-bridged to UIKit.UIColor, 7 usages (2026-01-30) |
+| URLSession type mappings | PASS | URLSession, URLSessionConfiguration, URLCache ObjC-bridged, 8 usages (2026-01-30) |
 
 ---
 
@@ -930,6 +941,9 @@ var image = response.Image; // UIImage
 - [x] **Closure bound generic returns** - Closures returning `SwiftOptional<T>`, `SwiftResult<S,E>`, etc. now use indirect return marshalling (2026-01-30)
 - [x] **Existential properties** - Properties with `any Protocol` types now generate `ExistentialContainer{N}` types (2026-01-30)
 - [x] **Generic constructors** - Constructors with generic parameters now work using same infrastructure as methods (2026-01-30)
+- [x] **Hasher type support** - `hash(into:)` methods now generate correctly (2026-01-30)
+- [x] **UIColor type support** - ObjC-bridged to `UIKit.UIColor` (2026-01-30)
+- [x] **URLSession types support** - URLSession, URLSessionConfiguration, URLCache ObjC-bridged (2026-01-30)
 - [ ] Existentials in closures/tuples
 - [x] Runtime testing of async methods on iOS simulator - VERIFIED (2026-01-30)
 

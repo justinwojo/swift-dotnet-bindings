@@ -82,5 +82,8 @@
         <entity managedNameSpace="Swift" managedTypeName="SwiftResult">
             <typedeclaration kind="enum" name="Result" module="Swift" mangledName="$ss6ResultO" frozen="true" requiresMemoryManagement="true" />
         </entity>
+        <entity managedNameSpace="Swift" managedTypeName="Hasher">
+            <typedeclaration kind="struct" name="Hasher" module="Swift" mangledName="$ss6HasherV" frozen="false" requiresMemoryManagement="false" />
+        </entity>
     </entities>
 </swifttypedatabase>
