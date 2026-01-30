@@ -39,7 +39,7 @@ Initial binding generation revealed these gap categories:
 - **0 compilation errors** (down from 95+)
 
 **Remaining gaps**:
-- ~70 methods with unsupported signatures (skipped) - reduced due to existential parameter support
+- ~19 methods with unsupported signatures (skipped) - mostly due to `AnyType` (existential dictionary values)
 - ~10 properties with unsupported types (skipped) - reduced from 24
 - Enum cases with associated values may have unsupported parameter types
 - ~~Methods with unsupported closure parameter types (e.g., closures with `Result<T,E>` parameters)~~ FIXED (3.3)
@@ -632,6 +632,47 @@ private static void Anonymous_arg1_Callback(void* indirectResult, void* arg0, Sw
 **Status**: IMPLEMENTED (January 2026)
 
 **Problem**: Generic constructors were explicitly skipped with TODO referencing issue #2890:
+
+### 3.4.1 Unbound Generic Methods Support
+**Status**: IMPLEMENTED (January 2026)
+
+**Problem**: Methods with unbound generic parameters (e.g., `func process<T: ImageProcessing>(_ processor: T)`) were skipped because:
+1. `CreateTypeSpec` in `SwiftABIParser.cs` didn't handle `GenericTypeParam` nodes
+2. `GenericSignatureParser` required `sugared_genericSig` to be present
+
+**Solution**:
+1. Added `kGenericTypeParam` case to `CreateTypeSpec()` to parse generic type parameter nodes
+2. Modified `ParseGenericSignature()` to use generic signature as fallback when sugared signature is missing
+3. Added `BuildWhereClause()` method to emit C# where clauses with `ISwiftObject` and protocol constraints
+4. Added `IsProtocolAvailable()` to gracefully skip unknown protocols instead of failing
+
+**Generated code example**:
+```csharp
+public unsafe void Process<T0>(T0 processor)
+    where T0 : ISwiftObject, ISwiftImageProcessing
+{
+    TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
+    var T0ImageProcessingPWT = ProtocolWitnessTable.GetOrThrow<T0, ISwiftImageProcessing>();
+
+    Span<byte> processorPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+    var processorPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(processorPayloadSpan));
+    SwiftMarshal.MarshalToSwift(processor, ref processorPayloadSpan);
+
+    PInvoke_Process(processorPayload, T0Metadata, T0ImageProcessingPWT);
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` - Added GenericTypeParam case
+- `src/Swift.Bindings/src/Parser/GenericSignatureParser.cs` - Made sugaredSignature optional with fallback
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Added where clause emission, IsProtocolAvailable
+
+**Tests added**:
+- `src/Swift.Bindings/tests/UnitTests/ParserTests/GenericSignatureParserTests.cs` - Fallback tests
+- `src/Swift.Bindings/tests/UnitTests/TypeSpecTests/TypeSpecParserTests.cs` - GenericTypeParam parsing tests
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/GenericMethodEmitterTests.cs` - 12 new tests
+
+**Note**: In Nuke specifically, there's only 1 GenericTypeParam usage, and it's in a constructor that's also blocked by `AnyType` (existential dictionary values). The infrastructure is now ready for other Swift libraries that use unbound generics without existential blockers.
 ```
 Constructor init has unsupported generic parameters
 ```
@@ -803,6 +844,7 @@ Bindings still generate, but conformance information is incomplete.
 | Hasher type mapping | PASS | 21 new `hash(into:)` methods generated (2026-01-30) |
 | UIColor type mapping | PASS | ObjC-bridged to UIKit.UIColor, 7 usages (2026-01-30) |
 | URLSession type mappings | PASS | URLSession, URLSessionConfiguration, URLCache ObjC-bridged, 8 usages (2026-01-30) |
+| Unbound generic method parsing | PASS | GenericTypeParam nodes parsed, where clauses emitted (2026-01-30) |
 
 ---
 
@@ -951,6 +993,7 @@ var image = response.Image; // UIImage
 - [x] Nested type handling in generics - `SwiftTypeName.FromTypeSpec` traverses `InnerType` chain (2026-01-30)
 - [x] Integration tests fixed - Updated naming conventions (PascalCase), 684 tests pass (2026-01-30)
 - [x] Runtime testing of async methods on iOS simulator - VERIFIED (2026-01-30)
+- [x] **Unbound generic methods** - GenericTypeParam parsing, where clause emission, unknown protocol handling (2026-01-30)
 
 ---
 
@@ -1253,3 +1296,4 @@ The `self` parameter passed from C# via SwiftSelf doesn't work correctly in asyn
 - [#2873 - Tuple Support](https://github.com/dotnet/runtimelab/issues/2873) - Implemented
 - [#2874 - Closure Support](https://github.com/dotnet/runtimelab/issues/2874) - Implemented; Bound generic params & returns added (2026-01-30)
 - [#2890 - Generic Constructors](https://github.com/dotnet/runtimelab/issues/2890) - Implemented (2026-01-30)
+- Generic Methods - Implemented: GenericTypeParam parsing, where clause emission (2026-01-30)

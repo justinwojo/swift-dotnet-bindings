@@ -1702,6 +1702,10 @@ namespace BindingsGeneration
                 var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);
                 foreach (var conformance in conformances)
                 {
+                    // Skip unknown protocols - only emit witness table lookup if protocol is in our TypeDatabase
+                    if (!IsProtocolAvailable(conformance.ConformanceTarget))
+                        continue;
+
                     var pwtName = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ConformanceTarget.Name);
                     var protocolName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name);
                     csWriter.WriteLine($"var {pwtName} = ProtocolWitnessTable.GetOrThrow<{csTypeParamName}, {protocolName}>();");
@@ -1924,6 +1928,57 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Builds the where clause for generic constraints.
+        /// </summary>
+        /// <returns>The where clause string, or empty string if no constraints.</returns>
+        private string BuildWhereClause()
+        {
+            if (!_env.MethodDecl.IsGeneric)
+                return "";
+
+            var constraints = new List<string>();
+
+            foreach (var param in _env.MethodDecl.GenericParameters)
+            {
+                if (!_env.GenericTypeMapping.TryGetValue(param.TypeName, out var csNameInfo))
+                    continue;
+
+                var csName = csNameInfo.TypeParameter;
+                var paramConstraints = new List<string> { "ISwiftObject" };
+
+                foreach (var conformance in param.GenericConformances)
+                {
+                    // Skip unknown protocols - only add constraint if protocol is in our TypeDatabase
+                    if (!IsProtocolAvailable(conformance.ConformanceTarget))
+                        continue;
+
+                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name);
+                    paramConstraints.Add(interfaceName);
+                }
+
+                constraints.Add($"where {csName} : {string.Join(", ", paramConstraints)}");
+            }
+
+            return constraints.Count > 0
+                ? "    " + string.Join("\n    ", constraints)
+                : "";
+        }
+
+        /// <summary>
+        /// Checks if a protocol is available in the TypeDatabase.
+        /// </summary>
+        /// <param name="protocolTypeName">The protocol type name to check.</param>
+        /// <returns>True if the protocol is known, false otherwise.</returns>
+        private bool IsProtocolAvailable(SwiftTypeName protocolTypeName)
+        {
+            if (_env.TypeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+            {
+                return record.Kind == TypeRecordKind.Protocol;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Emits the constructor signature.
         /// </summary>
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
@@ -1936,6 +1991,11 @@ namespace BindingsGeneration
             };
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
             csWriter.WriteLine($"{accessModifier} unsafe {_env.ParentDecl.Name}{genericParams}({_wrapperSignature.ParametersString()})");
+
+            // Emit where clauses for generic constraints
+            var whereClause = BuildWhereClause();
+            if (!string.IsNullOrEmpty(whereClause))
+                csWriter.WriteLines(whereClause);
         }
 
         /// <summary>
@@ -1963,6 +2023,11 @@ namespace BindingsGeneration
 
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
             csWriter.WriteLine($"{accessModifier} {staticKeyword}{unsafeKeyword}{returnType} {_env.CSharpMethodName}{genericParams}({_wrapperSignature.ParametersString()})");
+
+            // Emit where clauses for generic constraints
+            var whereClause = BuildWhereClause();
+            if (!string.IsNullOrEmpty(whereClause))
+                csWriter.WriteLines(whereClause);
         }
 
         /// <summary>

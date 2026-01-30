@@ -99,7 +99,7 @@ dotnet add package Nuke.Bindings
 | Feature | Status | Priority |
 |---------|--------|----------|
 | Existential containers (`any Protocol`) | **Done** | P0 |
-| Generic method support | Partial | P0 |
+| Generic method support | **Done** | P0 |
 | Protocol witness tables | Not Started | P1 |
 | Unbound generic types | Not Started | P1 |
 | Protocols with Associated Types (PATs) | Partial | P2 |
@@ -167,19 +167,18 @@ To maintain focus, these are explicitly **out of scope**:
 - Basic enums (with payload construction for associated values)
 - SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>, SwiftResult<S,F>
 - Existential types (`any Protocol`) - parameters, returns, properties, closures, tuples
-- Generic constructors
+- Generic constructors and generic methods (with where clause constraints)
 - StoreKit 2 bindings (published as experimental NuGet)
-- 419 unit tests, 684 integration tests passing
+- 438 unit tests, 684 integration tests passing
 
 ### What Doesn't Work Yet
-- Generic methods - often skipped (unbound generics)
 - Actors - unsupported
 - Full protocol witness table handling
 - Protocols with Associated Types (PATs) - partial support
 
 ### Key Gaps (from Nuke Testing)
 The Nuke image library binding attempt revealed:
-- ~70 methods with unsupported signatures (mostly unbound generics)
+- ~19 methods with unsupported signatures (mostly `AnyType`/existential types in dictionaries)
 - See `/src/docs/nuke-binding-roadmap.md` for detailed tracking
 
 ---

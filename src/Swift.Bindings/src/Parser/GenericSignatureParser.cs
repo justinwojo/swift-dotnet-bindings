@@ -18,11 +18,14 @@ public class GenericSignatureParser
         if (string.IsNullOrWhiteSpace(genericSignature))
             return [];
 
-        if (string.IsNullOrWhiteSpace(sugaredSignature))
-            throw new NotImplementedException($"Generic method without sugared signature is not supported.");
-
         genericSignature = genericSignature[1..^1];
-        sugaredSignature = sugaredSignature[1..^1];
+
+        // Fallback: if sugared signature is missing, use the generic signature itself
+        // Type parameter names will be τ_0_0 style instead of T/U, but C# uses T0/T1 anyway
+        if (string.IsNullOrWhiteSpace(sugaredSignature))
+            sugaredSignature = genericSignature;
+        else
+            sugaredSignature = sugaredSignature[1..^1];
 
         var genericParams = ExtractGenericParams(genericSignature);
         var sugaredParams = ExtractGenericParams(sugaredSignature);

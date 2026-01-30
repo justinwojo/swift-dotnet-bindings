@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using Xunit;
@@ -394,5 +395,45 @@ public class TypeSpecParserTests : IClassFixture<TypeSpecParserTests.TestFixture
     public static void TestArrayFail2()
     {
         Assert.Throws<Exception>(() => { TypeSpecParser.Parse("[Swift.Int : ?]"); });
+    }
+
+    [Fact]
+    public static void TestGenericTypeParamName()
+    {
+        // Generic type parameters in Swift ABI use τ_0_0 style names
+        var ts = TypeSpecParser.Parse("τ_0_0");
+        var ns = ts as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("τ_0_0", ns.Name);
+    }
+
+    [Fact]
+    public static void TestGenericTypeParamNameT()
+    {
+        // Some generic type parameters have friendly names like T
+        var ts = TypeSpecParser.Parse("T");
+        var ns = ts as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("T", ns.Name);
+    }
+
+    [Fact]
+    public static void TestGenericTypeParamWithIndex()
+    {
+        // τ_0_1 = second generic parameter at depth 0
+        var ts = TypeSpecParser.Parse("τ_0_1");
+        var ns = ts as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("τ_0_1", ns.Name);
+    }
+
+    [Fact]
+    public static void TestGenericTypeParamNestedDepth()
+    {
+        // τ_1_0 = first generic parameter at depth 1 (nested generic context)
+        var ts = TypeSpecParser.Parse("τ_1_0");
+        var ns = ts as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("τ_1_0", ns.Name);
     }
 }

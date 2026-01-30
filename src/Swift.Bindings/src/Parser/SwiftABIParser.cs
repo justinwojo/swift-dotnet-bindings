@@ -66,6 +66,7 @@ namespace BindingsGeneration
         const string kNominal = "TypeNominal";
         const string kFunc = "TypeFunc";
         const string kTuple = "Tuple";
+        const string kGenericTypeParam = "GenericTypeParam";
 
         /// <summary>
         /// The set of operators.
@@ -798,6 +799,15 @@ namespace BindingsGeneration
                         throw new Exception($"Error parsing type from \"{node.PrintedName}\"");
                     }
                     return spec;
+                case kGenericTypeParam:
+                    // Generic type parameter - parse the PrintedName (e.g., "T", "τ_0_0")
+                    // which will create a NamedTypeSpec that can be matched in GenericTypeMapping
+                    var genericSpec = TypeSpecParser.Parse(node.PrintedName);
+                    if (genericSpec is null)
+                    {
+                        throw new Exception($"Error parsing generic type param from \"{node.PrintedName}\"");
+                    }
+                    return genericSpec;
                 default:
                     throw new NotImplementedException($"Can't handle node type {node.Kind} yet.");
             }

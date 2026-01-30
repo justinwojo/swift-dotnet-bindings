@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using BindingsGeneration;
@@ -11,7 +12,7 @@ namespace BindingsGeneration.Tests;
 public class GenericSignatureParserTests
 {
     [Fact]
-    public void ParseGenericSignature_ReturnsEmpty_WhenEitherSignatureIsNullOrEmpty()
+    public void ParseGenericSignature_ReturnsEmpty_WhenGenericSignatureIsNullOrEmpty()
     {
         string? genericSig = null;
         string? sugaredSig = null;
@@ -19,6 +20,41 @@ public class GenericSignatureParserTests
         var result = GenericSignatureParser.ParseGenericSignature(genericSig, sugaredSig);
 
         Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ParseGenericSignature_UsesFallback_WhenSugaredSignatureIsNullOrEmpty()
+    {
+        // When sugared signature is missing, use the generic signature itself as fallback
+        var genericSig = "<τ_0_0>";
+        string? sugaredSig = null;
+
+        var result = GenericSignatureParser.ParseGenericSignature(genericSig, sugaredSig);
+
+        Assert.Single(result);
+        var decl = result[0];
+        // Both TypeName and SugaredTypeName should be the same (the generic name)
+        Assert.Equal("τ_0_0", decl.TypeName);
+        Assert.Equal("τ_0_0", decl.SugaredTypeName);
+        Assert.Empty(decl.GenericConformances);
+    }
+
+    [Fact]
+    public void ParseGenericSignature_UsesFallback_WithConstraints()
+    {
+        // When sugared signature is missing but there are constraints
+        var genericSig = "<τ_0_0 where τ_0_0 : Swift.Equatable>";
+        string? sugaredSig = null;
+
+        var result = GenericSignatureParser.ParseGenericSignature(genericSig, sugaredSig);
+
+        Assert.Single(result);
+        var decl = result[0];
+        Assert.Equal("τ_0_0", decl.TypeName);
+        Assert.Equal("τ_0_0", decl.SugaredTypeName);
+        Assert.Single(decl.GenericConformances);
+        var conformance = Assert.IsType<GenericParameterConformance>(decl.GenericConformances[0]);
+        Assert.Equal("Swift.Equatable", conformance.ConformanceTarget.ModuleQualifiedName);
     }
 
     [Fact]
