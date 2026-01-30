@@ -57,6 +57,11 @@ namespace BindingsGeneration
         /// Gets the TypeDatabase
         /// </summary>
         public ITypeDatabase TypeDatabase { get; } = typeDatabase;
+
+        /// <summary>
+        /// Mapping of Swift generic type names to C# generic type names.
+        /// </summary>
+        public Dictionary<string, GenericParameterCSName> GenericTypeMapping { get; } = NameProvider.GetGenericTypeMappingForType(typeDecl);
     }
 
     /// <summary>

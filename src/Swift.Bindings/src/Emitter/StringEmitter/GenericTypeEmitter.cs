@@ -1,0 +1,119 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+namespace BindingsGeneration;
+
+/// <summary>
+/// Helper class for emitting generic type declarations in C#.
+/// </summary>
+public static class GenericTypeEmitter
+{
+    /// <summary>
+    /// Gets the generic type parameter list for a type declaration.
+    /// For example, if a type has parameters T and U, returns "&lt;T0, T1&gt;".
+    /// </summary>
+    /// <param name="typeDecl">The type declaration.</param>
+    /// <returns>The generic parameter list, or empty string if not generic.</returns>
+    public static string GetGenericParameterList(TypeDecl typeDecl)
+    {
+        if (!typeDecl.IsGeneric)
+            return string.Empty;
+
+        var typeParams = typeDecl.GenericParameters
+            .Select((p, i) => $"T{i}")
+            .ToList();
+
+        return $"<{string.Join(", ", typeParams)}>";
+    }
+
+    /// <summary>
+    /// Gets the type name with generic parameters appended.
+    /// For example, "Box" becomes "Box&lt;T0&gt;" for a generic type.
+    /// </summary>
+    /// <param name="typeDecl">The type declaration.</param>
+    /// <returns>The type name with generic parameters.</returns>
+    public static string GetTypeNameWithGenerics(TypeDecl typeDecl)
+    {
+        return $"{typeDecl.Name}{GetGenericParameterList(typeDecl)}";
+    }
+
+    /// <summary>
+    /// Gets the where clause constraints for a generic type declaration.
+    /// Each generic parameter gets an ISwiftObject constraint, plus any protocol constraints.
+    /// </summary>
+    /// <param name="typeDecl">The type declaration.</param>
+    /// <returns>The where clause, or empty string if no constraints.</returns>
+    public static string GetWhereClause(TypeDecl typeDecl)
+    {
+        if (!typeDecl.IsGeneric)
+            return string.Empty;
+
+        var constraints = new List<string>();
+
+        for (int i = 0; i < typeDecl.GenericParameters.Count; i++)
+        {
+            var param = typeDecl.GenericParameters[i];
+            var typeParamName = $"T{i}";
+
+            // Build list of constraints for this parameter
+            var paramConstraints = new List<string> { "ISwiftObject" };
+
+            // Add protocol conformance constraints
+            foreach (var conformance in param.GenericConformances)
+            {
+                if (conformance.Kind == ConformanceKind.Protocol)
+                {
+                    // Convert Swift protocol name to C# interface name
+                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name);
+                    // Skip Sendable as it doesn't have a C# equivalent
+                    if (conformance.ConformanceTarget.Name != "Sendable")
+                    {
+                        paramConstraints.Add(interfaceName);
+                    }
+                }
+            }
+
+            constraints.Add($"{typeParamName} : {string.Join(", ", paramConstraints)}");
+        }
+
+        if (constraints.Count == 0)
+            return string.Empty;
+
+        return $"where {string.Join(", ", constraints)}";
+    }
+
+    /// <summary>
+    /// Gets the full type declaration signature including generics and where clause.
+    /// For example: "Box&lt;T0&gt; where T0 : ISwiftObject"
+    /// </summary>
+    /// <param name="typeDecl">The type declaration.</param>
+    /// <returns>The full type signature.</returns>
+    public static string GetFullTypeSignature(TypeDecl typeDecl)
+    {
+        var name = GetTypeNameWithGenerics(typeDecl);
+        var whereClause = GetWhereClause(typeDecl);
+
+        if (string.IsNullOrEmpty(whereClause))
+            return name;
+
+        return $"{name} {whereClause}";
+    }
+
+    /// <summary>
+    /// Generates the GetTypeMetadata implementation for a generic type.
+    /// Generic types need to pass type metadata for each type parameter to the metadata accessor.
+    /// </summary>
+    /// <param name="typeDecl">The type declaration.</param>
+    /// <returns>The GetTypeMetadata method body.</returns>
+    public static string GetGenericMetadataAccessor(TypeDecl typeDecl)
+    {
+        if (!typeDecl.IsGeneric)
+            return string.Empty;
+
+        var typeParams = typeDecl.GenericParameters
+            .Select((p, i) => $"TypeMetadata.GetTypeMetadataOrThrow<T{i}>()")
+            .ToList();
+
+        return string.Join(", ", typeParams);
+    }
+}

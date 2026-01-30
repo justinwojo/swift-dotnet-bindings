@@ -19,6 +19,11 @@ public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
     }
 
     /// <summary>
+    /// Gets the underlying native handle of the protocol witness table.
+    /// </summary>
+    public IntPtr Handle => _handle;
+
+    /// <summary>
     /// An empty / invalid protocol witness table.
     /// </summary>
     public readonly static ProtocolWitnessTable Zero = default;

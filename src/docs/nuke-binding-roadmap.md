@@ -498,8 +498,8 @@ private static extern void PInvoke_init(SwiftIndirectResult swiftIndirectResult,
 - ~~Properties with existential types (currently skipped)~~ FIXED (3.1.1)
 - ~~Existentials inside closures (`(any Protocol) -> Void`)~~ FIXED (2026-01-30)
 - ~~Existentials inside tuples (`(Int, any Protocol)`)~~ FIXED (2026-01-30)
-- Helper methods for constructing `ExistentialContainer{N}` from C# objects
-- Protocol witness table lookup at runtime
+- ~~Helper methods for constructing `ExistentialContainer{N}` from C# objects~~ FIXED (2026-01-30)
+- ~~Protocol witness table lookup at runtime~~ FIXED (2026-01-30)
 
 ### 3.1.1 Existential Properties
 **Status**: IMPLEMENTED (January 2026)
@@ -529,12 +529,72 @@ public Swift.Runtime.ExistentialContainer1 DataLoader
 
 **Note**: Many "unsupported signature" warnings in Nuke are due to **unsupported closure types** (closures with `Result<T,E>` parameters), not existential types. The closure handler needs to be extended to support more complex closure signatures.
 
-### 3.2 Generic Protocol Types
-**Status**: TODO
+### 3.1.2 ExistentialContainerFactory Helper Methods
+**Status**: IMPLEMENTED (January 2026)
 
-Protocols with associated types or generic requirements are skipped entirely.
+**Problem**: Creating `ExistentialContainer{N}` from C# objects required manual construction with no helper methods.
 
-**Skipped Nuke types**:
+**Solution**: Added `ExistentialContainerFactory` static class with factory methods:
+1. `CreateAny<T>(T value)` - Creates `ExistentialContainer0` for `Any` type (zero protocols)
+2. `Create<T, TProtocol>(T value)` - Creates container with single protocol witness table
+3. `Create<T, P1, P2>(T value)` - Creates container with two protocol witness tables
+4. `Create<T, P1, P2, P3>(T value)` - Creates container with three protocol witness tables
+5. `Create<T, P1, P2, P3, P4>(T value)` - Creates container with four protocol witness tables
+6. `CreateWithWitnessTables<T>(T value, params ProtocolWitnessTable[] tables)` - Creates container with arbitrary witness tables (up to 8)
+
+**Implementation details**:
+- Payload marshalling handles inline (≤24 bytes) vs heap allocation based on `ValueWitnessFlags.IsNonInline`
+- Added `Handle` property to `ProtocolWitnessTable` to expose the native IntPtr
+- Added existential container handling to `SwiftMarshal.MarshalToSwift()`
+
+**Generated code example**:
+```csharp
+// Create container for a type conforming to ISwiftHashable
+var container = ExistentialContainerFactory.Create<MyType, ISwiftHashable>(myValue);
+
+// Create container for Any (zero protocols)
+var anyContainer = ExistentialContainerFactory.CreateAny(myValue);
+```
+
+**Files modified**:
+- `src/Swift.Runtime/src/Swift/Runtime/ExistentialContainer.cs` - Added `ExistentialContainerFactory` class
+- `src/Swift.Runtime/src/Swift/Runtime/ProtocolWitnessTable.cs` - Added `Handle` property
+- `src/Swift.Runtime/src/Swift/Runtime/InteropServices/SwiftMarshal.cs` - Added existential marshalling
+
+**Tests added**:
+- `src/Swift.Runtime/tests/MetadataTests/ExistentialContainerFactoryTests.cs` - 8 new tests
+
+### 3.2 Generic Protocol Types (PATs)
+**Status**: PARTIALLY IMPLEMENTED (January 2026)
+
+Protocols with associated types or generic requirements were previously skipped entirely.
+
+**Progress** (January 2026):
+1. ✅ Added `AssociatedTypeReferenceSpec` class to model associated type references (e.g., `Self.Element`)
+2. ✅ Parser now handles `DependentMember` nodes for associated type references
+3. ✅ `ProtocolHandler` maps associated types to C# generic parameters in method signatures
+4. ✅ Properties with associated type return values now emit with proper generic types
+
+**Implementation details**:
+- Created `AssociatedTypeReferenceSpec` TypeSpec for `Self.Element`, `τ_0_0.Iterator`, etc.
+- Added `MapAssociatedTypeToGenericParam()` to `ProtocolHandler` for type mapping
+- Protocol methods referencing associated types now emit with mapped C# generic parameters
+
+**Files added**:
+- `src/Swift.Bindings/src/Model/TypeSpec/AssociatedTypeReferenceSpec.cs`
+
+**Files modified**:
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` - Handle `DependentMember` in `CreateTypeSpec`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs` - Protocol method/property emission with PATs
+
+**Tests added**:
+- `src/Swift.Bindings/tests/UnitTests/TypeSpecTests/AssociatedTypeReferenceSpecTests.cs` - 9 new tests
+
+**Remaining work**:
+- Full protocol method emission for all PAT scenarios
+- Protocol conformance witness table generation for PATs
+
+**Skipped Nuke types** (still require full PAT support):
 - `ImageProcessing` - Core image processing protocol
 - `ImageDecoding` / `ImageEncoding` - Codec protocols
 - `ImageCaching` / `DataCaching` - Cache protocols
@@ -718,6 +778,54 @@ public unsafe GenericBox<T>(T value)
 
 **Also fixed**: Closures passed to constructors now properly emit callback functions and marshalling code (previously only methods handled closures).
 
+### 3.4.2 Unbound Generic Type Definitions
+**Status**: IMPLEMENTED (January 2026)
+
+**Problem**: Generic type definitions (e.g., `struct Box<T>`) were completely skipped with a warning about unsupported generic types.
+
+**Solution**: Added full support for parsing and emitting generic type definitions:
+1. Added `GenericParameters` and `IsGeneric` properties to `TypeDecl`
+2. Removed the skip logic in `SwiftABIParser` that blocked generic types
+3. Created `GenericTypeEmitter` helper class for emitting generic type declarations
+4. Updated `FrozenStructHandler`, `NonFrozenStructHandler`, and `ClassHandler` to emit generic types
+
+**Implementation details**:
+- Generic parameters use naming convention `T0`, `T1`, etc.
+- All generic parameters get `ISwiftObject` constraint
+- Protocol conformance constraints are added (e.g., `where T0 : ISwiftObject, ISwiftEquatable`)
+- `Sendable` constraints are skipped (no C# equivalent)
+- `GenericTypeMapping` added to `TypeEnvironment` for parameter name resolution
+
+**Generated code example**:
+```csharp
+public unsafe struct Box<T0> : ISwiftObject
+    where T0 : ISwiftObject
+{
+    static TypeMetadata ISwiftObject.GetTypeMetadata()
+    {
+        return TypeMetadata.Cache.GetOrAdd(typeof(Box<T0>), _ =>
+            _MetadataAccessor(TypeMetadataRequest.Complete,
+                TypeMetadata.GetTypeMetadataOrThrow<T0>()));
+    }
+
+    public T0 Value { get => ...; set => ...; }
+}
+```
+
+**Files added**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/GenericTypeEmitter.cs`
+
+**Files modified**:
+- `src/Swift.Bindings/src/Model/TypeDecl/TypeDecl.cs` - Added `GenericParameters`, `IsGeneric`
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` - Removed generic skip logic, parse generic params
+- `src/Swift.Bindings/src/Marshaler/NameProvider.cs` - Added `GetGenericTypeMappingForType()`
+- `src/Swift.Bindings/src/Marshaler/IEnvironment.cs` - Added `GenericTypeMapping` to `TypeEnvironment`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs` - Use `GenericTypeEmitter` in handlers
+
+**Tests added**:
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/GenericTypeEmitterTests.cs` - 12 new tests
+- `src/Swift.Bindings/tests/UnitTests/ParserTests/UnboundGenericsParserTests.cs` - 5 new tests
+
 ### 3.5 Dictionary with Existential Values (Any)
 **Status**: IMPLEMENTED (January 2026)
 
@@ -900,6 +1008,9 @@ Bindings still generate, but conformance information is incomplete.
 | Closure callback signature consistency | PASS | Function pointer and callback signatures now match (2026-01-30) |
 | Memory management tests | PASS | 7 new tests: double-dispose, handle validity, unowned refs, stress (2026-01-30) |
 | Nuke memory stress test | PASS | 50 ImageRequest create/dispose cycles, no retain count drift (2026-01-30) |
+| ExistentialContainerFactory | PASS | 8 new tests: Create methods, witness table handling, payload marshalling (2026-01-30) |
+| Unbound generic types | PASS | 17 new tests: GenericTypeEmitter, parser, where clauses (2026-01-30) |
+| AssociatedTypeReferenceSpec | PASS | 9 new tests: parsing, ToString, HasDynamicSelf, equality (2026-01-30) |
 
 ---
 
@@ -1050,6 +1161,9 @@ var image = response.Image; // UIImage
 - [x] **Unbound generic methods** - GenericTypeParam parsing, where clause emission, unknown protocol handling (2026-01-30)
 - [x] **Dictionary with existential values** - `Dictionary<K, Any>` now generates `SwiftDictionary<K, ExistentialContainer0>` (2026-01-30)
 - [x] **Closure callback signature fix** - Function pointer and callback signatures now consistently use blittable types (2026-01-30)
+- [x] **ExistentialContainerFactory** - Helper methods for creating existential containers from C# objects (2026-01-30)
+- [x] **Unbound generic type definitions** - Generic types like `Box<T>` now emit as `Box<T0> where T0 : ISwiftObject` (2026-01-30)
+- [x] **Protocol associated types (PATs)** - AssociatedTypeReferenceSpec for `Self.Element`, `DependentMember` parsing (2026-01-30)
 
 ---
 
@@ -1347,9 +1461,11 @@ The `self` parameter passed from C# via SwiftSelf doesn't work correctly in asyn
 
 ## Related Issues
 
-- [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters, properties & bound generic arguments implemented (2026-01-30)
+- [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters, properties, bound generic arguments, ExistentialContainerFactory implemented (2026-01-30)
 - [#2996 - Async Properties](https://github.com/dotnet/runtimelab/issues/2996)
 - [#2873 - Tuple Support](https://github.com/dotnet/runtimelab/issues/2873) - Implemented
 - [#2874 - Closure Support](https://github.com/dotnet/runtimelab/issues/2874) - Implemented; Bound generic params & returns added (2026-01-30)
 - [#2890 - Generic Constructors](https://github.com/dotnet/runtimelab/issues/2890) - Implemented (2026-01-30)
 - Generic Methods - Implemented: GenericTypeParam parsing, where clause emission (2026-01-30)
+- Generic Type Definitions - Implemented: Unbound generic types like `Box<T>` now emit correctly (2026-01-30)
+- Protocol Associated Types (PATs) - Partially implemented: AssociatedTypeReferenceSpec, DependentMember parsing (2026-01-30)

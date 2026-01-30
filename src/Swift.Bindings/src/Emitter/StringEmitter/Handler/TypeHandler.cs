@@ -85,25 +85,32 @@ namespace BindingsGeneration
 
             SwiftTypeInfo? swiftTypeInfo = typeRecord?.SwiftTypeInfo;
 
+            // Get generic type parts if this is a generic type
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(structDecl);
+
             var interfaces = new List<string> {
                 typeof(ISwiftObject).Name,
             };
             if (implementsEquatable)
             {
-                interfaces.Add($"IEquatable<{structDecl.Name}>");
+                interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
             }
 
             if (isProjectedAsClass)
             {
                 // Use unsafe class since methods may use function pointers for closure parameters
-                csWriter.WriteLine($"public unsafe class {structDecl.Name} : {string.Join(", ", interfaces)}");
+                var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                if (!string.IsNullOrEmpty(whereClause))
+                    classDeclaration += $" {whereClause}";
+                csWriter.WriteLine(classDeclaration);
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
                 // Payload used for reference counting
-                csWriter.WriteLine($"private SwiftSafeHandle<{structDecl.Name}> _payload = SwiftSafeHandle<{structDecl.Name}>.Zero;");
+                csWriter.WriteLine($"private SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
                 csWriter.WriteLine();
-                csWriter.WriteLine($"public SwiftSafeHandle<{structDecl.Name}> Payload => _payload;");
+                csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
             }
 
             if (swiftTypeInfo.HasValue)
@@ -121,7 +128,10 @@ namespace BindingsGeneration
             }
             else
             {
-                csWriter.WriteLine($"public unsafe struct {structDecl.Name} : {string.Join(", ", interfaces)}");
+                var structDeclaration = $"public unsafe struct {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                if (!string.IsNullOrEmpty(whereClause))
+                    structDeclaration += $" {whereClause}";
+                csWriter.WriteLine(structDeclaration);
                 csWriter.WriteLine("{");
             }
             csWriter.Indent++;
@@ -272,14 +282,21 @@ namespace BindingsGeneration
             var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, hasEquality, hasInequality);
             bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
+            // Get generic type parts if this is a generic type
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(structDecl);
+
             var interfaces = new List<string> {
                 typeof(ISwiftObject).Name,
             };
             if (implementsEquatable)
             {
-                interfaces.Add($"IEquatable<{structDecl.Name}>");
+                interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
             }
-            csWriter.WriteLine($"public unsafe class {structDecl.Name} : {string.Join(", ", interfaces)}");
+            var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+            if (!string.IsNullOrEmpty(whereClause))
+                classDeclaration += $" {whereClause}";
+            csWriter.WriteLine(classDeclaration);
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -408,15 +425,22 @@ namespace BindingsGeneration
             bool hasInequality = OperatorHandler.WillHaveInequalityOperator(classDecl.Operators);
             bool implementsEquatable = classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
+            // Get generic type parts if this is a generic type
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(classDecl);
+
             var interfaces = new List<string> {
                 typeof(ISwiftObject).Name,
             };
             if (implementsEquatable)
             {
-                interfaces.Add($"IEquatable<{classDecl.Name}>");
+                interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
             }
 
-            csWriter.WriteLine($"public unsafe class {classDecl.Name} : {string.Join(", ", interfaces)}");
+            var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+            if (!string.IsNullOrEmpty(whereClause))
+                classDeclaration += $" {whereClause}";
+            csWriter.WriteLine(classDeclaration);
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -1352,21 +1376,21 @@ namespace BindingsGeneration
                     continue;
                 }
                 emittedProperties.Add(propertyKey);
-                EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase);
+                EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase, protocolDecl);
             }
 
             // Emit methods as interface members
             foreach (var methodDecl in protocolDecl.Methods)
             {
                 // Create a unique key for the method (name + parameter types)
-                var methodKey = GetMethodSignatureKey(methodDecl, env.TypeDatabase);
+                var methodKey = GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl);
                 if (emittedMethods.Contains(methodKey))
                 {
                     _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' in interface {protocolDecl.Name}");
                     continue;
                 }
                 emittedMethods.Add(methodKey);
-                EmitInterfaceMethod(csWriter, methodDecl, env.TypeDatabase);
+                EmitInterfaceMethod(csWriter, methodDecl, env.TypeDatabase, protocolDecl);
             }
 
             csWriter.Indent--;
@@ -1377,8 +1401,9 @@ namespace BindingsGeneration
         /// <summary>
         /// Creates a unique signature key for a method based on name and parameter types.
         /// </summary>
-        private static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+        private string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
         {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             var paramTypes = new List<string>();
             // Skip first element (return type) in CSSignature
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
@@ -1386,8 +1411,16 @@ namespace BindingsGeneration
                 var arg = methodDecl.CSSignature[i];
                 try
                 {
-                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
-                    paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                    // Handle associated type references for protocols
+                    if (arg.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
+                    {
+                        paramTypes.Add(MapAssociatedTypeToGenericParam(assocRef, protocolContext));
+                    }
+                    else
+                    {
+                        var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
+                        paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                    }
                 }
                 catch
                 {
@@ -1443,12 +1476,24 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a property declaration for an interface.
         /// </summary>
-        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase)
+        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var csharpTypeName = boundGenericsHandler.IsBoundGeneric(propertyDecl)
-                ? boundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl)
-                : typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+
+            // Check for associated type references in protocol context
+            string csharpTypeName;
+            if (propertyDecl.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
+            {
+                csharpTypeName = MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+            }
+            else if (boundGenericsHandler.IsBoundGeneric(propertyDecl))
+            {
+                csharpTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl);
+            }
+            else
+            {
+                csharpTypeName = typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+            }
 
             // Determine accessors
             var hasGetter = propertyDecl.Accessors.OfType<GetAccessorDecl>().Any();
@@ -1479,7 +1524,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a method declaration for an interface.
         /// </summary>
-        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase)
+        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
         {
             // Skip constructors - they can't be in interfaces
             if (methodDecl.IsConstructor)
@@ -1501,7 +1546,7 @@ namespace BindingsGeneration
                 var returnArg = methodDecl.CSSignature[0];
                 if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
                 {
-                    returnType = GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler);
+                    returnType = GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 }
             }
 
@@ -1510,7 +1555,7 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
-                var argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler);
+                var argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 var argName = string.IsNullOrEmpty(arg.Name) ? $"arg{i}" : arg.Name;
                 parameters.Add($"{argTypeName} {argName}");
             }
@@ -1532,10 +1577,16 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Gets the C# type name for a Swift type specification, handling bound generics.
+        /// Gets the C# type name for a Swift type specification, handling bound generics and associated types.
         /// </summary>
-        private static string GetCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
+        private string GetCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler, ProtocolDecl? protocolContext = null)
         {
+            // Handle associated type references (e.g., Self.Element, τ_0_0.Element)
+            if (typeSpec is AssociatedTypeReferenceSpec assocRef)
+            {
+                return MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+            }
+
             // Handle bound generics (e.g., Optional<T>, Array<T>)
             if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
             {
@@ -1555,6 +1606,36 @@ namespace BindingsGeneration
 
             // For non-generic types, use the standard lookup
             return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
+        /// Maps an associated type reference to a C# generic parameter name.
+        /// For example, "Self.Element" in a protocol with associated type "Element" becomes "TElement".
+        /// </summary>
+        private string MapAssociatedTypeToGenericParam(AssociatedTypeReferenceSpec assocRef, ProtocolDecl? protocolDecl)
+        {
+            // Handle Self reference
+            if (assocRef.BaseType == "Self" && string.IsNullOrEmpty(assocRef.AssociatedTypeName))
+            {
+                return "TSelf";
+            }
+
+            // Handle associated type reference like "Self.Element"
+            if (!string.IsNullOrEmpty(assocRef.AssociatedTypeName))
+            {
+                // Map "Element" -> "TElement"
+                return $"T{assocRef.AssociatedTypeName}";
+            }
+
+            // Fallback for generic parameter like τ_0_0
+            if (assocRef.BaseType.StartsWith("τ_") || assocRef.BaseType.StartsWith("T"))
+            {
+                // Already a generic param reference
+                return assocRef.BaseType;
+            }
+
+            _logger.LogWarning($"Unknown associated type reference: {assocRef}");
+            return "object";
         }
     }
 

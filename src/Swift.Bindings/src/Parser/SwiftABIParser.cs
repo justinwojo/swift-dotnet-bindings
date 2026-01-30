@@ -276,26 +276,25 @@ namespace BindingsGeneration
 
             TypeDecl? decl;
 
-            // Skip generic types, except for protocols which can have generic requirements
-            // Protocols with generic requirements (like 'where' clauses) should still be processed
+            // Parse generic parameters if present (except for protocols which handle them differently)
+            List<GenericArgumentDecl> genericParameters = new();
             if (node.GenericSig is not null && node.DeclKind != "Protocol")
             {
-                _logger.LogWarning($"Generic type '{node.Name}' not supported. Skipping.");
-                return null;
+                genericParameters = GenericSignatureParser.ParseGenericSignature(node.GenericSig, node.sugared_genericSig);
             }
 
             switch (node.DeclKind)
             {
                 case "Struct":
-                    decl = CreateStructDecl(node, parentDecl, moduleDecl);
+                    decl = CreateStructDecl(node, parentDecl, moduleDecl, genericParameters);
                     break;
 
                 case "Enum":
-                    decl = CreateEnumDecl(node, parentDecl, moduleDecl);
+                    decl = CreateEnumDecl(node, parentDecl, moduleDecl, genericParameters);
                     break;
 
                 case "Class":
-                    decl = CreateClassDecl(node, parentDecl, moduleDecl);
+                    decl = CreateClassDecl(node, parentDecl, moduleDecl, genericParameters);
                     break;
 
                 case "Protocol":
@@ -314,6 +313,7 @@ namespace BindingsGeneration
                 decl.Methods.AddRange(childDecls.OfType<MethodDecl>());
                 decl.Types.AddRange(childDecls.OfType<TypeDecl>());
                 decl.Operators.AddRange(childDecls.OfType<OperatorDecl>());
+                decl.GenericParameters = genericParameters;
 
                 // Collect enum cases if this is an EnumDecl
                 if (decl is EnumDecl enumDecl)
@@ -359,8 +359,9 @@ namespace BindingsGeneration
         /// <param name="node">The node representing the struct declaration.</param>
         /// <param name="parentDecl">The parent declaration.</param>
         /// <param name="moduleDecl">The module declaration.</param>
+        /// <param name="genericParameters">The generic parameters for this type.</param>
         /// <returns>The struct declaration.</returns>
-        private StructDecl CreateStructDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        private StructDecl CreateStructDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters)
         {
             var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
             var hasFrozenAttribute = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Frozen") != -1;
@@ -374,6 +375,7 @@ namespace BindingsGeneration
                 Methods = new List<MethodDecl>(),
                 Types = new List<TypeDecl>(),
                 Operators = new List<OperatorDecl>(),
+                GenericParameters = genericParameters,
                 Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
@@ -388,8 +390,9 @@ namespace BindingsGeneration
         /// <param name="node">The node representing the enum declaration.</param>
         /// <param name="parentDecl">The parent declaration.</param>
         /// <param name="moduleDecl">The module declaration.</param>
+        /// <param name="genericParameters">The generic parameters for this type.</param>
         /// <returns>The enum declaration.</returns>
-        private EnumDecl CreateEnumDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        private EnumDecl CreateEnumDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters)
         {
             var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
             var hasFrozenAttribute = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Frozen") != -1;
@@ -404,6 +407,7 @@ namespace BindingsGeneration
                 Types = new List<TypeDecl>(),
                 Operators = new List<OperatorDecl>(),
                 Cases = new List<EnumCaseDecl>(),
+                GenericParameters = genericParameters,
                 Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
@@ -490,8 +494,9 @@ namespace BindingsGeneration
         /// <param name="node">The node representing the class declaration.</param>
         /// <param name="parentDecl">The parent declaration.</param>
         /// <param name="moduleDecl">The module declaration.</param>
+        /// <param name="genericParameters">The generic parameters for this type.</param>
         /// <returns>The class declaration.</returns>
-        private ClassDecl CreateClassDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        private ClassDecl CreateClassDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters)
         {
             var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
             return new ClassDecl
@@ -503,6 +508,7 @@ namespace BindingsGeneration
                 Methods = new List<MethodDecl>(),
                 Types = new List<TypeDecl>(),
                 Operators = new List<OperatorDecl>(),
+                GenericParameters = genericParameters,
                 Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl
@@ -814,6 +820,10 @@ namespace BindingsGeneration
                         throw new Exception($"Error parsing generic type param from \"{node.PrintedName}\"");
                     }
                     return genericSpec;
+                case "DependentMember":
+                    // Dependent member type - represents a reference to a protocol's associated type
+                    // For example, "Self.Element" or "τ_0_0.Element"
+                    return new AssociatedTypeReferenceSpec(node.PrintedName);
                 default:
                     throw new NotImplementedException($"Can't handle node type {node.Kind} yet.");
             }

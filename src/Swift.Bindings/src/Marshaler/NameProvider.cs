@@ -101,6 +101,18 @@ public static class NameProvider
                 TypeParameter: $"T{x.i}"
             ));
 
+    /// <summary>
+    /// Provides the mapping of generic type parameters for a type declaration.
+    /// </summary>
+    /// <param name="typeDecl">The type declaration.</param>
+    /// <returns>The mapping of generic type parameters.</returns>
+    public static Dictionary<string, GenericParameterCSName> GetGenericTypeMappingForType(TypeDecl typeDecl) =>
+        typeDecl.GenericParameters
+            .Select((param, i) => (param, i))
+            .ToDictionary(x => x.param.TypeName, x => new GenericParameterCSName(
+                TypeParameter: $"T{x.i}"
+            ));
+
     public static string GetMetadataName(string typeName) => $"{typeName}Metadata";
     public static string GetPayloadName(string argumentName) => $"{argumentName}Payload";
     public static string GetProtocolWitnessTableName(string typeName, string protocolName) => $"{typeName}{protocolName}PWT";

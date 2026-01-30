@@ -1,0 +1,220 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using Xunit;
+
+namespace BindingsGeneration.Tests;
+
+/// <summary>
+/// Tests for GenericTypeEmitter.
+/// </summary>
+public class GenericTypeEmitterTests
+{
+    [Fact]
+    public void GetGenericParameterList_ReturnsEmpty_ForNonGenericType()
+    {
+        var typeDecl = CreateNonGenericStruct();
+
+        var result = GenericTypeEmitter.GetGenericParameterList(typeDecl);
+
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact]
+    public void GetGenericParameterList_ReturnsSingleParam_ForSingleGenericType()
+    {
+        var typeDecl = CreateGenericStruct("Box", 1);
+
+        var result = GenericTypeEmitter.GetGenericParameterList(typeDecl);
+
+        Assert.Equal("<T0>", result);
+    }
+
+    [Fact]
+    public void GetGenericParameterList_ReturnsMultipleParams_ForMultipleGenericType()
+    {
+        var typeDecl = CreateGenericStruct("Pair", 2);
+
+        var result = GenericTypeEmitter.GetGenericParameterList(typeDecl);
+
+        Assert.Equal("<T0, T1>", result);
+    }
+
+    [Fact]
+    public void GetTypeNameWithGenerics_ReturnsNameOnly_ForNonGenericType()
+    {
+        var typeDecl = CreateNonGenericStruct();
+
+        var result = GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl);
+
+        Assert.Equal("SimpleStruct", result);
+    }
+
+    [Fact]
+    public void GetTypeNameWithGenerics_ReturnsNameWithParams_ForGenericType()
+    {
+        var typeDecl = CreateGenericStruct("Box", 1);
+
+        var result = GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl);
+
+        Assert.Equal("Box<T0>", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_ReturnsEmpty_ForNonGenericType()
+    {
+        var typeDecl = CreateNonGenericStruct();
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact]
+    public void GetWhereClause_ReturnsISwiftObjectConstraint_ForGenericType()
+    {
+        var typeDecl = CreateGenericStruct("Box", 1);
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        Assert.Equal("where T0 : ISwiftObject", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_ReturnsMultipleConstraints_ForMultipleGenericParams()
+    {
+        var typeDecl = CreateGenericStruct("Pair", 2);
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        Assert.Equal("where T0 : ISwiftObject, T1 : ISwiftObject", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_IncludesProtocolConstraints()
+    {
+        var typeDecl = CreateGenericStructWithConstraints("Container", new List<string> { "Swift.Equatable" });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        Assert.Contains("ISwiftObject", result);
+        // Swift.Equatable maps to IEquatable<> in C# (with empty type name when called from GetWhereClause)
+        Assert.Contains("IEquatable<>", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_SkipsSendableConstraint()
+    {
+        var typeDecl = CreateGenericStructWithConstraints("AsyncBox", new List<string> { "Swift.Sendable" });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        Assert.DoesNotContain("Sendable", result);
+    }
+
+    [Fact]
+    public void GetFullTypeSignature_ReturnsNameOnly_ForNonGenericType()
+    {
+        var typeDecl = CreateNonGenericStruct();
+
+        var result = GenericTypeEmitter.GetFullTypeSignature(typeDecl);
+
+        Assert.Equal("SimpleStruct", result);
+    }
+
+    [Fact]
+    public void GetFullTypeSignature_ReturnsNameWithWhereClause_ForGenericType()
+    {
+        var typeDecl = CreateGenericStruct("Box", 1);
+
+        var result = GenericTypeEmitter.GetFullTypeSignature(typeDecl);
+
+        Assert.Equal("Box<T0> where T0 : ISwiftObject", result);
+    }
+
+    private static StructDecl CreateNonGenericStruct()
+    {
+        return new StructDecl
+        {
+            Name = "SimpleStruct",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SimpleStruct"),
+            MangledName = "$s10TestModule12SimpleStructV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule12SimpleStructVMa",
+        };
+    }
+
+    private static StructDecl CreateGenericStruct(string name, int typeParamCount)
+    {
+        var genericParams = new List<GenericArgumentDecl>();
+        for (int i = 0; i < typeParamCount; i++)
+        {
+            genericParams.Add(new GenericArgumentDecl(
+                $"τ_0_{i}",
+                $"T{i}",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>()
+            ));
+        }
+
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = genericParams
+        };
+    }
+
+    private static StructDecl CreateGenericStructWithConstraints(string name, List<string> protocols)
+    {
+        var conformances = protocols.Select(p => new GenericParameterConformance(
+            new[] { "τ_0_0" },
+            SwiftTypeName.FromModuleQualifiedName(p),
+            ConformanceKind.Protocol
+        )).ToList();
+
+        var genericParams = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                "τ_0_0",
+                "T",
+                conformances,
+                new List<GenericParameterConformance>()
+            )
+        };
+
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = genericParams
+        };
+    }
+}

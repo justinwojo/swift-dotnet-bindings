@@ -74,7 +74,26 @@ public static class SwiftMarshal
             }
         }
 
-        // TODO: Implement for existential containers
+        // Handle existential containers (Swift protocol types like 'any Protocol')
+        if (typeof(IExistentialContainer).IsAssignableFrom(type))
+        {
+            if (value is IExistentialContainer container)
+            {
+                int containerSize = container.SizeOf;
+                if (containerSize > swiftDestSpan.Length)
+                {
+                    throw new ArgumentException($"Span size does not match container size, Expected: {containerSize}, Actual: {swiftDestSpan.Length}");
+                }
+                unsafe
+                {
+                    fixed (void* swiftDest = swiftDestSpan)
+                    {
+                        container.CopyTo((IntPtr)swiftDest);
+                        return containerSize;
+                    }
+                }
+            }
+        }
 
         throw new NotSupportedException($"Cannot marshal type {type} to Swift");
     }
@@ -193,7 +212,10 @@ public static class SwiftMarshal
             }
         }
 
-        // TODO: Implement for existential containers
+        // Existential containers cannot be directly marshalled from Swift to C# as a generic delegate
+        // because the concrete type is not known at compile time. The generated bindings should
+        // handle existential types with explicit container types.
+
         throw new NotSupportedException($"Cannot marshal type {type} from Swift");
     }
 

@@ -38,5 +38,16 @@ namespace BindingsGeneration
         /// Operator declarations within the type.
         /// </summary>
         public required List<OperatorDecl> Operators { get; set; }
+
+        /// <summary>
+        /// Generic type parameters for this type declaration.
+        /// Empty for non-generic types.
+        /// </summary>
+        public List<GenericArgumentDecl> GenericParameters { get; set; } = new();
+
+        /// <summary>
+        /// Whether this type is generic (has type parameters).
+        /// </summary>
+        public bool IsGeneric => GenericParameters.Count > 0;
     }
 }
