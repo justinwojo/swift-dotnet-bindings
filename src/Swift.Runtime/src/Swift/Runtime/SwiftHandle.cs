@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -72,11 +73,16 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// </summary>
     protected override unsafe bool ReleaseHandle()
     {
-        TypeMetadata metadata = SwiftObjectHelper<T>.GetTypeMetadata();
-        metadata.ValueWitnessTable->Destroy((void*)handle, metadata);
-
-        NativeMemory.Free((void*)handle);
-        handle = IntPtr.Zero;
+        try
+        {
+            TypeMetadata metadata = SwiftObjectHelper<T>.GetTypeMetadata();
+            metadata.ValueWitnessTable->Destroy((void*)handle, metadata);
+        }
+        finally
+        {
+            NativeMemory.Free((void*)handle);
+            handle = IntPtr.Zero;
+        }
 
         return true;
     }

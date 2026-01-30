@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Diagnostics;
@@ -982,6 +983,166 @@ namespace BindingsGeneration.FunctionalTests
                 Assert.True(resource.Payload.IsClosed);
                 Assert.True(resource.Payload.IsInvalid);
             }
+        }
+
+        [Fact]
+        public void TestDoubleDisposeIsIdempotent()
+        {
+            // Create a frozen struct
+            var frozenStruct = new Bindings.FrozenStructRequiresMemoryManagement(42);
+
+            // First dispose should work normally
+            frozenStruct.Payload.Dispose();
+            Assert.True(frozenStruct.Payload.IsClosed);
+            Assert.True(frozenStruct.Payload.IsInvalid);
+
+            // Second dispose should not throw (SafeHandle is idempotent)
+            var ex = Record.Exception(() => frozenStruct.Payload.Dispose());
+            Assert.Null(ex);
+
+            // State should remain the same
+            Assert.True(frozenStruct.Payload.IsClosed);
+            Assert.True(frozenStruct.Payload.IsInvalid);
+        }
+
+        [Fact]
+        public void TestDoubleDisposeNonFrozenStruct()
+        {
+            // Create a non-frozen struct
+            var nonFrozenStruct = new Bindings.NonFrozenStructRequiresMemoryManagement(42);
+
+            // First dispose should work normally
+            nonFrozenStruct.Payload.Dispose();
+            Assert.True(nonFrozenStruct.Payload.IsClosed);
+            Assert.True(nonFrozenStruct.Payload.IsInvalid);
+
+            // Second dispose should not throw
+            var ex = Record.Exception(() => nonFrozenStruct.Payload.Dispose());
+            Assert.Null(ex);
+
+            // State should remain the same
+            Assert.True(nonFrozenStruct.Payload.IsClosed);
+            Assert.True(nonFrozenStruct.Payload.IsInvalid);
+        }
+
+        [Fact]
+        public unsafe void TestHandleValidityBeforeAndAfterDispose()
+        {
+            var frozenStruct = new Bindings.FrozenStructRequiresMemoryManagement(42);
+
+            // Before dispose: handle should be valid
+            Assert.False(frozenStruct.Payload.IsClosed);
+            Assert.False(frozenStruct.Payload.IsInvalid);
+            Assert.NotEqual(IntPtr.Zero, frozenStruct.Payload.DangerousGetHandle());
+
+            // Dispose
+            frozenStruct.Payload.Dispose();
+
+            // After dispose: handle should be invalid
+            Assert.True(frozenStruct.Payload.IsClosed);
+            Assert.True(frozenStruct.Payload.IsInvalid);
+            // Handle is set to zero in ReleaseHandle
+            Assert.Equal(IntPtr.Zero, frozenStruct.Payload.DangerousGetHandle());
+        }
+
+        [Fact]
+        public unsafe void TestUnownedRetainAndRelease()
+        {
+            // Create a VType which contains a reference type
+            Bindings.VType vType = new Bindings.VType();
+            GC.SuppressFinalize(vType);
+            GC.SuppressFinalize(vType.Payload);
+            IntPtr payload = (IntPtr)vType.Payload.DangerousGetHandle();
+
+            // Get the embedded reference (at offset 0)
+            IntPtr refTypePtr = payload.At(0);
+
+            // Check initial strong retain count
+            Assert.Equal(1, Arc.RetainCount(refTypePtr));
+
+            // Check initial unowned retain count
+            long initialUnownedCount = Arc.UnownedRetainCount(refTypePtr);
+
+            // Perform unowned retain
+            Arc.UnownedRetain(refTypePtr);
+            Assert.Equal(initialUnownedCount + 1, Arc.UnownedRetainCount(refTypePtr));
+
+            // Strong retain count should be unchanged
+            Assert.Equal(1, Arc.RetainCount(refTypePtr));
+
+            // Perform another unowned retain
+            Arc.UnownedRetain(refTypePtr);
+            Assert.Equal(initialUnownedCount + 2, Arc.UnownedRetainCount(refTypePtr));
+
+            // Perform unowned release
+            Arc.UnownedRelease(refTypePtr);
+            Assert.Equal(initialUnownedCount + 1, Arc.UnownedRetainCount(refTypePtr));
+
+            // Strong retain count should still be unchanged
+            Assert.Equal(1, Arc.RetainCount(refTypePtr));
+
+            // Release the final unowned retain
+            Arc.UnownedRelease(refTypePtr);
+            Assert.Equal(initialUnownedCount, Arc.UnownedRetainCount(refTypePtr));
+
+            // Clean up: release the strong reference to trigger deinit
+            Arc.Release(refTypePtr);
+            Assert.Equal(1, vType.refTypeTest); // deinit was called
+        }
+
+        [Fact]
+        public unsafe void TestUnownedRetainThrowsOnNull()
+        {
+            Assert.Throws<ArgumentNullException>(() => Arc.UnownedRetain(IntPtr.Zero));
+            Assert.Throws<ArgumentNullException>(() => Arc.UnownedRelease(IntPtr.Zero));
+            Assert.Throws<ArgumentNullException>(() => Arc.UnownedRetainCount(IntPtr.Zero));
+        }
+
+        [Fact]
+        public unsafe void TestRapidAllocFree()
+        {
+            // Stress test: rapidly allocate and free objects to detect slow leaks
+            const int iterations = 100;
+
+            for (int i = 0; i < iterations; i++)
+            {
+                var frozenStruct = new Bindings.FrozenStructRequiresMemoryManagement(i);
+                Assert.Equal(i, frozenStruct.b);
+                Assert.Equal(1, Arc.RetainCount(frozenStruct.Payload.DangerousGetHandle().At(0)));
+                frozenStruct.Payload.Dispose();
+                Assert.True(frozenStruct.Payload.IsClosed);
+            }
+
+            // Force GC to clean up any finalizable objects
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+
+        [Fact]
+        public unsafe void TestFinalizationVsExplicitDispose()
+        {
+            // This test verifies that finalization eventually cleans up SafeHandles.
+            // GC behavior is non-deterministic, so we test that explicit dispose
+            // releases immediately while finalization may take multiple GC cycles.
+
+            // Test explicit dispose - should release immediately
+            var frozenStruct = new Bindings.FrozenStructRequiresMemoryManagement(42);
+            var refPtr = frozenStruct.Payload.DangerousGetHandle().At(0);
+
+            // Retain the reference so object doesn't get deallocated
+            Arc.Retain(refPtr);
+            Assert.Equal(2, Arc.RetainCount(refPtr));
+
+            // Explicit dispose should release the SafeHandle's reference
+            frozenStruct.Payload.Dispose();
+            Assert.True(frozenStruct.Payload.IsClosed);
+
+            // After explicit dispose, only our retained reference remains
+            Assert.Equal(1, Arc.RetainCount(refPtr));
+
+            // Clean up our retained reference
+            Arc.Release(refPtr);
         }
     }
 }

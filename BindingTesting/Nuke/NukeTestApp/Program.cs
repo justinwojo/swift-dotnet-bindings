@@ -3,6 +3,7 @@
 
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Swift.Runtime;
 using UIKit;
 
 namespace NukeTestApp;
@@ -88,8 +89,8 @@ public class MainViewController : UIViewController
         var resultLabelHeight = 180.0;
         var imageHeight = 250.0;
 
-        // Total content height
-        var totalContentHeight = titleHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + resultLabelHeight + spacing + imageHeight;
+        // Total content height (title + 3 buttons + result label + image)
+        var totalContentHeight = titleHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + resultLabelHeight + spacing + imageHeight;
 
         // Center content vertically in safe area
         var safeHeight = screenHeight - safeTop - safeBottom;
@@ -117,6 +118,13 @@ public class MainViewController : UIViewController
         loadImageButton.SetTitle("Load Image with Nuke", UIControlState.Normal);
         loadImageButton.TouchUpInside += LoadImageWithNuke;
         View.AddSubview(loadImageButton);
+        currentY += buttonHeight + spacing;
+
+        var stressTestButton = UIButton.FromType(UIButtonType.System);
+        stressTestButton.Frame = new CoreGraphics.CGRect(20, currentY, contentWidth, buttonHeight);
+        stressTestButton.SetTitle("Memory Stress Test", UIControlState.Normal);
+        stressTestButton.TouchUpInside += RunMemoryStressTest;
+        View.AddSubview(stressTestButton);
         currentY += buttonHeight + spacing;
 
         _resultLabel = new UILabel
@@ -315,6 +323,115 @@ public class MainViewController : UIViewController
             Console.WriteLine("========================");
 
             _resultLabel!.Text = msg.ToString();
+        }
+    }
+
+    private void RunMemoryStressTest(object? sender, EventArgs e)
+    {
+        _resultLabel!.Text = "Running memory stress test...";
+        _imageView!.Image = null;
+
+        try
+        {
+            var results = new System.Text.StringBuilder();
+            results.AppendLine("Memory Stress Test\n");
+
+            // Get the shared pipeline for reference counting test
+            var pipeline = Swift.Nuke.ImagePipeline.Shared;
+            var pipelinePtr = pipeline.Payload.DangerousGetHandle();
+            long initialRetainCount = Arc.RetainCount(pipelinePtr);
+
+            results.AppendLine($"Pipeline initial retain count: {initialRetainCount}");
+            Console.WriteLine($"STRESS TEST: Starting, pipeline retain count: {initialRetainCount}");
+
+            const int iterations = 50;
+            int successCount = 0;
+            int errorCount = 0;
+
+            // Stress test: rapidly create and dispose ImageRequest objects
+            results.AppendLine($"\nCreating/disposing {iterations} ImageRequest objects...");
+            _resultLabel.Text = results.ToString();
+
+            for (int i = 0; i < iterations; i++)
+            {
+                try
+                {
+                    var request = new Swift.Nuke.ImageRequest($"https://example.com/image{i}.jpg");
+                    // Verify the request is valid by accessing a property
+                    var _ = request.Description;
+                    // Explicitly dispose the payload (ImageRequest doesn't implement IDisposable directly)
+                    request.Payload.Dispose();
+                    successCount++;
+                }
+                catch (Exception ex)
+                {
+                    errorCount++;
+                    Console.WriteLine($"STRESS TEST: Error at iteration {i}: {ex.Message}");
+                }
+            }
+
+            results.AppendLine($"Created: {successCount}, Errors: {errorCount}");
+
+            // Force GC to clean up
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            results.AppendLine("\nGC completed");
+
+            // Check pipeline retain count after stress test
+            long finalRetainCount = Arc.RetainCount(pipelinePtr);
+            results.AppendLine($"Pipeline final retain count: {finalRetainCount}");
+
+            if (finalRetainCount != initialRetainCount)
+            {
+                results.AppendLine($"\nWARNING: Retain count drift detected!");
+                results.AppendLine($"  Initial: {initialRetainCount}");
+                results.AppendLine($"  Final: {finalRetainCount}");
+                results.AppendLine($"  Drift: {finalRetainCount - initialRetainCount}");
+                Console.WriteLine($"STRESS TEST WARNING: Retain count drift: {initialRetainCount} -> {finalRetainCount}");
+            }
+            else
+            {
+                results.AppendLine("\nPASS: No retain count drift detected");
+                Console.WriteLine("STRESS TEST PASS: No retain count drift detected");
+            }
+
+            // Test SwiftString allocation stress
+            results.AppendLine("\nTesting SwiftString allocation...");
+            int stringSuccessCount = 0;
+            for (int i = 0; i < iterations; i++)
+            {
+                try
+                {
+                    using var str = new Swift.SwiftString($"test string {i}");
+                    stringSuccessCount++;
+                }
+                catch
+                {
+                    // Ignore individual errors
+                }
+            }
+            results.AppendLine($"SwiftString: {stringSuccessCount}/{iterations} successful");
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            results.AppendLine("\n=== STRESS TEST COMPLETE ===");
+            Console.WriteLine("=== STRESS TEST COMPLETE ===");
+
+            // Mark as success if no major issues
+            if (errorCount == 0 && finalRetainCount == initialRetainCount)
+            {
+                Console.WriteLine("TEST SUCCESS");
+            }
+
+            _resultLabel.Text = results.ToString();
+        }
+        catch (Exception ex)
+        {
+            LogError(ex);
         }
     }
 
