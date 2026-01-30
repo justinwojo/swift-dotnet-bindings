@@ -1019,6 +1019,11 @@ Bindings still generate, but conformance information is incomplete.
 | Protocol subscript parsing | PASS | Subscripts parsed from ABI JSON, emitted as C# indexers (2026-01-30) |
 | Protocol closure tuple params | PASS | `(Data, URLResponse) -> Void` → `Action<(Data, URLResponse)>` (2026-01-30) |
 | Existential handling consistency | PASS | `NamedTypeSpec.IsAny` and `ProtocolListTypeSpec` both handled (2026-01-30) |
+| Protocol Proxy Emitter | PASS | C# proxy classes generate with vtable callbacks (2026-01-30) |
+| EveryProtocol Swift generation | PASS | Swift conformances emit with vtable function pointers (2026-01-30) |
+| SwiftObjectRegistry | PASS | Container-to-proxy mapping for Swift callbacks (2026-01-30) |
+| Generic type translation in proxies | PASS | `SwiftOptional<T>` with full generic arguments (2026-01-30) |
+| Closure type translation in proxies | PASS | `ClosureTypeSpec` → `Action<...>`/`Func<...>` (2026-01-30) |
 
 ---
 
@@ -1175,6 +1180,9 @@ var image = response.Image; // UIImage
 - [x] **Protocol subscript support** - Protocol interfaces now emit C# indexers for Swift subscripts (2026-01-30)
 - [x] **Closure tuple parameters in protocols** - `(Data, URLResponse) -> Void` now emits as `Action<(Data, URLResponse)>` (2026-01-30)
 - [x] **Consistent existential handling** - Both `ProtocolListTypeSpec` and `NamedTypeSpec.IsAny` handled uniformly (2026-01-30)
+- [x] **Protocol Proxy Emitter** - Full C# proxy class generation for Swift protocol implementation (2026-01-30)
+- [x] **EveryProtocol pattern** - Swift side conformance generation with vtable callbacks (2026-01-30)
+- [x] **SwiftObjectRegistry** - Container-to-proxy mapping for Swift callbacks (2026-01-30)
 
 ---
 
@@ -1481,6 +1489,7 @@ The `self` parameter passed from C# via SwiftSelf doesn't work correctly in asyn
 - Generic Type Definitions - Implemented: Unbound generic types like `Box<T>` now emit correctly (2026-01-30)
 - Protocol Associated Types (PATs) - Partially implemented: AssociatedTypeReferenceSpec, DependentMember parsing (2026-01-30)
 - Protocol Interface Emission - Implemented: Subscripts, closures with tuples, existential consistency (2026-01-30)
+- Protocol Conformance from C# - Implemented: EveryProtocol pattern, ProtocolProxyEmitter, SwiftObjectRegistry (2026-01-30)
 
 ---
 
@@ -1592,3 +1601,290 @@ After Phase 6 completion, all 8 Nuke protocol interfaces have complete member si
 - 1224 tests pass (0 failures)
 - Nuke bindings compile with 0 errors
 - All protocol interfaces have fully-typed members (no AnyType fallbacks)
+
+---
+
+## Phase 7: Protocol Proxy Emitter (January 2026)
+
+### 7.1 Protocol Proxy Class Generation
+**Status**: IMPLEMENTED (2026-01-30)
+
+**Goal**: Enable C# code to implement Swift protocols using the EveryProtocol pattern, allowing custom implementations to be passed to Swift APIs.
+
+**Architecture**:
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           C# Side                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ISwiftImageProcessing (interface)                                       │
+│       ▲                                                                  │
+│       │ implements                                                       │
+│  ImageProcessingProxy                                                    │
+│    - _csharpImpl: ISwiftImageProcessing?   (user's C# implementation)   │
+│    - _swiftContainer: ExistentialContainer1  (wraps EveryProtocol)      │
+│    - static _vtable: ImageProcessingVTable                              │
+│    - static ProtocolWitnessTable                                        │
+│    - [UnmanagedCallersOnly] receiver methods                            │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                              P/Invoke calls
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Swift Side                                     │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EveryProtocol (class)                                                   │
+│    - Empty class, just exists to implement protocols                    │
+│                                                                          │
+│  extension EveryProtocol: ImageProcessing                               │
+│    - Each method calls back to C# via vtable function pointers          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Files created**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/EveryProtocolEmitter.cs` - Swift EveryProtocol generation
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ProtocolProxyEmitter.cs` - C# proxy class generation
+- `src/Swift.Runtime/src/Swift/Runtime/EveryProtocol.cs` - Runtime support class
+- `src/Swift.Runtime/src/Swift/Runtime/SwiftObjectRegistry.cs` - Container-to-proxy mapping
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs` - Emit EveryProtocol conformances
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ModuleEmitter.cs` - Emit proxy classes
+
+### 7.2 Generic Type Handling in Proxy Classes
+**Status**: IMPLEMENTED (2026-01-30)
+
+**Problem**: Proxy classes referenced generic types like `SwiftOptional<T>` without type arguments, causing CS0305 errors (27 instances).
+
+**Solution**: Extended `GetCSharpTypeName()` in `ProtocolProxyEmitter` to handle generic types:
+```csharp
+if (typeSpec is NamedTypeSpec namedType && namedType.GenericParameters.Count > 0)
+{
+    var baseTypeSpec = new NamedTypeSpec(namedType.Name);
+    var baseRecord = _typeDatabase.GetTypeRecordOrAnyType(baseTypeSpec);
+    var baseTypeName = baseRecord.CSharpTypeName.FullyQualifiedName;
+    var genericArgs = namedType.GenericParameters
+        .Select(gp => GetCSharpTypeName(gp))
+        .ToList();
+    return $"{baseTypeName}<{string.Join(", ", genericArgs)}>";
+}
+```
+
+### 7.3 Closure Type Translation
+**Status**: IMPLEMENTED (2026-01-30)
+
+**Problem**: Protocol methods with closure parameters/returns (e.g., `((Data, URLResponse) -> Void)`) fell back to interface types instead of delegate types.
+
+**Solution**: Added `GetClosureCSharpType()` and `GetTupleCSharpType()` helper methods:
+```csharp
+private string GetClosureCSharpType(ClosureTypeSpec closureTypeSpec)
+{
+    var paramTypes = closureTypeSpec.EachArgument().Select(GetCSharpTypeName).ToList();
+    var returnType = closureTypeSpec.ReturnType;
+    bool hasReturn = !returnType.IsEmptyTuple;
+
+    if (!hasReturn)
+        return paramTypes.Count == 0 ? "Action" : $"Action<{string.Join(", ", paramTypes)}>";
+    else
+    {
+        var returnTypeName = GetCSharpTypeName(returnType);
+        return paramTypes.Count == 0 ? $"Func<{returnTypeName}>" : $"Func<{string.Join(", ", paramTypes)}, {returnTypeName}>";
+    }
+}
+```
+
+### 7.4 Existential Type Handling in Proxies
+**Status**: IMPLEMENTED (2026-01-30)
+
+**Problem**: Existential/protocol types in proxy signatures caused return type mismatches (7 errors).
+
+**Solution**: Integrated `ExistentialHandler` into `GetCSharpTypeName()`:
+```csharp
+var existentialHandler = new ExistentialHandler(_typeDatabase);
+if (existentialHandler.IsExistential(typeSpec))
+{
+    var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+    if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+        return existentialHandler.GetCSharpExistentialType(protocolList);
+    return "Swift.Runtime.ExistentialContainer1";
+}
+```
+
+### 7.5 VTable Deduplication Fix
+**Status**: IMPLEMENTED (2026-01-30)
+
+**Problem**: Static constructor emitted duplicate vtable member initializations (CS1912 - 81 errors).
+
+**Solution**: Added HashSet tracking across all vtable initialization points:
+```csharp
+var emittedLocalAssignments = new HashSet<string>();
+
+// Property receivers
+foreach (var property in protocolDecl.Properties)
+    EmitLocalVtablePropertyAssignment(writer, property, emittedLocalAssignments);
+
+// Method receivers (check before emitting)
+if (methodIndices.ContainsKey(method))
+    // emit...
+```
+
+### 7.6 Variable Scope Conflict Fix
+**Status**: IMPLEMENTED (2026-01-30)
+
+**Problem**: Receiver methods had variable scope conflicts between IntPtr parameters and local variables (CS0136/CS0841 - 37 errors).
+
+**Solution**: Renamed parameters and local variables to avoid conflicts:
+- IntPtr parameters: `rawArg{i}` instead of `arg{i}`
+- Local variables: `param{i}` instead of using parameter names
+
+### 7.7 Marshalling Helper Simplification
+**Status**: IMPLEMENTED (2026-01-30)
+
+**Problem**: `MarshalFromSwift<T>` and `MarshalToSwiftBuffer<T>` had `where T : ISwiftObject` constraint, failing for primitives and delegates (CS0311/CS0315 - 11 errors).
+
+**Solution**: Removed the constraint and use `Unsafe.Read<T>/Unsafe.Write` for all types:
+```csharp
+private static IntPtr MarshalToSwiftBuffer<T>(T value)
+{
+    var size = Unsafe.SizeOf<T>();
+    var ptr = (IntPtr)NativeMemory.Alloc((nuint)size);
+    Unsafe.Write((void*)ptr, value);
+    return ptr;
+}
+
+private static T MarshalFromSwift<T>(IntPtr ptr)
+{
+    return Unsafe.Read<T>((void*)ptr);
+}
+```
+
+### 7.8 Integration Test Verification
+**Status**: VERIFIED (2026-01-30)
+
+**Test results**:
+- Unit tests: 528 passed
+- Integration tests: 691 passed
+- Runtime tests: 72 passed (+18 SwiftObjectRegistry tests)
+- **Total: 1291 tests passing**
+
+**Nuke integration test**:
+- Build completed with 0 errors, 109 warnings
+- iOS Simulator test: Image loaded successfully
+- `TEST SUCCESS` marker received within timeout
+
+### 7.9 Generated Code Example
+
+**C# Proxy class** (generated):
+```csharp
+public unsafe class ImageProcessingProxy : ISwiftImageProcessing, ISwiftObject
+{
+    private static IntPtr _protocolWitnessTable;
+    private static ImageProcessingSwiftVTable _swiftVTable;
+    private static ImageProcessingLocalVTable _localVTable;
+
+    private readonly ISwiftImageProcessing? _csharpImpl;
+    private readonly EveryProtocol? _everyProtocol;
+    private readonly ExistentialContainer1 _swiftContainer;
+
+    static ImageProcessingProxy()
+    {
+        InitializeVtable();
+    }
+
+    // Constructor for C# implementation
+    public ImageProcessingProxy(ISwiftImageProcessing implementation)
+    {
+        _csharpImpl = implementation;
+        _everyProtocol = new EveryProtocol();
+        _swiftContainer = ExistentialContainerFactory.Create<EveryProtocol, ISwiftImageProcessing>(_everyProtocol);
+        SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+    }
+
+    // [UnmanagedCallersOnly] receiver for Swift callbacks
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static IntPtr Receive_identifier_get(IntPtr vtHandle, IntPtr selfContainer)
+    {
+        var proxy = SwiftObjectRegistry.GetProxyFromContainer<ImageProcessingProxy>(selfContainer);
+        var result = proxy._csharpImpl!.Identifier;
+        return MarshalToSwiftBuffer(result);
+    }
+
+    // Interface implementation
+    public SwiftString Identifier
+    {
+        get
+        {
+            if (_csharpImpl != null)
+                return _csharpImpl.Identifier;
+            // Call Swift via P/Invoke for Swift implementations
+            return NativeMethods.ImageProcessing_identifier_Get(_swiftContainer);
+        }
+    }
+}
+```
+
+**Swift EveryProtocol extension** (generated):
+```swift
+extension EveryProtocol: ImageProcessing {
+    public var identifier: String {
+        var selfProto: ImageProcessing = self
+        let resultPtr = _imageProcessing_vtable.func_identifier_get!(
+            _imageProcessing_vtable.csVTHandle, &selfProto)
+        return resultPtr.assumingMemoryBound(to: String.self).pointee
+    }
+}
+
+@_silgen_name("SetImageProcessing_vtable")
+public func setImageProcessing_vtable(uvt: UnsafeRawPointer) {
+    let vt = uvt.assumingMemoryBound(to: ImageProcessing_vtable.self)
+    _imageProcessing_vtable = vt.pointee
+}
+```
+
+### 7.10 Tests Added
+
+**Unit tests** (`ProtocolProxyEmitterTests.cs`):
+- Proxy class structure tests (class declaration, interface implementation, vtable structs)
+- Static fields tests (protocol witness table, vtable fields)
+- Instance fields tests (csharpImpl, everyProtocol, swiftContainer)
+- Static constructor tests (vtable initialization)
+- Receiver method tests (property getters/setters, method receivers)
+- Constructor tests (C# impl, existential container)
+- Interface implementation tests (properties, methods)
+- ISwiftObject implementation tests (GetTypeMetadata, NewFromPayload, MarshalToSwift)
+- NativeMethods tests (SetVtable P/Invoke)
+- Protocol conformance filtering tests (skip Self requirement, skip PATs)
+
+**Runtime tests** (`SwiftObjectRegistryTests.cs`) - 18 new tests:
+- Register/Unregister with valid/invalid handles
+- RegisterStrong prevents garbage collection
+- ReleaseStrong allows garbage collection
+- TryGetProxy with unregistered/zero handle/wrong type
+- GetProxy success and exception cases
+- GetProxyFromContainer extracts proxy from Payload0
+- Count and StrongCount reflect registered proxies
+- Cleanup removes expired weak references
+- Multiple registrations overwrite previous
+
+**Integration test** (`NukeTestApp/Program.cs`):
+- New "Test Protocol Proxy" button
+- `MyCancellable` class implementing `ISwiftCancellable`
+- Tests direct C# implementation
+- Tests SwiftObjectRegistry register/lookup
+- Tests CancellableProxy creation (identifies witness table limitation)
+
+### 7.11 Known Limitation: Protocol Witness Table Lookup
+**Status**: NOT YET IMPLEMENTED
+
+The protocol proxy pattern is fully code-generated, but end-to-end Swift callbacks to C# require protocol witness table lookup, which is not yet implemented.
+
+**Current behavior**: `CancellableProxy.ProtocolWitnessTableHandle` throws `NotImplementedException`.
+
+**What works**:
+- ✅ C# implementation of protocol interfaces
+- ✅ SwiftObjectRegistry registration and lookup
+- ✅ Proxy class creation
+- ✅ Direct C# implementation calls
+
+**What's needed for full Swift → C# callbacks**:
+- Protocol witness table lookup via `swift_getWitnessTable` or symbol lookup
+- This requires the Swift wrapper to export witness table symbols

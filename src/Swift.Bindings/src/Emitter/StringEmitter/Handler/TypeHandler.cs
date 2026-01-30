@@ -1411,6 +1411,20 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+
+            // Emit the proxy class that enables C# implementations of this protocol
+            EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase);
+        }
+
+        /// <summary>
+        /// Emits a proxy class that enables C# code to implement this protocol.
+        /// The proxy wraps either a C# implementation or a Swift existential container.
+        /// </summary>
+        private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase)
+        {
+            var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
+            var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName);
+            proxyEmitter.EmitProxyClass(csWriter, protocolDecl);
         }
 
         /// <summary>

@@ -67,6 +67,9 @@ namespace BindingsGeneration
             // Emit Swift imports at the top of the Swift wrapper file
             EmitSwiftImports(swiftWriter, moduleDecl);
 
+            // Emit EveryProtocol class and protocol conformances for Swift side
+            EmitEveryProtocolConformances(swiftWriter, moduleDecl, env.TypeDatabase);
+
             var generatedNamespace = $"Swift.{moduleDecl.Name}";
 
             csWriter.WriteLine($"using System;");
@@ -210,6 +213,45 @@ namespace BindingsGeneration
                 neededImports.Add("UIKit");
             else if (typeName.StartsWith("AppKit."))
                 neededImports.Add("AppKit");
+        }
+
+        /// <summary>
+        /// Emits the EveryProtocol class and protocol conformances for Swift side.
+        /// This enables C# code to implement Swift protocols by providing vtable callbacks.
+        /// </summary>
+        private void EmitEveryProtocolConformances(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            // Skip if there are no protocols to conform to
+            var protocols = moduleDecl.Protocols;
+            if (protocols == null || !protocols.Any())
+                return;
+
+            // Check if any protocols are suitable for EveryProtocol conformance
+            var suitableProtocols = protocols
+                .Where(p => !p.HasSelfRequirement && p.AssociatedTypes.Count == 0)
+                .Where(p => p.Properties.Any() ||
+                           p.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
+                           p.Subscripts.Any())
+                .ToList();
+
+            if (!suitableProtocols.Any())
+                return;
+
+            var emitter = new EveryProtocolEmitter(typeDatabase, _logger, moduleDecl.Name);
+
+            // Emit the EveryProtocol class once
+            emitter.EmitEveryProtocolClass(swiftWriter);
+
+            // Track emitted method signatures globally to detect conflicts across protocols
+            // Key is the Swift method signature (e.g., "removeAll()")
+            var globalEmittedSignatures = new HashSet<string>();
+
+            // Emit conformances for each suitable protocol
+            foreach (var protocolDecl in suitableProtocols)
+            {
+                _logger.LogDebug($"Emitting EveryProtocol conformance for {protocolDecl.Name}");
+                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures);
+            }
         }
     }
 }

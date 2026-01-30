@@ -3,6 +3,8 @@
 
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Swift;
+using Swift.Nuke;
 using Swift.Runtime;
 using UIKit;
 
@@ -89,8 +91,8 @@ public class MainViewController : UIViewController
         var resultLabelHeight = 180.0;
         var imageHeight = 250.0;
 
-        // Total content height (title + 3 buttons + result label + image)
-        var totalContentHeight = titleHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + resultLabelHeight + spacing + imageHeight;
+        // Total content height (title + 4 buttons + result label + image)
+        var totalContentHeight = titleHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + resultLabelHeight + spacing + imageHeight;
 
         // Center content vertically in safe area
         var safeHeight = screenHeight - safeTop - safeBottom;
@@ -125,6 +127,13 @@ public class MainViewController : UIViewController
         stressTestButton.SetTitle("Memory Stress Test", UIControlState.Normal);
         stressTestButton.TouchUpInside += RunMemoryStressTest;
         View.AddSubview(stressTestButton);
+        currentY += buttonHeight + spacing;
+
+        var protocolTestButton = UIButton.FromType(UIButtonType.System);
+        protocolTestButton.Frame = new CoreGraphics.CGRect(20, currentY, contentWidth, buttonHeight);
+        protocolTestButton.SetTitle("Test Protocol Proxy", UIControlState.Normal);
+        protocolTestButton.TouchUpInside += TestProtocolProxy;
+        View.AddSubview(protocolTestButton);
         currentY += buttonHeight + spacing;
 
         _resultLabel = new UILabel
@@ -435,6 +444,102 @@ public class MainViewController : UIViewController
         }
     }
 
+    private void TestProtocolProxy(object? sender, EventArgs e)
+    {
+        _resultLabel!.Text = "Testing Protocol Proxy...";
+        _imageView!.Image = null;
+
+        try
+        {
+            var results = new System.Text.StringBuilder();
+            results.AppendLine("Protocol Proxy Test\n");
+            results.AppendLine("Testing C# implementation of Swift protocols...\n");
+
+            // Test 1: Create a C# implementation of ISwiftCancellable
+            results.AppendLine("1. Creating MyCancellable (C# implementation)...");
+            var myCancellable = new MyCancellable();
+            results.AppendLine($"   Created: {myCancellable.GetType().Name}");
+            Console.WriteLine($"PROTOCOL TEST: Created MyCancellable");
+
+            // Test 2: Verify the implementation works directly
+            results.AppendLine("\n2. Testing direct C# implementation...");
+            myCancellable.cancel();
+            results.AppendLine($"   cancel() called, CancelCount = {myCancellable.CancelCount}");
+            Console.WriteLine($"PROTOCOL TEST: Direct call works, CancelCount = {myCancellable.CancelCount}");
+
+            // Test 3: Test SwiftObjectRegistry
+            results.AppendLine("\n3. Testing SwiftObjectRegistry...");
+            var testHandle = new IntPtr(123456789);
+            SwiftObjectRegistry.Register(testHandle, myCancellable);
+            results.AppendLine($"   Registered with handle {testHandle}");
+
+            if (SwiftObjectRegistry.TryGetProxy<MyCancellable>(testHandle, out var retrieved))
+            {
+                results.AppendLine($"   Retrieved proxy: {retrieved!.GetType().Name}");
+                results.AppendLine($"   Same instance: {ReferenceEquals(myCancellable, retrieved)}");
+                Console.WriteLine($"PROTOCOL TEST: Registry lookup succeeded");
+            }
+            else
+            {
+                results.AppendLine("   FAILED: Could not retrieve from registry");
+                Console.WriteLine("PROTOCOL TEST FAILED: Registry lookup failed");
+            }
+            SwiftObjectRegistry.Unregister(testHandle);
+            results.AppendLine("   Unregistered");
+
+            // Test 4: Try to create a CancellableProxy
+            results.AppendLine("\n4. Testing CancellableProxy creation...");
+            try
+            {
+                var proxy = new CancellableProxy(myCancellable);
+                results.AppendLine("   CancellableProxy created successfully!");
+                results.AppendLine($"   Registry count: {SwiftObjectRegistry.Count}");
+                Console.WriteLine($"PROTOCOL TEST: CancellableProxy created, registry count = {SwiftObjectRegistry.Count}");
+
+                // Test 5: Call cancel() through the proxy
+                results.AppendLine("\n5. Calling cancel() through proxy...");
+                myCancellable.CancelCount = 0; // Reset
+                proxy.cancel();
+                results.AppendLine($"   cancel() called via proxy, CancelCount = {myCancellable.CancelCount}");
+
+                if (myCancellable.CancelCount == 1)
+                {
+                    results.AppendLine("\n=== PROTOCOL PROXY TEST SUCCESS ===");
+                    Console.WriteLine("PROTOCOL TEST SUCCESS: Full proxy pattern works!");
+                }
+                else
+                {
+                    results.AppendLine("\n=== PROTOCOL PROXY TEST PARTIAL ===");
+                    Console.WriteLine("PROTOCOL TEST PARTIAL: Proxy created but callback not invoked");
+                }
+            }
+            catch (NotImplementedException niex)
+            {
+                results.AppendLine($"   Expected limitation: {niex.Message}");
+                results.AppendLine("\n   NOTE: Witness table lookup not yet implemented.");
+                results.AppendLine("   The proxy can be created but Swift cannot call back yet.");
+                Console.WriteLine($"PROTOCOL TEST: Expected limitation - {niex.Message}");
+
+                // This is expected for now - the witness table lookup is not implemented
+                results.AppendLine("\n=== PROTOCOL PROXY TEST PARTIAL SUCCESS ===");
+                results.AppendLine("Registry and proxy creation work.");
+                results.AppendLine("Swift callback requires witness table implementation.");
+            }
+            catch (Exception proxyEx)
+            {
+                results.AppendLine($"   Error: {proxyEx.GetType().Name}");
+                results.AppendLine($"   {proxyEx.Message}");
+                Console.WriteLine($"PROTOCOL TEST ERROR: {proxyEx}");
+            }
+
+            _resultLabel.Text = results.ToString();
+        }
+        catch (Exception ex)
+        {
+            LogError(ex);
+        }
+    }
+
     private void LogError(Exception ex)
     {
         var msg = new System.Text.StringBuilder();
@@ -455,5 +560,32 @@ public class MainViewController : UIViewController
         Console.WriteLine("================================");
 
         _resultLabel!.Text = msg.ToString();
+    }
+}
+
+/// <summary>
+/// A C# implementation of the Swift Cancellable protocol.
+/// This demonstrates implementing Swift protocols from C#.
+/// </summary>
+public class MyCancellable : ISwiftCancellable
+{
+    /// <summary>
+    /// Tracks how many times cancel() was called, for testing purposes.
+    /// </summary>
+    public int CancelCount { get; set; }
+
+    /// <summary>
+    /// The operation was cancelled flag.
+    /// </summary>
+    public bool IsCancelled { get; private set; }
+
+    /// <summary>
+    /// Implements the Cancellable.cancel() protocol requirement.
+    /// </summary>
+    public void cancel()
+    {
+        CancelCount++;
+        IsCancelled = true;
+        Console.WriteLine($"MyCancellable.cancel() called! Count = {CancelCount}");
     }
 }
