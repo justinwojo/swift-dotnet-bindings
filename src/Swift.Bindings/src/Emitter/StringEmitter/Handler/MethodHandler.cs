@@ -264,13 +264,16 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Handle closure return types
+            // Handle closure return types (including optional closures)
             if (_env.ClosureHandler.IsClosure(argument))
             {
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
                 if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                 {
-                    var delegateType = _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
+                    bool isOptional = _env.ClosureHandler.IsOptionalClosure(argument.SwiftTypeSpec);
+                    var delegateType = isOptional
+                        ? _env.ClosureHandler.GetCSharpOptionalDelegateType(argument.SwiftTypeSpec)
+                        : _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
                     SetReturnType(delegateType);
                 }
                 else
@@ -354,13 +357,16 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Handle closure arguments
+                // Handle closure arguments (including optional closures)
                 if (_env.ClosureHandler.IsClosure(argument))
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     {
-                        var delegateType = _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
+                        bool isOptional = _env.ClosureHandler.IsOptionalClosure(argument.SwiftTypeSpec);
+                        var delegateType = isOptional
+                            ? _env.ClosureHandler.GetCSharpOptionalDelegateType(argument.SwiftTypeSpec)
+                            : _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
                         AddParameter(delegateType, argument.Name);
                     }
                     else
@@ -527,7 +533,9 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Handle closure return types - Swift returns closures as SwiftClosureData (function + context pointers)
+            // Handle closure return types (including optional closures)
+            // Swift returns closures as SwiftClosureData (function + context pointers)
+            // Optional closures use the same struct - nil is represented by zero pointers
             if (_env.ClosureHandler.IsClosure(returnType))
             {
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnType)!;
@@ -631,7 +639,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Handle closure arguments
+                // Handle closure arguments (including optional closures)
                 if (_env.ClosureHandler.IsClosure(argument))
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
@@ -640,7 +648,8 @@ namespace BindingsGeneration
                         if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                         {
                             // Escaping closures are passed as a single SwiftClosureData struct
-                            // containing both function pointer and context
+                            // containing both function pointer and context.
+                            // Optional closures use the same struct - nil is represented by zero pointers.
                             AddParameter("SwiftClosureData", argument.Name);
                         }
                         else
@@ -1560,6 +1569,7 @@ namespace BindingsGeneration
         /// Emits closure argument marshalling.
         /// For @convention(c) closures, converts C# delegates to unmanaged function pointers.
         /// For escaping closures, creates closure data with a thunk and GCHandle context.
+        /// For optional closures, handles null by creating a zero-initialized SwiftClosureData.
         /// </summary>
         private void EmitClosureMarshalling(CSharpWriter csWriter)
         {
@@ -1569,22 +1579,58 @@ namespace BindingsGeneration
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     continue;
 
+                bool isOptional = _env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec);
+
                 if (_env.ClosureHandler.IsConventionC(closureTypeSpec))
                 {
                     // For @convention(c) closures, convert delegate to function pointer
                     var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
 
-                    // Marshal.GetFunctionPointerForDelegate returns IntPtr, cast to the proper function pointer type
-                    csWriter.WriteLine($"var {argumentDecl.Name}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({argumentDecl.Name});");
+                    if (isOptional)
+                    {
+                        // Optional @convention(c) closure - handle null case
+                        csWriter.WriteLines($"""
+                            var {argumentDecl.Name}FuncPtr = {argumentDecl.Name} != null
+                                ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({argumentDecl.Name})
+                                : ({funcPtrType})IntPtr.Zero;
+                            """);
+                    }
+                    else
+                    {
+                        // Marshal.GetFunctionPointerForDelegate returns IntPtr, cast to the proper function pointer type
+                        csWriter.WriteLine($"var {argumentDecl.Name}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({argumentDecl.Name});");
+                    }
                 }
                 else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
                     // For escaping closures, create a SwiftClosureData struct with thunk pointer and delegate in context
                     var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
-                    csWriter.WriteLines($"""
-                        {argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});
-                        var {argumentDecl.Name}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({argumentDecl.Name}Handle));
-                        """);
+
+                    if (isOptional)
+                    {
+                        // Optional escaping closure - handle null case with zero-initialized SwiftClosureData
+                        csWriter.WriteLine($"SwiftClosureData {argumentDecl.Name}Closure;");
+                        csWriter.WriteLine($"if ({argumentDecl.Name} != null)");
+                        csWriter.WriteLine("{");
+                        csWriter.Indent++;
+                        csWriter.WriteLine($"{argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});");
+                        csWriter.WriteLine($"{argumentDecl.Name}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({argumentDecl.Name}Handle));");
+                        csWriter.Indent--;
+                        csWriter.WriteLine("}");
+                        csWriter.WriteLine("else");
+                        csWriter.WriteLine("{");
+                        csWriter.Indent++;
+                        csWriter.WriteLine($"{argumentDecl.Name}Closure = default; // Zero-initialized = nil in Swift");
+                        csWriter.Indent--;
+                        csWriter.WriteLine("}");
+                    }
+                    else
+                    {
+                        csWriter.WriteLines($"""
+                            {argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});
+                            var {argumentDecl.Name}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({argumentDecl.Name}Handle));
+                            """);
+                    }
                 }
             }
         }
@@ -1620,9 +1666,10 @@ namespace BindingsGeneration
                     var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
                     csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
                 }
-                else if (_env.TypeConversionHandler.IsSwiftOptional(argumentDecl.SwiftTypeSpec))
+                else if (_env.TypeConversionHandler.IsSwiftOptional(argumentDecl.SwiftTypeSpec) &&
+                         !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
                 {
-                    // T? -> SwiftOptional<T>
+                    // T? -> SwiftOptional<T> (but not for optional closures - those are handled by EmitClosureSetup)
                     // Use pattern matching which works for both nullable value types and reference types
                     var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
                         argumentDecl.SwiftTypeSpec,

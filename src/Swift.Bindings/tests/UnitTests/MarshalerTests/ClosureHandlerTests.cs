@@ -725,15 +725,16 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void TranslateTypeSpecToCSharp_WithBoundGeneric_ReturnsFullTypeName()
+    public void TranslateTypeSpecToCSharp_WithBoundGeneric_ReturnsNullableType()
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
+        // Optional<Int> translates to C# nullable syntax
         var optionalInt = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
         var result = handler.TranslateTypeSpecToCSharp(optionalInt);
 
-        Assert.Equal("Swift.SwiftOptional<System.Int64>", result);
+        Assert.Equal("System.Int64?", result);
     }
 
     [Fact]
@@ -894,18 +895,18 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void GetCSharpDelegateType_WithOptionalReturn_ReturnsCorrectType()
+    public void GetCSharpDelegateType_WithOptionalReturn_ReturnsNullableType()
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Closure: () -> Optional<Int>
+        // Closure: () -> Optional<Int> translates to Func<Int64?>
         var optionalInt = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
         var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalInt);
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Func<Swift.SwiftOptional<System.Int64>>", result);
+        Assert.Equal("Func<System.Int64?>", result);
     }
 
     #endregion
@@ -1257,6 +1258,72 @@ public class ClosureHandlerTests
         Assert.Equal("Action?", result);
     }
 
+    [Fact]
+    public void IsSupportedClosure_WithOptionalModuleLocalTypeParameter_ReturnsTrue()
+    {
+        // Tests the case where a closure has Optional<ModuleLocalType> as a parameter
+        // e.g., progress closure: (Nuke.ImageResponse?, Int64, Int64) -> ()
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Create Optional<Nuke.ImageResponse>
+        var optionalImageResponse = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageResponse"));
+
+        // Create tuple (Nuke.ImageResponse?, Swift.Int64, Swift.Int64)
+        var tupleElements = new List<TypeSpec>
+        {
+            optionalImageResponse,
+            new NamedTypeSpec("Swift.Int64"),
+            new NamedTypeSpec("Swift.Int64")
+        };
+        var tuple = new TupleTypeSpec();
+        tuple.Elements.AddRange(tupleElements);
+
+        // Create closure (Nuke.ImageResponse?, Swift.Int64, Swift.Int64) -> ()
+        var closure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithOptionalClosureContainingModuleLocalType_ReturnsTrue()
+    {
+        // Tests the case where we have Optional<Closure> and the closure has Optional<ModuleLocalType>
+        // e.g., ((Nuke.ImageResponse?, Int64, Int64) -> ())?
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Create Optional<Nuke.ImageResponse>
+        var optionalImageResponse = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageResponse"));
+
+        // Create tuple (Nuke.ImageResponse?, Swift.Int64, Swift.Int64)
+        var tupleElements = new List<TypeSpec>
+        {
+            optionalImageResponse,
+            new NamedTypeSpec("Swift.Int64"),
+            new NamedTypeSpec("Swift.Int64")
+        };
+        var tuple = new TupleTypeSpec();
+        tuple.Elements.AddRange(tupleElements);
+
+        // Create inner closure (Nuke.ImageResponse?, Swift.Int64, Swift.Int64) -> ()
+        var innerClosure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
+
+        // Verify inner closure is supported
+        Assert.True(handler.IsSupportedClosure(innerClosure));
+
+        // Create Optional<Closure>
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
+
+        // Verify it's recognized as optional closure
+        Assert.True(handler.IsOptionalClosure(optionalClosure));
+
+        // Verify we can extract and check the inner closure
+        var extractedClosure = handler.GetClosureTypeSpec(optionalClosure);
+        Assert.NotNull(extractedClosure);
+        Assert.True(handler.IsSupportedClosure(extractedClosure!));
+    }
+
     #endregion
 
     #region Non-Frozen Struct Closure Parameter Tests
@@ -1401,6 +1468,14 @@ public class ClosureHandlerTests
                     Flags = TypeRecordFlags.Frozen,
                     Kind = TypeRecordKind.Struct
                 },
+                ["Swift.Int64"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int64"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
                 ["Swift.Bool"] = new TypeRecord
                 {
                     CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
@@ -1471,6 +1546,15 @@ public class ClosureHandlerTests
                 {
                     CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageDecodingContext"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageDecodingContext"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.None, // NOT frozen
+                    Kind = TypeRecordKind.Struct
+                },
+                // Non-frozen struct for testing closure parameters (like ImageResponse)
+                ["Nuke.ImageResponse"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageResponse"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None, // NOT frozen
                     Kind = TypeRecordKind.Struct

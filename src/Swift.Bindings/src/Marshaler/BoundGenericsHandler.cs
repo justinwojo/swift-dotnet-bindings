@@ -45,21 +45,28 @@ public class BoundGenericsHandler
 
     /// <summary>
     /// Determines whether the specified property declaration represents a bound generic type.
+    /// Optional closures (Optional&lt;Closure&gt;) are NOT considered bound generics - they should
+    /// be handled by ClosureHandler instead.
     /// </summary>
     /// <param name="propertyDecl">The property declaration.</param>
-    /// <returns><c>true</c> if the property’s Swift type contains generic parameters; otherwise, <c>false</c>.</returns>
+    /// <returns><c>true</c> if the property's Swift type contains generic parameters; otherwise, <c>false</c>.</returns>
     public bool IsBoundGeneric(PropertyDecl propertyDecl) =>
-        propertyDecl.SwiftTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters; // TODO: Check whether return type is not type's generic parameter https://github.com/dotnet/runtimelab/issues/3013
+        propertyDecl.SwiftTypeSpec is NamedTypeSpec namedTypeSpec &&
+        namedTypeSpec.ContainsGenericParameters &&
+        !_closureHandler.IsOptionalClosure(propertyDecl.SwiftTypeSpec); // TODO: Check whether return type is not type's generic parameter https://github.com/dotnet/runtimelab/issues/3013
 
     /// <summary>
     /// Determines whether the specified argument declaration represents a bound generic type.
+    /// Optional closures (Optional&lt;Closure&gt;) are NOT considered bound generics - they should
+    /// be handled by ClosureHandler instead.
     /// </summary>
     /// <param name="argumentDecl">The argument declaration.</param>
-    /// <returns><c>true</c> if the argument’s Swift type contains generic parameters; otherwise, <c>false</c>.</returns>
+    /// <returns><c>true</c> if the argument's Swift type contains generic parameters; otherwise, <c>false</c>.</returns>
     public bool IsBoundGeneric(ArgumentDecl argumentDecl) =>
         !argumentDecl.IsGeneric &&
         argumentDecl.SwiftTypeSpec is NamedTypeSpec namedTypeSpec &&
-        namedTypeSpec.ContainsGenericParameters;
+        namedTypeSpec.ContainsGenericParameters &&
+        !_closureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec);
 
     /// <summary>
     /// Determines whether the bound generic type requires special marshalling.

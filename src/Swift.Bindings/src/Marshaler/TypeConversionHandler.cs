@@ -106,6 +106,13 @@ public class TypeConversionHandler
 
         if (IsSwiftOptional(namedTypeSpec))
         {
+            // Don't handle Optional<Closure> here - let ClosureHandler deal with it
+            if (namedTypeSpec.GenericParameters.Count > 0 &&
+                namedTypeSpec.GenericParameters[0] is ClosureTypeSpec)
+            {
+                return null;
+            }
+
             var innerType = GetElementType(namedTypeSpec, typeTranslator);
             if (innerType == null)
                 return null;

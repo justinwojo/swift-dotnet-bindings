@@ -23,11 +23,13 @@ public class ClosureHandler
 
     /// <summary>
     /// Determines whether the specified argument declaration represents a closure type.
+    /// Also returns true for Optional closures (e.g., Optional&lt;() -&gt; Void&gt;).
     /// </summary>
     /// <param name="argumentDecl">The argument declaration.</param>
-    /// <returns><c>true</c> if the argument's Swift type is a closure; otherwise, <c>false</c>.</returns>
+    /// <returns><c>true</c> if the argument's Swift type is a closure or optional closure; otherwise, <c>false</c>.</returns>
     public bool IsClosure(ArgumentDecl argumentDecl) =>
-        argumentDecl.SwiftTypeSpec is ClosureTypeSpec;
+        argumentDecl.SwiftTypeSpec is ClosureTypeSpec ||
+        IsOptionalClosure(argumentDecl.SwiftTypeSpec);
 
     /// <summary>
     /// Determines whether the specified property declaration represents a closure type.
@@ -41,11 +43,12 @@ public class ClosureHandler
 
     /// <summary>
     /// Gets the ClosureTypeSpec from an argument declaration.
+    /// Also extracts the closure from Optional closures.
     /// </summary>
     /// <param name="argumentDecl">The argument declaration.</param>
-    /// <returns>The ClosureTypeSpec if the argument is a closure; otherwise, null.</returns>
+    /// <returns>The ClosureTypeSpec if the argument is a closure or optional closure; otherwise, null.</returns>
     public ClosureTypeSpec? GetClosureTypeSpec(ArgumentDecl argumentDecl) =>
-        argumentDecl.SwiftTypeSpec as ClosureTypeSpec;
+        GetClosureTypeSpec(argumentDecl.SwiftTypeSpec);
 
     /// <summary>
     /// Gets the ClosureTypeSpec from a property declaration.
@@ -527,6 +530,28 @@ public class ClosureHandler
             if (IsPointerType(namedType))
                 return "IntPtr";
 
+            // Handle Optional<T> -> use C# nullable syntax T? for simple types
+            // For complex types (classes, existentials), keep Swift.SwiftOptional<T> to avoid
+            // issues with closure invocation marshalling code
+            if (namedType.Name == "Swift.Optional" &&
+                namedType.GenericParameters.Count == 1)
+            {
+                var innerTypeSpec = namedType.GenericParameters[0];
+                var innerType = TranslateTypeSpecToCSharp(innerTypeSpec);
+
+                // Use nullable syntax only for primitive/simple types
+                // Keep SwiftOptional for complex types that need special marshalling
+                if (IsPrimitiveType(innerTypeSpec) ||
+                    innerTypeSpec.IsEmptyTuple ||
+                    IsPointerType(innerTypeSpec as NamedTypeSpec))
+                {
+                    return $"{innerType}?";
+                }
+
+                // For complex types, use SwiftOptional wrapper
+                return $"Swift.SwiftOptional<{innerType}>";
+            }
+
             // Handle bound generic types (e.g., Result<T, E>, Array<T>)
             if (namedType.ContainsGenericParameters)
                 return TranslateBoundGenericToCSharp(namedType);
@@ -804,14 +829,47 @@ public class ClosureHandler
     /// <summary>
     /// Checks if a named type is a Swift pointer type.
     /// </summary>
-    private static bool IsPointerType(NamedTypeSpec namedType)
+    private static bool IsPointerType(NamedTypeSpec? namedType)
     {
+        if (namedType == null) return false;
         return namedType.Name == "Swift.UnsafePointer" ||
                namedType.Name == "Swift.UnsafeMutablePointer" ||
                namedType.Name == "Swift.UnsafeRawPointer" ||
                namedType.Name == "Swift.UnsafeMutableRawPointer" ||
                namedType.Name == "Swift.OpaquePointer" ||
                namedType.Name == "Builtin.RawPointer";
+    }
+
+    /// <summary>
+    /// Checks if a type spec is a primitive type (bool, int, float, etc.).
+    /// Primitive types can safely use C# nullable syntax (T?).
+    /// </summary>
+    private bool IsPrimitiveType(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        // Check against known primitive type names
+        return namedType.Name switch
+        {
+            "Swift.Bool" => true,
+            "Swift.Int" => true,
+            "Swift.Int8" => true,
+            "Swift.Int16" => true,
+            "Swift.Int32" => true,
+            "Swift.Int64" => true,
+            "Swift.UInt" => true,
+            "Swift.UInt8" => true,
+            "Swift.UInt16" => true,
+            "Swift.UInt32" => true,
+            "Swift.UInt64" => true,
+            "Swift.Float" => true,
+            "Swift.Double" => true,
+            "Swift.Float16" => true,
+            "Swift.Float32" => true,
+            "Swift.Float80" => true,
+            _ => false
+        };
     }
 
     /// <summary>

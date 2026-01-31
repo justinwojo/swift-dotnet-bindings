@@ -279,6 +279,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var moduleName = propertyDecl.ParentDecl is TypeDecl td ? td.SwiftTypeName.Module : "Unknown";
         var libraryPath = propertyEnv.TypeDatabase.GetLibraryPath(moduleName);
 
+        // Get nested type names for collision detection
+        IReadOnlySet<string>? nestedTypeNames = null;
+        if (propertyDecl.ParentDecl is TypeDecl parentTypeDecl)
+        {
+            nestedTypeNames = new HashSet<string>(parentTypeDecl.Types.Select(t => t.Name));
+        }
+
         // Emit callbacks
         csWriter.WriteLine();
         AsyncStreamEmitter.EmitElementCallback(csWriter, propertyDecl, asyncStreamHandler, callbackName);
@@ -290,8 +297,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, swiftWrapperName, libraryPath, propertyDecl.IsStatic);
         csWriter.WriteLine();
 
-        // Emit property
-        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName);
+        // Emit property with nested type collision detection
+        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName, nestedTypeNames);
         csWriter.WriteLine();
 
         // Emit Swift wrapper

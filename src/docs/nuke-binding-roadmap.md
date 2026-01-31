@@ -30,6 +30,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 10 | Remaining Binding Gap Fixes | [phase-10-binding-gap-fixes.md](CompletedPhases/phase-10-binding-gap-fixes.md) |
 | Phase 11 | Advanced Binding Gap Fixes | [phase-11-binding-gap-fixes.md](CompletedPhases/phase-11-binding-gap-fixes.md) |
 | Phase 12 | CoreFoundation/TupleHandler Fixes | [phase-12-corefoundation-tuple-fixes.md](CompletedPhases/phase-12-corefoundation-tuple-fixes.md) |
+| Phase 13 | Optional Closures & AsyncStream Fixes | [phase-13-optional-closures.md](CompletedPhases/phase-13-optional-closures.md) |
 
 ---
 
@@ -45,16 +46,19 @@ The following phases have been completed. See individual documents for details:
 - Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **591 unit tests, 691 integration tests, 72 runtime tests passing (1,354 total)**
+- **593 unit tests, 691 integration tests, 72 runtime tests passing (1,356 total)**
 
 **Remaining gaps**:
 - **1 property** with unsupported types (skipped):
   - `didComplete` - @MainActor async closure with Optional wrapping; closure infrastructure ready but accessor signature unsupported
-- **~6 methods/constructors** with `AnyType` parameters:
+- **~5 methods/constructors** with `AnyType` parameters:
   - `data(_for:)` - Async method returning tuple `(Data, URLResponse?)` - async tuple returns not yet supported
-  - `loadImage(with:queue:progress:completion:)` - Progress closure has `Optional<ImageResponse>` parameter (module-local type)
   - `imagePublisher(...)` - Returns Combine `AnyPublisher` (reactive framework out of scope)
   - `ImageRequest` constructor - `() async throws -> Data` closure (throwing closures not supported)
+- **Fixed in Phase 13**:
+  - ✅ `loadImage(with:queue:progress:completion:)` - Optional closure parameters now use `Action<...>?` syntax
+  - ✅ AsyncStream property collision - Properties like `Progress` renamed to `ProgressValue` when colliding with nested types
+  - ✅ Module-local types in closures - `ImageResponse?` in progress callback now correctly typed
 - **Fixed in Phase 12**:
   - ✅ `ImageProcessors.Resize` constructor - CGSize now resolved via module aliasing
   - ✅ `ImageRequest.ThumbnailOptions` constructor - CGSize now resolved
@@ -180,14 +184,21 @@ var image = response.Image; // UIImage
 
 ---
 
-## Future Work (Phase 13+)
+## Future Work (Phase 14+)
 
 ### Phase 12 Completed
 - ✅ CGSize module aliasing (CoreFoundation → CoreGraphics)
 - ✅ TupleHandler support for bound generics (Optional<T>, Array<T>)
 - ✅ Async tuple return exclusion (prevents crash, falls back to AnyType)
 
-### 13.1 Async Tuple Return Support
+### Phase 13 Completed
+- ✅ Optional closure parameters use `Action<...>?` / `Func<...>?` syntax
+- ✅ Module-local types in closures (ImageResponse? now correctly typed)
+- ✅ BoundGenericsHandler excludes optional closures (handled by ClosureHandler)
+- ✅ AsyncStream property collision detection (renames to `PropertyValue` when colliding with nested types)
+- ✅ TypeConversionHandler defers Optional<Closure> to ClosureHandler
+
+### 14.1 Async Tuple Return Support
 **Priority**: High
 
 Async methods with tuple return types (like `(Data, URLResponse?)`) currently fall back to AnyType.
@@ -199,21 +210,7 @@ Async methods with tuple return types (like `(Data, URLResponse?)`) currently fa
 - Add tuple handling to `EmitAsyncWrapper`
 - Handle tuple marshalling in async callback context
 
-### 13.2 Module-Local Types in Closures
-**Priority**: High
-
-Closures with parameters of module-local types (types being generated, not pre-loaded) show as AnyType.
-
-**Affected APIs**:
-- `loadImage/loadData` → `progress` closure has `ImageResponse?` parameter
-
-**Root Cause**: ClosureHandler/TupleHandler only check global TypeDatabase, not module-local types being generated.
-
-**Requirements**:
-- Pass module database to handlers during emission
-- Or register types earlier in the processing pipeline
-
-### 13.3 Throwing Closures
+### 14.2 Throwing Closures
 **Priority**: Medium
 
 Closures with `throws` attribute are excluded from support.
@@ -225,7 +222,7 @@ Closures with `throws` attribute are excluded from support.
 - Implement error marshalling for closure returns
 - Handle Swift Error to C# Exception conversion
 
-### 13.4 didComplete Property Accessor
+### 14.3 didComplete Property Accessor
 **Priority**: Medium
 
 The `didComplete` property has @MainActor async closure infrastructure ready, but the accessor method signature is unsupported.
@@ -239,7 +236,7 @@ var didComplete: (@MainActor @Sendable () async -> Void)?
 - May need special handling for Optional closure property accessors
 - MainActor dispatch on C# side
 
-### 13.5 ObjC Type Remapping Enhancement
+### 14.4 ObjC Type Remapping Enhancement
 **Priority**: Medium
 
 ObjC types currently use `Swift.*` wrappers (e.g., `Swift.URL`, `Swift.Data`) instead of existing .NET iOS bindings. This creates friction for .NET developers.
@@ -251,7 +248,7 @@ ObjC types currently use `Swift.*` wrappers (e.g., `Swift.URL`, `Swift.Data`) in
 2. Add implicit conversions between Swift.* and Foundation types
 3. Full remapping (breaking change)
 
-### 13.6 Complete API Coverage Validation
+### 14.5 Complete API Coverage Validation
 **Priority**: Medium
 
 Validate that all emitted APIs actually work at runtime, not just compile.
@@ -260,6 +257,15 @@ Validate that all emitted APIs actually work at runtime, not just compile.
 - Create integration tests for AsyncStream properties
 - Test closure property invocation
 - Verify non-frozen struct closure parameter marshalling
+
+### 14.6 Closure Return Type Marshalling Fix
+**Priority**: Low
+
+ClosureEmitter generates invalid invocation code for closures with:
+- Non-frozen struct parameters (uses `ISwiftObject.Payload` which doesn't exist)
+- Existential return types (incorrect return type conversion)
+
+This is a pre-existing bug exposed when fixing other issues. Currently affects closure properties like `makeImageDecoder`.
 
 ### Note: Async Instance Method Workaround
 
@@ -311,9 +317,9 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 
 | Category | Count |
 |----------|-------|
-| Unit tests | 591 |
+| Unit tests | 593 |
 | Integration tests | 691 |
 | Runtime tests | 72 |
-| **Total** | **1,354** |
+| **Total** | **1,356** |
 
 All tests passing. iOS Simulator validation successful.
