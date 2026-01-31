@@ -72,6 +72,19 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var propertyEnv = (PropertyEnvironment)env;
         var propertyDecl = propertyEnv.PropertyDecl;
 
+        // Handle AsyncStream properties - emit as IAsyncEnumerable<T>
+        bool isAsyncStream = propertyEnv.AsyncStreamHandler.IsAsyncStream(propertyDecl.SwiftTypeSpec);
+        if (isAsyncStream)
+        {
+            if (!propertyEnv.AsyncStreamHandler.IsSupportedAsyncStream(propertyDecl.SwiftTypeSpec))
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping AsyncStream property {propertyDecl.Name} - element type not supported.");
+                return;
+            }
+            EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl);
+            return;
+        }
+
         // Handle existential types (any Protocol) - check if supported (0-8 protocols)
         bool isExistential = propertyEnv.ExistentialHandler.IsExistential(propertyDecl.SwiftTypeSpec);
         if (isExistential)
@@ -237,6 +250,52 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Use PascalCase method name to match how MethodHandler emits the accessor method
         var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
         csWriter.WriteLine($"set => {methodName}(value);");
+    }
+
+    /// <summary>
+    /// Emits an AsyncStream property as IAsyncEnumerable&lt;T&gt;.
+    /// AsyncStream properties require a Swift wrapper function to iterate the stream
+    /// and call C# callbacks for each element.
+    /// </summary>
+    /// <param name="csWriter">The C# code writer to emit to</param>
+    /// <param name="swiftWriter">The Swift code writer to emit to</param>
+    /// <param name="propertyEnv">The property environment</param>
+    /// <param name="propertyDecl">The property declaration</param>
+    private void EmitAsyncStreamProperty(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        PropertyEnvironment propertyEnv,
+        PropertyDecl propertyDecl)
+    {
+        var asyncStreamHandler = propertyEnv.AsyncStreamHandler;
+        var elementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
+        var swiftWrapperName = asyncStreamHandler.GetSwiftWrapperFunctionName(propertyDecl);
+        var callbackName = $"{propertyDecl.Name}_AsyncStream";
+
+        // Get parent type name for Swift wrapper
+        var parentTypeName = propertyDecl.ParentDecl is TypeDecl typeDecl ? typeDecl.Name : "Unknown";
+
+        // Get library path from type database using the parent type's module
+        var moduleName = propertyDecl.ParentDecl is TypeDecl td ? td.SwiftTypeName.Module : "Unknown";
+        var libraryPath = propertyEnv.TypeDatabase.GetLibraryPath(moduleName);
+
+        // Emit callbacks
+        csWriter.WriteLine();
+        AsyncStreamEmitter.EmitElementCallback(csWriter, propertyDecl, asyncStreamHandler, callbackName);
+        csWriter.WriteLine();
+        AsyncStreamEmitter.EmitCompletionCallback(csWriter, callbackName);
+        csWriter.WriteLine();
+
+        // Emit P/Invoke
+        AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, swiftWrapperName, libraryPath, propertyDecl.IsStatic);
+        csWriter.WriteLine();
+
+        // Emit property
+        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName);
+        csWriter.WriteLine();
+
+        // Emit Swift wrapper
+        AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, parentTypeName);
     }
 }
 

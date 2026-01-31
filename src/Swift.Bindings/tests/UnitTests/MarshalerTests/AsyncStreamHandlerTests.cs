@@ -210,6 +210,36 @@ public class AsyncStreamHandlerTests
 
     #endregion
 
+    #region C# Element Type Tests
+
+    [Fact]
+    public void GetCSharpElementType_WithKnownType_ReturnsCorrectType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new AsyncStreamHandler(typeDatabase);
+
+        var typeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", new NamedTypeSpec("Swift.Int"));
+
+        var result = handler.GetCSharpElementType(typeSpec);
+
+        Assert.Equal("System.Int64", result);
+    }
+
+    [Fact]
+    public void GetCSharpElementType_WithNoElementType_ReturnsObject()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new AsyncStreamHandler(typeDatabase);
+
+        var typeSpec = new NamedTypeSpec("_Concurrency.AsyncStream");
+
+        var result = handler.GetCSharpElementType(typeSpec);
+
+        Assert.Equal("object", result);
+    }
+
+    #endregion
+
     #region Mock Type Database
 
     private class MockTypeDatabase : ITypeDatabase

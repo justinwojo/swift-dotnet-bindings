@@ -616,7 +616,7 @@ public func getEveryProtocolImageDecodingWitnessTable() -> UnsafeRawPointer {
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-public func PInvoke_image_71B33D9F(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_2F109358(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -631,7 +631,7 @@ public func PInvoke_image_71B33D9F(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-public func PInvoke_image_5EE59524(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_556D4920(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -643,5 +643,53 @@ public func PInvoke_image_5EE59524(callback: @escaping @convention(c) (UIKit.UII
             for: _forValue
         )
         callback(resultimage, task)
+    }
+}
+@_silgen_name("ImageTask_progress_AsyncStream")
+public func ImageTask_progress_AsyncStream(
+    _ self: ImageTask, elementCallback: @escaping @convention(c) (UnsafeRawPointer, Int64) -> Bool,
+    completionCallback: @escaping @convention(c) (Int64) -> Void,
+    context: Int64
+) {
+    Task {
+        for await element in self.progress {
+            let shouldContinue = withUnsafePointer(to: element) { ptr in
+                elementCallback(UnsafeRawPointer(ptr), context)
+            }
+            if !shouldContinue { break }
+        }
+        completionCallback(context)
+    }
+}
+@_silgen_name("ImageTask_previews_AsyncStream")
+public func ImageTask_previews_AsyncStream(
+    _ self: ImageTask, elementCallback: @escaping @convention(c) (UnsafeRawPointer, Int64) -> Bool,
+    completionCallback: @escaping @convention(c) (Int64) -> Void,
+    context: Int64
+) {
+    Task {
+        for await element in self.previews {
+            let shouldContinue = withUnsafePointer(to: element) { ptr in
+                elementCallback(UnsafeRawPointer(ptr), context)
+            }
+            if !shouldContinue { break }
+        }
+        completionCallback(context)
+    }
+}
+@_silgen_name("ImageTask_events_AsyncStream")
+public func ImageTask_events_AsyncStream(
+    _ self: ImageTask, elementCallback: @escaping @convention(c) (UnsafeRawPointer, Int64) -> Bool,
+    completionCallback: @escaping @convention(c) (Int64) -> Void,
+    context: Int64
+) {
+    Task {
+        for await element in self.events {
+            let shouldContinue = withUnsafePointer(to: element) { ptr in
+                elementCallback(UnsafeRawPointer(ptr), context)
+            }
+            if !shouldContinue { break }
+        }
+        completionCallback(context)
     }
 }

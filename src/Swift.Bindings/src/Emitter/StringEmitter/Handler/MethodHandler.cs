@@ -1947,8 +1947,15 @@ namespace BindingsGeneration
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
                 if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                 {
-                    // Use struct marshalling if any parameter is a frozen struct
-                    if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
+                    // Use non-frozen struct marshalling if any parameter is a non-frozen struct
+                    // (requires heap allocation with NativeMemory and InitializeWithCopy/Destroy)
+                    if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
+                    {
+                        ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                    }
+                    // Use frozen struct marshalling if any parameter is a frozen struct
+                    // (uses stackalloc for stack allocation)
+                    else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
                     {
                         ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
                     }

@@ -31,11 +31,13 @@ public class ClosureHandler
 
     /// <summary>
     /// Determines whether the specified property declaration represents a closure type.
+    /// Also returns true for Optional closures (e.g., Optional&lt;() -&gt; Void&gt;).
     /// </summary>
     /// <param name="propertyDecl">The property declaration.</param>
-    /// <returns><c>true</c> if the property's Swift type is a closure; otherwise, <c>false</c>.</returns>
+    /// <returns><c>true</c> if the property's Swift type is a closure or optional closure; otherwise, <c>false</c>.</returns>
     public bool IsClosure(PropertyDecl propertyDecl) =>
-        propertyDecl.SwiftTypeSpec is ClosureTypeSpec;
+        propertyDecl.SwiftTypeSpec is ClosureTypeSpec ||
+        IsOptionalClosure(propertyDecl.SwiftTypeSpec);
 
     /// <summary>
     /// Gets the ClosureTypeSpec from an argument declaration.
@@ -47,11 +49,54 @@ public class ClosureHandler
 
     /// <summary>
     /// Gets the ClosureTypeSpec from a property declaration.
+    /// Also extracts the closure from Optional closures.
     /// </summary>
     /// <param name="propertyDecl">The property declaration.</param>
     /// <returns>The ClosureTypeSpec if the property is a closure; otherwise, null.</returns>
     public ClosureTypeSpec? GetClosureTypeSpec(PropertyDecl propertyDecl) =>
-        propertyDecl.SwiftTypeSpec as ClosureTypeSpec;
+        GetClosureTypeSpec(propertyDecl.SwiftTypeSpec);
+
+    /// <summary>
+    /// Gets the ClosureTypeSpec from a TypeSpec.
+    /// Also extracts the closure from Optional closures.
+    /// </summary>
+    /// <param name="typeSpec">The type specification.</param>
+    /// <returns>The ClosureTypeSpec if the type is a closure or optional closure; otherwise, null.</returns>
+    public ClosureTypeSpec? GetClosureTypeSpec(TypeSpec typeSpec)
+    {
+        if (typeSpec is ClosureTypeSpec closure)
+            return closure;
+
+        // Check for Optional<Closure>
+        if (IsOptionalClosure(typeSpec) &&
+            typeSpec is NamedTypeSpec namedType &&
+            namedType.GenericParameters.Count > 0 &&
+            namedType.GenericParameters[0] is ClosureTypeSpec innerClosure)
+        {
+            return innerClosure;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Determines whether the specified type is an Optional containing a closure.
+    /// </summary>
+    /// <param name="typeSpec">The type specification.</param>
+    /// <returns><c>true</c> if the type is Optional&lt;Closure&gt;; otherwise, <c>false</c>.</returns>
+    public bool IsOptionalClosure(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        if (namedType.Name != "Swift.Optional")
+            return false;
+
+        if (namedType.GenericParameters.Count != 1)
+            return false;
+
+        return namedType.GenericParameters[0] is ClosureTypeSpec;
+    }
 
     /// <summary>
     /// Determines whether the closure has @convention(c) attribute.
@@ -68,6 +113,40 @@ public class ClosureHandler
             attr.Name == "convention" &&
             attr.Parameters.Count > 0 &&
             attr.Parameters[0] == "c");
+    }
+
+    /// <summary>
+    /// Determines whether the closure has @MainActor attribute.
+    /// @MainActor closures must be called on the main thread/actor.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns><c>true</c> if the closure is @MainActor; otherwise, <c>false</c>.</returns>
+    public bool IsMainActor(ClosureTypeSpec closureTypeSpec)
+    {
+        if (!closureTypeSpec.HasAttributes)
+            return false;
+
+        return closureTypeSpec.Attributes.Exists(attr =>
+            attr.Name == "MainActor" ||
+            attr.Name == "Swift.MainActor" ||
+            attr.Name == "_Concurrency.MainActor");
+    }
+
+    /// <summary>
+    /// Determines whether the closure has @Sendable attribute.
+    /// @Sendable closures can be passed across concurrency domains.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns><c>true</c> if the closure is @Sendable; otherwise, <c>false</c>.</returns>
+    public bool IsSendable(ClosureTypeSpec closureTypeSpec)
+    {
+        if (!closureTypeSpec.HasAttributes)
+            return false;
+
+        return closureTypeSpec.Attributes.Exists(attr =>
+            attr.Name == "Sendable" ||
+            attr.Name == "Swift.Sendable" ||
+            attr.Name == "_Concurrency.Sendable");
     }
 
     /// <summary>
@@ -362,6 +441,21 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Gets the C# delegate type for an optional closure.
+    /// Returns the nullable delegate type (e.g., "Func&lt;Task&gt;?").
+    /// </summary>
+    /// <param name="typeSpec">The type specification (should be Optional&lt;Closure&gt;).</param>
+    /// <returns>The nullable C# delegate type name.</returns>
+    public string GetCSharpOptionalDelegateType(TypeSpec typeSpec)
+    {
+        var closureTypeSpec = GetClosureTypeSpec(typeSpec);
+        if (closureTypeSpec == null)
+            return "object?";
+
+        return GetCSharpDelegateType(closureTypeSpec) + "?";
+    }
+
+    /// <summary>
     /// Determines if a closure is an async closure.
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
@@ -555,7 +649,7 @@ public class ClosureHandler
 
     /// <summary>
     /// Checks if a parameter type can be passed when invoking a Swift closure from C#.
-    /// Supports primitive types and frozen structs that can be marshalled.
+    /// Supports primitive types, frozen structs, and non-frozen structs that can be marshalled.
     /// </summary>
     private bool IsInvocableParameter(TypeSpec typeSpec)
     {
@@ -570,8 +664,12 @@ public class ClosureHandler
             if (primitiveType != null)
                 return true;
 
-            // Frozen structs are supported (via marshalling)
+            // Frozen structs are supported (via marshalling with stackalloc)
             if (IsFrozenStruct(namedType))
+                return true;
+
+            // Non-frozen structs are supported (via ISwiftObject marshalling with NativeMemory)
+            if (IsNonFrozenStruct(namedType))
                 return true;
 
             return false;
@@ -614,6 +712,31 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Checks if a type is a non-frozen struct in the type database.
+    /// Non-frozen structs implement ISwiftObject and can be marshalled via
+    /// InitializeWithCopy/Destroy when invoking closures.
+    /// </summary>
+    /// <param name="typeSpec">The type specification to check.</param>
+    /// <returns>True if the type is a non-frozen struct.</returns>
+    public bool IsNonFrozenStruct(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        // Don't treat generic types as non-frozen structs - they need special handling
+        if (namedType.ContainsGenericParameters)
+            return false;
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            return false;
+
+        // Must be a struct and NOT be frozen
+        return typeRecord.Kind == TypeRecordKind.Struct &&
+               (typeRecord.Flags & TypeRecordFlags.Frozen) == 0;
+    }
+
+    /// <summary>
     /// Checks if invoking a closure from C# requires struct marshalling for any parameter.
     /// When true, the invoker lambda needs to marshal struct parameters to void* before calling Swift.
     /// </summary>
@@ -627,6 +750,24 @@ public class ClosureHandler
                 !IsPointerType(namedType) &&
                 GetBlittablePrimitiveType(namedType.Name) == null &&
                 IsFrozenStruct(namedType))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if invoking a closure from C# requires non-frozen struct marshalling for any parameter.
+    /// Non-frozen structs require heap allocation via NativeMemory and InitializeWithCopy/Destroy.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>True if any parameter requires non-frozen struct marshalling.</returns>
+    public bool RequiresNonFrozenMarshalling(ClosureTypeSpec closureTypeSpec)
+    {
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            if (IsNonFrozenStruct(arg))
             {
                 return true;
             }

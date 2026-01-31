@@ -1111,6 +1111,278 @@ public class ClosureHandlerTests
 
     #endregion
 
+    #region MainActor and Sendable Detection Tests
+
+    [Fact]
+    public void IsMainActor_WithMainActorAttribute_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("MainActor"));
+
+        Assert.True(handler.IsMainActor(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsMainActor_WithNoAttributes_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsMainActor(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSendable_WithSendableAttribute_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("Sendable"));
+
+        Assert.True(handler.IsSendable(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSendable_WithNoAttributes_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsSendable(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithMainActorAsyncClosure_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // @MainActor @Sendable () async -> Void
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("MainActor"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("Sendable"));
+
+        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    #endregion
+
+    #region Optional Closure Detection Tests
+
+    [Fact]
+    public void IsOptionalClosure_WithOptionalClosure_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", closureType);
+
+        Assert.True(handler.IsOptionalClosure(optionalClosure));
+    }
+
+    [Fact]
+    public void IsOptionalClosure_WithDirectClosure_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsOptionalClosure(closureType));
+    }
+
+    [Fact]
+    public void IsOptionalClosure_WithOptionalInt_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var optionalInt = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
+
+        Assert.False(handler.IsOptionalClosure(optionalInt));
+    }
+
+    [Fact]
+    public void GetClosureTypeSpec_FromOptionalClosure_ReturnsInnerClosure()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var innerClosure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        innerClosure.IsAsync = true;
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
+
+        var result = handler.GetClosureTypeSpec(optionalClosure);
+
+        Assert.NotNull(result);
+        Assert.True(result!.IsAsync);
+    }
+
+    [Fact]
+    public void GetCSharpOptionalDelegateType_WithOptionalAsyncClosure_ReturnsNullableFunc()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var innerClosure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        innerClosure.IsAsync = true;
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
+
+        var result = handler.GetCSharpOptionalDelegateType(optionalClosure);
+
+        Assert.Equal("Func<Task>?", result);
+    }
+
+    [Fact]
+    public void GetCSharpOptionalDelegateType_WithOptionalAction_ReturnsNullableAction()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var innerClosure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
+
+        var result = handler.GetCSharpOptionalDelegateType(optionalClosure);
+
+        Assert.Equal("Action?", result);
+    }
+
+    #endregion
+
+    #region Non-Frozen Struct Closure Parameter Tests
+
+    [Fact]
+    public void IsNonFrozenStruct_WithNonFrozenStruct_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // ImageDecodingContext is a non-frozen struct in our mock database
+        var typeSpec = new NamedTypeSpec("Nuke.ImageDecodingContext");
+
+        Assert.True(handler.IsNonFrozenStruct(typeSpec));
+    }
+
+    [Fact]
+    public void IsNonFrozenStruct_WithFrozenStruct_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // CGPoint is a frozen struct
+        var typeSpec = new NamedTypeSpec("CoreGraphics.CGPoint");
+
+        Assert.False(handler.IsNonFrozenStruct(typeSpec));
+    }
+
+    [Fact]
+    public void IsNonFrozenStruct_WithUnknownType_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var typeSpec = new NamedTypeSpec("SomeModule.UnknownType");
+
+        Assert.False(handler.IsNonFrozenStruct(typeSpec));
+    }
+
+    [Fact]
+    public void IsNonFrozenStruct_WithGenericType_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Generic types are not non-frozen structs (need special handling)
+        var typeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+
+        Assert.False(handler.IsNonFrozenStruct(typeSpec));
+    }
+
+    [Fact]
+    public void IsInvocableParameter_WithNonFrozenStruct_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (ImageDecodingContext) -> Void
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Nuke.ImageDecodingContext"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
+    }
+
+    [Fact]
+    public void RequiresNonFrozenMarshalling_WithNonFrozenStructParameter_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (ImageDecodingContext) -> Void - non-frozen struct needs special marshalling
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Nuke.ImageDecodingContext"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
+    }
+
+    [Fact]
+    public void RequiresNonFrozenMarshalling_WithFrozenStructParameter_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (CGPoint) -> Void - frozen struct does NOT require non-frozen marshalling
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("CoreGraphics.CGPoint"),
+            TupleTypeSpec.Empty);
+
+        Assert.False(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
+    }
+
+    [Fact]
+    public void RequiresNonFrozenMarshalling_WithPrimitiveParameter_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int) -> Void - primitive does NOT require non-frozen marshalling
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+
+        Assert.False(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
+    }
+
+    [Fact]
+    public void RequiresNonFrozenMarshalling_WithMixedParameters_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int, ImageDecodingContext) -> Void - has non-frozen struct
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Nuke.ImageDecodingContext")
+        });
+        var closureTypeSpec = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        Assert.True(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
+    }
+
+    #endregion
+
     #region Mock Type Database
 
     private class MockTypeDatabase : ITypeDatabase
@@ -1192,6 +1464,15 @@ public class ClosureHandlerTests
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGPoint"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen, // Frozen struct, no memory management
+                    Kind = TypeRecordKind.Struct
+                },
+                // Non-frozen struct for testing closure parameters (like ImageDecodingContext)
+                ["Nuke.ImageDecodingContext"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageDecodingContext"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageDecodingContext"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.None, // NOT frozen
                     Kind = TypeRecordKind.Struct
                 }
             };

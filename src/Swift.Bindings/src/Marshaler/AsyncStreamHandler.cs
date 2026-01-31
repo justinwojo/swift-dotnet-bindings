@@ -136,4 +136,29 @@ public class AsyncStreamHandler
 
         return namedType.Name == AsyncThrowingStreamTypeName;
     }
+
+    /// <summary>
+    /// Gets the Swift wrapper function name for an AsyncStream property.
+    /// </summary>
+    /// <param name="propertyDecl">The property declaration.</param>
+    /// <returns>The Swift wrapper function name.</returns>
+    public string GetSwiftWrapperFunctionName(PropertyDecl propertyDecl)
+    {
+        var parentName = propertyDecl.ParentDecl is TypeDecl typeDecl ? typeDecl.Name : "Module";
+        return $"{parentName}_{propertyDecl.Name}_AsyncStream";
+    }
+
+    /// <summary>
+    /// Gets the C# element type name for an AsyncStream.
+    /// </summary>
+    /// <param name="typeSpec">The AsyncStream type specification.</param>
+    /// <returns>The C# element type name.</returns>
+    public string GetCSharpElementType(TypeSpec typeSpec)
+    {
+        var elementType = GetElementType(typeSpec);
+        if (elementType == null)
+            return "object";
+
+        return TranslateElementTypeToCSharp(elementType);
+    }
 }
