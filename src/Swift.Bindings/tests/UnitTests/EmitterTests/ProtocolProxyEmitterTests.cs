@@ -311,7 +311,8 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("[DllImport(\"TestModule\"", output);
+        // P/Invoke should target SwiftBindings (the Swift wrapper) not the original module
+        Assert.Contains("[DllImport(\"SwiftBindings\"", output);
         Assert.Contains("EntryPoint = \"SetTestProtocol_vtable\"", output);
     }
 
@@ -331,14 +332,73 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_SkipsProtocolsWithAssociatedTypes()
+    public void EmitProxyClass_GeneratesGenericProxyForProtocolsWithAssociatedTypes()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Element" });
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.DoesNotContain("public unsafe class TestProtocolProxy", output);
+        Assert.Contains("public unsafe class TestProtocolProxy<TElement>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GeneratesGenericConstraintsForAssociatedTypes()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Element" });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("where TElement : ISwiftObject", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GeneratesMultipleGenericParameters()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Key" });
+        protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Value" });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("TestProtocolProxy<TKey, TValue>", output);
+        Assert.Contains("where TKey : ISwiftObject", output);
+        Assert.Contains("where TValue : ISwiftObject", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ImplementsGenericInterface()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Element" });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains(": ISwiftTestProtocol<TElement>,", output);
+    }
+
+    #endregion
+
+    #region Witness Table Lookup Tests
+
+    [Fact]
+    public void EmitProxyClass_GeneratesWitnessTablePInvoke()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("EntryPoint = \"Get_EveryProtocol_TestProtocol_WitnessTable\"", output);
+        Assert.Contains("public static extern IntPtr GetWitnessTable()", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GetWitnessTableFromSwiftCallsNativeMethod()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("return NativeMethods.GetWitnessTable()", output);
     }
 
     #endregion

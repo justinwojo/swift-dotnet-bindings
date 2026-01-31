@@ -137,6 +137,17 @@ public class EveryProtocolEmitter
         writer.WriteLine($"extension EveryProtocol: {protocolName} {{");
         writer.Indent++;
 
+        // Emit typealiases for associated types
+        // For PAT protocols, we use type erasure by mapping associated types to Any
+        foreach (var associatedType in protocolDecl.AssociatedTypes)
+        {
+            writer.WriteLine($"public typealias {associatedType.Name} = Any");
+        }
+        if (protocolDecl.AssociatedTypes.Count > 0)
+        {
+            writer.WriteLine();
+        }
+
         // Track emitted members to avoid duplicates within this protocol
         var emittedMembers = new HashSet<string>();
 
@@ -226,6 +237,54 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Emits Swift functions that export the protocol witness table and type metadata.
+    /// These are called via P/Invoke from C# to get the witness table pointer.
+    /// </summary>
+    public void EmitWitnessTableGetter(SwiftWriter writer, ProtocolDecl protocolDecl)
+    {
+        var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+        var getterFunctionName = GetWitnessTableGetterFunctionName(protocolDecl);
+        var mangledGetterName = GetWitnessTableGetterMangledName(protocolDecl);
+
+        writer.WriteLines($$"""
+            // Returns the protocol witness table pointer for EveryProtocol conforming to {{protocolDecl.Name}}.
+            // C# calls this via P/Invoke to obtain the witness table for existential container construction.
+            @_silgen_name("{{mangledGetterName}}")
+            public func {{getterFunctionName}}() -> UnsafeRawPointer {
+                let instance = EveryProtocol()
+                return withExtendedLifetime(instance) {
+                    var proto: any {{protocolName}} = instance
+                    return withUnsafeBytes(of: &proto) { buffer in
+                        // Existential layout for class-bound protocols:
+                        // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
+                        // For a single-protocol existential, witness table is at offset 4 * pointer size
+                        let witnessTableOffset = 4 * MemoryLayout<Int>.size
+                        return buffer.baseAddress!.advanced(by: witnessTableOffset)
+                            .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+                    }
+                }
+            }
+
+            """);
+    }
+
+    /// <summary>
+    /// Emits Swift function that exports the EveryProtocol type metadata.
+    /// </summary>
+    public void EmitTypeMetadataGetter(SwiftWriter writer)
+    {
+        writer.WriteLines($$"""
+            // Returns the type metadata pointer for EveryProtocol.
+            // C# calls this via P/Invoke to construct existential containers.
+            @_silgen_name("Get_EveryProtocol_TypeMetadata")
+            public func getEveryProtocolTypeMetadata() -> UnsafeRawPointer {
+                return unsafeBitCast(EveryProtocol.self as Any.Type, to: UnsafeRawPointer.self)
+            }
+
+            """);
+    }
+
+    /// <summary>
     /// Emits the SetVtable function that C# calls to register its vtable.
     /// </summary>
     public void EmitSetVtableFunction(SwiftWriter writer, ProtocolDecl protocolDecl)
@@ -261,11 +320,11 @@ public class EveryProtocolEmitter
     /// When provided, methods that would conflict with already-emitted signatures are skipped.</param>
     public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl, HashSet<string>? globalEmittedSignatures)
     {
-        // Skip protocols with Self requirements or associated types for now
-        // These require more complex handling
-        if (protocolDecl.HasSelfRequirement || protocolDecl.AssociatedTypes.Count > 0)
+        // Skip protocols with Self requirements - these require special handling
+        // that can't be done with simple type erasure to Any
+        if (protocolDecl.HasSelfRequirement)
         {
-            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self requirement or associated types");
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self requirement");
             return;
         }
 
@@ -282,6 +341,7 @@ public class EveryProtocolEmitter
         EmitProtocolVtableStruct(writer, protocolDecl);
         EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures);
         EmitSetVtableFunction(writer, protocolDecl);
+        EmitWitnessTableGetter(writer, protocolDecl);
     }
 
     #region Private Helper Methods
@@ -608,6 +668,17 @@ public class EveryProtocolEmitter
     {
         // Use @_silgen_name to control the symbol name that C# will call
         return $"Set{protocolDecl.Name}_vtable";
+    }
+
+    private static string GetWitnessTableGetterFunctionName(ProtocolDecl protocolDecl)
+    {
+        return $"getEveryProtocol{protocolDecl.Name}WitnessTable";
+    }
+
+    private static string GetWitnessTableGetterMangledName(ProtocolDecl protocolDecl)
+    {
+        // Use @_silgen_name to control the symbol name that C# will call
+        return $"Get_EveryProtocol_{protocolDecl.Name}_WitnessTable";
     }
 
     private static string GetMethodKey(MethodDecl method)

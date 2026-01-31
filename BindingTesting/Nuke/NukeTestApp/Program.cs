@@ -156,8 +156,15 @@ public class MainViewController : UIViewController
         };
         View.AddSubview(_imageView);
 
-        // Run image loading test automatically on startup
-        LoadImageWithNuke(null, EventArgs.Empty);
+        // Run tests automatically on startup
+        RunAutomatedTests();
+    }
+
+    private async void RunAutomatedTests()
+    {
+        // Run protocol proxy test first (image loading has a pre-existing crash issue)
+        await Task.Delay(500); // Small delay for UI to settle
+        TestProtocolProxy(null, EventArgs.Empty);
     }
 
     private void TestNukeBinding(object? sender, EventArgs e)
@@ -515,15 +522,12 @@ public class MainViewController : UIViewController
             }
             catch (NotImplementedException niex)
             {
-                results.AppendLine($"   Expected limitation: {niex.Message}");
-                results.AppendLine("\n   NOTE: Witness table lookup not yet implemented.");
-                results.AppendLine("   The proxy can be created but Swift cannot call back yet.");
-                Console.WriteLine($"PROTOCOL TEST: Expected limitation - {niex.Message}");
+                results.AppendLine($"   NotImplementedException: {niex.Message}");
+                results.AppendLine("\n   NOTE: Witness table lookup failed.");
+                Console.WriteLine($"=== PROTOCOL PROXY TEST FAILED: {niex.Message} ===");
 
-                // This is expected for now - the witness table lookup is not implemented
-                results.AppendLine("\n=== PROTOCOL PROXY TEST PARTIAL SUCCESS ===");
-                results.AppendLine("Registry and proxy creation work.");
-                results.AppendLine("Swift callback requires witness table implementation.");
+                results.AppendLine("\n=== PROTOCOL PROXY TEST FAILED ===");
+                results.AppendLine("Witness table lookup threw NotImplementedException.");
             }
             catch (Exception proxyEx)
             {

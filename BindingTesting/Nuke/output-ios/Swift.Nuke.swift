@@ -72,6 +72,23 @@ public func setImageProcessing_vtable(uvt: UnsafeRawPointer) {
     let vt: UnsafePointer<ImageProcessing_vtable> = uvt.assumingMemoryBound(to: ImageProcessing_vtable.self)
     _imageProcessing_vtable = vt.pointee
 }
+// Returns the protocol witness table pointer for EveryProtocol conforming to ImageProcessing.
+// C# calls this via P/Invoke to obtain the witness table for existential container construction.
+@_silgen_name("Get_EveryProtocol_ImageProcessing_WitnessTable")
+public func getEveryProtocolImageProcessingWitnessTable() -> UnsafeRawPointer {
+    let instance = EveryProtocol()
+    return withExtendedLifetime(instance) {
+        var proto: any Nuke.ImageProcessing = instance
+        return withUnsafeBytes(of: &proto) { buffer in
+            // Existential layout for class-bound protocols:
+            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
+            // For a single-protocol existential, witness table is at offset 4 * pointer size
+            let witnessTableOffset = 4 * MemoryLayout<Int>.size
+            return buffer.baseAddress!.advanced(by: witnessTableOffset)
+                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+        }
+    }
+}
 // Vtable for ImageEncoding protocol - stores function pointers to C# implementations
 fileprivate struct ImageEncoding_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -108,6 +125,23 @@ public func setImageEncoding_vtable(uvt: UnsafeRawPointer) {
     let vt: UnsafePointer<ImageEncoding_vtable> = uvt.assumingMemoryBound(to: ImageEncoding_vtable.self)
     _imageEncoding_vtable = vt.pointee
 }
+// Returns the protocol witness table pointer for EveryProtocol conforming to ImageEncoding.
+// C# calls this via P/Invoke to obtain the witness table for existential container construction.
+@_silgen_name("Get_EveryProtocol_ImageEncoding_WitnessTable")
+public func getEveryProtocolImageEncodingWitnessTable() -> UnsafeRawPointer {
+    let instance = EveryProtocol()
+    return withExtendedLifetime(instance) {
+        var proto: any Nuke.ImageEncoding = instance
+        return withUnsafeBytes(of: &proto) { buffer in
+            // Existential layout for class-bound protocols:
+            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
+            // For a single-protocol existential, witness table is at offset 4 * pointer size
+            let witnessTableOffset = 4 * MemoryLayout<Int>.size
+            return buffer.baseAddress!.advanced(by: witnessTableOffset)
+                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+        }
+    }
+}
 // Vtable for DataLoading protocol - stores function pointers to C# implementations
 fileprivate struct DataLoading_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -136,6 +170,23 @@ public func setDataLoading_vtable(uvt: UnsafeRawPointer) {
     let vt: UnsafePointer<DataLoading_vtable> = uvt.assumingMemoryBound(to: DataLoading_vtable.self)
     _dataLoading_vtable = vt.pointee
 }
+// Returns the protocol witness table pointer for EveryProtocol conforming to DataLoading.
+// C# calls this via P/Invoke to obtain the witness table for existential container construction.
+@_silgen_name("Get_EveryProtocol_DataLoading_WitnessTable")
+public func getEveryProtocolDataLoadingWitnessTable() -> UnsafeRawPointer {
+    let instance = EveryProtocol()
+    return withExtendedLifetime(instance) {
+        var proto: any Nuke.DataLoading = instance
+        return withUnsafeBytes(of: &proto) { buffer in
+            // Existential layout for class-bound protocols:
+            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
+            // For a single-protocol existential, witness table is at offset 4 * pointer size
+            let witnessTableOffset = 4 * MemoryLayout<Int>.size
+            return buffer.baseAddress!.advanced(by: witnessTableOffset)
+                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+        }
+    }
+}
 // Vtable for Cancellable protocol - stores function pointers to C# implementations
 fileprivate struct Cancellable_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -159,6 +210,23 @@ extension EveryProtocol: Nuke.Cancellable {
 public func setCancellable_vtable(uvt: UnsafeRawPointer) {
     let vt: UnsafePointer<Cancellable_vtable> = uvt.assumingMemoryBound(to: Cancellable_vtable.self)
     _cancellable_vtable = vt.pointee
+}
+// Returns the protocol witness table pointer for EveryProtocol conforming to Cancellable.
+// C# calls this via P/Invoke to obtain the witness table for existential container construction.
+@_silgen_name("Get_EveryProtocol_Cancellable_WitnessTable")
+public func getEveryProtocolCancellableWitnessTable() -> UnsafeRawPointer {
+    let instance = EveryProtocol()
+    return withExtendedLifetime(instance) {
+        var proto: any Nuke.Cancellable = instance
+        return withUnsafeBytes(of: &proto) { buffer in
+            // Existential layout for class-bound protocols:
+            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
+            // For a single-protocol existential, witness table is at offset 4 * pointer size
+            let witnessTableOffset = 4 * MemoryLayout<Int>.size
+            return buffer.baseAddress!.advanced(by: witnessTableOffset)
+                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+        }
+    }
 }
 // Vtable for DataCaching protocol - stores function pointers to C# implementations
 fileprivate struct DataCaching_vtable {
@@ -218,6 +286,23 @@ extension EveryProtocol: Nuke.DataCaching {
 public func setDataCaching_vtable(uvt: UnsafeRawPointer) {
     let vt: UnsafePointer<DataCaching_vtable> = uvt.assumingMemoryBound(to: DataCaching_vtable.self)
     _dataCaching_vtable = vt.pointee
+}
+// Returns the protocol witness table pointer for EveryProtocol conforming to DataCaching.
+// C# calls this via P/Invoke to obtain the witness table for existential container construction.
+@_silgen_name("Get_EveryProtocol_DataCaching_WitnessTable")
+public func getEveryProtocolDataCachingWitnessTable() -> UnsafeRawPointer {
+    let instance = EveryProtocol()
+    return withExtendedLifetime(instance) {
+        var proto: any Nuke.DataCaching = instance
+        return withUnsafeBytes(of: &proto) { buffer in
+            // Existential layout for class-bound protocols:
+            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
+            // For a single-protocol existential, witness table is at offset 4 * pointer size
+            let witnessTableOffset = 4 * MemoryLayout<Int>.size
+            return buffer.baseAddress!.advanced(by: witnessTableOffset)
+                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+        }
+    }
 }
 // Vtable for ImagePipelineDelegate protocol - stores function pointers to C# implementations
 fileprivate struct ImagePipelineDelegate_vtable {
@@ -397,6 +482,23 @@ public func setImagePipelineDelegate_vtable(uvt: UnsafeRawPointer) {
     let vt: UnsafePointer<ImagePipelineDelegate_vtable> = uvt.assumingMemoryBound(to: ImagePipelineDelegate_vtable.self)
     _imagePipelineDelegate_vtable = vt.pointee
 }
+// Returns the protocol witness table pointer for EveryProtocol conforming to ImagePipelineDelegate.
+// C# calls this via P/Invoke to obtain the witness table for existential container construction.
+@_silgen_name("Get_EveryProtocol_ImagePipelineDelegate_WitnessTable")
+public func getEveryProtocolImagePipelineDelegateWitnessTable() -> UnsafeRawPointer {
+    let instance = EveryProtocol()
+    return withExtendedLifetime(instance) {
+        var proto: any Nuke.ImagePipelineDelegate = instance
+        return withUnsafeBytes(of: &proto) { buffer in
+            // Existential layout for class-bound protocols:
+            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
+            // For a single-protocol existential, witness table is at offset 4 * pointer size
+            let witnessTableOffset = 4 * MemoryLayout<Int>.size
+            return buffer.baseAddress!.advanced(by: witnessTableOffset)
+                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+        }
+    }
+}
 // Vtable for ImageCaching protocol - stores function pointers to C# implementations
 fileprivate struct ImageCaching_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -433,6 +535,23 @@ extension EveryProtocol: Nuke.ImageCaching {
 public func setImageCaching_vtable(uvt: UnsafeRawPointer) {
     let vt: UnsafePointer<ImageCaching_vtable> = uvt.assumingMemoryBound(to: ImageCaching_vtable.self)
     _imageCaching_vtable = vt.pointee
+}
+// Returns the protocol witness table pointer for EveryProtocol conforming to ImageCaching.
+// C# calls this via P/Invoke to obtain the witness table for existential container construction.
+@_silgen_name("Get_EveryProtocol_ImageCaching_WitnessTable")
+public func getEveryProtocolImageCachingWitnessTable() -> UnsafeRawPointer {
+    let instance = EveryProtocol()
+    return withExtendedLifetime(instance) {
+        var proto: any Nuke.ImageCaching = instance
+        return withUnsafeBytes(of: &proto) { buffer in
+            // Existential layout for class-bound protocols:
+            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
+            // For a single-protocol existential, witness table is at offset 4 * pointer size
+            let witnessTableOffset = 4 * MemoryLayout<Int>.size
+            return buffer.baseAddress!.advanced(by: witnessTableOffset)
+                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+        }
+    }
 }
 // Vtable for ImageDecoding protocol - stores function pointers to C# implementations
 fileprivate struct ImageDecoding_vtable {
@@ -479,9 +598,26 @@ public func setImageDecoding_vtable(uvt: UnsafeRawPointer) {
     let vt: UnsafePointer<ImageDecoding_vtable> = uvt.assumingMemoryBound(to: ImageDecoding_vtable.self)
     _imageDecoding_vtable = vt.pointee
 }
+// Returns the protocol witness table pointer for EveryProtocol conforming to ImageDecoding.
+// C# calls this via P/Invoke to obtain the witness table for existential container construction.
+@_silgen_name("Get_EveryProtocol_ImageDecoding_WitnessTable")
+public func getEveryProtocolImageDecodingWitnessTable() -> UnsafeRawPointer {
+    let instance = EveryProtocol()
+    return withExtendedLifetime(instance) {
+        var proto: any Nuke.ImageDecoding = instance
+        return withUnsafeBytes(of: &proto) { buffer in
+            // Existential layout for class-bound protocols:
+            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
+            // For a single-protocol existential, witness table is at offset 4 * pointer size
+            let witnessTableOffset = 4 * MemoryLayout<Int>.size
+            return buffer.baseAddress!.advanced(by: witnessTableOffset)
+                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+        }
+    }
+}
 extension Nuke.ImagePipeline {
     @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-    public  func PInvoke_image_652B1B52(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+    public  func PInvoke_image_0559C54B(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -497,7 +633,7 @@ extension Nuke.ImagePipeline {
 }
 extension Nuke.ImagePipeline {
     @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-    public  func PInvoke_image_17D597E9(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+    public  func PInvoke_image_0D3A4D9A(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee

@@ -202,14 +202,28 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolConformance_SkipsProtocolsWithAssociatedTypes()
+    public void EmitProtocolConformance_GeneratesTypealiasForAssociatedTypes()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Element" });
 
         var output = EmitFullConformance(protocolDecl);
 
-        Assert.DoesNotContain("extension EveryProtocol:", output);
+        Assert.Contains("extension EveryProtocol: TestModule.TestProtocol", output);
+        Assert.Contains("public typealias Element = Any", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_GeneratesMultipleTypealiases()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Key" });
+        protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Value" });
+
+        var output = EmitFullConformance(protocolDecl);
+
+        Assert.Contains("public typealias Key = Any", output);
+        Assert.Contains("public typealias Value = Any", output);
     }
 
     [Fact]
@@ -221,6 +235,59 @@ public class EveryProtocolEmitterTests
         var output = EmitFullConformance(protocolDecl);
 
         Assert.DoesNotContain("extension EveryProtocol:", output);
+    }
+
+    #endregion
+
+    #region Witness Table Getter Tests
+
+    [Fact]
+    public void EmitWitnessTableGetter_GeneratesSilgenName()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitWitnessTableGetter(protocolDecl);
+
+        Assert.Contains("@_silgen_name(\"Get_EveryProtocol_TestProtocol_WitnessTable\")", output);
+    }
+
+    [Fact]
+    public void EmitWitnessTableGetter_GeneratesPublicFunction()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitWitnessTableGetter(protocolDecl);
+
+        Assert.Contains("public func getEveryProtocolTestProtocolWitnessTable() -> UnsafeRawPointer", output);
+    }
+
+    [Fact]
+    public void EmitWitnessTableGetter_UsesCorrectProtocolName()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitWitnessTableGetter(protocolDecl);
+
+        Assert.Contains("any TestModule.TestProtocol = instance", output);
+    }
+
+    [Fact]
+    public void EmitTypeMetadataGetter_GeneratesSilgenName()
+    {
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitTypeMetadataGetter(writer);
+        var output = stringWriter.ToString();
+
+        Assert.Contains("@_silgen_name(\"Get_EveryProtocol_TypeMetadata\")", output);
+    }
+
+    [Fact]
+    public void EmitTypeMetadataGetter_ReturnsUnsafeRawPointer()
+    {
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitTypeMetadataGetter(writer);
+        var output = stringWriter.ToString();
+
+        Assert.Contains("public func getEveryProtocolTypeMetadata() -> UnsafeRawPointer", output);
     }
 
     #endregion
@@ -264,6 +331,14 @@ public class EveryProtocolEmitterTests
         var stringWriter = new StringWriter();
         var writer = new SwiftWriter(stringWriter);
         _emitter.EmitProtocolConformance(writer, protocolDecl);
+        return stringWriter.ToString();
+    }
+
+    private string EmitWitnessTableGetter(ProtocolDecl protocolDecl)
+    {
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitWitnessTableGetter(writer, protocolDecl);
         return stringWriter.ToString();
     }
 
