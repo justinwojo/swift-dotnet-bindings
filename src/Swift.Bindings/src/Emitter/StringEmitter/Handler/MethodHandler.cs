@@ -1832,6 +1832,12 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
                     }
                 }
+                else if (_env.ParentDecl is ClassDecl)
+                {
+                    // Swift classes always need ref counting - they use _payload SafeHandle
+                    csWriter.WriteLine($"var success = false;");
+                    csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                }
             }
 
             // For property accessors, don't skip convertible types since type conversion is not applied
@@ -1875,6 +1881,12 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"if (success)");
                         csWriter.WriteLine($"   _payload.DangerousRelease();");
                     }
+                }
+                else if (_env.ParentDecl is ClassDecl)
+                {
+                    // Swift classes always need ref counting - they use _payload SafeHandle
+                    csWriter.WriteLine($"if (success)");
+                    csWriter.WriteLine($"   _payload.DangerousRelease();");
                 }
             }
 

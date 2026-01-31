@@ -706,10 +706,11 @@ public class MainViewController : UIViewController
         }
 
         // Test 5: Configuration access
-        // Note: ConfigurationValue causes a native crash due to non-frozen struct marshalling issues
-        // This is a known limitation - skipping to avoid crashing the test suite
-        TestLogger.Warning("Skipping ConfigurationValue test (causes native crash - known issue)");
-        results.Warn("Configuration property access skipped (native crash)");
+        // Note: ConfigurationValue causes a native crash due to non-frozen struct marshalling issues.
+        // The struct itself is complex with protocol existential containers.
+        // Phase 16.1 fixed class SafeHandle ref counting but the underlying struct copy is still problematic.
+        TestLogger.Warning("Skipping ConfigurationValue test (non-frozen struct with existentials - known issue)");
+        results.Warn("Configuration property access skipped (non-frozen struct limitation)");
 
         await Task.CompletedTask;
     }
@@ -791,13 +792,13 @@ public class MainViewController : UIViewController
 
         // Test 1: Access cache
         // Note: CacheValue returns a non-frozen struct (ImagePipeline.Cache)
-        // which may have similar marshalling issues as ConfigurationValue
+        // which has similar marshalling issues as ConfigurationValue.
         // Wrapping in try-catch to prevent test suite crash
         try
         {
             var cache = pipeline.CacheValue;
-            TestLogger.Info("ImagePipeline.Cache accessed");
-            results.Pass("Cache access");
+            TestLogger.Info("ImagePipeline.Cache accessed successfully");
+            results.Pass("ImagePipeline.CacheValue access");
         }
         catch (Exception ex)
         {

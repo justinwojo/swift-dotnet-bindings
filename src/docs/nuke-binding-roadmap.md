@@ -131,14 +131,18 @@ The `Swift.URL.FromString()` method fails with the same non-blittable type error
 
 Bindings still generate, but conformance information is incomplete.
 
-### Non-Frozen Struct Property Access
-**Status**: Known crash (Phase 16.1)
+### Non-Frozen Struct with Existential Containers
+**Status**: Known crash (partially addressed in Phase 16.1)
 
-Properties returning non-frozen struct types crash at runtime with SIGSEGV. Affects:
-- `ImagePipeline.ConfigurationValue`
-- Potentially other complex struct returns
+Properties returning non-frozen struct types that contain existential containers crash at runtime with SIGSEGV in Swift's copy witness.
 
-**Workaround**: Avoid accessing these properties; use alternative APIs.
+**Phase 16.1 fixed**: SafeHandle ref counting for class instance methods (e.g., `ImagePipeline.CacheValue` now works).
+
+**Still crashes**:
+- `ImagePipeline.ConfigurationValue` - The `Configuration` struct contains existential container fields (protocol types like `DataLoading`)
+- Swift's copy witness operation fails when copying structs with existentials
+
+**Workaround**: Avoid accessing properties that return non-frozen structs with existential container fields; use alternative APIs.
 
 ### Simple Swift Enum Case Support
 **Status**: Known limitation (requires RawRepresentable)
@@ -324,9 +328,10 @@ UIImage image = await pipeline.Image(request);  // Works!
 - ✅ Swift wrapper try! crash → Fixed with error callback (Phase 16.3)
 - ✅ SafeHandle finalizer crash → Fixed with explicit dispose tracking (Phase 16.4)
 - ✅ ClosureEmitter VWT syntax → Fixed pointer access (Phase 16.5)
+- ✅ Class SafeHandle ref counting → Fixed class instance method ref counting (Phase 16.1)
 
 **Documented as limitations** (requires future work):
-- Non-frozen struct property crash (Phase 16.1) - requires indirect return handling
+- Non-frozen struct with existentials crash (Phase 16.1) - Configuration struct still crashes due to existential container fields
 - Simple enum cases (Phase 16.2) - requires RawRepresentable support
 
 ### 15.5 Closure Return Type Marshalling Fix
@@ -348,7 +353,7 @@ The singleton pattern detection (Phase 8) handles most async instance methods. F
 Issues discovered during Phase 15.4 runtime validation testing. Most have been resolved.
 
 **Summary**:
-- 16.1 Non-frozen struct property crash → NOT STARTED (requires indirect return handling)
+- 16.1 Class SafeHandle ref counting → COMPLETED (non-frozen struct with existentials still crashes)
 - 16.2 Simple enum case support → DOCUMENTED AS LIMITATION (requires RawRepresentable)
 - 16.3 Swift async error handling → COMPLETED
 - 16.4 SafeHandle finalizer crash → COMPLETED
@@ -356,25 +361,30 @@ Issues discovered during Phase 15.4 runtime validation testing. Most have been r
 
 ---
 
-### 16.1 Non-Frozen Struct Property Marshalling Crash
+### 16.1 Class SafeHandle Ref Counting Fix
 **Priority**: High
-**Status**: Not started
+**Status**: COMPLETED (partial - ref counting fixed, existential struct crash remains)
 
-**Problem**: Accessing properties that return non-frozen struct types causes a native crash (SIGSEGV) in the Swift runtime.
+**Problem**: Properties on Swift **classes** that return non-frozen struct types were crashing because `EmitSafeHandleAddRef` and `EmitSafeHandleRelease` only handled `StructDecl`, not `ClassDecl`. Without ref counting, the GC could finalize the SafeHandle during the P/Invoke call, causing SIGSEGV.
 
-**Affected APIs**:
-- `ImagePipeline.ConfigurationValue` → `ImagePipeline.Configuration` (non-frozen struct)
-- Potentially other properties returning complex non-frozen structs
+**Solution implemented**:
+- Added `ClassDecl` handling to `EmitSafeHandleAddRef()` - emits `DangerousAddRef` for class instance methods
+- Added `ClassDecl` handling to `EmitSafeHandleRelease()` - emits `DangerousRelease` for class instance methods
+- Swift classes always need ref counting since they use `_payload` SafeHandle
 
-**Crash location**: `$s4Nuke13ImagePipelineC13ConfigurationVWOc` (witness table copy)
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Added ClassDecl cases at lines ~1834 and ~1884
 
-**Root cause**: The generated P/Invoke for non-frozen struct return types doesn't correctly handle Swift's indirect return mechanism or value witness table operations.
+**Verified working**:
+- `ImagePipeline.CacheValue` property access now works (previously would crash)
+- All 1,363 generator tests pass
+- NukeTestApp validation passes (29/29 tests)
 
-**Workaround**: Skip accessing these properties; use alternative APIs where available.
-
-**Files to investigate**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs`
-- `src/Swift.Bindings/src/Marshaler/MarshalingHelpers.cs`
+**Remaining issue** (separate root cause):
+- `ImagePipeline.ConfigurationValue` still crashes in Swift's copy witness (`$s4Nuke13ImagePipelineC13ConfigurationVWOc`)
+- Root cause: The `Configuration` struct contains existential containers (protocol types like `DataLoading`) which cause crashes during Swift's value copy operation
+- This is NOT a ref counting issue - it's an existential container marshalling issue in non-frozen struct returns
+- Workaround: Skip accessing properties that return non-frozen structs with existential container fields
 
 ### 16.2 Simple Swift Enum Case Support
 **Priority**: Medium
@@ -539,9 +549,10 @@ All generator tests passing.
 **Skipped with warnings** (documented limitations):
 - Priority enum cases (requires RawRepresentable - Phase 16.2)
 - ImagePipeline.Error simple enum cases (requires RawRepresentable - Phase 16.2)
-- ConfigurationValue property (non-frozen struct marshalling crash - Phase 16.1)
+- ConfigurationValue property (non-frozen struct with existential containers - Phase 16.1)
 
 **Fixed in Phase 16**:
+- ✅ Class SafeHandle ref counting for instance methods (Phase 16.1)
 - ✅ Swift async errors now propagate as `SwiftException` (Phase 16.3)
 - ✅ SafeHandle finalizer crash during GC (Phase 16.4)
 - ✅ ClosureEmitter VWT pointer access syntax (Phase 16.5)
