@@ -284,11 +284,10 @@ namespace BindingsGeneration
             }
 
             // Handle tuple return types
-            // Note: Async methods with tuple returns are not yet supported
             if (_env.TupleHandler.IsTuple(argument.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)argument.SwiftTypeSpec;
-                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) && !_env.MethodDecl.IsAsync)
+                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
                     SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec));
                 else
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
@@ -551,11 +550,10 @@ namespace BindingsGeneration
             }
 
             // Handle tuple return types
-            // Note: Async methods with tuple returns are not yet supported
             if (_env.TupleHandler.IsTuple(returnType.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)returnType.SwiftTypeSpec;
-                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) && !_env.MethodDecl.IsAsync)
+                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
                     SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec));
                 else
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
@@ -1276,9 +1274,42 @@ namespace BindingsGeneration
             }
 
             // Build parameter string - non-frozen types use UnsafeRawPointer in Swift wrapper
+            // For tuple returns, flatten the tuple elements into separate callback parameters
+            // because @convention(c) doesn't support Swift tuples
+            var returnTypeArg = _env.MethodDecl.CSSignature.First();
+            var isTupleReturn = _env.TupleHandler.IsTuple(returnTypeArg.SwiftTypeSpec) &&
+                                _env.TupleHandler.IsSupportedTuple((TupleTypeSpec)returnTypeArg.SwiftTypeSpec);
+
+            string callbackParams;
+            string callbackResultArgs;
+            if (isEmptyTuple)
+            {
+                callbackParams = "";
+                callbackResultArgs = "";
+            }
+            else if (isTupleReturn)
+            {
+                // Flatten tuple elements for @convention(c) compatibility
+                var tupleTypeSpec = (TupleTypeSpec)returnTypeArg.SwiftTypeSpec;
+                var elementTypes = tupleTypeSpec.Elements.Select(e => e.ToString()).ToList();
+                callbackParams = string.Join(", ", elementTypes) + ", ";
+                // For callback invocation, access tuple elements with .0, .1, etc.
+                callbackResultArgs = string.Join(", ", Enumerable.Range(0, tupleTypeSpec.Elements.Count).Select(i => $"result{_env.MethodDecl.Name}.{i}")) + ", ";
+            }
+            else if (returnTypeArg.IsGeneric)
+            {
+                callbackParams = _env.MethodDecl.GenericParameters[0].SugaredTypeName + ", ";
+                callbackResultArgs = $"result{_env.MethodDecl.Name} as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}, ";
+            }
+            else
+            {
+                callbackParams = returnTypeArg.SwiftTypeSpec + ", ";
+                callbackResultArgs = $"result{_env.MethodDecl.Name}, ";
+            }
+
             var baseParams = new[]
             {
-                $"callback: @escaping @convention(c) ({(isEmptyTuple ? "" : $"{(_env.MethodDecl.CSSignature.First().IsGeneric ? _env.MethodDecl.GenericParameters[0].SugaredTypeName : _env.MethodDecl.CSSignature.First().SwiftTypeSpec)}, ")}Int64) -> Void",
+                $"callback: @escaping @convention(c) ({callbackParams}Int64) -> Void",
                 "task: Int64"
             };
 
@@ -1434,7 +1465,7 @@ namespace BindingsGeneration
                     {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                         {{methodCallArgs}}
                     )
-                    callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
+                    callback({{callbackResultArgs}}task)
                 }
             }
             """);
@@ -1450,7 +1481,7 @@ namespace BindingsGeneration
                     {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                         {{methodCallArgs}}
                     )
-                    callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
+                    callback({{callbackResultArgs}}task)
                 }
             }
             """);
@@ -1475,7 +1506,7 @@ namespace BindingsGeneration
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
-                        callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
+                        callback({{callbackResultArgs}}task)
                     }
                 }
             }
@@ -1492,7 +1523,7 @@ namespace BindingsGeneration
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
-                        callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
+                        callback({{callbackResultArgs}}task)
                     }
                 }
             }
@@ -2227,15 +2258,26 @@ namespace BindingsGeneration
                 return;
 
             var returnType = _env.MethodDecl.CSSignature.First();
-            TypeRecord returnTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
             var voidReturn = returnType.SwiftTypeSpec.IsEmptyTuple;
+            var isTupleReturn = _env.TupleHandler.IsTuple(returnType.SwiftTypeSpec) &&
+                                _env.TupleHandler.IsSupportedTuple((TupleTypeSpec)returnType.SwiftTypeSpec);
+
+            var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl);
+            var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(_env.MethodDecl);
+
+            // For tuple returns, we need to marshal each element individually
+            if (isTupleReturn)
+            {
+                EmitAsyncWrapperForTuple(csWriter, returnType, callbackFieldName, callbackMethodName);
+                return;
+            }
+
+            // Non-tuple return handling
+            TypeRecord returnTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
             var isObjCBridged = !voidReturn && MarshallingHelpers.IsObjCBridged(returnTypeRecord);
 
             // ObjC bridged types don't need InitWithCopy - they use GetNSObject directly
             var requiresInitWithCopy = !voidReturn && !isObjCBridged && (MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord) || returnType.IsGeneric);
-
-            var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl);
-            var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(_env.MethodDecl);
 
             // For ObjC bridged types, the rawResult is the ObjC object pointer directly
             // For Swift types, we need to marshal from Swift memory layout
@@ -2295,6 +2337,249 @@ namespace BindingsGeneration
                         }
                 """;
             csWriter.WriteLine(text);
+        }
+
+        /// <summary>
+        /// Emits async wrapper for methods returning tuples.
+        /// Handles marshalling each tuple element individually.
+        /// For @convention(c) compatibility, tuple elements are flattened into separate callback parameters.
+        /// </summary>
+        private void EmitAsyncWrapperForTuple(CSharpWriter csWriter, ArgumentDecl returnType, string callbackFieldName, string callbackMethodName)
+        {
+            var tupleTypeSpec = (TupleTypeSpec)returnType.SwiftTypeSpec;
+            var elements = tupleTypeSpec.Elements;
+
+            // Build flattened callback parameter lists
+            var delegateParams = new List<string>();  // For delegate* signature
+            var methodParams = new List<string>();    // For method signature
+            var marshalLines = new List<string>();
+            var resultElements = new List<string>();
+
+            for (int i = 0; i < elements.Count; i++)
+            {
+                var element = elements[i];
+                var rawParamName = $"rawItem{i}";
+                var resultName = $"item{i}";
+                var pInvokeType = GetPInvokeTypeForTupleElement(element);
+                var csharpType = GetCSharpTypeForTupleElement(element);
+
+                delegateParams.Add(pInvokeType);
+                methodParams.Add($"{pInvokeType} {rawParamName}");
+
+                // Determine how to marshal this element
+                var marshalCode = GetTupleElementMarshalCode(element, rawParamName, resultName, csharpType);
+                if (marshalCode != null)
+                {
+                    marshalLines.Add(marshalCode);
+                }
+
+                // Build the result element (with label if present)
+                if (!string.IsNullOrEmpty(element.TypeLabel))
+                {
+                    resultElements.Add($"{element.TypeLabel}: {resultName}");
+                }
+                else
+                {
+                    resultElements.Add(resultName);
+                }
+            }
+
+            var delegateTypeParams = string.Join(", ", delegateParams) + ", IntPtr, void";
+            var methodParamList = string.Join(", ", methodParams) + ", IntPtr task";
+            var marshalResultCode = string.Join("\n                    ", marshalLines);
+            var tupleConstruction = $"var result = ({string.Join(", ", resultElements)});";
+
+            var text = $$"""
+                        private static unsafe delegate* unmanaged[Cdecl]<{{delegateTypeParams}}> {{callbackFieldName}} = &{{callbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static void {{callbackMethodName}}({{methodParamList}})
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                {{marshalResultCode}}
+                                {{tupleConstruction}}
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
+                                        {
+                                            NativeMemory.Free((void*)copyBuffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetResult(result);
+                                }
+                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                {
+                                    directTcs.TrySetResult(result);
+                                }
+                            }
+                            finally
+                            {
+                                handle.Free();
+                            }
+                        }
+                """;
+            csWriter.WriteLine(text);
+        }
+
+        /// <summary>
+        /// Gets the P/Invoke type for a tuple element.
+        /// </summary>
+        private string GetPInvokeTypeForTupleElement(TypeSpec element)
+        {
+            // Handle Optional<T> types - check for ObjC bridged inner types
+            if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
+            {
+                var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (_env.TypeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord) &&
+                    baseRecord.CSharpTypeName.Name == "SwiftOptional" &&
+                    namedType.GenericParameters.Count > 0)
+                {
+                    var innerType = namedType.GenericParameters[0];
+                    if (innerType is NamedTypeSpec innerNamed &&
+                        _env.TypeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
+                        MarshallingHelpers.IsObjCBridged(innerRecord))
+                    {
+                        // Optional ObjC type → IntPtr (null is IntPtr.Zero)
+                        return "IntPtr";
+                    }
+                }
+                // Other bound generics → void* (opaque pointer)
+                return "void*";
+            }
+
+            if (element is NamedTypeSpec named)
+            {
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(named);
+
+                // ObjC bridged types use IntPtr
+                if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                {
+                    return "IntPtr";
+                }
+
+                // Non-frozen types needing memory management use Buffer type
+                if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 &&
+                    (typeRecord.Flags & TypeRecordFlags.Frozen) == 0)
+                {
+                    return $"{typeRecord.CSharpTypeName.FullyQualifiedName}.Buffer";
+                }
+
+                // Frozen types with memory management use Buffer type
+                if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 &&
+                    (typeRecord.Flags & TypeRecordFlags.Frozen) != 0)
+                {
+                    return $"{typeRecord.CSharpTypeName.FullyQualifiedName}.Buffer";
+                }
+
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+            }
+
+            return "void*";
+        }
+
+        /// <summary>
+        /// Gets the C# type name for a tuple element.
+        /// </summary>
+        private string GetCSharpTypeForTupleElement(TypeSpec element)
+        {
+            // Handle Optional<T> (bound generic with Optional)
+            if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
+            {
+                var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (_env.TypeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord))
+                {
+                    // Recursively translate generic parameters
+                    var translatedParams = new List<string>();
+                    foreach (var param in namedType.GenericParameters)
+                    {
+                        translatedParams.Add(GetCSharpTypeForTupleElement(param));
+                    }
+                    return $"{baseRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>";
+                }
+            }
+
+            if (element is NamedTypeSpec named)
+            {
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(named);
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+            }
+
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
+        /// Generates marshalling code for a single tuple element.
+        /// </summary>
+        private string? GetTupleElementMarshalCode(TypeSpec element, string itemName, string resultName, string csharpType)
+        {
+            // Handle Optional<T> types
+            if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
+            {
+                var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (_env.TypeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord) &&
+                    baseRecord.CSharpTypeName.Name == "SwiftOptional")
+                {
+                    // For optional ObjC types, the P/Invoke type is IntPtr
+                    // For optional Swift types, it's SwiftOptional<T>.Buffer
+                    if (namedType.GenericParameters.Count > 0)
+                    {
+                        var innerType = namedType.GenericParameters[0];
+                        if (innerType is NamedTypeSpec innerNamed &&
+                            _env.TypeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
+                            MarshallingHelpers.IsObjCBridged(innerRecord))
+                        {
+                            // Optional ObjC type: IntPtr -> SwiftOptional<NSObject>
+                            // Use factory methods NewNone() and NewSome() since constructors are private
+                            var innerCSharp = innerRecord.CSharpTypeName.FullyQualifiedName;
+                            return $"var {resultName} = {itemName} == IntPtr.Zero ? Swift.SwiftOptional<{innerCSharp}>.NewNone() : Swift.SwiftOptional<{innerCSharp}>.NewSome(ObjCRuntime.Runtime.GetNSObject<{innerCSharp}>({itemName}));";
+                        }
+                    }
+                    // Non-ObjC optional: marshal from buffer
+                    return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";
+                }
+            }
+
+            // Handle non-generic types
+            if (element is NamedTypeSpec named)
+            {
+                if (_env.TypeDatabase.TryGetTypeRecord(named, out var typeRecord))
+                {
+                    // ObjC bridged types
+                    if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                    {
+                        return $"var {resultName} = ObjCRuntime.Runtime.GetNSObject<{csharpType}>({itemName});";
+                    }
+
+                    // Primitive types - use directly
+                    if (typeRecord.Kind == TypeRecordKind.Struct &&
+                        (typeRecord.Flags & TypeRecordFlags.Frozen) != 0 &&
+                        (typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) == 0)
+                    {
+                        return $"var {resultName} = {itemName};";
+                    }
+
+                    // Frozen structs requiring memory management
+                    if (MarshallingHelpers.IsTypeFrozen(typeRecord))
+                    {
+                        return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";
+                    }
+
+                    // Non-frozen types
+                    return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";
+                }
+            }
+
+            // Fallback
+            return $"var {resultName} = {itemName};";
         }
 
         /// <summary>

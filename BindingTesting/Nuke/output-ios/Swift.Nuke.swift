@@ -616,7 +616,7 @@ public func getEveryProtocolImageDecodingWitnessTable() -> UnsafeRawPointer {
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-public func PInvoke_image_708A98D6(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_1AEB7376(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -631,7 +631,7 @@ public func PInvoke_image_708A98D6(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-public func PInvoke_image_1C8F6EE2(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_2FE46321(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -643,6 +643,36 @@ public func PInvoke_image_1C8F6EE2(callback: @escaping @convention(c) (UIKit.UII
             for: _forValue
         )
         callback(resultimage, task)
+    }
+}
+@_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAA0B7RequestV_tYaKF_async")
+public func PInvoke_data_0901C6CB(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+    // Read non-frozen parameters via .pointee (bitwise copy)
+    // C# created copies using InitializeWithCopy (owns a proper reference)
+    let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
+    
+    // selfInstance is safe - C# called Arc.Retain before invoking this method
+
+    Task {
+        let resultdata = try! await Nuke.ImagePipeline.shared.data(
+            for: _forValue
+        )
+        callback(resultdata.0, resultdata.1, task)
+    }
+}
+@_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAF3URLV_tYaKF_async")
+public func PInvoke_data_0CA85ABF(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+    // Read non-frozen parameters via .pointee (bitwise copy)
+    // C# created copies using InitializeWithCopy (owns a proper reference)
+    let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
+    
+    // selfInstance is safe - C# called Arc.Retain before invoking this method
+
+    Task {
+        let resultdata = try! await Nuke.ImagePipeline.shared.data(
+            for: _forValue
+        )
+        callback(resultdata.0, resultdata.1, task)
     }
 }
 @_silgen_name("ImageTask_progress_AsyncStream")

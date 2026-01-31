@@ -31,6 +31,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 11 | Advanced Binding Gap Fixes | [phase-11-binding-gap-fixes.md](CompletedPhases/phase-11-binding-gap-fixes.md) |
 | Phase 12 | CoreFoundation/TupleHandler Fixes | [phase-12-corefoundation-tuple-fixes.md](CompletedPhases/phase-12-corefoundation-tuple-fixes.md) |
 | Phase 13 | Optional Closures & AsyncStream Fixes | [phase-13-optional-closures.md](CompletedPhases/phase-13-optional-closures.md) |
+| Phase 14 | Async Tuple Return Support | [phase-14-async-tuple-returns.md](CompletedPhases/phase-14-async-tuple-returns.md) |
 
 ---
 
@@ -51,10 +52,11 @@ The following phases have been completed. See individual documents for details:
 **Remaining gaps**:
 - **1 property** with unsupported types (skipped):
   - `didComplete` - @MainActor async closure with Optional wrapping; closure infrastructure ready but accessor signature unsupported
-- **~5 methods/constructors** with `AnyType` parameters:
-  - `data(_for:)` - Async method returning tuple `(Data, URLResponse?)` - async tuple returns not yet supported
+- **~4 methods/constructors** with `AnyType` parameters:
   - `imagePublisher(...)` - Returns Combine `AnyPublisher` (reactive framework out of scope)
   - `ImageRequest` constructor - `() async throws -> Data` closure (throwing closures not supported)
+- **Fixed in Phase 14**:
+  - ✅ `data(_for:)` - Async method returning tuple `(Data, URLResponse?)` now properly typed
 - **Fixed in Phase 13**:
   - ✅ `loadImage(with:queue:progress:completion:)` - Optional closure parameters now use `Action<...>?` syntax
   - ✅ AsyncStream property collision - Properties like `Progress` renamed to `ProgressValue` when colliding with nested types
@@ -184,7 +186,7 @@ var image = response.Image; // UIImage
 
 ---
 
-## Future Work (Phase 14+)
+## Future Work (Phase 15+)
 
 ### Phase 12 Completed
 - ✅ CGSize module aliasing (CoreFoundation → CoreGraphics)
@@ -198,19 +200,13 @@ var image = response.Image; // UIImage
 - ✅ AsyncStream property collision detection (renames to `PropertyValue` when colliding with nested types)
 - ✅ TypeConversionHandler defers Optional<Closure> to ClosureHandler
 
-### 14.1 Async Tuple Return Support
-**Priority**: High
+### Phase 14 Completed
+- ✅ Async tuple return support - Methods like `data(_for:)` now return `Task<(T1, T2)>` instead of `Task<AnyType>`
+- ✅ Tuple elements flattened for `@convention(c)` callback compatibility
+- ✅ Element-wise marshalling for ObjC types (`GetNSObject`) and Swift types
+- ✅ TupleHandler P/Invoke type mapping enhanced (ObjC → IntPtr, non-frozen → Buffer)
 
-Async methods with tuple return types (like `(Data, URLResponse?)`) currently fall back to AnyType.
-
-**Affected APIs**:
-- `data(_for:)` → returns `(Data, URLResponse?)`
-
-**Requirements**:
-- Add tuple handling to `EmitAsyncWrapper`
-- Handle tuple marshalling in async callback context
-
-### 14.2 Throwing Closures
+### 15.1 Throwing Closures
 **Priority**: Medium
 
 Closures with `throws` attribute are excluded from support.
@@ -222,7 +218,7 @@ Closures with `throws` attribute are excluded from support.
 - Implement error marshalling for closure returns
 - Handle Swift Error to C# Exception conversion
 
-### 14.3 didComplete Property Accessor
+### 15.2 didComplete Property Accessor
 **Priority**: Medium
 
 The `didComplete` property has @MainActor async closure infrastructure ready, but the accessor method signature is unsupported.
@@ -236,7 +232,7 @@ var didComplete: (@MainActor @Sendable () async -> Void)?
 - May need special handling for Optional closure property accessors
 - MainActor dispatch on C# side
 
-### 14.4 ObjC Type Remapping Enhancement
+### 15.3 ObjC Type Remapping Enhancement
 **Priority**: Medium
 
 ObjC types currently use `Swift.*` wrappers (e.g., `Swift.URL`, `Swift.Data`) instead of existing .NET iOS bindings. This creates friction for .NET developers.
@@ -248,7 +244,7 @@ ObjC types currently use `Swift.*` wrappers (e.g., `Swift.URL`, `Swift.Data`) in
 2. Add implicit conversions between Swift.* and Foundation types
 3. Full remapping (breaking change)
 
-### 14.5 Complete API Coverage Validation
+### 15.4 Complete API Coverage Validation
 **Priority**: Medium
 
 Validate that all emitted APIs actually work at runtime, not just compile.
@@ -258,7 +254,7 @@ Validate that all emitted APIs actually work at runtime, not just compile.
 - Test closure property invocation
 - Verify non-frozen struct closure parameter marshalling
 
-### 14.6 Closure Return Type Marshalling Fix
+### 15.5 Closure Return Type Marshalling Fix
 **Priority**: Low
 
 ClosureEmitter generates invalid invocation code for closures with:

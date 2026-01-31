@@ -300,11 +300,49 @@ public class TupleHandler
 
         if (typeSpec is NamedTypeSpec namedType)
         {
-            // Bound generic types are passed as opaque pointers in P/Invoke
+            // Bound generic types with optional containing ObjC types → IntPtr
             if (namedType.ContainsGenericParameters)
+            {
+                var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (_typeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord) &&
+                    baseRecord.CSharpTypeName.Name == "SwiftOptional" &&
+                    namedType.GenericParameters.Count > 0)
+                {
+                    var innerType = namedType.GenericParameters[0];
+                    if (innerType is NamedTypeSpec innerNamed &&
+                        _typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
+                        MarshallingHelpers.IsObjCBridged(innerRecord))
+                    {
+                        // Optional ObjC type → IntPtr (null represented as IntPtr.Zero)
+                        return "IntPtr";
+                    }
+                }
+                // Other bound generics → void*
                 return "void*";
+            }
 
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
+
+            // ObjC bridged types use IntPtr in P/Invoke
+            if (MarshallingHelpers.IsObjCBridged(typeRecord))
+            {
+                return "IntPtr";
+            }
+
+            // Non-frozen types needing memory management use Buffer type
+            if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 &&
+                (typeRecord.Flags & TypeRecordFlags.Frozen) == 0)
+            {
+                return $"{typeRecord.CSharpTypeName.FullyQualifiedName}.Buffer";
+            }
+
+            // Frozen types with memory management use Buffer type
+            if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 &&
+                (typeRecord.Flags & TypeRecordFlags.Frozen) != 0)
+            {
+                return $"{typeRecord.CSharpTypeName.FullyQualifiedName}.Buffer";
+            }
+
             return typeRecord.CSharpTypeName.FullyQualifiedName;
         }
 
