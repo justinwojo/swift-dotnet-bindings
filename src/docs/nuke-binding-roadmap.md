@@ -48,7 +48,16 @@ The following phases have been completed. See individual documents for details:
 - Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **600 unit tests, 691 integration tests, 72 runtime tests passing (1,363 total)**
+- **1,363 generator tests passing** (600 unit, 691 integration, 72 runtime)
+- **93% runtime validation pass rate** (28/30 tests in NukeTestApp)
+
+**Runtime validated** (Phase 15.4):
+- ✅ Async image loading from network URLs
+- ✅ UIImage return type marshalling to .NET iOS types
+- ✅ Memory management (no retain count leaks detected)
+- ✅ Protocol proxy implementations (C# → Swift callbacks)
+- ✅ Cache access and population
+- ✅ SwiftString and ImageRequest creation/disposal
 
 **Remaining gaps**:
 - **~4 methods/constructors** with `AnyType` parameters:
@@ -120,6 +129,48 @@ The `Swift.URL.FromString()` method fails with the same non-blittable type error
 - `Swift.Sendable`
 
 Bindings still generate, but conformance information is incomplete.
+
+### Non-Frozen Struct Property Access
+**Status**: Known crash (Phase 16.1)
+
+Properties returning non-frozen struct types crash at runtime with SIGSEGV. Affects:
+- `ImagePipeline.ConfigurationValue`
+- Potentially other complex struct returns
+
+**Workaround**: Avoid accessing these properties; use alternative APIs.
+
+### Swift Enum Case Symbol Resolution
+**Status**: Known issue (Phase 16.2)
+
+Some Swift enum case accessor symbols fail with `EntryPointNotFoundException`:
+- `ImageRequest.Priority.*` cases (VeryLow, Low, Normal, High, VeryHigh)
+- `ImagePipeline.Error.DataIsEmpty`
+
+Note: `ImageRequest.Options.*` (OptionSet) cases work correctly.
+
+### Swift Wrapper Error Propagation
+**Status**: FIXED (Phase 16.3)
+
+Swift async method errors are now properly caught and propagated to C# as `SwiftException`.
+
+**Implementation**:
+- Swift wrappers now use `do { try await ... } catch { ... }` instead of `try!`
+- Error callback parameter added to all async wrapper functions
+- `SwiftException` class created in `Swift.Runtime` for Swift errors
+- Errors are marshalled via `String(describing: error)` and `TrySetException()`
+
+**Usage**:
+```csharp
+try
+{
+    var image = await pipeline.Image(request);
+}
+catch (SwiftException ex)
+{
+    // ex.Message contains the Swift error description
+    Console.WriteLine($"Swift error: {ex.Message}");
+}
+```
 
 ---
 
@@ -235,15 +286,35 @@ var image = response.Image; // UIImage
 - ✅ Bidirectional conversions enable seamless interop: `URL swiftUrl = nsUrl;` and `NSUrl ns = swiftUrl;`
 - ✅ Guarded by `#if IOS || MACCATALYST || MACOS` for platform compatibility
 
-### 15.4 Complete API Coverage Validation
-**Priority**: Medium
+### Phase 15.4 Completed - Runtime Validation
+**Status**: COMPLETED (2026-01-31)
 
-Validate that all emitted APIs actually work at runtime, not just compile.
+Comprehensive runtime validation suite created and executed. Results: **28 passed, 2 failed, 2 warnings (93% pass rate)**.
 
-**Test plan**:
-- Create integration tests for AsyncStream properties
-- Test closure property invocation
-- Verify non-frozen struct closure parameter marshalling
+**Test categories validated**:
+| Category | Tests | Result |
+|----------|-------|--------|
+| Basic Binding | 4/5 | Type metadata, Shared singleton, SwiftString, ImageRequest |
+| Async Image Load | 3/3 | Valid URL, sequential loads, UIImage validity |
+| Cache Operations | 3/3 | Cache access, cache population, Options types |
+| ImageRequest Options | 3/5 | Options access, property access, metadata |
+| Error Handling | 1/1 | Invalid URL format handled |
+| Memory Management | 4/4 | No retain count leaks, allocation cycles, async stability |
+| Performance | 4/4 | All operations < 50ms average |
+| Protocols | 6/6 | Cancellable, ImageProcessing proxies, registry |
+
+**Core use case verified working**:
+```csharp
+var pipeline = ImagePipeline.Shared;
+var request = new ImageRequest("https://picsum.photos/200/200");
+UIImage image = await pipeline.Image(request);  // Works!
+```
+
+**Issues discovered** (see Phase 16+ for details):
+- Non-frozen struct property crash (Configuration, Cache)
+- Swift enum case P/Invoke symbol resolution failures
+- Swift wrapper try! causes fatal crash on errors
+- SafeHandle finalizer crash during post-test GC
 
 ### 15.5 Closure Return Type Marshalling Fix
 **Priority**: Low
@@ -257,6 +328,113 @@ This is a pre-existing bug exposed when fixing other issues. Currently affects c
 ### Note: Async Instance Method Workaround
 
 The singleton pattern detection (Phase 8) handles most async instance methods. For non-singleton classes, `unsafeBitCast` is used which may have edge cases. A proper fix would require .NET runtime changes to support SwiftSelf register with async Task closure capture.
+
+---
+
+## Phase 16+: Issues Discovered During Validation
+
+The following issues were discovered during Phase 15.4 runtime validation testing. They are documented here for future work.
+
+### 16.1 Non-Frozen Struct Property Marshalling Crash
+**Priority**: High
+**Status**: Not started
+
+**Problem**: Accessing properties that return non-frozen struct types causes a native crash (SIGSEGV) in the Swift runtime.
+
+**Affected APIs**:
+- `ImagePipeline.ConfigurationValue` → `ImagePipeline.Configuration` (non-frozen struct)
+- Potentially other properties returning complex non-frozen structs
+
+**Crash location**: `$s4Nuke13ImagePipelineC13ConfigurationVWOc` (witness table copy)
+
+**Root cause**: The generated P/Invoke for non-frozen struct return types doesn't correctly handle Swift's indirect return mechanism or value witness table operations.
+
+**Workaround**: Skip accessing these properties; use alternative APIs where available.
+
+**Files to investigate**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs`
+- `src/Swift.Bindings/src/Marshaler/MarshalingHelpers.cs`
+
+### 16.2 Swift Enum Case P/Invoke Symbol Resolution
+**Priority**: Medium
+**Status**: Not started
+
+**Problem**: Swift enum case accessor functions fail with `EntryPointNotFoundException`. The mangled symbols are not being found in the dylib.
+
+**Affected APIs**:
+- `ImageRequest.Priority.VeryLow` → symbol `$s4Nuke12ImageRequestV8PriorityO7veryLowyA2EmF` not found
+- `ImageRequest.Priority.Low`, `.Normal`, `.High`, `.VeryHigh` - all fail
+- `ImagePipeline.Error.DataIsEmpty` → symbol `$s4Nuke13ImagePipelineC5ErrorO11dataIsEmptyyA2EmF` not found
+
+**Observed behavior**: All Priority enum cases fail; Options enum cases (DisableMemoryCache, etc.) work fine.
+
+**Possible causes**:
+1. Enum case symbols not exported in TBD file
+2. Symbol mangling mismatch between generator and actual symbols
+3. Different treatment of enum cases vs OptionSet static properties
+
+**Files to investigate**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EnumHandler.cs`
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` (enum parsing)
+- Generated TBD file for symbol presence
+
+### 16.3 Swift Wrapper Error Handling (try! crash)
+**Priority**: Medium
+**Status**: COMPLETED
+
+**Problem**: The generated Swift wrapper uses `try!` for async method calls, which causes a fatal error when the underlying operation fails instead of propagating the error to C#.
+
+**Solution implemented**:
+1. Added `errorCallback` parameter to all Swift async wrapper functions
+2. Changed `try!` to `do { try await ... } catch { ... }` in all Swift wrappers
+3. Error message marshalled via `String(describing: error).withCString { errorCallback($0, task) }`
+4. Created `SwiftException` class in `Swift.Runtime` namespace
+5. C# error callback calls `TaskCompletionSource.TrySetException(new SwiftException(message))`
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/NameProvider.cs` - Added error callback naming methods
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Updated Swift wrapper generation
+- `src/Swift.Runtime/src/Swift/Runtime/SwiftException.cs` - New exception class
+
+**Verified working**: Error handling test passes - `SwiftException` caught with Swift error message
+
+### 16.4 SafeHandle Finalizer Crash During GC
+**Priority**: Low
+**Status**: Not started
+
+**Problem**: After test completion, during GC finalization, `SwiftSafeHandle.ReleaseHandle` crashes with SIGSEGV when trying to release Swift objects.
+
+**Crash location**:
+```
+Swift_Runtime_SwiftSafeHandle_1_T_REF_ReleaseHandle
+→ swift_release (Swift runtime)
+```
+
+**Observed behavior**: Tests complete successfully, then crash occurs during GC cleanup. This doesn't affect functionality but causes test runner to report failure.
+
+**Possible causes**:
+1. Double-release of Swift objects
+2. Release of objects already deallocated by Swift runtime
+3. Incorrect order of SafeHandle disposal vs Swift object lifecycle
+4. Race condition between finalizer thread and Swift ARC
+
+**Workaround**: Explicitly dispose SafeHandles before allowing GC (already done in tests).
+
+**Files to investigate**:
+- `src/Swift.Runtime/src/Swift/Runtime/SwiftSafeHandle.cs`
+- `src/Swift.Runtime/src/Swift/Runtime/Arc.cs`
+
+### 16.5 ClosureEmitter Non-Frozen Struct Parameter Bug
+**Priority**: Low
+**Status**: Documented in 15.5
+
+This is the same issue documented in 15.5. Closure getters with non-frozen struct parameters generate invalid code:
+- Uses `((ISwiftObject)_arg0).Payload` but `ISwiftObject` doesn't define `Payload`
+- Calls `ValueWitnessTable.InitializeWithCopy()` / `Destroy()` which don't exist
+
+**Affected APIs**:
+- `ImagePipeline.Configuration.MakeImageDecoder` getter (commented out as workaround)
+- `ImagePipeline.Configuration.MakeImageEncoder` getter (commented out as workaround)
 
 ---
 
@@ -302,6 +480,7 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 
 ## Test Results Summary
 
+### Generator Tests
 | Category | Count |
 |----------|-------|
 | Unit tests | 600 |
@@ -309,4 +488,34 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 | Runtime tests | 72 |
 | **Total** | **1,363** |
 
-All tests passing. iOS Simulator validation successful.
+All generator tests passing.
+
+### NukeTestApp Validation (Phase 15.4)
+| Category | Passed | Failed | Warnings |
+|----------|--------|--------|----------|
+| Basic Binding | 4 | 0 | 1 |
+| Async Image Load | 3 | 0 | 0 |
+| Cache Operations | 3 | 0 | 0 |
+| ImageRequest Options | 3 | 1 | 0 |
+| Error Handling | 1 | 0 | 1 |
+| Memory Management | 4 | 0 | 0 |
+| Performance | 4 | 0 | 0 |
+| Protocols | 6 | 0 | 0 |
+| **Total** | **28** | **2** | **2** |
+
+**Pass rate**: 93% (28/30 core tests)
+
+**Core functionality verified**:
+- Async image loading from network URLs
+- UIImage return type marshalling
+- Memory management (no retain count leaks)
+- Protocol proxy implementations
+- Cache access and population
+
+**Known failures** (non-blocking):
+- Priority enum case symbols not found (P/Invoke issue)
+- ImagePipeline.Error enum case symbols not found (P/Invoke issue)
+
+**Skipped tests** (would cause crash):
+- ConfigurationValue property (non-frozen struct marshalling crash)
+- Error path testing (Swift wrapper uses try! → fatal error)

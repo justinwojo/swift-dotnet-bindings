@@ -178,6 +178,26 @@ public static class NameProvider
     }
 
     /// <summary>
+    /// Gets the name of the async error callback delegate field for a method.
+    /// Uses a hash to ensure uniqueness for method overloads.
+    /// </summary>
+    public static string GetAsyncErrorCallbackFieldName(MethodDecl methodDecl)
+    {
+        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        return $"s_{methodDecl.Name}ErrorCallback_{mangledHash}";
+    }
+
+    /// <summary>
+    /// Gets the name of the async error callback method for a method.
+    /// Uses a hash to ensure uniqueness for method overloads.
+    /// </summary>
+    public static string GetAsyncErrorCallbackMethodName(MethodDecl methodDecl)
+    {
+        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        return $"{methodDecl.Name}OnError_{mangledHash}";
+    }
+
+    /// <summary>
     /// Gets the C# method name, converting to PascalCase and resolving any collisions with property names.
     /// In Swift, a type can have both a property and a method with the same name,
     /// but C# does not allow this. Methods that collide with properties are suffixed.

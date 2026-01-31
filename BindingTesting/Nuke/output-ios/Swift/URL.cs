@@ -92,6 +92,18 @@ public sealed class URL : ISwiftObject, IDisposable
 
         return FromString(absoluteString) ?? throw new ArgumentException("Invalid URL string", nameof(nsUrl));
     }
+
+    /// <summary>
+    /// Implicitly converts a Foundation.NSUrl to a Swift.URL.
+    /// </summary>
+    /// <param name="nsUrl">The NSUrl to convert.</param>
+    public static implicit operator URL(Foundation.NSUrl nsUrl) => FromNSUrl(nsUrl);
+
+    /// <summary>
+    /// Implicitly converts a Swift.URL to a Foundation.NSUrl.
+    /// </summary>
+    /// <param name="url">The Swift.URL to convert.</param>
+    public static implicit operator Foundation.NSUrl(URL url) => url.ToNSUrl();
 #endif
 
     /// <summary>

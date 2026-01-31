@@ -176,6 +176,7 @@ namespace BindingsGeneration
         public string SignatureString() => Type switch
         {
             "AsyncCallback" => $"{modifier} void* {Name}",
+            "AsyncErrorCallback" => $"{modifier} void* {Name}",
             "AsyncContext" => $"{modifier} void* {Name}",
             "AsyncTask" => $"{modifier} IntPtr {Name}",
             "IntPtrFromNonFrozen" => $"{modifier} IntPtr {Name}",
@@ -207,6 +208,7 @@ namespace BindingsGeneration
                 { Type: "IntPtrFromNonFrozen" } => $"{parameter.Name}Handle",
                 { Type: var type } when type.EndsWith(".Buffer") => $"{parameter.Name}Disposable.Buffer",
                 { Type: "AsyncCallback" } => $"{parameter.Name}",
+                { Type: "AsyncErrorCallback" } => $"{parameter.Name}",
                 { Type: "AsyncContext" } => "null",
                 { Type: "AsyncTask" } => $"GCHandle.ToIntPtr({parameter.Name})",
                 { modifier: "out" } => $"out var {parameter.Name}",
@@ -611,9 +613,10 @@ namespace BindingsGeneration
         {
             if (_env.MethodDecl.IsAsync)
             {
-                // Our Swift wrapper expects: callback, task (handle), then method arguments
+                // Our Swift wrapper expects: callback, errorCallback, task (handle), then method arguments
                 // No context parameter needed - we handle the callback in Swift
                 AddParameter("AsyncCallback", NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl));
+                AddParameter("AsyncErrorCallback", NameProvider.GetAsyncErrorCallbackFieldName(_env.MethodDecl));
                 AddParameter("AsyncTask", "handle");
             }
         }
@@ -1310,6 +1313,7 @@ namespace BindingsGeneration
             var baseParams = new[]
             {
                 $"callback: @escaping @convention(c) ({callbackParams}Int64) -> Void",
+                "errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void",
                 "task: Int64"
             };
 
@@ -1462,10 +1466,15 @@ namespace BindingsGeneration
                 {{selfComment}}
 
                 Task {
-                    {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                        {{methodCallArgs}}
-                    )
-                    callback({{callbackResultArgs}}task)
+                    do {
+                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
+                            {{methodCallArgs}}
+                        )
+                        callback({{callbackResultArgs}}task)
+                    } catch {
+                        let errorMessage = String(describing: error)
+                        errorMessage.withCString { errorCallback($0, task) }
+                    }
                 }
             }
             """);
@@ -1478,10 +1487,15 @@ namespace BindingsGeneration
                 {{selfConversion}}
                 {{selfComment}}
                 Task {
-                    {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                        {{methodCallArgs}}
-                    )
-                    callback({{callbackResultArgs}}task)
+                    do {
+                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
+                            {{methodCallArgs}}
+                        )
+                        callback({{callbackResultArgs}}task)
+                    } catch {
+                        let errorMessage = String(describing: error)
+                        errorMessage.withCString { errorCallback($0, task) }
+                    }
                 }
             }
             """);
@@ -1503,10 +1517,15 @@ namespace BindingsGeneration
                     {{selfComment}}
 
                     Task {
-                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                            {{methodCallArgs}}
-                        )
-                        callback({{callbackResultArgs}}task)
+                        do {
+                            {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
+                                {{methodCallArgs}}
+                            )
+                            callback({{callbackResultArgs}}task)
+                        } catch {
+                            let errorMessage = String(describing: error)
+                            errorMessage.withCString { errorCallback($0, task) }
+                        }
                     }
                 }
             }
@@ -1520,10 +1539,15 @@ namespace BindingsGeneration
                 public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
                     {{selfComment}}
                     Task {
-                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-                            {{methodCallArgs}}
-                        )
-                        callback({{callbackResultArgs}}task)
+                        do {
+                            {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
+                                {{methodCallArgs}}
+                            )
+                            callback({{callbackResultArgs}}task)
+                        } catch {
+                            let errorMessage = String(describing: error)
+                            errorMessage.withCString { errorCallback($0, task) }
+                        }
                     }
                 }
             }
@@ -2276,11 +2300,13 @@ namespace BindingsGeneration
 
             var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl);
             var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(_env.MethodDecl);
+            var errorCallbackFieldName = NameProvider.GetAsyncErrorCallbackFieldName(_env.MethodDecl);
+            var errorCallbackMethodName = NameProvider.GetAsyncErrorCallbackMethodName(_env.MethodDecl);
 
             // For tuple returns, we need to marshal each element individually
             if (isTupleReturn)
             {
-                EmitAsyncWrapperForTuple(csWriter, returnType, callbackFieldName, callbackMethodName);
+                EmitAsyncWrapperForTuple(csWriter, returnType, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
                 return;
             }
 
@@ -2347,6 +2373,44 @@ namespace BindingsGeneration
                                 handle.Free();
                             }
                         }
+
+                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                var exception = new SwiftException(errorMessage);
+
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
+                                        {
+                                            NativeMemory.Free((void*)copyBuffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetException(exception);
+                                }
+                                else if (handle.Target is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} directTcs)
+                                {
+                                    directTcs.TrySetException(exception);
+                                }
+                            }
+                            finally
+                            {
+                                handle.Free();
+                            }
+                        }
                 """;
             csWriter.WriteLine(text);
         }
@@ -2356,7 +2420,7 @@ namespace BindingsGeneration
         /// Handles marshalling each tuple element individually.
         /// For @convention(c) compatibility, tuple elements are flattened into separate callback parameters.
         /// </summary>
-        private void EmitAsyncWrapperForTuple(CSharpWriter csWriter, ArgumentDecl returnType, string callbackFieldName, string callbackMethodName)
+        private void EmitAsyncWrapperForTuple(CSharpWriter csWriter, ArgumentDecl returnType, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName)
         {
             var tupleTypeSpec = (TupleTypeSpec)returnType.SwiftTypeSpec;
             var elements = tupleTypeSpec.Elements;
@@ -2431,6 +2495,44 @@ namespace BindingsGeneration
                                 else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
                                 {
                                     directTcs.TrySetResult(result);
+                                }
+                            }
+                            finally
+                            {
+                                handle.Free();
+                            }
+                        }
+
+                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                var exception = new SwiftException(errorMessage);
+
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
+                                        {
+                                            NativeMemory.Free((void*)copyBuffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetException(exception);
+                                }
+                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                {
+                                    directTcs.TrySetException(exception);
                                 }
                             }
                             finally
