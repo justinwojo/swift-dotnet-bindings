@@ -66,5 +66,39 @@ namespace BindingsGeneration
         /// Whether this enum conforms to RawRepresentable.
         /// </summary>
         public bool IsRawRepresentable => !string.IsNullOrEmpty(RawValueTypeName);
+
+        /// <summary>
+        /// Gets the enum cases that have associated values (payload cases).
+        /// Swift orders these first in the tag sequence.
+        /// </summary>
+        public IEnumerable<EnumCaseDecl> PayloadCases => Cases.Where(c => c.HasAssociatedValues);
+
+        /// <summary>
+        /// Gets the enum cases that have no associated values (simple cases).
+        /// Swift orders these after payload cases in the tag sequence.
+        /// </summary>
+        public IEnumerable<EnumCaseDecl> NoPayloadCases => Cases.Where(c => !c.HasAssociatedValues);
+
+        /// <summary>
+        /// Gets the tag value for a given case declaration.
+        /// Swift assigns tags in declaration order, with payload cases first (starting at 0),
+        /// followed by no-payload cases.
+        /// </summary>
+        /// <param name="caseDecl">The enum case to get the tag for.</param>
+        /// <returns>The tag value, or -1 if the case is not found in this enum.</returns>
+        public int GetCaseTag(EnumCaseDecl caseDecl)
+        {
+            var payloadList = PayloadCases.ToList();
+            int payloadIndex = payloadList.IndexOf(caseDecl);
+            if (payloadIndex >= 0)
+                return payloadIndex;
+
+            var noPayloadList = NoPayloadCases.ToList();
+            int noPayloadIndex = noPayloadList.IndexOf(caseDecl);
+            if (noPayloadIndex >= 0)
+                return payloadList.Count + noPayloadIndex;
+
+            return -1;
+        }
     }
 }

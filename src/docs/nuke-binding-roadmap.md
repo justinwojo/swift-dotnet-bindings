@@ -37,6 +37,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 17 | RawRepresentable Enum Support (Partial) | See Phase 17 section below |
 | Phase 18 | Full Non-Frozen RawRepresentable Enum Support | See Phase 18 section below |
 | Phase 19 | Enum Associated Values Support | See Phase 19 section below |
+| Phase 20 | Enum Associated Value Extraction | See Phase 20 section below |
 
 ---
 
@@ -52,7 +53,7 @@ The following phases have been completed. See individual documents for details:
 - Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **1,370 generator tests passing** (607 unit, 691 integration, 72 runtime)
+- **1,382 generator tests passing** (619 unit, 691 integration, 72 runtime)
 - **100% runtime validation pass rate** (30/30 tests in NukeTestApp, 2 skipped)
 
 **Runtime validated** (Phase 15.4):
@@ -148,7 +149,7 @@ Properties returning non-frozen struct types that contain existential containers
 **Workaround**: Avoid accessing properties that return non-frozen structs with existential container fields; use alternative APIs.
 
 ### Simple Swift Enum Case Support
-**Status**: COMPLETED (Phase 18 + Phase 19)
+**Status**: COMPLETED (Phase 18 + Phase 19 + Phase 20)
 
 Simple Swift enum cases can now be constructed from C# via two mechanisms:
 
@@ -164,12 +165,19 @@ Simple Swift enum cases can now be constructed from C# via two mechanisms:
 - ✅ Uses indirect return pattern (SwiftIndirectResult)
 - ✅ Works for any enum, regardless of RawRepresentable conformance
 
+**Enum value extraction (Phase 20)**:
+- ✅ `CaseTag` nested enum for type-safe case discrimination
+- ✅ `Tag` property using `ValueWitnessTable->GetEnumTag()`
+- ✅ `TryGet` methods for non-destructive associated value extraction
+
 **Working APIs**:
 - ✅ `ImageRequest.Priority.*` cases (VeryLow, Low, Normal, High, VeryHigh)
 - ✅ `ImageTask.State.*` cases (Running, Cancelled, Completed)
 - ✅ Simple cases on non-RawRepresentable enums (e.g., `ImagePipeline.Error.DataIsEmpty`)
+- ✅ `error.Tag` and `error.TryGetDataLoadingFailed(out var value)` extraction
 
 **Still limited**:
+- Enum cases with tuple associated values (multi-element extraction)
 - Enum cases with associated values containing closures or nested enums
 
 **Technical solution**: Phase 18 implemented indirect return handling for non-frozen failable initializers:
@@ -743,6 +751,196 @@ public static Error DataLoadingFailed(Swift.Runtime.ExistentialContainer1 error)
 
 ---
 
+## Phase 20: Enum Associated Value Extraction
+
+**Status**: COMPLETED (2026-01-31)
+
+Support for extracting associated values from existing Swift enum instances. This complements Phase 19 which added support for *creating* enum instances with associated values.
+
+### Summary
+
+- 20.1 Model Enhancement → COMPLETED (GetCaseTag(), PayloadCases, NoPayloadCases helpers)
+- 20.2 CaseTag Enum Generation → COMPLETED (nested enum for type-safe case discrimination)
+- 20.3 Tag Property Generation → COMPLETED (ValueWitnessTable->GetEnumTag())
+- 20.4 TryGet Method Generation → COMPLETED (non-destructive payload extraction)
+- 20.5 Unit Tests → COMPLETED (12 new tests for tag calculation)
+
+### Problem
+
+After creating enum instances with associated values (Phase 19), there was no way to:
+1. Determine which case an enum instance represents
+2. Extract the associated values from the enum
+
+### Implementation Details
+
+#### 20.1 Model Enhancement
+
+Added helper methods to `EnumDecl` for Swift's tag calculation based on the Swift ABI layout rules (payload cases first, then no-payload cases):
+
+```csharp
+public IEnumerable<EnumCaseDecl> PayloadCases => Cases.Where(c => c.HasAssociatedValues);
+public IEnumerable<EnumCaseDecl> NoPayloadCases => Cases.Where(c => !c.HasAssociatedValues);
+
+public int GetCaseTag(EnumCaseDecl caseDecl)
+{
+    var payloadList = PayloadCases.ToList();
+    int payloadIndex = payloadList.IndexOf(caseDecl);
+    if (payloadIndex >= 0) return payloadIndex;
+
+    var noPayloadList = NoPayloadCases.ToList();
+    int noPayloadIndex = noPayloadList.IndexOf(caseDecl);
+    return payloadList.Count + noPayloadIndex;
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Model/TypeDecl/EnumDecl.cs`
+
+#### 20.2 CaseTag Enum Generation
+
+Generates a nested `CaseTag` enum for type-safe case discrimination:
+
+```csharp
+public enum CaseTag : uint
+{
+    DataLoadingFailed = 0,    // payload case
+    DecoderNotRegistered = 1, // payload case
+    DataMissingInCache = 2,   // no-payload case
+    DataIsEmpty = 3,          // no-payload case
+}
+```
+
+Tags are ordered according to Swift's ABI: payload cases first (in declaration order), then no-payload cases (in declaration order).
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs` - Added `EmitCaseTagEnum()`
+
+#### 20.3 Tag Property Generation
+
+Generates a `Tag` property using `ValueWitnessTable->GetEnumTag()`:
+
+```csharp
+public unsafe CaseTag Tag
+{
+    get
+    {
+        var metadata = PInvoke_getMetadata();
+        byte* payload = (byte*)_payload.DangerousGetHandle();
+        return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
+    }
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs` - Added `EmitTagProperty()`
+
+#### 20.4 TryGet Method Generation
+
+Generates `TryGet` methods for each case with associated values, using non-destructive extraction:
+
+```csharp
+public unsafe bool TryGetDataLoadingFailed([MaybeNullWhen(false)] out ExistentialContainer1 error)
+{
+    if (Tag != CaseTag.DataLoadingFailed)
+    {
+        error = default;
+        return false;
+    }
+
+    var metadata = PInvoke_getMetadata();
+
+    // Non-destructive: copy enum first
+    byte* enumCopy = stackalloc byte[(int)metadata.Size];
+    metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);
+
+    // Strip tag, leaving payload
+    metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);
+
+    // Marshal payload to C# type
+    error = SwiftMarshal.MarshalFromSwift<ExistentialContainer1>(new IntPtr(enumCopy));
+    return true;
+}
+```
+
+**Key design decisions**:
+- **Non-destructive**: Copies enum before stripping tag to preserve original value
+- **Type-safe out parameter**: Uses `[MaybeNullWhen(false)]` for proper nullability analysis
+- **Bound generic handling**: Properly resolves types like `SwiftResult<T, E>` to full C# names
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs` - Added `EmitTryGetMethod()`, `EmitPayloadMarshal()`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs` - Added `System.Diagnostics.CodeAnalysis` using directive
+
+#### 20.5 Unit Tests
+
+Added 12 tests for tag calculation and helper properties:
+
+```csharp
+[Fact]
+public void GetCaseTag_PayloadCaseFirst_ReturnsZero()
+
+[Fact]
+public void GetCaseTag_NoPayloadCaseAfterPayload_ReturnsPayloadCount()
+
+[Fact]
+public void GetCaseTag_MultiplePayloadCases_ReturnsDeclarationOrder()
+
+[Fact]
+public void TagOrdering_MatchesSwiftConvention()
+// etc.
+```
+
+**Files created**:
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/EnumExtractionTests.cs`
+
+### Limitations
+
+- **Tuple associated values**: Cases with multiple associated values (represented as tuples) are skipped with a warning. Swift represents `case example(a: Int, b: String)` as a single `TupleTypeSpec`, not multiple `AssociatedValues`.
+- **Nested closures/enums**: Complex associated value types are not yet supported.
+
+### Verification
+
+- All 1,382 generator tests pass (619 unit + 691 integration + 72 runtime)
+- NukeTestApp validation: 30 passed, 0 failed, 2 warnings
+- Generated bindings include `CaseTag` enum, `Tag` property, and `TryGet` methods
+
+### Generated Code Example
+
+```csharp
+// CaseTag enum
+public enum CaseTag : uint
+{
+    DataLoadingFailed = 0,
+    DecoderNotRegistered = 1,
+    DataMissingInCache = 2,
+    DataIsEmpty = 3,
+}
+
+// Tag property
+public unsafe CaseTag Tag { get { ... } }
+
+// TryGet method
+public unsafe bool TryGetDataLoadingFailed([MaybeNullWhen(false)] out ExistentialContainer1 error) { ... }
+```
+
+### Usage Example
+
+```csharp
+var error = ImagePipeline.Error.DataLoadingFailed(someExistentialError);
+
+// Check which case
+if (error.Tag == ImagePipeline.Error.CaseTag.DataLoadingFailed)
+{
+    // Extract value
+    if (error.TryGetDataLoadingFailed(out var extractedError))
+    {
+        // Use extractedError
+    }
+}
+```
+
+---
+
 ## Related Issues
 
 - [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters, properties, bound generic arguments, ExistentialContainerFactory implemented
@@ -788,14 +986,14 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 ### Generator Tests
 | Category | Count |
 |----------|-------|
-| Unit tests | 607 |
+| Unit tests | 619 |
 | Integration tests | 691 |
 | Runtime tests | 72 |
-| **Total** | **1,370** |
+| **Total** | **1,382** |
 
 All generator tests passing.
 
-### NukeTestApp Validation (Phase 19)
+### NukeTestApp Validation (Phase 20)
 | Category | Passed | Failed | Warnings |
 |----------|--------|--------|----------|
 | Basic Binding | 4 | 0 | 1 |
@@ -836,3 +1034,8 @@ All generator tests passing.
 - ✅ Simple enum cases on non-RawRepresentable enums (direct P/Invoke)
 - ✅ Existential types in enum associated values (`any Swift.Error` → `ExistentialContainer1`)
 - ✅ TypeSpecParser parsing of labeled existentials (`error: any Swift.Error`)
+
+**Fixed in Phase 20**:
+- ✅ Enum case discrimination via `CaseTag` enum and `Tag` property
+- ✅ Associated value extraction via `TryGet` methods (non-destructive)
+- ✅ Proper bound generic type resolution in payload marshalling
