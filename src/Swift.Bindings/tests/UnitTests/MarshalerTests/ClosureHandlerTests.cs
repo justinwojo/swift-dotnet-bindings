@@ -496,7 +496,8 @@ public class ClosureHandlerTests
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Async + throwing is not supported
+        // Async + throwing closures are NOT supported because [UnmanagedCallersOnly]
+        // callbacks cannot await Tasks to get the error/result synchronously.
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
             new NamedTypeSpec("Swift.Bool"));
@@ -507,17 +508,18 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void IsSupportedClosure_WithThrowingClosure_ReturnsFalse()
+    public void IsSupportedClosure_WithThrowingClosure_ReturnsTrue()
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
+        // Throwing closures are now supported - mapped to Func<..., SwiftResult<T, SwiftError>>
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
             new NamedTypeSpec("Swift.Bool"));
         closureTypeSpec.Throws = true;
 
-        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
     }
 
     [Fact]
@@ -996,6 +998,114 @@ public class ClosureHandlerTests
         var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
 
         Assert.False(handler.IsAsyncClosure(closureTypeSpec));
+    }
+
+    #endregion
+
+    #region Throwing Closure Delegate Type Tests
+
+    [Fact]
+    public void GetCSharpDelegateType_ThrowsVoidToVoid_ReturnsFuncSwiftResultVoid()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.Throws = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<Swift.SwiftResult<Swift.SwiftVoid, SwiftError>>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_ThrowsVoidToInt_ReturnsFuncSwiftResultInt()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.Throws = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<Swift.SwiftResult<System.Int64, SwiftError>>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_ThrowsIntToBool_ReturnsFuncIntSwiftResultBool()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        closureTypeSpec.Throws = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<System.Int64, Swift.SwiftResult<System.Boolean, SwiftError>>", result);
+    }
+
+    // Note: Async+throwing closure delegate type tests removed because async+throws closures
+    // are not supported (rejected by IsSupportedClosure). The delegate type method would never
+    // be called for such closures in practice.
+
+    [Fact]
+    public void IsThrowingClosure_WithThrowingClosure_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.Throws = true;
+
+        Assert.True(handler.IsThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsThrowingClosure_WithNonThrowingClosure_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void GetPInvokeFunctionPointerTypeWithError_VoidToVoid_ReturnsCorrectType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.Throws = true;
+
+        var result = handler.GetPInvokeFunctionPointerTypeWithError(closureTypeSpec);
+
+        Assert.Equal("delegate* unmanaged[Swift]<SwiftError*, void>", result);
+    }
+
+    [Fact]
+    public void GetPInvokeFunctionPointerTypeWithError_IntToBool_ReturnsCorrectType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        closureTypeSpec.Throws = true;
+
+        var result = handler.GetPInvokeFunctionPointerTypeWithError(closureTypeSpec);
+
+        // Args: Int (nint), error (SwiftError*), return (byte for bool)
+        Assert.Equal("delegate* unmanaged[Swift]<nint, SwiftError*, byte>", result);
     }
 
     #endregion

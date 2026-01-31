@@ -1766,8 +1766,15 @@ namespace BindingsGeneration
 
                 if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
+                    // Check if this is a throwing closure
+                    if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
+                    {
+                        // Throwing closures need special callback that handles SwiftError
+                        ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    }
                     // Check if this closure needs indirect return marshalling
-                    if (_env.ClosureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec))
+                    else if (_env.ClosureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec))
                     {
                         ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
                         ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
@@ -2027,9 +2034,14 @@ namespace BindingsGeneration
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
                 if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                 {
+                    // Throwing closures need special marshalling to handle SwiftError
+                    if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
+                    {
+                        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                    }
                     // Use non-frozen struct marshalling if any parameter is a non-frozen struct
                     // (requires heap allocation with NativeMemory and InitializeWithCopy/Destroy)
-                    if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
+                    else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
                     {
                         ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
                     }

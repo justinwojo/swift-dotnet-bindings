@@ -277,11 +277,71 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, IDisposable
     }
 
     /// <summary>
+    /// Creates a success result with the given value.
+    /// </summary>
+    /// <param name="value">The success value.</param>
+    /// <returns>A new SwiftResult in the success case.</returns>
+    public static SwiftResult<TSuccess, TFailure> FromSuccess(TSuccess value)
+    {
+        return new SuccessResult(value);
+    }
+
+    /// <summary>
+    /// Creates a failure result with the given error.
+    /// </summary>
+    /// <param name="error">The failure value.</param>
+    /// <returns>A new SwiftResult in the failure case.</returns>
+    public static SwiftResult<TSuccess, TFailure> FromFailure(TFailure error)
+    {
+        return new FailureResult(error);
+    }
+
+    /// <summary>
     /// Releases the resources used by the SwiftResult.
     /// </summary>
     public void Dispose()
     {
         _payload?.Dispose();
+    }
+
+    /// <summary>
+    /// Internal class representing a success result that doesn't require Swift interop.
+    /// Used when creating results from C# code (e.g., for throwing closure callbacks).
+    /// </summary>
+    private sealed class SuccessResult : SwiftResult<TSuccess, TFailure>
+    {
+        private readonly TSuccess _value;
+
+        public SuccessResult(TSuccess value) : base()
+        {
+            _value = value;
+        }
+
+        public new SwiftResultCase Case => SwiftResultCase.Success;
+        public new bool IsSuccess => true;
+        public new bool IsFailure => false;
+        public new TSuccess Success => _value;
+        public new TFailure Failure => throw new InvalidOperationException("Cannot get Failure when case is Success");
+    }
+
+    /// <summary>
+    /// Internal class representing a failure result that doesn't require Swift interop.
+    /// Used when creating results from C# code (e.g., for throwing closure callbacks).
+    /// </summary>
+    private sealed class FailureResult : SwiftResult<TSuccess, TFailure>
+    {
+        private readonly TFailure _error;
+
+        public FailureResult(TFailure error) : base()
+        {
+            _error = error;
+        }
+
+        public new SwiftResultCase Case => SwiftResultCase.Failure;
+        public new bool IsSuccess => false;
+        public new bool IsFailure => true;
+        public new TSuccess Success => throw new InvalidOperationException("Cannot get Success when case is Failure");
+        public new TFailure Failure => _error;
     }
 }
 

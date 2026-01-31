@@ -32,6 +32,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 12 | CoreFoundation/TupleHandler Fixes | [phase-12-corefoundation-tuple-fixes.md](CompletedPhases/phase-12-corefoundation-tuple-fixes.md) |
 | Phase 13 | Optional Closures & AsyncStream Fixes | [phase-13-optional-closures.md](CompletedPhases/phase-13-optional-closures.md) |
 | Phase 14 | Async Tuple Return Support | [phase-14-async-tuple-returns.md](CompletedPhases/phase-14-async-tuple-returns.md) |
+| Phase 15 | Throwing Closures Support | [phase-15-throwing-closures.md](CompletedPhases/phase-15-throwing-closures.md) |
 
 ---
 
@@ -47,14 +48,17 @@ The following phases have been completed. See individual documents for details:
 - Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **593 unit tests, 691 integration tests, 72 runtime tests passing (1,356 total)**
+- **600 unit tests, 691 integration tests, 72 runtime tests passing (1,363 total)**
 
 **Remaining gaps**:
 - **1 property** with unsupported types (skipped):
   - `didComplete` - @MainActor async closure with Optional wrapping; closure infrastructure ready but accessor signature unsupported
 - **~4 methods/constructors** with `AnyType` parameters:
   - `imagePublisher(...)` - Returns Combine `AnyPublisher` (reactive framework out of scope)
-  - `ImageRequest` constructor - `() async throws -> Data` closure (throwing closures not supported)
+  - `ImageRequest` constructor - `() async throws -> Data` closure (async+throws closures not supported due to [UnmanagedCallersOnly] limitations)
+- **Fixed in Phase 15**:
+  - ✅ Throwing closures - Non-async throwing closures now map to `Func<..., SwiftResult<T, SwiftError>>`
+  - Note: Async+throwing closures remain unsupported because `[UnmanagedCallersOnly]` callbacks cannot await Tasks
 - **Fixed in Phase 14**:
   - ✅ `data(_for:)` - Async method returning tuple `(Data, URLResponse?)` now properly typed
 - **Fixed in Phase 13**:
@@ -159,6 +163,7 @@ var image = response.Image; // UIImage
 - [x] **Existential parameters** - Methods with `any Protocol` parameters now generate valid `ExistentialContainer{N}` types
 - [x] **Closure bound generic parameters** - Closures accepting `Result<T,E>`, `Array<T>`, `Optional<T>`, etc. now generate valid C# code
 - [x] **Closure bound generic returns** - Closures returning `SwiftOptional<T>`, `SwiftResult<S,E>`, etc. now use indirect return marshalling
+- [x] **Throwing closures** - Non-async throwing closures map to `Func<..., SwiftResult<T, SwiftError>>`
 - [x] **Existential properties** - Properties with `any Protocol` types now generate `ExistentialContainer{N}` types
 - [x] **Generic constructors** - Constructors with generic parameters now work using same infrastructure as methods
 - [x] **Hasher type support** - `hash(into:)` methods now generate correctly
@@ -206,17 +211,13 @@ var image = response.Image; // UIImage
 - ✅ Element-wise marshalling for ObjC types (`GetNSObject`) and Swift types
 - ✅ TupleHandler P/Invoke type mapping enhanced (ObjC → IntPtr, non-frozen → Buffer)
 
-### 15.1 Throwing Closures
-**Priority**: Medium
-
-Closures with `throws` attribute are excluded from support.
-
-**Affected APIs**:
-- `ImageRequest` init with `() async throws -> Data` parameter
-
-**Requirements**:
-- Implement error marshalling for closure returns
-- Handle Swift Error to C# Exception conversion
+### Phase 15 Completed
+- ✅ Throwing closures (non-async) - Map to `Func<..., SwiftResult<T, SwiftError>>`
+- ✅ `SwiftVoid` unit type for void-returning throwing closures
+- ✅ `SwiftResult.FromSuccess()` / `FromFailure()` factory methods
+- ✅ `EmitThrowingClosureCallback()` with SwiftError* out parameter handling
+- ✅ `EmitThrowingClosureReturnMarshalling()` for receiving throwing closures from Swift
+- ⚠️ Async+throws closures NOT supported - `[UnmanagedCallersOnly]` callbacks cannot await Tasks
 
 ### 15.2 didComplete Property Accessor
 **Priority**: Medium
@@ -313,9 +314,9 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 
 | Category | Count |
 |----------|-------|
-| Unit tests | 593 |
+| Unit tests | 600 |
 | Integration tests | 691 |
 | Runtime tests | 72 |
-| **Total** | **1,356** |
+| **Total** | **1,363** |
 
 All tests passing. iOS Simulator validation successful.

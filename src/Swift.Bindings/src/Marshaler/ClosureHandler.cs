@@ -158,18 +158,23 @@ public class ClosureHandler
     /// - @convention(c) closures (Phase 1)
     /// - Escaping closures with concrete types (Phase 2)
     /// - Async closures (Phase 3) - mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;
-    /// All must be non-throwing and have concrete (non-generic) argument/return types.
+    /// - Throwing closures (Phase 4) - mapped to Func&lt;..., SwiftResult&lt;T, SwiftError&gt;&gt;
+    /// All must have concrete (non-generic) argument/return types.
     /// Return types must be primitive/blittable (complex return type marshalling not yet implemented).
+    /// Note: Async+throwing closures are NOT yet supported because [UnmanagedCallersOnly] callbacks
+    /// cannot await Tasks, making it impossible to properly handle the async error result.
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns><c>true</c> if the closure is supported; otherwise, <c>false</c>.</returns>
     public bool IsSupportedClosure(ClosureTypeSpec closureTypeSpec)
     {
-        // Exclude throwing closures
-        if (closureTypeSpec.Throws)
+        // Async+throwing closures are NOT supported because [UnmanagedCallersOnly] callbacks
+        // cannot await Tasks. The callback would receive Task<SwiftResult<T, SwiftError>>
+        // but we can't await it to get the actual result/error synchronously.
+        if (closureTypeSpec.IsAsync && closureTypeSpec.Throws)
             return false;
 
-        // Async+throwing closures are not supported (need complex error handling)
+        // Plain throwing closures are supported - mapped to SwiftResult<T, SwiftError>
         // Plain async closures are supported via Task-based delegates
 
         // Note: We no longer check for explicit @escaping attribute here.
@@ -396,6 +401,8 @@ public class ClosureHandler
     /// <summary>
     /// Translates a Swift closure type to a C# delegate type string for wrapper methods.
     /// Async closures are mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;.
+    /// Throwing closures are mapped to Func&lt;..., SwiftResult&lt;T, SwiftError&gt;&gt;.
+    /// Async+throwing closures are mapped to Func&lt;..., Task&lt;SwiftResult&lt;T, SwiftError&gt;&gt;&gt;.
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns>The C# delegate type name (Action&lt;&gt; or Func&lt;&gt;).</returns>
@@ -408,39 +415,77 @@ public class ClosureHandler
         }
 
         bool hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
+        bool isAsync = closureTypeSpec.IsAsync;
+        bool throws = closureTypeSpec.Throws;
 
-        // Handle async closures - map to Func<..., Task> or Func<..., Task<T>>
-        if (closureTypeSpec.IsAsync)
-        {
-            if (hasReturn)
-            {
-                var returnType = TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
-                if (argTypes.Count == 0)
-                    return $"Func<Task<{returnType}>>";
-                return $"Func<{string.Join(", ", argTypes)}, Task<{returnType}>>";
-            }
-            else
-            {
-                if (argTypes.Count == 0)
-                    return "Func<Task>";
-                return $"Func<{string.Join(", ", argTypes)}, Task>";
-            }
-        }
-
-        // Non-async closures
+        // Determine the core return type
+        string coreReturnType;
         if (hasReturn)
         {
-            var returnType = TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
-            if (argTypes.Count == 0)
-                return $"Func<{returnType}>";
-            return $"Func<{string.Join(", ", argTypes)}, {returnType}>";
+            coreReturnType = TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
         }
         else
         {
+            // For void returns, use SwiftVoid as the success type in throwing closures
+            coreReturnType = throws ? "Swift.SwiftVoid" : null!;
+        }
+
+        // Build the final return type based on async and throws modifiers
+        string finalReturnType;
+        if (throws)
+        {
+            // Throwing closures wrap in SwiftResult<T, SwiftError>
+            var resultType = hasReturn
+                ? $"Swift.SwiftResult<{coreReturnType}, SwiftError>"
+                : $"Swift.SwiftResult<Swift.SwiftVoid, SwiftError>";
+
+            if (isAsync)
+            {
+                // Async+throwing: Task<SwiftResult<T, SwiftError>>
+                finalReturnType = $"Task<{resultType}>";
+            }
+            else
+            {
+                // Throws only: SwiftResult<T, SwiftError>
+                finalReturnType = resultType;
+            }
+        }
+        else if (isAsync)
+        {
+            // Async only: Task or Task<T>
+            finalReturnType = hasReturn ? $"Task<{coreReturnType}>" : "Task";
+        }
+        else
+        {
+            // Non-async, non-throwing
+            finalReturnType = coreReturnType;
+        }
+
+        // Generate delegate type
+        if (finalReturnType == null)
+        {
+            // Non-throwing, non-async void -> Action
             if (argTypes.Count == 0)
                 return "Action";
             return $"Action<{string.Join(", ", argTypes)}>";
         }
+        else
+        {
+            // All other cases -> Func
+            if (argTypes.Count == 0)
+                return $"Func<{finalReturnType}>";
+            return $"Func<{string.Join(", ", argTypes)}, {finalReturnType}>";
+        }
+    }
+
+    /// <summary>
+    /// Determines if a closure is a throwing closure.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>True if the closure throws.</returns>
+    public bool IsThrowingClosure(ClosureTypeSpec closureTypeSpec)
+    {
+        return closureTypeSpec.Throws;
     }
 
     /// <summary>
@@ -505,6 +550,55 @@ public class ClosureHandler
         {
             argTypes.Add(TranslateTypeSpecToPInvokeType(arg));
         }
+
+        // Use Swift calling convention, return type is always void with indirect return
+        return $"delegate* unmanaged[Swift]<{string.Join(", ", argTypes)}, void>";
+    }
+
+    /// <summary>
+    /// Gets the P/Invoke function pointer type for a throwing closure callback.
+    /// The error pointer is passed as an additional parameter (SwiftError*), and the callback
+    /// should set the error pointer if the delegate returns a failure result.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>The unmanaged function pointer type string with error parameter.</returns>
+    public string GetPInvokeFunctionPointerTypeWithError(ClosureTypeSpec closureTypeSpec)
+    {
+        var argTypes = new List<string>();
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            argTypes.Add(TranslateTypeSpecToPInvokeType(arg));
+        }
+
+        // Add SwiftError* out parameter before SwiftSelf context
+        argTypes.Add("SwiftError*");
+
+        bool hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
+        var returnType = hasReturn ? TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType) : "void";
+
+        // Use Swift calling convention
+        if (argTypes.Count == 0)
+            return $"delegate* unmanaged[Swift]<{returnType}>";
+
+        return $"delegate* unmanaged[Swift]<{string.Join(", ", argTypes)}, {returnType}>";
+    }
+
+    /// <summary>
+    /// Gets the P/Invoke function pointer type for a throwing closure callback that uses indirect return.
+    /// Combines indirect return (void* first) with error handling (SwiftError* before context).
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>The unmanaged function pointer type string with indirect return and error parameter.</returns>
+    public string GetPInvokeFunctionPointerTypeWithIndirectReturnAndError(ClosureTypeSpec closureTypeSpec)
+    {
+        var argTypes = new List<string> { "void*" }; // indirectResult first
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            argTypes.Add(TranslateTypeSpecToPInvokeType(arg));
+        }
+
+        // Add SwiftError* out parameter before SwiftSelf context
+        argTypes.Add("SwiftError*");
 
         // Use Swift calling convention, return type is always void with indirect return
         return $"delegate* unmanaged[Swift]<{string.Join(", ", argTypes)}, void>";
