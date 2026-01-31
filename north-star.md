@@ -165,11 +165,12 @@ To maintain focus, these are explicitly **out of scope**:
 - Tuples (1-7 elements with frozen types and existentials)
 - Operators (arithmetic, comparison, bitwise, unary)
 - Basic enums (with payload construction for associated values)
+- **RawRepresentable enums** (both frozen and non-frozen) - `FromRawValue()` and static case properties
 - SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>, SwiftResult<S,F>
 - Existential types (`any Protocol`) - parameters, returns, properties, closures, tuples
 - Generic constructors and generic methods (with where clause constraints)
 - StoreKit 2 bindings (published as experimental NuGet)
-- 438 unit tests, 684 integration tests passing
+- 605 unit tests, 691 integration tests, 72 runtime tests passing
 
 ### What Doesn't Work Yet
 - Actors - unsupported

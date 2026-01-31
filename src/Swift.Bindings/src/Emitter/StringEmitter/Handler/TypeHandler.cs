@@ -2291,46 +2291,124 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Check if the enum is non-frozen - failable initializers for non-frozen enums
-            // have complex calling conventions that aren't yet supported
-            if (!enumDecl.IsFrozen)
+            // Emit FromRawValue method - different implementations for frozen vs non-frozen enums
+            // Frozen enums can return directly, non-frozen enums require indirect return via SwiftOptional
+            if (enumDecl.IsFrozen)
             {
-                _logger.LogWarning($"Enum '{enumTypeName}' is RawRepresentable but non-frozen. Failable initializers (init?(rawValue:)) for non-frozen enums require indirect return handling that isn't yet implemented. Skipping simple case emission.");
-                foreach (var caseDecl in simpleCases)
-                {
-                    _logger.LogWarning($"Skipping enum case '{enumTypeName}.{caseDecl.Name}' - non-frozen RawRepresentable enums not yet supported.");
-                }
-                return;
+                // Frozen enum: P/Invoke returns IntPtr directly, null check via IntPtr.Zero
+                csWriter.WriteLine("/// <summary>");
+                csWriter.WriteLine($"/// Creates a {enumTypeName} from its raw value.");
+                csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
+                csWriter.WriteLine("/// </summary>");
+                csWriter.WriteLine($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);");
+                csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("return null;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine($"var result = new {enumTypeName}();");
+                csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(resultPtr);");
+                csWriter.WriteLine("return result;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Emit P/Invoke for init(rawValue:) - frozen version returns IntPtr directly
+                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine($"private static extern IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
+                csWriter.WriteLine();
             }
+            else
+            {
+                // Non-frozen enum: failable initializer returns Optional<Self> via indirect return
+                // We allocate buffer for SwiftOptional<EnumType>, call P/Invoke, then check the tag
+                csWriter.WriteLine("/// <summary>");
+                csWriter.WriteLine($"/// Creates a {enumTypeName} from its raw value.");
+                csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
+                csWriter.WriteLine("/// </summary>");
+                csWriter.WriteLine($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
 
-            // Emit FromRawValue method
-            csWriter.WriteLine("/// <summary>");
-            csWriter.WriteLine($"/// Creates a {enumTypeName} from its raw value.");
-            csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
-            csWriter.WriteLine("/// </summary>");
-            csWriter.WriteLine($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine($"IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);");
-            csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("return null;");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine($"var result = new {enumTypeName}();");
-            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(resultPtr);");
-            csWriter.WriteLine("return result;");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
+                // Get metadata for the enum type and SwiftOptional<EnumType>
+                csWriter.WriteLine("// Get metadata for the enum type");
+                csWriter.WriteLine("var enumMetadata = PInvoke_getMetadata();");
+                csWriter.WriteLine();
+                csWriter.WriteLine("// Get metadata for SwiftOptional<EnumType>");
+                csWriter.WriteLine("var optionalMetadata = PInvokesForSwiftOptional_MetadataAccessor(");
+                csWriter.Indent++;
+                csWriter.WriteLine("TypeMetadataRequest.Complete, enumMetadata);");
+                csWriter.Indent--;
+                csWriter.WriteLine();
 
-            // Emit P/Invoke for init(rawValue:)
-            // The mangled name should already have 'C' suffix from PatchMangledName
-            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
-            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"private static extern IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
-            csWriter.WriteLine();
+                // Allocate buffer for optional result
+                csWriter.WriteLine("// Allocate buffer for SwiftOptional<EnumType> result");
+                csWriter.WriteLine("void* resultBuffer = NativeMemory.AllocZeroed(optionalMetadata.Size);");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                // Call P/Invoke with indirect result
+                csWriter.WriteLine("// Call the failable initializer with indirect result");
+                csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
+                csWriter.WriteLine("PInvoke_InitWithRawValue(swiftIndirectResult, rawValue);");
+                csWriter.WriteLine();
+
+                // Check if Some or None via enum tag
+                csWriter.WriteLine("// Check if result is Some (tag 0) or None (tag 1)");
+                csWriter.WriteLine("uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);");
+                csWriter.WriteLine();
+                csWriter.WriteLine("// SwiftOptionalCases.None = 1");
+                csWriter.WriteLine("if (tag == 1)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("return null;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Extract enum payload (it's at the start of the optional buffer)
+                csWriter.WriteLine("// Extract the enum value from the optional's payload");
+                csWriter.WriteLine("IntPtr enumBuffer = (IntPtr)NativeMemory.Alloc(enumMetadata.Size);");
+                csWriter.WriteLine("enumMetadata.ValueWitnessTable->InitializeWithCopy((void*)enumBuffer, resultBuffer, enumMetadata);");
+                csWriter.WriteLine();
+                csWriter.WriteLine($"var result = new {enumTypeName}();");
+                csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(enumBuffer);");
+                csWriter.WriteLine("return result;");
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("finally");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("// Clean up the optional buffer");
+                csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
+                csWriter.WriteLine("NativeMemory.Free(resultBuffer);");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Emit P/Invoke for init(rawValue:) - non-frozen version uses indirect result
+                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine($"private static extern void PInvoke_InitWithRawValue(SwiftIndirectResult result, {csharpRawType} rawValue);");
+                csWriter.WriteLine();
+
+                // Emit P/Invoke for SwiftOptional metadata accessor (using Swift stdlib symbol)
+                csWriter.WriteLine("// SwiftOptional metadata accessor from Swift stdlib");
+                csWriter.WriteLine("[DllImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine("private static extern TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
+                csWriter.WriteLine();
+            }
 
             // Emit static properties for each simple case
             // Simple cases use sequential raw values starting from 0 (Swift default behavior)

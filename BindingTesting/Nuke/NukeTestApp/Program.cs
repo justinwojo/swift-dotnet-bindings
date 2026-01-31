@@ -850,19 +850,51 @@ public class MainViewController : UIViewController
     {
         TestLogger.Info("Testing ImageRequest configuration options...");
 
-        // Test 1: Priority enum values (Swift enums are classes in C#)
-        // Note: Priority is a non-frozen RawRepresentable enum - failable initializers
-        // for non-frozen enums require complex indirect return handling not yet implemented
+        // Test 1: Priority enum values (non-frozen RawRepresentable enum)
+        // Phase 18 implemented indirect return handling for failable initializers
         try
         {
-            // Priority enum cases not yet supported for non-frozen enums
-            // The init?(rawValue:) failable initializer requires indirect return handling
-            TestLogger.Warning("Priority enum cases skipped (non-frozen RawRepresentable enum - requires indirect return handling)");
-            results.Warn("Priority type access skipped (non-frozen RawRepresentable limitation)");
+            TestLogger.Info("Testing Priority enum cases...");
+
+            // Access each priority case - these are static properties using FromRawValue()
+            var veryLow = ImageRequest.Priority.VeryLow;
+            TestLogger.Info($"  Priority.VeryLow: {veryLow.GetType().Name} (payload: 0x{veryLow.Payload.DangerousGetHandle():X})");
+
+            var low = ImageRequest.Priority.Low;
+            TestLogger.Info($"  Priority.Low: {low.GetType().Name}");
+
+            var normal = ImageRequest.Priority.Normal;
+            TestLogger.Info($"  Priority.Normal: {normal.GetType().Name}");
+
+            var high = ImageRequest.Priority.High;
+            TestLogger.Info($"  Priority.High: {high.GetType().Name}");
+
+            var veryHigh = ImageRequest.Priority.VeryHigh;
+            TestLogger.Info($"  Priority.VeryHigh: {veryHigh.GetType().Name}");
+
+            // Test FromRawValue with invalid value returns null
+            var invalid = ImageRequest.Priority.FromRawValue(999);
+            if (invalid != null)
+            {
+                results.Fail("Priority invalid raw value", "FromRawValue(999) should return null");
+            }
+            else
+            {
+                TestLogger.Info("  FromRawValue(999) correctly returned null");
+            }
+
+            // Clean up
+            veryLow.Payload.Dispose();
+            low.Payload.Dispose();
+            normal.Payload.Dispose();
+            high.Payload.Dispose();
+            veryHigh.Payload.Dispose();
+
+            results.Pass("Priority enum cases");
         }
         catch (Exception ex)
         {
-            results.Fail("Priority type access", ex.Message);
+            results.Fail("Priority enum cases", ex.Message);
         }
 
         // Test 2: Options types (Swift OptionSet represented as class)
