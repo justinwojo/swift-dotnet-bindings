@@ -84,10 +84,28 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
+        // Handle closure properties (property type is a closure/function type)
+        bool isClosure = propertyEnv.ClosureHandler.IsClosure(propertyDecl);
+        if (isClosure)
+        {
+            var closureTypeSpec = propertyEnv.ClosureHandler.GetClosureTypeSpec(propertyDecl);
+            if (closureTypeSpec == null || !propertyEnv.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} with unsupported closure type.");
+                return;
+            }
+            // Check if we can invoke this closure from C# (requires primitive parameters)
+            if (!propertyEnv.ClosureHandler.CanInvokeFromCSharp(closureTypeSpec))
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} - closure has non-primitive parameters that cannot be marshalled.");
+                return;
+            }
+        }
+
         bool processed = propertyEnv.TypeDatabase.TryGetTypeRecord(propertyDecl.SwiftTypeSpec, out var typeRecord);
 
-        // Only skip if not an existential (existentials don't have type records in the database)
-        if (!processed && !isExistential)
+        // Only skip if not an existential and not a closure (these don't have type records in the database)
+        if (!processed && !isExistential && !isClosure)
         {
             _logger.LogWarning($"PropertyHandler: Couldn't process property {propertyDecl.Name} of type {propertyDecl.SwiftTypeSpec}. Skipping.");
             return;
@@ -104,6 +122,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         {
             var protocolList = propertyEnv.ExistentialHandler.ToProtocolListTypeSpec(propertyDecl.SwiftTypeSpec)!;
             csTypeName = propertyEnv.ExistentialHandler.GetCSharpExistentialType(protocolList);
+        }
+        else if (isClosure)
+        {
+            var closureTypeSpec = propertyEnv.ClosureHandler.GetClosureTypeSpec(propertyDecl)!;
+            csTypeName = propertyEnv.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
         }
         else if (propertyEnv.BoundGenericsHandler.IsBoundGeneric(propertyDecl))
         {

@@ -180,6 +180,15 @@ public class ClosureHandler
                 // Recursively check all generic parameters are supported
                 foreach (var genericParam in namedType.GenericParameters)
                 {
+                    // Handle existential generic parameters (e.g., Optional<any Protocol>)
+                    if (_existentialHandler.IsExistential(genericParam))
+                    {
+                        var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
+                        if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
+                            return false;
+                        continue; // This parameter is valid
+                    }
+
                     if (!IsSupportedClosureParameterType(genericParam))
                         return false;
                 }
@@ -286,6 +295,15 @@ public class ClosureHandler
         // Recursively check all generic parameters are supported
         foreach (var genericParam in namedType.GenericParameters)
         {
+            // Handle existential generic parameters (e.g., Optional<any Protocol>)
+            if (_existentialHandler.IsExistential(genericParam))
+            {
+                var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
+                if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
+                    return false;
+                continue; // This parameter is valid
+            }
+
             if (!IsSupportedClosureParameterType(genericParam))
                 return false;
         }
@@ -419,6 +437,16 @@ public class ClosureHandler
         var translatedParams = new List<string>();
         foreach (var genericParam in namedType.GenericParameters)
         {
+            // Handle existential generic parameters (e.g., Optional<any Protocol>)
+            if (_existentialHandler.IsExistential(genericParam))
+            {
+                var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
+                if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
+                {
+                    translatedParams.Add(_existentialHandler.GetCSharpExistentialType(protocolList));
+                    continue;
+                }
+            }
             translatedParams.Add(TranslateTypeSpecToCSharp(genericParam));
         }
 
@@ -475,6 +503,52 @@ public class ClosureHandler
 
         // Fallback
         return "void*";
+    }
+
+    /// <summary>
+    /// Checks if a closure can be invoked from C# when received from Swift.
+    /// Closures with non-primitive parameters cannot be invoked because we can't
+    /// easily marshal C# structs to void* pointers in the lambda.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>True if all parameters are primitive types that can be passed directly.</returns>
+    public bool CanInvokeFromCSharp(ClosureTypeSpec closureTypeSpec)
+    {
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            if (!IsInvocableParameter(arg))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a parameter type can be passed when invoking a Swift closure from C#.
+    /// Only primitive types (mapped to blittable C# types) are supported.
+    /// </summary>
+    private bool IsInvocableParameter(TypeSpec typeSpec)
+    {
+        if (typeSpec is NamedTypeSpec namedType)
+        {
+            // Pointer types are supported
+            if (IsPointerType(namedType))
+                return true;
+
+            // Only primitive types are supported
+            var primitiveType = GetBlittablePrimitiveType(namedType.Name);
+            return primitiveType != null;
+        }
+
+        // Tuples of primitives could be supported but aren't currently
+        if (typeSpec is TupleTypeSpec)
+            return false;
+
+        // Empty tuples (void) are fine
+        if (typeSpec.IsEmptyTuple)
+            return true;
+
+        // Other types (closures, existentials, etc.) are not supported
+        return false;
     }
 
     /// <summary>

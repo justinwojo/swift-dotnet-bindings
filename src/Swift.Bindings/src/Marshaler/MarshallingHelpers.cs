@@ -14,6 +14,10 @@ namespace BindingsGeneration
 
             var returnType = env.MethodDecl.CSSignature.First();
 
+            // Closure return types don't require indirect result - they are passed as function pointers
+            if (returnType.SwiftTypeSpec is ClosureTypeSpec)
+                return false;
+
             // Bound generics that require marshalling (SwiftArray, SwiftOptional, etc.) return IntPtr directly
             // from PInvoke and don't need indirect result handling. They're marshalled via SwiftMarshal.MarshalFromSwift.
             // Note: This doesn't apply to constructors (handled above) since failable initializers need special handling.

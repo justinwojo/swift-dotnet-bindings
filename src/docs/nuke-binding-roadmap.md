@@ -42,15 +42,19 @@ Initial binding generation revealed these gap categories:
 - **539 unit tests, 691 integration tests, 72 runtime tests passing**
 
 **Remaining gaps**:
-- ~10 properties with unsupported types (skipped) - reduced from 24
+- ~6 properties with unsupported types (skipped) - reduced from 24:
+  - 3 AsyncStream properties (`progress`, `previews`, `events`) - requires async iteration infrastructure
+  - 2 closure properties with non-primitive parameters (`makeImageDecoder`, `makeImageEncoder`) - requires complex void* marshalling in invoker lambdas
+  - 1 async closure property (`didComplete`) - requires async closure callback infrastructure
 - ~~19 methods with unsupported signatures (skipped) - mostly due to `AnyType` (existential dictionary values)~~ FIXED (3.5)
-- Enum cases with associated values may have unsupported parameter types
+- ~~Enum cases with associated values may have unsupported parameter types~~ FIXED (9.1) - CIFilter/CIImage types added
 - ~~Methods with unsupported closure parameter types (e.g., closures with `Result<T,E>` parameters)~~ FIXED (3.3)
 - ~~Closures that *return* bound generic types (e.g., `Func<T, SwiftOptional<U>>`)~~ FIXED (3.3.1)
 - ~~Properties with existential types are skipped~~ FIXED (3.1.1)
 - ~~Generic constructors skipped~~ FIXED (3.4)
 - ~~Protocol witness table lookup~~ FIXED (Phase 7.11) - Swift wrapper exports witness table via P/Invoke
 - ~~PAT protocols skipped~~ FIXED (Phase 7.12) - Generic proxy classes with type erasure
+- ~~Existential property warning in ModuleProcessor~~ FIXED (9.3) - Existential types now skip gracefully
 - **ObjC types use `Swift.*` wrappers instead of existing .NET iOS bindings** (see 2.8) - Major UX issue
 
 **Fixed issues**:
@@ -72,6 +76,11 @@ Initial binding generation revealed these gap categories:
 - ~~Inconsistent existential handling~~ FIXED (Phase 6.3) - Both NamedTypeSpec.IsAny and ProtocolListTypeSpec handled uniformly
 - ~~Protocol witness table NotImplementedException~~ FIXED (Phase 7.11) - Witness table exported via Swift wrapper
 - ~~PAT protocols skipped proxy generation~~ FIXED (Phase 7.12) - Generic proxy classes with typealias type erasure
+- ~~CIFilter/CIImage missing from type database~~ FIXED (Phase 9.1) - CoreImageDatabase.xml updated
+- ~~Async self crashes in Swift wrapper~~ WORKAROUND (Phase 9.2) - build-swift-wrapper.sh sed replacement
+- ~~Existential properties warn "Not found in type declarations"~~ FIXED (Phase 9.3) - ModuleProcessor skips existentials
+- ~~Closure return types crash in MethodRequiresIndirectResult~~ FIXED (Phase 9.4) - Added ClosureTypeSpec check
+- ~~PropertyHandler doesn't handle closure properties~~ FIXED (Phase 9.5) - Added ClosureHandler to PropertyEnvironment
 
 ---
 
@@ -1041,6 +1050,11 @@ Bindings still generate, but conformance information is incomplete.
 | SwiftObjectRegistry | PASS | Container-to-proxy mapping for Swift callbacks (2026-01-30) |
 | Generic type translation in proxies | PASS | `SwiftOptional<T>` with full generic arguments (2026-01-30) |
 | Closure type translation in proxies | PASS | `ClosureTypeSpec` → `Action<...>`/`Func<...>` (2026-01-30) |
+| CIFilter/CIImage enum cases | PASS | CoreImageDatabase.xml entries added (2026-01-30) |
+| Existential property skip | PASS | ModuleProcessor skips `any Protocol` types without warning (2026-01-30) |
+| Closure property detection | PASS | PropertyHandler recognizes closure-typed properties (2026-01-30) |
+| Existentials in bound generics | PASS | `Optional<any Protocol>` supported in closures (2026-01-30) |
+| Async self workaround | PASS | build-swift-wrapper.sh sed replacement works (2026-01-30) |
 
 ---
 
@@ -2233,3 +2247,287 @@ DIAGNOSTIC: ImageRequest(resource: https://picsum.photos/400/300, ...)
    - Investigating why `SwiftSelf` + `Arc.Retain` doesn't work in async Task closures
    - Potentially modifying the generator to detect singleton patterns
    - Or finding a different way to capture `self` that survives the async boundary
+
+---
+
+## Phase 9: Binding Gap Reduction (2026-01-30)
+
+This phase focused on reducing the remaining binding warnings from 9 to 6 by fixing tractable issues and documenting the complex ones that require more infrastructure.
+
+### 9.1 Add CIFilter and CIImage to CoreImageDatabase.xml
+**Status**: DONE
+
+**Problem**: Enum cases `Error.failedToApplyFilter(CIFilter)` and `Error.failedToCreateOutputCGImage(CIImage)` were failing because CIFilter and CIImage weren't in the type database.
+
+**Solution**: Added entries for CIFilter and CIImage to `CoreImageDatabase.xml`:
+
+```xml
+<entity managedNameSpace="CoreImage" managedTypeName="CIFilter">
+    <typedeclaration kind="class" name="CIFilter" module="CoreImage"
+        mangledName="$sSo8CIFilterC" frozen="false"
+        requiresMemoryManagement="true" objcBridged="true" />
+</entity>
+<entity managedNameSpace="CoreImage" managedTypeName="CIImage">
+    <typedeclaration kind="class" name="CIImage" module="CoreImage"
+        mangledName="$sSo7CIImageC" frozen="false"
+        requiresMemoryManagement="true" objcBridged="true" />
+</entity>
+```
+
+**Files modified**:
+- `src/Swift.Runtime/src/Swift/CoreImageDatabase.xml`
+
+### 9.2 Async Self Workaround in Build Script
+**Status**: DONE
+
+**Problem**: Async methods crash when using `self` in the Swift wrapper because SwiftSelf doesn't work correctly in async Task closures.
+
+**Solution**: Added sed post-processing to `build-swift-wrapper.sh` to replace `self` with `Nuke.ImagePipeline.shared` for the image() async methods:
+
+```bash
+# Workaround: Replace self with shared instance for async methods
+sed -i '' 's/try! await image(/try! await Nuke.ImagePipeline.shared.image(/g' Swift.Nuke.swift
+```
+
+**Limitation**: Only works for singleton classes. Proper fix requires generator changes (see Future Work).
+
+**Files modified**:
+- `BindingTesting/Nuke/build-swift-wrapper.sh`
+
+### 9.3 Fix Existential Property Lookup in ModuleProcessor
+**Status**: DONE
+
+**Problem**: Properties with existential types (like `dataLoader: any DataLoading`) caused warnings "Not found in type declarations" because `ProcessStructProperties` was looking up protocol names in `_typeDecls`, which only contains concrete types.
+
+**Solution**: Added checks in `ProcessStructProperties` to skip existential types:
+
+```csharp
+// Skip existential types - they don't have TypeDecl entries
+if (propertyDecl.SwiftTypeSpec is ProtocolListTypeSpec)
+    continue;
+
+if (propertyDecl.SwiftTypeSpec is NamedTypeSpec namedPropertyType)
+{
+    if (namedPropertyType.IsAny)
+        continue;
+    // ... existing cross-module lookup logic
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Parser/ModuleProcessor.cs`
+
+### 9.4 Fix Closure Return Types in MarshallingHelpers
+**Status**: DONE
+
+**Problem**: When PropertyHandler tried to emit closure properties, `MarshallingHelpers.MethodRequiresIndirectResult()` crashed because it called `GetTypeRecordOrThrow()` on the closure return type, which isn't in the type database.
+
+**Solution**: Added check for ClosureTypeSpec at the start of `MethodRequiresIndirectResult()`:
+
+```csharp
+// Closure return types don't require indirect result - they are passed as function pointers
+if (returnType.SwiftTypeSpec is ClosureTypeSpec)
+    return false;
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/MarshallingHelpers.cs`
+
+### 9.5 Add Closure Property Support to PropertyHandler
+**Status**: DONE
+
+**Problem**: PropertyHandler didn't recognize closure properties (where the property type itself is a closure). These were falling through to the "Couldn't process property" error.
+
+**Solution**:
+1. Added `ClosureHandler` to `PropertyEnvironment`
+2. Added closure property detection and handling in `PropertyHandler.Emit()`
+3. Added `CanInvokeFromCSharp()` method to validate closure parameters
+
+```csharp
+// Handle closure properties (property type is a closure/function type)
+bool isClosure = propertyEnv.ClosureHandler.IsClosure(propertyDecl);
+if (isClosure)
+{
+    var closureTypeSpec = propertyEnv.ClosureHandler.GetClosureTypeSpec(propertyDecl);
+    if (!propertyEnv.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+        return; // Skip with warning
+    if (!propertyEnv.ClosureHandler.CanInvokeFromCSharp(closureTypeSpec))
+        return; // Skip with warning - non-primitive parameters
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/IEnvironment.cs` - Added ClosureHandler to PropertyEnvironment
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs` - Added closure property handling
+- `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` - Added `CanInvokeFromCSharp()` method
+
+### 9.6 Existentials Inside Bound Generics in Closures
+**Status**: DONE
+
+**Problem**: Closures with return types like `Optional<any Protocol>` (existentials nested inside bound generics) weren't being recognized as supported.
+
+**Solution**: Added existential handling in `IsSupportedClosureReturnType()` and `IsSupportedGenericType()`:
+
+```csharp
+foreach (var genericParam in namedType.GenericParameters)
+{
+    // Handle existential generic parameters (e.g., Optional<any Protocol>)
+    if (_existentialHandler.IsExistential(genericParam))
+    {
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
+        if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
+            return false;
+        continue;
+    }
+    // ... existing checks
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs`
+
+---
+
+## Summary of Completed Work (2026-01-30, Session 3)
+
+### Phase 9 Complete: Binding Gap Reduction
+
+Reduced property warnings from 9 to 6 by implementing fixes for tractable issues.
+
+#### Warning Summary
+
+| Warning Type | Count Before | Count After | Status |
+|-------------|--------------|-------------|--------|
+| CIFilter/CIImage enum cases | 2 | 0 | FIXED (9.1) |
+| dataLoader existential property | 1 | 0 | FIXED (9.3) |
+| makeImageDecoder closure | 1 | 1 | Deferred - non-primitive params |
+| makeImageEncoder closure | 1 | 1 | Deferred - non-primitive params |
+| AsyncStream properties | 3 | 3 | Deferred - async iteration |
+| didComplete async closure | 1 | 1 | Deferred - async callbacks |
+| **Total** | **9** | **6** | **33% reduction** |
+
+#### Closure Properties: Why makeImageDecoder/makeImageEncoder Are Deferred
+
+These closure properties have non-primitive parameters (e.g., `ImageDecodingContext`):
+
+```swift
+var makeImageDecoder: (ImageDecodingContext) -> ImageDecoding?
+var makeImageEncoder: (ImageEncodingContext) -> ImageEncoding
+```
+
+When Swift returns these closures, we wrap them in C# delegates. To invoke the delegate, we must:
+1. Allocate native memory for the parameter
+2. Marshal the C# struct to Swift format
+3. Call the Swift function pointer
+4. Free the native memory
+
+This is complex to do in a lambda expression. A proper implementation would require:
+- Generated helper methods for each closure signature
+- Memory management with `try/finally`
+- Or switching to a different invocation pattern
+
+**Recommendation**: Add to Phase 10 roadmap for comprehensive closure property support.
+
+#### AsyncStream Properties: Why progress/previews/events Are Deferred
+
+AsyncStream is a Swift async iteration type:
+
+```swift
+var progress: AsyncStream<ImageTask.Progress>
+var previews: AsyncStream<ImageResponse>
+var events: AsyncStream<ImageTask.Event>
+```
+
+Supporting these requires:
+- New Swift wrapper functions to iterate the stream
+- Callback mechanism for each element
+- Proper async/await integration on C# side
+
+**Recommendation**: Add to Phase 10 roadmap for async iteration support.
+
+#### didComplete: Why It's Deferred
+
+```swift
+var didComplete: (@MainActor @Sendable () async -> Void)?
+```
+
+This is an async closure with MainActor constraint. Supporting it requires:
+- Async closure callback infrastructure
+- MainActor dispatch handling
+
+**Recommendation**: Add to Phase 10 roadmap for async closure callbacks.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `CoreImageDatabase.xml` | Added CIFilter and CIImage entities |
+| `build-swift-wrapper.sh` | Added sed workaround for async self |
+| `ModuleProcessor.cs` | Skip existential types in property processing |
+| `MarshallingHelpers.cs` | Added closure return type check |
+| `IEnvironment.cs` | Added ClosureHandler to PropertyEnvironment |
+| `PropertyHandler.cs` | Added closure property handling |
+| `ClosureHandler.cs` | Added existential support, CanInvokeFromCSharp |
+| `ClosureEmitter.cs` | Minor cleanup (reverted complex changes) |
+
+### Test Results
+
+```
+Unit tests:        539 passed
+Integration tests: 691 passed
+Runtime tests:      72 passed (1 skipped)
+Simulator:         All 3 tests pass ✅
+```
+
+### Validated on iOS Simulator
+
+```
+PROTOCOL TEST SUCCESS: Full proxy pattern works!
+IMAGE PROCESSING TEST SUCCESS: Full proxy pattern works!
+=== TEST SUCCESS: Image loaded, size: 400x300 ===
+=== VALIDATION PASSED ===
+```
+
+---
+
+## Future Work (Phase 10+)
+
+### 10.1 Closure Properties with Non-Primitive Parameters
+**Priority**: Medium
+
+Enable closure properties like `makeImageDecoder` that have non-primitive parameters.
+
+**Requirements**:
+- Generate helper methods for closure invocation
+- Memory allocation/deallocation in generated code
+- Proper marshalling in invoker delegates
+
+### 10.2 AsyncStream Property Support
+**Priority**: Medium
+
+Enable properties returning `AsyncStream<T>` like `progress`, `previews`, `events`.
+
+**Requirements**:
+- Swift wrapper functions to iterate streams
+- Callback mechanism for each element
+- IAsyncEnumerable<T> support in C#
+
+### 10.3 Async Closure Callback Support
+**Priority**: Low
+
+Enable properties/parameters with async closures like `didComplete`.
+
+**Requirements**:
+- Async closure callback infrastructure
+- MainActor dispatch handling
+- Task-based completion pattern
+
+### 10.4 Proper Async Instance Method Fix
+**Priority**: Medium
+
+Replace the sed workaround for async self with proper generator support.
+
+**Options**:
+1. Detect singleton pattern and emit workaround automatically
+2. Fix underlying SwiftSelf + Arc.Retain issue in async contexts
+3. Use different self-capture pattern in Swift wrapper

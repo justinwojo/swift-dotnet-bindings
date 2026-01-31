@@ -4,5 +4,11 @@
         <entity managedNameSpace="Swift" managedTypeName="CIContext">
             <typedeclaration kind="class" name="CIContext" module="CoreImage" mangledName="$sSo9CIContextC" frozen="false" requiresMemoryManagement="true" />
         </entity>
+        <entity managedNameSpace="CoreImage" managedTypeName="CIFilter">
+            <typedeclaration kind="class" name="CIFilter" module="CoreImage" mangledName="$sSo8CIFilterC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="CoreImage" managedTypeName="CIImage">
+            <typedeclaration kind="class" name="CIImage" module="CoreImage" mangledName="$sSo7CIImageC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

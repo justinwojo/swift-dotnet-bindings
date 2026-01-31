@@ -177,5 +177,10 @@ namespace BindingsGeneration
         /// Existential handler instance for handling protocol existential types.
         /// </summary>
         public ExistentialHandler ExistentialHandler { get; } = new ExistentialHandler(typeDatabase);
+
+        /// <summary>
+        /// Closure handler instance for handling closure (function) types.
+        /// </summary>
+        public ClosureHandler ClosureHandler { get; } = new ClosureHandler(typeDatabase);
     }
 }

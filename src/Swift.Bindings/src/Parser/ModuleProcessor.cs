@@ -174,7 +174,21 @@ namespace BindingsGeneration
         {
             foreach (var propertyDecl in structDecl.Properties)
             {
-                if (propertyDecl.SwiftTypeSpec is not NamedTypeSpec namedPropertyType || propertyDecl.IsStatic)
+                // Skip static properties
+                if (propertyDecl.IsStatic)
+                    continue;
+
+                // Skip existential types - they don't have TypeDecl entries
+                // This includes protocol compositions (ProtocolListTypeSpec) and
+                // single-protocol existentials (NamedTypeSpec with IsAny=true)
+                if (propertyDecl.SwiftTypeSpec is ProtocolListTypeSpec)
+                    continue;
+
+                if (propertyDecl.SwiftTypeSpec is not NamedTypeSpec namedPropertyType)
+                    continue;
+
+                // Skip existential NamedTypeSpec (any Protocol syntax)
+                if (namedPropertyType.IsAny)
                     continue;
 
                 // If the property is from a different module, ensure that type is already processed.
