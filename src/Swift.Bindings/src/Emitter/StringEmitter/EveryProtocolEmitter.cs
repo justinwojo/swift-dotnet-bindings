@@ -427,6 +427,7 @@ public class EveryProtocolEmitter
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
 
         var swiftTypeName = GetSwiftTypeName(property.SwiftTypeSpec);
+        var swiftTypeNameForMetatype = GetSwiftTypeNameForMetatype(property.SwiftTypeSpec);
 
         writer.WriteLine($"public var {property.Name}: {swiftTypeName} {{");
         writer.Indent++;
@@ -438,7 +439,7 @@ public class EveryProtocolEmitter
                     var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                     let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
                         {{vtableInstanceName}}.csVTHandle, &selfProto)
-                    return resultPtr.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee
+                    return resultPtr.assumingMemoryBound(to: {{swiftTypeNameForMetatype}}.self).pointee
                 }
                 """);
         }
@@ -473,6 +474,7 @@ public class EveryProtocolEmitter
         var parametersString = string.Join(", ", parameters);
 
         var returnTypeName = GetSwiftTypeName(subscript.ReturnTypeSpec);
+        var returnTypeNameForMetatype = GetSwiftTypeNameForMetatype(subscript.ReturnTypeSpec);
 
         writer.WriteLine($"public subscript({parametersString}) -> {returnTypeName} {{");
         writer.Indent++;
@@ -486,7 +488,7 @@ public class EveryProtocolEmitter
                     {{argPassList}}
                     let resultPtr = {{vtableInstanceName}}.func_subscript_{{index}}_get!(
                         {{vtableInstanceName}}.csVTHandle, &selfProto{{BuildArgRefs(subscript.IndexParameters)}})
-                    return resultPtr.assumingMemoryBound(to: {{returnTypeName}}.self).pointee
+                    return resultPtr.assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).pointee
                 }
                 """);
         }
@@ -543,6 +545,7 @@ public class EveryProtocolEmitter
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? GetSwiftTypeName(returnType!) : "Void";
+        var returnTypeNameForMetatype = hasReturn ? GetSwiftTypeNameForMetatype(returnType!) : "Void";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         var fieldName = GetMethodVtableFieldName(method, index);
@@ -574,7 +577,7 @@ public class EveryProtocolEmitter
                     var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                     {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
                         {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}})
-                    return resultPtr.assumingMemoryBound(to: {{returnTypeName}}.self).pointee
+                    return resultPtr.assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).pointee
                 """);
         }
         else
@@ -597,21 +600,25 @@ public class EveryProtocolEmitter
 
         if (typeSpec is NamedTypeSpec namedType)
         {
+            // Handle existential types (any Protocol)
+            var anyPrefix = namedType.IsAny ? "any " : "";
+
             // Check if this is a generic type (has generic parameters)
             if (namedType.GenericParameters.Count > 0)
             {
                 var typeArgs = string.Join(", ", namedType.GenericParameters.Select(GetSwiftTypeName));
 
                 // Special case for Optional - use ? syntax
+                // Note: For optionals, the ? goes after the type name, and any prefix goes on inner type
                 if (namedType.Name == "Swift.Optional" && namedType.GenericParameters.Count == 1)
                 {
                     var innerType = GetSwiftTypeName(namedType.GenericParameters[0]);
-                    return $"{innerType}?";
+                    return $"({innerType})?";
                 }
 
-                return $"{namedType.Name}<{typeArgs}>";
+                return $"{anyPrefix}{namedType.Name}<{typeArgs}>";
             }
-            return namedType.Name;
+            return $"{anyPrefix}{namedType.Name}";
         }
 
         if (typeSpec is TupleTypeSpec tupleType)
@@ -622,7 +629,48 @@ public class EveryProtocolEmitter
             return $"({elements})";
         }
 
+        if (typeSpec is ClosureTypeSpec closureType)
+        {
+            // Build closure type string: (Args) -> Return or (Args) throws -> Return
+            var argsString = GetSwiftTypeName(closureType.Arguments);
+            // Ensure args are wrapped in parentheses
+            if (closureType.Arguments is not TupleTypeSpec)
+            {
+                argsString = $"({argsString})";
+            }
+            var returnString = GetSwiftTypeName(closureType.ReturnType);
+            if (closureType.ReturnType.IsEmptyTuple)
+            {
+                returnString = "Void";
+            }
+
+            var throwsKeyword = closureType.Throws ? " throws" : "";
+            var asyncKeyword = closureType.IsAsync ? " async" : "";
+
+            // Build: @escaping (Args) throws -> Return
+            var attributes = closureType.IsEscaping ? "@escaping " : "";
+            return $"{attributes}{argsString}{asyncKeyword}{throwsKeyword} -> {returnString}";
+        }
+
         return typeSpec.ToString() ?? "Any";
+    }
+
+    /// <summary>
+    /// Gets the Swift type name suitable for use with .self metatype access.
+    /// Wraps existential types (any Protocol) in parentheses since Swift requires
+    /// (any Protocol).self instead of any Protocol.self.
+    /// </summary>
+    private string GetSwiftTypeNameForMetatype(TypeSpec? typeSpec)
+    {
+        var typeName = GetSwiftTypeName(typeSpec);
+        // If the type starts with "any ", it needs to be wrapped in parentheses for .self access
+        if (typeName.StartsWith("any ") || typeName.StartsWith("(any "))
+        {
+            // Wrap in parentheses if not already
+            if (!typeName.StartsWith("("))
+                return $"({typeName})";
+        }
+        return typeName;
     }
 
     private string BuildArgumentPassList(IReadOnlyList<ArgumentDecl> parameters)

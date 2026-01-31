@@ -45,6 +45,10 @@ public class TypeConversionHandler
         if (typeSpec is not NamedTypeSpec namedTypeSpec)
             return false;
 
+        // Generic type parameters (e.g., τ_0_0, T) don't have a module qualifier
+        if (!namedTypeSpec.HasModule())
+            return false;
+
         var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
         return typeName.Equals(SwiftStringTypeName);
     }
@@ -57,6 +61,10 @@ public class TypeConversionHandler
         if (typeSpec is not NamedTypeSpec namedTypeSpec)
             return false;
 
+        // Generic type parameters (e.g., τ_0_0, T) don't have a module qualifier
+        if (!namedTypeSpec.HasModule())
+            return false;
+
         var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
         return typeName.Equals(SwiftArrayTypeName);
     }
@@ -67,6 +75,10 @@ public class TypeConversionHandler
     public bool IsSwiftOptional(TypeSpec? typeSpec)
     {
         if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        // Generic type parameters (e.g., τ_0_0, T) don't have a module qualifier
+        if (!namedTypeSpec.HasModule())
             return false;
 
         var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);

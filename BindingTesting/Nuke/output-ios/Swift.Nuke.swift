@@ -47,12 +47,12 @@ extension EveryProtocol: Nuke.ImageProcessing {
         }
     }
     
-    public func process(_ arg0: UIKit.UIImage) -> UIKit.UIImage? {
+    public func process(_ arg0: UIKit.UIImage) -> (UIKit.UIImage)? {
             var selfProto: Nuke.ImageProcessing = self
             var arg0Copy = arg0
                 let resultPtr = _imageProcessing_vtable.func_process_0!(
                 _imageProcessing_vtable.csVTHandle, &selfProto, &arg0Copy)
-            return resultPtr.assumingMemoryBound(to: UIKit.UIImage?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (UIKit.UIImage)?.self).pointee
     }
     
     public func process(_ arg0: Nuke.ImageContainer, context: Nuke.ImageProcessingContext) -> Nuke.ImageContainer {
@@ -100,21 +100,21 @@ private var _imageEncoding_vtable = ImageEncoding_vtable()
 
 // EveryProtocol conformance to ImageEncoding
 extension EveryProtocol: Nuke.ImageEncoding {
-    public func encode(_ arg0: UIKit.UIImage) -> Foundation.Data? {
+    public func encode(_ arg0: UIKit.UIImage) -> (Foundation.Data)? {
             var selfProto: Nuke.ImageEncoding = self
             var arg0Copy = arg0
                 let resultPtr = _imageEncoding_vtable.func_encode_0!(
                 _imageEncoding_vtable.csVTHandle, &selfProto, &arg0Copy)
-            return resultPtr.assumingMemoryBound(to: Foundation.Data?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (Foundation.Data)?.self).pointee
     }
     
-    public func encode(_ arg0: Nuke.ImageContainer, context: Nuke.ImageEncodingContext) -> Foundation.Data? {
+    public func encode(_ arg0: Nuke.ImageContainer, context: Nuke.ImageEncodingContext) -> (Foundation.Data)? {
             var selfProto: Nuke.ImageEncoding = self
             var arg0Copy = arg0
                 var contextCopy = context
                 let resultPtr = _imageEncoding_vtable.func_encode_1!(
                 _imageEncoding_vtable.csVTHandle, &selfProto, &arg0Copy, &contextCopy)
-            return resultPtr.assumingMemoryBound(to: Foundation.Data?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (Foundation.Data)?.self).pointee
     }
     
 }
@@ -152,14 +152,14 @@ private var _dataLoading_vtable = DataLoading_vtable()
 
 // EveryProtocol conformance to DataLoading
 extension EveryProtocol: Nuke.DataLoading {
-    public func loadData(with: Foundation.URLRequest, didReceiveData: (Foundation.Data, Foundation.URLResponse) -> (), completion: @escaping ((any Swift.Error)?) -> Void) -> Nuke.Cancellable {
+    public func loadData(with: Foundation.URLRequest, didReceiveData: (Foundation.Data, Foundation.URLResponse) -> Void, completion: ((any Swift.Error)?) -> Void) -> any Nuke.Cancellable {
             var selfProto: Nuke.DataLoading = self
             var withCopy = with
                 var didReceiveDataCopy = didReceiveData
                 var completionCopy = completion
                 let resultPtr = _dataLoading_vtable.func_loadData_0!(
                 _dataLoading_vtable.csVTHandle, &selfProto, &withCopy, &didReceiveDataCopy, &completionCopy)
-            return resultPtr.assumingMemoryBound(to: Nuke.Cancellable.self).pointee
+            return resultPtr.assumingMemoryBound(to: (any Nuke.Cancellable).self).pointee
     }
     
 }
@@ -242,12 +242,12 @@ private var _dataCaching_vtable = DataCaching_vtable()
 
 // EveryProtocol conformance to DataCaching
 extension EveryProtocol: Nuke.DataCaching {
-    public func cachedData(for forValue: Swift.String) -> Foundation.Data? {
+    public func cachedData(for forValue: Swift.String) -> (Foundation.Data)? {
             var selfProto: Nuke.DataCaching = self
             var forValueCopy = forValue
                 let resultPtr = _dataCaching_vtable.func_cachedData_0!(
                 _dataCaching_vtable.csVTHandle, &selfProto, &forValueCopy)
-            return resultPtr.assumingMemoryBound(to: Foundation.Data?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (Foundation.Data)?.self).pointee
     }
     
     public func containsData(for forValue: Swift.String) -> Swift.Bool {
@@ -329,61 +329,61 @@ private var _imagePipelineDelegate_vtable = ImagePipelineDelegate_vtable()
 
 // EveryProtocol conformance to ImagePipelineDelegate
 extension EveryProtocol: Nuke.ImagePipelineDelegate {
-    public func dataLoader(for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline) -> Nuke.DataLoading {
+    public func dataLoader(for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline) -> any Nuke.DataLoading {
             var selfProto: Nuke.ImagePipelineDelegate = self
             var forValueCopy = forValue
                 var pipelineCopy = pipeline
                 let resultPtr = _imagePipelineDelegate_vtable.func_dataLoader_0!(
                 _imagePipelineDelegate_vtable.csVTHandle, &selfProto, &forValueCopy, &pipelineCopy)
-            return resultPtr.assumingMemoryBound(to: Nuke.DataLoading.self).pointee
+            return resultPtr.assumingMemoryBound(to: (any Nuke.DataLoading).self).pointee
     }
     
-    public func imageDecoder(for forValue: Nuke.ImageDecodingContext, pipeline: Nuke.ImagePipeline) -> Nuke.ImageDecoding? {
+    public func imageDecoder(for forValue: Nuke.ImageDecodingContext, pipeline: Nuke.ImagePipeline) -> (any Nuke.ImageDecoding)? {
             var selfProto: Nuke.ImagePipelineDelegate = self
             var forValueCopy = forValue
                 var pipelineCopy = pipeline
                 let resultPtr = _imagePipelineDelegate_vtable.func_imageDecoder_1!(
                 _imagePipelineDelegate_vtable.csVTHandle, &selfProto, &forValueCopy, &pipelineCopy)
-            return resultPtr.assumingMemoryBound(to: Nuke.ImageDecoding?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (any Nuke.ImageDecoding)?.self).pointee
     }
     
-    public func imageEncoder(for forValue: Nuke.ImageEncodingContext, pipeline: Nuke.ImagePipeline) -> Nuke.ImageEncoding {
+    public func imageEncoder(for forValue: Nuke.ImageEncodingContext, pipeline: Nuke.ImagePipeline) -> any Nuke.ImageEncoding {
             var selfProto: Nuke.ImagePipelineDelegate = self
             var forValueCopy = forValue
                 var pipelineCopy = pipeline
                 let resultPtr = _imagePipelineDelegate_vtable.func_imageEncoder_2!(
                 _imagePipelineDelegate_vtable.csVTHandle, &selfProto, &forValueCopy, &pipelineCopy)
-            return resultPtr.assumingMemoryBound(to: Nuke.ImageEncoding.self).pointee
+            return resultPtr.assumingMemoryBound(to: (any Nuke.ImageEncoding).self).pointee
     }
     
-    public func imageCache(for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline) -> Nuke.ImageCaching? {
+    public func imageCache(for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline) -> (any Nuke.ImageCaching)? {
             var selfProto: Nuke.ImagePipelineDelegate = self
             var forValueCopy = forValue
                 var pipelineCopy = pipeline
                 let resultPtr = _imagePipelineDelegate_vtable.func_imageCache_3!(
                 _imagePipelineDelegate_vtable.csVTHandle, &selfProto, &forValueCopy, &pipelineCopy)
-            return resultPtr.assumingMemoryBound(to: Nuke.ImageCaching?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (any Nuke.ImageCaching)?.self).pointee
     }
     
-    public func dataCache(for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline) -> Nuke.DataCaching? {
+    public func dataCache(for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline) -> (any Nuke.DataCaching)? {
             var selfProto: Nuke.ImagePipelineDelegate = self
             var forValueCopy = forValue
                 var pipelineCopy = pipeline
                 let resultPtr = _imagePipelineDelegate_vtable.func_dataCache_4!(
                 _imagePipelineDelegate_vtable.csVTHandle, &selfProto, &forValueCopy, &pipelineCopy)
-            return resultPtr.assumingMemoryBound(to: Nuke.DataCaching?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (any Nuke.DataCaching)?.self).pointee
     }
     
-    public func cacheKey(for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline) -> Swift.String? {
+    public func cacheKey(for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline) -> (Swift.String)? {
             var selfProto: Nuke.ImagePipelineDelegate = self
             var forValueCopy = forValue
                 var pipelineCopy = pipeline
                 let resultPtr = _imagePipelineDelegate_vtable.func_cacheKey_5!(
                 _imagePipelineDelegate_vtable.csVTHandle, &selfProto, &forValueCopy, &pipelineCopy)
-            return resultPtr.assumingMemoryBound(to: Swift.String?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (Swift.String)?.self).pointee
     }
     
-    public func willCache(data: Foundation.Data, image: Nuke.ImageContainer?, for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline, completion: (Swift.Optional<Foundation.Data>) -> ()) {
+    public func willCache(data: Foundation.Data, image: (Nuke.ImageContainer)?, for forValue: Nuke.ImageRequest, pipeline: Nuke.ImagePipeline, completion: ((Foundation.Data)?) -> Void) {
             var selfProto: Nuke.ImagePipelineDelegate = self
             var dataCopy = data
                 var imageCopy = image
@@ -511,13 +511,13 @@ private var _imageCaching_vtable = ImageCaching_vtable()
 
 // EveryProtocol conformance to ImageCaching
 extension EveryProtocol: Nuke.ImageCaching {
-    public subscript(index0: Nuke.ImageCacheKey) -> Nuke.ImageContainer? {
+    public subscript(index0: Nuke.ImageCacheKey) -> (Nuke.ImageContainer)? {
         get {
             var selfProto: Nuke.ImageCaching = self
             var index0Copy = index0
             let resultPtr = _imageCaching_vtable.func_subscript_0_get!(
                 _imageCaching_vtable.csVTHandle, &selfProto, &index0Copy)
-            return resultPtr.assumingMemoryBound(to: Nuke.ImageContainer?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (Nuke.ImageContainer)?.self).pointee
         }
         set {
             var selfProto: Nuke.ImageCaching = self
@@ -582,12 +582,12 @@ extension EveryProtocol: Nuke.ImageDecoding {
             return resultPtr.assumingMemoryBound(to: Nuke.ImageContainer.self).pointee
     }
     
-    public func decodePartiallyDownloadedData(_ arg0: Foundation.Data) -> Nuke.ImageContainer? {
+    public func decodePartiallyDownloadedData(_ arg0: Foundation.Data) -> (Nuke.ImageContainer)? {
             var selfProto: Nuke.ImageDecoding = self
             var arg0Copy = arg0
                 let resultPtr = _imageDecoding_vtable.func_decodePartiallyDownloadedData_1!(
                 _imageDecoding_vtable.csVTHandle, &selfProto, &arg0Copy)
-            return resultPtr.assumingMemoryBound(to: Nuke.ImageContainer?.self).pointee
+            return resultPtr.assumingMemoryBound(to: (Nuke.ImageContainer)?.self).pointee
     }
     
 }
@@ -616,7 +616,7 @@ public func getEveryProtocolImageDecodingWitnessTable() -> UnsafeRawPointer {
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-public func PInvoke_image_305F6752(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_205D24CE(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -636,7 +636,7 @@ public func PInvoke_image_305F6752(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-public func PInvoke_image_27E38CE4(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_30BC88B2(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -656,7 +656,7 @@ public func PInvoke_image_27E38CE4(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAA0B7RequestV_tYaKF_async")
-public func PInvoke_data_6DEA521D(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_7552FBAF(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -676,7 +676,7 @@ public func PInvoke_data_6DEA521D(callback: @escaping @convention(c) (Foundation
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAF3URLV_tYaKF_async")
-public func PInvoke_data_61CCB7B4(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_40BF2F59(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee

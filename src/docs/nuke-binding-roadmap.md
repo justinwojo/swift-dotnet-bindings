@@ -38,6 +38,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 18 | Full Non-Frozen RawRepresentable Enum Support | See Phase 18 section below |
 | Phase 19 | Enum Associated Values Support | See Phase 19 section below |
 | Phase 20 | Enum Associated Value Extraction | See Phase 20 section below |
+| Phase 21 | Generic Type Parameter & Swift Wrapper Fixes | [phase-21-generic-param-fixes.md](CompletedPhases/phase-21-generic-param-fixes.md) |
 
 ---
 
@@ -53,7 +54,8 @@ The following phases have been completed. See individual documents for details:
 - Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **1,382 generator tests passing** (619 unit, 691 integration, 72 runtime)
+- **619 unit tests passing**
+- **Integration tests**: Pre-existing compilation errors in `GenericTests` module (generic protocol proxy limitation - see Phase 21)
 - **100% runtime validation pass rate** (30/30 tests in NukeTestApp, 2 skipped)
 
 **Runtime validated** (Phase 15.4):
@@ -147,6 +149,21 @@ Properties returning non-frozen struct types that contain existential containers
 - Swift's copy witness operation fails when copying structs with existentials
 
 **Workaround**: Avoid accessing properties that return non-frozen structs with existential container fields; use alternative APIs.
+
+### Generic Protocol Proxy Classes
+**Status**: Known limitation (discovered Phase 21)
+
+Protocols with associated types (PATs) generate generic proxy classes like `ContainerProxy<TElement>`. These classes contain `[UnmanagedCallersOnly]` callback methods for Swift-to-C# callbacks, but C# doesn't allow `[UnmanagedCallersOnly]` methods inside generic types.
+
+**Errors**:
+```
+error CS8895: Methods attributed with 'UnmanagedCallersOnly' cannot have generic type parameters
+error CS7042: The DllImport attribute cannot be applied to a method that is generic or contained in a generic type
+```
+
+**Affected**: Integration tests (`GenericTests` module), any protocol with associated types.
+
+**Workaround**: None currently. Requires architectural changes to the protocol proxy emitter - possibly using runtime code generation or a non-generic base class pattern.
 
 ### Simple Swift Enum Case Support
 **Status**: COMPLETED (Phase 18 + Phase 19 + Phase 20)
@@ -984,16 +1001,17 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 ## Test Results Summary
 
 ### Generator Tests
-| Category | Count |
-|----------|-------|
-| Unit tests | 619 |
-| Integration tests | 691 |
-| Runtime tests | 72 |
-| **Total** | **1,382** |
+| Category | Count | Status |
+|----------|-------|--------|
+| Unit tests | 619 | Passing |
+| Integration tests | 691 | Pre-existing issues (see below) |
+| Runtime tests | 72 | Not run (requires integration tests) |
 
-All generator tests passing.
+**Unit tests**: All 619 passing.
 
-### NukeTestApp Validation (Phase 20)
+**Integration tests**: Pre-existing compilation errors in `GenericTests` module. The `ContainerProxy<TElement>` generic class contains `[UnmanagedCallersOnly]` callback methods, which C# doesn't allow in generic types. This is a known architectural limitation with protocols that have associated types. See Phase 21 for details.
+
+### NukeTestApp Validation (Phase 21)
 | Category | Passed | Failed | Warnings |
 |----------|--------|--------|----------|
 | Basic Binding | 4 | 0 | 1 |
@@ -1039,3 +1057,8 @@ All generator tests passing.
 - ✅ Enum case discrimination via `CaseTag` enum and `Tag` property
 - ✅ Associated value extraction via `TryGet` methods (non-destructive)
 - ✅ Proper bound generic type resolution in payload marshalling
+
+**Fixed in Phase 21**:
+- ✅ TypeConversionHandler crash with generic type parameters (`τ_0_0`)
+- ✅ EveryProtocolEmitter closure type rendering in Swift wrapper
+- ✅ EveryProtocolEmitter existential metatype syntax (`(any Protocol).self`)
