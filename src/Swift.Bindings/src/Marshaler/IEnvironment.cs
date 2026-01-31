@@ -182,5 +182,10 @@ namespace BindingsGeneration
         /// Closure handler instance for handling closure (function) types.
         /// </summary>
         public ClosureHandler ClosureHandler { get; } = new ClosureHandler(typeDatabase);
+
+        /// <summary>
+        /// AsyncStream handler instance for handling Swift AsyncStream types.
+        /// </summary>
+        public AsyncStreamHandler AsyncStreamHandler { get; } = new AsyncStreamHandler(typeDatabase);
     }
 }

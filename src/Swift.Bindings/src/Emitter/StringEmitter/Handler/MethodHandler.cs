@@ -217,6 +217,8 @@ namespace BindingsGeneration
                     parameter.Name.EndsWith("FuncPtr") ? parameter.Name : $"{parameter.Name}FuncPtr",
                 // ObjC bridged types: extract Handle from the .NET iOS binding object
                 { Type: var type } when type.StartsWith("ObjCBridged:") => $"{parameter.Name}Handle",
+                // Async instance methods pass self as explicit IntPtr (not SwiftSelf register)
+                { Name: "_self", Type: "IntPtr" } => "_payload.DangerousGetHandle()",
                 _ => parameter.Name
             };
         }
@@ -749,12 +751,18 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleSwiftSelf()
         {
-            // Async methods need self passed to the Swift wrapper so it can call the actual method
-            // The Swift wrapper is an instance method extension that needs to know which instance to use
+            // Async instance methods on non-singleton classes pass self as explicit IntPtr parameter.
+            // We use a module-level free function (not extension method) to avoid SwiftSelf binding issues.
+            // Singleton classes use the ClassName.shared workaround and don't need _self.
             if (_env.MethodDecl.IsAsync && MarshallingHelpers.MethodRequiresSwiftSelf(_env))
             {
-                // For async methods, pass self via SwiftSelf (uses the Swift calling convention register)
-                AddParameter("SwiftSelf", "self");
+                var hasSingleton = (_env.ParentDecl as TypeDecl)?.HasSingletonPattern ?? false;
+                if (!hasSingleton)
+                {
+                    // For non-singleton async methods, pass self as explicit IntPtr
+                    AddParameter("IntPtr", "_self");
+                }
+                // For singleton classes, don't add any self parameter - we use .shared in Swift
                 return;
             }
 
@@ -1114,6 +1122,13 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Async methods either use singleton workaround or pass self as explicit IntPtr parameter.
+            // Either way, no SwiftSelf variable is needed on the C# side.
+            if (_requiresSwiftAsync)
+            {
+                return;
+            }
+
             // Frozen struct setters use a fixed block to get a pointer to 'this'
             if (_requiresFixedBlock)
             {
@@ -1250,26 +1265,33 @@ namespace BindingsGeneration
             }
 
             // Build parameter string - non-frozen types use UnsafeRawPointer in Swift wrapper
-            string parameters = string.Join(
-                ", ",
-                new[]
+            var baseParams = new[]
+            {
+                $"callback: @escaping @convention(c) ({(isEmptyTuple ? "" : $"{(_env.MethodDecl.CSSignature.First().IsGeneric ? _env.MethodDecl.GenericParameters[0].SugaredTypeName : _env.MethodDecl.CSSignature.First().SwiftTypeSpec)}, ")}Int64) -> Void",
+                "task: Int64"
+            };
+
+            var methodParams = _env.MethodDecl.CSSignature
+                .Skip(1)
+                .Select(p =>
                 {
-                    $"callback: @escaping @convention(c) ({(isEmptyTuple ? "" : $"{(_env.MethodDecl.CSSignature.First().IsGeneric ? _env.MethodDecl.GenericParameters[0].SugaredTypeName : _env.MethodDecl.CSSignature.First().SwiftTypeSpec)}, ")}Int64) -> Void",
-                    "task: Int64"
-                }.Concat(
-                    _env.MethodDecl.CSSignature
-                        .Skip(1)
-                        .Select(p =>
-                        {
-                            // Check if this is a non-frozen parameter that needs UnsafeRawPointer
-                            if (nonFrozenParams.Any(nfp => nfp.Name == p.Name))
-                            {
-                                return $"{p.Name}: UnsafeRawPointer";
-                            }
-                            return $"{p.Name}: {(p.IsGeneric ? _env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName : p.SwiftTypeSpec)}";
-                        })
-                )
-            );
+                    // Check if this is a non-frozen parameter that needs UnsafeRawPointer
+                    if (nonFrozenParams.Any(nfp => nfp.Name == p.Name))
+                    {
+                        return $"{p.Name}: UnsafeRawPointer";
+                    }
+                    return $"{p.Name}: {(p.IsGeneric ? _env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName : p.SwiftTypeSpec)}";
+                });
+
+            // For async instance methods on non-singleton classes, add _self: OpaquePointer as explicit parameter
+            // Singleton classes use ClassName.shared workaround and don't need _self
+            var hasSingletonForParams = (_env.ParentDecl as TypeDecl)?.HasSingletonPattern ?? false;
+            var needsSelfParam = isInstanceMethod && _env.MethodDecl.MethodType != MethodType.Static && !hasSingletonForParams;
+            var selfParam = needsSelfParam
+                ? new[] { "_self: OpaquePointer" }
+                : Array.Empty<string>();
+
+            string parameters = string.Join(", ", baseParams.Concat(methodParams).Concat(selfParam));
 
             var genericParams = _env.MethodDecl.IsGeneric switch
             {
@@ -1340,23 +1362,106 @@ namespace BindingsGeneration
             // invoking this wrapper, ensuring Swift ARC keeps self alive through the Task closure.
             // The matching Arc.Release is called in the C# callback after async completion.
             var selfComment = (isInstanceMethod && isSwiftClass)
-                ? "// self is safe - C# called Arc.Retain before invoking this method"
+                ? "// selfInstance is safe - C# called Arc.Retain before invoking this method"
                 : "";
 
-            // Generate the Swift wrapper with proper non-frozen parameter handling
-            if (nonFrozenParams.Count > 0)
+            // For async instance methods:
+            // - If the parent class has a singleton pattern (static 'shared' property), use that
+            // - Otherwise, use a free function that receives _self as OpaquePointer
+            var isAsyncInstanceMethod = isInstanceMethod && _env.MethodDecl.MethodType != MethodType.Static;
+            var hasSingleton = (_env.ParentDecl as TypeDecl)?.HasSingletonPattern ?? false;
+
+            // Determine how to call the method:
+            // - Static methods: ClassName.method()
+            // - Async instance methods on singleton classes: ClassName.shared.method() (workaround)
+            // - Async instance methods on non-singleton classes: __self.method() (convert _self pointer)
+            // - Regular instance methods: self.method()
+            string selfConversion;
+            string methodCallPrefix;
+            if (_env.MethodDecl.MethodType == MethodType.Static)
             {
-                swiftWriter.WriteLine($$"""
+                selfConversion = "";
+                methodCallPrefix = $"{parentTypeName.ModuleQualifiedName}.";
+            }
+            else if (isAsyncInstanceMethod && hasSingleton)
+            {
+                // Singleton workaround: use ClassName.shared instead of passing self
+                // This avoids the SwiftSelf binding issue with @_silgen_name and Task closures
+                selfConversion = "";
+                methodCallPrefix = $"{parentTypeName.ModuleQualifiedName}.shared.";
+            }
+            else if (isAsyncInstanceMethod)
+            {
+                // Non-singleton async instance method: convert _self pointer to class reference
+                selfConversion = $"let __self = unsafeBitCast(_self, to: {parentTypeName.ModuleQualifiedName}.self)";
+                methodCallPrefix = "__self.";
+            }
+            else
+            {
+                selfConversion = "";
+                methodCallPrefix = "self.";
+            }
+
+            // Generate the Swift wrapper
+            // For async instance methods, we use a free function to avoid SwiftSelf binding issues
+            // For all other methods, we use extension methods
+            if (isAsyncInstanceMethod)
+            {
+                // Free function for async instance methods (marked public to ensure export)
+                if (nonFrozenParams.Count > 0)
+                {
+                    swiftWriter.WriteLine($$"""
+            @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+            public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
+                // Read non-frozen parameters via .pointee (bitwise copy)
+                // C# created copies using InitializeWithCopy (owns a proper reference)
+                {{readCode}}
+                {{selfConversion}}
+                {{selfComment}}
+
+                Task {
+                    {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
+                        {{methodCallArgs}}
+                    )
+                    callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
+                }
+            }
+            """);
+                }
+                else
+                {
+                    swiftWriter.WriteLine($$"""
+            @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+            public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
+                {{selfConversion}}
+                {{selfComment}}
+                Task {
+                    {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
+                        {{methodCallArgs}}
+                    )
+                    callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
+                }
+            }
+            """);
+                }
+            }
+            else
+            {
+                // Extension method for static methods and non-async methods
+                var staticModifier = _env.MethodDecl.MethodType == MethodType.Static ? "static " : "";
+                if (nonFrozenParams.Count > 0)
+                {
+                    swiftWriter.WriteLine($$"""
             extension {{parentTypeName.ModuleQualifiedName}} {
                 @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-                public {{(_env.MethodDecl.MethodType == MethodType.Static ? "static " : "")}} func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
+                public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
                     // Read non-frozen parameters via .pointee (bitwise copy)
                     // C# created copies using InitializeWithCopy (owns a proper reference)
                     {{readCode}}
                     {{selfComment}}
 
                     Task {
-                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{(_env.MethodDecl.MethodType == MethodType.Static ? $"{parentTypeName.ModuleQualifiedName}." : "")}}{{_env.MethodDecl.Name}}(
+                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
                         callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
@@ -1364,17 +1469,16 @@ namespace BindingsGeneration
                 }
             }
             """);
-            }
-            else
-            {
-                // No non-frozen parameters - use original simpler code
-                swiftWriter.WriteLine($$"""
+                }
+                else
+                {
+                    swiftWriter.WriteLine($$"""
             extension {{parentTypeName.ModuleQualifiedName}} {
                 @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
-                public {{(_env.MethodDecl.MethodType == MethodType.Static ? "static " : "")}} func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
+                public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
                     {{selfComment}}
                     Task {
-                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{(_env.MethodDecl.MethodType == MethodType.Static ? $"{parentTypeName.ModuleQualifiedName}." : "")}}{{_env.MethodDecl.Name}}(
+                        {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try! await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
                         callback({{(isEmptyTuple ? "" : $"result{_env.MethodDecl.Name}{(_env.MethodDecl.CSSignature.First().IsGeneric ? $" as! {_env.MethodDecl.GenericParameters[0].SugaredTypeName}" : "")}, ")}}task)
@@ -1382,6 +1486,7 @@ namespace BindingsGeneration
                 }
             }
             """);
+                }
             }
         }
 
@@ -1842,7 +1947,15 @@ namespace BindingsGeneration
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
                 if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                 {
-                    ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                    // Use struct marshalling if any parameter is a frozen struct
+                    if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
+                    {
+                        ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                    }
+                    else
+                    {
+                        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                    }
                     return;
                 }
             }

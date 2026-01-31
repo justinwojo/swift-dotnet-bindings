@@ -27,6 +27,44 @@ The following phases have been completed. See individual documents for details:
 | Phase 7 | Protocol Proxy Emitter | [phase-7-protocol-proxy-emitter.md](CompletedPhases/phase-7-protocol-proxy-emitter.md) |
 | Phase 8 | Remaining Validation & Bug Fixes | [phase-8-validation-bug-fixes.md](CompletedPhases/phase-8-validation-bug-fixes.md) |
 | Phase 9 | Binding Gap Reduction | [phase-9-binding-gap-reduction.md](CompletedPhases/phase-9-binding-gap-reduction.md) |
+| Phase 10 | Remaining Binding Gap Fixes | See below |
+
+---
+
+## Phase 10: Remaining Binding Gap Fixes (In Progress)
+
+Phase 10 implements infrastructure for the remaining skipped properties.
+
+### 10.1 Frozen Struct Closure Parameters ✅
+**Status**: IMPLEMENTED
+
+Extended closure handling to support frozen structs as closure parameters:
+- `ClosureHandler.IsFrozenStruct()` - detects frozen structs in TypeDatabase
+- `ClosureHandler.RequiresStructMarshalling()` - checks if closure needs struct marshalling
+- `ClosureEmitter.EmitClosureReturnMarshallingWithStructParams()` - generates stackalloc + MarshalToSwift code
+- Updated `IsInvocableParameter()` to allow frozen structs
+
+**Limitation**: Only supports frozen structs. Non-frozen structs like `ImageDecodingContext` require additional opaque payload handling.
+
+### 10.2 AsyncStream Infrastructure ✅
+**Status**: INFRASTRUCTURE IMPLEMENTED
+
+Created foundation for AsyncStream property support:
+- `AsyncStreamHandler.cs` - detects `_Concurrency.AsyncStream` and `AsyncThrowingStream` types
+- `SwiftAsyncStream<T>.cs` - runtime type implementing `IAsyncEnumerable<T>` with Channel-based buffering
+- Added `AsyncStreamHandler` to `PropertyEnvironment`
+
+**Remaining work**: PropertyHandler emission of AsyncStream properties with Swift wrapper generation.
+
+### 10.3 Async Closure Support ✅
+**Status**: IMPLEMENTED
+
+Extended closure handling to support async closures:
+- `IsSupportedClosure()` now allows async closures (only rejects async+throwing)
+- `GetCSharpDelegateType()` maps async closures to `Func<..., Task>` or `Func<..., Task<T>>`
+- Added `IsAsyncClosure()` helper method
+
+**Note**: Properties with async closures may still be skipped if their accessor methods have other unsupported types.
 
 ---
 
@@ -40,13 +78,13 @@ The following phases have been completed. See individual documents for details:
 - Property getters and setters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **539 unit tests, 691 integration tests, 72 runtime tests passing**
+- **569 unit tests, 691 integration tests, 72 runtime tests passing**
 
 **Remaining gaps**:
 - ~6 properties with unsupported types (skipped):
-  - 3 AsyncStream properties (`progress`, `previews`, `events`) - requires async iteration infrastructure
-  - 2 closure properties with non-primitive parameters (`makeImageDecoder`, `makeImageEncoder`) - requires complex void* marshalling in invoker lambdas
-  - 1 async closure property (`didComplete`) - requires async closure callback infrastructure
+  - 3 AsyncStream properties (`progress`, `previews`, `events`) - infrastructure in place, needs PropertyHandler emission
+  - 2 closure properties with non-frozen struct parameters (`makeImageDecoder`, `makeImageEncoder`) - frozen struct support implemented, but these use non-frozen structs
+  - 1 async closure property (`didComplete`) - async closure support implemented, but accessor has other unsupported types
 - **ObjC types use `Swift.*` wrappers instead of existing .NET iOS bindings** (see Phase 2.8 in completed phases) - Major UX issue
 
 ---
@@ -75,7 +113,9 @@ Initial binding generation revealed these gap categories:
 
 The .NET runtime does not support passing non-blittable types (like `SafeHandle`) through P/Invoke with Swift calling convention. A workaround using `IntPtr` and proper Swift copy semantics has been implemented.
 
-For singleton classes like `ImagePipeline`, the Swift wrapper uses `ImagePipeline.shared` instead of `self` in async contexts.
+For singleton classes like `ImagePipeline`, the generator automatically detects the singleton pattern (static `shared` property returning Self) and uses `ClassName.shared.method()` instead of passing `self` in async contexts. This is implemented in `TypeDecl.HasSingletonPattern` and `MethodHandler.cs`.
+
+For non-singleton classes, async instance methods use `unsafeBitCast(_self, to: ClassName.self)` to convert the IntPtr back to the class instance. This approach may have limitations with certain Swift class hierarchies.
 
 ### URL.FromString Non-Blittable Issue
 **Status**: Known issue
@@ -162,50 +202,57 @@ var image = response.Image; // UIImage
 - [x] **Protocol Proxy Emitter** - Full C# proxy class generation for Swift protocol implementation
 - [x] **EveryProtocol pattern** - Swift side conformance generation with vtable callbacks
 - [x] **SwiftObjectRegistry** - Container-to-proxy mapping for Swift callbacks
+- [x] **Async instance method singleton detection** - Types with `shared` property automatically use `ClassName.shared.method()` pattern
 
 ---
 
-## Future Work (Phase 10+)
+## Future Work (Phase 11+)
 
-### 10.1 Closure Properties with Non-Primitive Parameters
+### 11.1 Non-Frozen Struct Closure Parameters
 **Priority**: Medium
 
-Enable closure properties like `makeImageDecoder` that have non-primitive parameters.
+Enable closure properties like `makeImageDecoder` that have non-frozen struct parameters (e.g., `ImageDecodingContext`).
 
 **Requirements**:
-- Generate helper methods for closure invocation
-- Memory allocation/deallocation in generated code
-- Proper marshalling in invoker delegates
+- Runtime metadata access for non-frozen struct size
+- Opaque payload allocation similar to non-frozen method parameters
+- Integration with existing non-frozen struct handling in MethodHandler
 
-### 10.2 AsyncStream Property Support
+**Note**: Phase 10.1 implemented frozen struct support; non-frozen structs need additional work.
+
+### 11.2 AsyncStream Property Emission
 **Priority**: Medium
 
-Enable properties returning `AsyncStream<T>` like `progress`, `previews`, `events`.
+Complete emission of properties returning `AsyncStream<T>` like `progress`, `previews`, `events`.
 
 **Requirements**:
-- Swift wrapper functions to iterate streams
-- Callback mechanism for each element
-- IAsyncEnumerable<T> support in C#
+- Swift wrapper functions to iterate streams (similar to async methods)
+- PropertyHandler integration to detect and emit AsyncStream properties
+- Connect SwiftAsyncStream<T> runtime type to emitted code
 
-### 10.3 Async Closure Callback Support
+**Note**: Phase 10.2 implemented the infrastructure (AsyncStreamHandler, SwiftAsyncStream<T>); PropertyHandler emission is remaining.
+
+### 11.3 Async Closure Property Emission
 **Priority**: Low
 
-Enable properties/parameters with async closures like `didComplete`.
+Enable properties with async closures like `didComplete` where accessor methods have complex signatures.
 
 **Requirements**:
-- Async closure callback infrastructure
-- MainActor dispatch handling
-- Task-based completion pattern
+- Swift wrapper for async closure callback
+- Complete accessor method signature support
+- Integration with Phase 10.3 async closure delegate mapping
 
-### 10.4 Proper Async Instance Method Fix
-**Priority**: Medium
+### 11.4 Proper Async Instance Method Fix
+**Status**: IMPLEMENTED (Phase 8 - Singleton Pattern Detection)
 
-Replace the sed workaround for async self with proper generator support.
+The sed workaround has been replaced with proper generator support:
 
-**Options**:
-1. Detect singleton pattern and emit workaround automatically
-2. Fix underlying SwiftSelf + Arc.Retain issue in async contexts
-3. Use different self-capture pattern in Swift wrapper
+**Implementation**:
+- `TypeDecl.HasSingletonPattern` property detects classes with static `shared` property returning Self
+- `MethodHandler.cs` skips `_self` parameter for singleton classes in async contexts
+- Swift wrapper uses `ClassName.shared.method()` for singletons, `unsafeBitCast(_self, to: ClassName.self)` for non-singletons
+
+**Limitation**: Async instance methods on non-singleton classes use `unsafeBitCast` which may have edge cases with certain Swift class hierarchies. The root cause (SwiftSelf register + Task closure capture) would require .NET runtime changes to fix properly.
 
 ---
 
@@ -253,9 +300,9 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 
 | Category | Count |
 |----------|-------|
-| Unit tests | 539 |
+| Unit tests | 569 |
 | Integration tests | 691 |
 | Runtime tests | 72 |
-| **Total** | **1302** |
+| **Total** | **1332** |
 
 All tests passing. iOS Simulator validation successful.

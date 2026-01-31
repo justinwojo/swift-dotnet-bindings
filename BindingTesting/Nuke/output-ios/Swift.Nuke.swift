@@ -615,41 +615,33 @@ public func getEveryProtocolImageDecodingWitnessTable() -> UnsafeRawPointer {
         }
     }
 }
-extension Nuke.ImagePipeline {
-    @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-    public  func PInvoke_image_0559C54B(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
-        // Read non-frozen parameters via .pointee (bitwise copy)
-        // C# created copies using InitializeWithCopy (owns a proper reference)
-        let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
-        // self is safe - C# called Arc.Retain before invoking this method
+@_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
+public func PInvoke_image_71B33D9F(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+    // Read non-frozen parameters via .pointee (bitwise copy)
+    // C# created copies using InitializeWithCopy (owns a proper reference)
+    let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
+    
+    // selfInstance is safe - C# called Arc.Retain before invoking this method
 
-        Task {
-            // WORKAROUND: Use singleton instead of self for async instance methods
-            // See nuke-binding-roadmap.md "SOLVED: Async Non-Frozen Parameter Handling"
-            // The self parameter passed via SwiftSelf doesn't work in async Task closures
-            let resultimage = try! await Nuke.ImagePipeline.shared.image(
-                for: _forValue
-            )
-            callback(resultimage, task)
-        }
+    Task {
+        let resultimage = try! await Nuke.ImagePipeline.shared.image(
+            for: _forValue
+        )
+        callback(resultimage, task)
     }
 }
-extension Nuke.ImagePipeline {
-    @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-    public  func PInvoke_image_0D3A4D9A(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
-        // Read non-frozen parameters via .pointee (bitwise copy)
-        // C# created copies using InitializeWithCopy (owns a proper reference)
-        let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
-        // self is safe - C# called Arc.Retain before invoking this method
+@_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
+public func PInvoke_image_5EE59524(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+    // Read non-frozen parameters via .pointee (bitwise copy)
+    // C# created copies using InitializeWithCopy (owns a proper reference)
+    let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
+    
+    // selfInstance is safe - C# called Arc.Retain before invoking this method
 
-        Task {
-            // WORKAROUND: Use singleton instead of self for async instance methods
-            // See nuke-binding-roadmap.md "SOLVED: Async Non-Frozen Parameter Handling"
-            // The self parameter passed via SwiftSelf doesn't work in async Task closures
-            let resultimage = try! await Nuke.ImagePipeline.shared.image(
-                for: _forValue
-            )
-            callback(resultimage, task)
-        }
+    Task {
+        let resultimage = try! await Nuke.ImagePipeline.shared.image(
+            for: _forValue
+        )
+        callback(resultimage, task)
     }
 }

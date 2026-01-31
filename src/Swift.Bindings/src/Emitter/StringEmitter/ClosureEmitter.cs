@@ -418,4 +418,112 @@ public static class ClosureEmitter
 
         return $"_arg{argIndex}";
     }
+
+    /// <summary>
+    /// Emits code to convert a SwiftClosureData return value into a C# delegate,
+    /// with support for struct parameters that need marshalling.
+    /// For closures like (ImageDecodingContext) -> (any ImageDecoding)?, the struct
+    /// parameter must be marshalled to a native buffer before calling the Swift function.
+    /// </summary>
+    /// <param name="csWriter">The C# writer.</param>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <param name="closureHandler">The closure handler for type translation.</param>
+    /// <param name="resultVariableName">The name of the variable holding the SwiftClosureData result.</param>
+    public static void EmitClosureReturnMarshallingWithStructParams(
+        CSharpWriter csWriter,
+        ClosureTypeSpec closureTypeSpec,
+        ClosureHandler closureHandler,
+        string resultVariableName = "result")
+    {
+        var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
+        var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
+        var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+
+        // Build lambda parameter list
+        var parameters = new List<string>();
+        var argTypes = new List<TypeSpec>();
+        int argIndex = 0;
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            parameters.Add($"_arg{argIndex}");
+            argTypes.Add(arg);
+            argIndex++;
+        }
+        var parametersString = string.Join(", ", parameters);
+        var parameterListWithParens = parameters.Count == 1 ? parametersString : $"({parametersString})";
+
+        var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
+        var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
+
+        // Start building the closure body with struct marshalling
+        csWriter.WriteLines($$"""
+            // Wrap Swift closure in SwiftEscapingClosure for ARC management
+            var _closureWrapper = SwiftEscapingClosure<{{delegateType}}>.FromSwift({{resultVariableName}}.FunctionPointer, {{resultVariableName}}.Context);
+
+            // Create invoker delegate that captures wrapper (keeps it alive for proper ARC)
+            {{delegateType}} _invoker = {{parameterListWithParens}} =>
+            {
+                unsafe
+                {
+                    var _fp = ({{funcPtrTypeWithContext}})_closureWrapper.FunctionPointer;
+                    var _swiftSelf = new SwiftSelf((void*)_closureWrapper.Context.ToPointer());
+            """);
+
+        csWriter.Indent += 3;
+
+        // Generate marshalling code for each struct parameter
+        var invokeArgs = new List<string>();
+        for (int i = 0; i < argTypes.Count; i++)
+        {
+            var arg = argTypes[i];
+            if (closureHandler.IsFrozenStruct(arg))
+            {
+                // Generate marshalling for frozen struct
+                var csharpType = closureHandler.TranslateTypeSpecToCSharp(arg);
+                csWriter.WriteLines($$"""
+                    var _arg{{i}}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{{csharpType}}>();
+                    byte* _arg{{i}}Buffer = stackalloc byte[(int)_arg{{i}}Metadata.Size];
+                    var _arg{{i}}Span = new Span<byte>(_arg{{i}}Buffer, (int)_arg{{i}}Metadata.Size);
+                    SwiftMarshal.MarshalToSwift(_arg{{i}}, ref _arg{{i}}Span);
+                    """);
+                invokeArgs.Add($"_arg{i}Buffer");
+            }
+            else if (IsBoolType(arg))
+            {
+                // Bool conversion
+                invokeArgs.Add($"(byte)(_arg{i} ? 1 : 0)");
+            }
+            else
+            {
+                // Direct pass
+                invokeArgs.Add($"_arg{i}");
+            }
+        }
+        // Add context (SwiftSelf) as last argument
+        invokeArgs.Add("_swiftSelf");
+        var invokeArgsString = string.Join(", ", invokeArgs);
+
+        // Generate the invoke and return
+        string invokeExpr = $"_fp({invokeArgsString})";
+        if (!hasReturn)
+        {
+            csWriter.WriteLine($"{invokeExpr};");
+        }
+        else if (returnIsBool)
+        {
+            csWriter.WriteLine($"return {invokeExpr} != 0;");
+        }
+        else
+        {
+            csWriter.WriteLine($"return {invokeExpr};");
+        }
+
+        csWriter.Indent -= 3;
+        csWriter.WriteLines("""
+                }
+            };
+
+            return _invoker;
+            """);
+    }
 }

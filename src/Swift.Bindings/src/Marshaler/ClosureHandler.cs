@@ -75,20 +75,20 @@ public class ClosureHandler
     /// Currently supports:
     /// - @convention(c) closures (Phase 1)
     /// - Escaping closures with concrete types (Phase 2)
-    /// Both must be synchronous, non-throwing, and have concrete (non-generic) argument/return types.
+    /// - Async closures (Phase 3) - mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;
+    /// All must be non-throwing and have concrete (non-generic) argument/return types.
     /// Return types must be primitive/blittable (complex return type marshalling not yet implemented).
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns><c>true</c> if the closure is supported; otherwise, <c>false</c>.</returns>
     public bool IsSupportedClosure(ClosureTypeSpec closureTypeSpec)
     {
-        // Exclude async closures for now
-        if (closureTypeSpec.IsAsync)
-            return false;
-
-        // Exclude throwing closures for now
+        // Exclude throwing closures
         if (closureTypeSpec.Throws)
             return false;
+
+        // Async+throwing closures are not supported (need complex error handling)
+        // Plain async closures are supported via Task-based delegates
 
         // Note: We no longer check for explicit @escaping attribute here.
         // All closures in public Swift APIs are either @convention(c) or @escaping by definition,
@@ -313,6 +313,7 @@ public class ClosureHandler
 
     /// <summary>
     /// Translates a Swift closure type to a C# delegate type string for wrapper methods.
+    /// Async closures are mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;.
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns>The C# delegate type name (Action&lt;&gt; or Func&lt;&gt;).</returns>
@@ -325,6 +326,26 @@ public class ClosureHandler
         }
 
         bool hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
+
+        // Handle async closures - map to Func<..., Task> or Func<..., Task<T>>
+        if (closureTypeSpec.IsAsync)
+        {
+            if (hasReturn)
+            {
+                var returnType = TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
+                if (argTypes.Count == 0)
+                    return $"Func<Task<{returnType}>>";
+                return $"Func<{string.Join(", ", argTypes)}, Task<{returnType}>>";
+            }
+            else
+            {
+                if (argTypes.Count == 0)
+                    return "Func<Task>";
+                return $"Func<{string.Join(", ", argTypes)}, Task>";
+            }
+        }
+
+        // Non-async closures
         if (hasReturn)
         {
             var returnType = TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
@@ -338,6 +359,16 @@ public class ClosureHandler
                 return "Action";
             return $"Action<{string.Join(", ", argTypes)}>";
         }
+    }
+
+    /// <summary>
+    /// Determines if a closure is an async closure.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>True if the closure is async.</returns>
+    public bool IsAsyncClosure(ClosureTypeSpec closureTypeSpec)
+    {
+        return closureTypeSpec.IsAsync;
     }
 
     /// <summary>
@@ -524,7 +555,7 @@ public class ClosureHandler
 
     /// <summary>
     /// Checks if a parameter type can be passed when invoking a Swift closure from C#.
-    /// Only primitive types (mapped to blittable C# types) are supported.
+    /// Supports primitive types and frozen structs that can be marshalled.
     /// </summary>
     private bool IsInvocableParameter(TypeSpec typeSpec)
     {
@@ -534,9 +565,16 @@ public class ClosureHandler
             if (IsPointerType(namedType))
                 return true;
 
-            // Only primitive types are supported
+            // Primitive types are supported (direct pass)
             var primitiveType = GetBlittablePrimitiveType(namedType.Name);
-            return primitiveType != null;
+            if (primitiveType != null)
+                return true;
+
+            // Frozen structs are supported (via marshalling)
+            if (IsFrozenStruct(namedType))
+                return true;
+
+            return false;
         }
 
         // Tuples of primitives could be supported but aren't currently
@@ -548,6 +586,51 @@ public class ClosureHandler
             return true;
 
         // Other types (closures, existentials, etc.) are not supported
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a type is a frozen struct in the type database.
+    /// Frozen structs can be marshalled via MarshalToSwift when invoking closures.
+    /// </summary>
+    /// <param name="typeSpec">The type specification to check.</param>
+    /// <returns>True if the type is a frozen struct.</returns>
+    public bool IsFrozenStruct(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        // Don't treat generic types as frozen structs - they need special handling
+        if (namedType.ContainsGenericParameters)
+            return false;
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            return false;
+
+        // Must be a struct and be frozen
+        return typeRecord.Kind == TypeRecordKind.Struct &&
+               (typeRecord.Flags & TypeRecordFlags.Frozen) != 0;
+    }
+
+    /// <summary>
+    /// Checks if invoking a closure from C# requires struct marshalling for any parameter.
+    /// When true, the invoker lambda needs to marshal struct parameters to void* before calling Swift.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>True if any parameter requires struct marshalling.</returns>
+    public bool RequiresStructMarshalling(ClosureTypeSpec closureTypeSpec)
+    {
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            if (arg is NamedTypeSpec namedType &&
+                !IsPointerType(namedType) &&
+                GetBlittablePrimitiveType(namedType.Name) == null &&
+                IsFrozenStruct(namedType))
+            {
+                return true;
+            }
+        }
         return false;
     }
 

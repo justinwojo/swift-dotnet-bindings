@@ -476,15 +476,32 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void IsSupportedClosure_WithAsyncClosure_ReturnsFalse()
+    public void IsSupportedClosure_WithAsyncClosure_ReturnsTrue()
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
+        // Async closures are now supported - they map to Func<..., Task> or Func<..., Task<T>>
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
             new NamedTypeSpec("Swift.Bool"));
         closureTypeSpec.IsAsync = true;
+
+        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithAsyncThrowingClosure_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Async + throwing is not supported
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
 
         Assert.False(handler.IsSupportedClosure(closureTypeSpec));
     }
@@ -893,6 +910,207 @@ public class ClosureHandlerTests
 
     #endregion
 
+    #region Async Closure Delegate Type Tests
+
+    [Fact]
+    public void GetCSharpDelegateType_AsyncVoidToVoid_ReturnsFuncTask()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<Task>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_AsyncVoidToInt_ReturnsFuncTaskInt()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.IsAsync = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<Task<System.Int64>>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_AsyncIntToVoid_ReturnsFuncIntTask()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<System.Int64, Task>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_AsyncIntToBool_ReturnsFuncIntTaskBool()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        closureTypeSpec.IsAsync = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<System.Int64, Task<System.Boolean>>", result);
+    }
+
+    [Fact]
+    public void IsAsyncClosure_WithAsyncClosure_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+
+        Assert.True(handler.IsAsyncClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsAsyncClosure_WithSyncClosure_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsAsyncClosure(closureTypeSpec));
+    }
+
+    #endregion
+
+    #region Frozen Struct Closure Parameter Tests
+
+    [Fact]
+    public void IsFrozenStruct_WithFrozenStruct_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // CGPoint is a frozen struct in our mock database
+        var typeSpec = new NamedTypeSpec("CoreGraphics.CGPoint");
+
+        Assert.True(handler.IsFrozenStruct(typeSpec));
+    }
+
+    [Fact]
+    public void IsFrozenStruct_WithUnknownType_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Unknown types are not in the database, so they can't be frozen structs
+        var typeSpec = new NamedTypeSpec("SomeModule.UnknownType");
+
+        Assert.False(handler.IsFrozenStruct(typeSpec));
+    }
+
+    [Fact]
+    public void IsFrozenStruct_WithPrimitive_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Int is primitive, not a frozen struct (it has Frozen flag but is blittable)
+        var typeSpec = new NamedTypeSpec("Swift.Int");
+
+        // Primitives ARE frozen structs
+        Assert.True(handler.IsFrozenStruct(typeSpec));
+    }
+
+    [Fact]
+    public void IsFrozenStruct_WithGenericType_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Generic types need special handling
+        var typeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+
+        Assert.False(handler.IsFrozenStruct(typeSpec));
+    }
+
+    [Fact]
+    public void CanInvokeFromCSharp_WithFrozenStructParameter_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (CGPoint) -> Void
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("CoreGraphics.CGPoint"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
+    }
+
+    [Fact]
+    public void RequiresStructMarshalling_WithPrimitiveParameter_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int) -> Void - only primitives, no struct marshalling needed
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+
+        Assert.False(handler.RequiresStructMarshalling(closureTypeSpec));
+    }
+
+    [Fact]
+    public void RequiresStructMarshalling_WithFrozenStructParameter_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (CGPoint) -> Void - frozen struct needs marshalling
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("CoreGraphics.CGPoint"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(handler.RequiresStructMarshalling(closureTypeSpec));
+    }
+
+    [Fact]
+    public void RequiresStructMarshalling_WithMixedParameters_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int, CGPoint) -> Void - has frozen struct, needs marshalling
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("CoreGraphics.CGPoint")
+        });
+        var closureTypeSpec = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        Assert.True(handler.RequiresStructMarshalling(closureTypeSpec));
+    }
+
+    #endregion
+
     #region Mock Type Database
 
     private class MockTypeDatabase : ITypeDatabase
@@ -932,7 +1150,7 @@ public class ClosureHandlerTests
                     CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
                     MetadataAccessor = "",
-                    Flags = TypeRecordFlags.Frozen,
+                    Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Struct
                 },
                 ["Swift.Array"] = new TypeRecord
@@ -966,6 +1184,15 @@ public class ClosureHandlerTests
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
                     Kind = TypeRecordKind.Protocol
+                },
+                // Frozen struct for testing closure parameters
+                ["CoreGraphics.CGPoint"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "CGPoint"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGPoint"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen, // Frozen struct, no memory management
+                    Kind = TypeRecordKind.Struct
                 }
             };
         }

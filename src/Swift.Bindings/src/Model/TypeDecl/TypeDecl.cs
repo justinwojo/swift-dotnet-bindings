@@ -54,5 +54,15 @@ namespace BindingsGeneration
         /// Whether this type is generic (has type parameters).
         /// </summary>
         public bool IsGeneric => GenericParameters.Count > 0;
+
+        /// <summary>
+        /// Whether this type has a singleton pattern (static 'shared' property returning Self).
+        /// Used for async method workarounds where passing self doesn't work correctly.
+        /// </summary>
+        public bool HasSingletonPattern => Properties.Any(p =>
+            p.IsStatic &&
+            p.Name == "shared" &&
+            p.SwiftTypeSpec is NamedTypeSpec namedType &&
+            namedType.Name.EndsWith(Name));
     }
 }

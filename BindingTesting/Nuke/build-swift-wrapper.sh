@@ -5,10 +5,6 @@ set -e
 
 cd "$(dirname "$0")/output-ios"
 
-# Workaround: Replace self with shared instance for async methods
-# This fixes runtime crashes when calling async Image methods on self
-sed -i '' 's/try! await image(/try! await Nuke.ImagePipeline.shared.image(/g' Swift.Nuke.swift
-
 xcrun swiftc -emit-library -target arm64-apple-ios15.0-simulator \
   -sdk $(xcrun --sdk iphonesimulator --show-sdk-path) \
   -F ../Nuke.xcframework/ios-arm64_x86_64-simulator/ \
