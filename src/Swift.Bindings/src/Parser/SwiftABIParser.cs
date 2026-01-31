@@ -53,6 +53,7 @@ namespace BindingsGeneration
         public required string? sugared_genericSig { get; set; }
         public required bool? throwing { get; set; }
         public required string? AccessorKind { get; set; }
+        public required string? EnumRawTypeName { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Accessors { get; set; } = Enumerable.Empty<Node>();
@@ -416,7 +417,8 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
-                MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName)
+                MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName),
+                RawValueTypeName = node.EnumRawTypeName
             };
         }
 

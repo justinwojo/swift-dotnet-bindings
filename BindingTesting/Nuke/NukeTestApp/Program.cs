@@ -851,13 +851,14 @@ public class MainViewController : UIViewController
         TestLogger.Info("Testing ImageRequest configuration options...");
 
         // Test 1: Priority enum values (Swift enums are classes in C#)
-        // Note: Priority enum case accessors may fail due to P/Invoke symbol resolution
+        // Note: Priority is a non-frozen RawRepresentable enum - failable initializers
+        // for non-frozen enums require complex indirect return handling not yet implemented
         try
         {
-            // Priority enum cases not yet supported - Swift doesn't export constructor functions
-            // for simple enum cases. Requires RawRepresentable implementation.
-            TestLogger.Warning("Priority enum cases skipped (not yet supported - requires RawRepresentable)");
-            results.Warn("Priority type access skipped (requires RawRepresentable)");
+            // Priority enum cases not yet supported for non-frozen enums
+            // The init?(rawValue:) failable initializer requires indirect return handling
+            TestLogger.Warning("Priority enum cases skipped (non-frozen RawRepresentable enum - requires indirect return handling)");
+            results.Warn("Priority type access skipped (non-frozen RawRepresentable limitation)");
         }
         catch (Exception ex)
         {

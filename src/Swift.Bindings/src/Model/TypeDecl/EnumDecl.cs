@@ -55,5 +55,16 @@ namespace BindingsGeneration
         /// Metadata accessor function name for this enum.
         /// </summary>
         public required string MetadataAccessor { get; set; }
+
+        /// <summary>
+        /// The raw value type name for RawRepresentable enums (e.g., "Int", "String").
+        /// Null if the enum does not conform to RawRepresentable.
+        /// </summary>
+        public string? RawValueTypeName { get; set; }
+
+        /// <summary>
+        /// Whether this enum conforms to RawRepresentable.
+        /// </summary>
+        public bool IsRawRepresentable => !string.IsNullOrEmpty(RawValueTypeName);
     }
 }

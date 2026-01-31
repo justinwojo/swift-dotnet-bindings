@@ -1936,8 +1936,8 @@ namespace BindingsGeneration
 
             // Emit case constructors for all cases
             // Cases with associated values become static methods with P/Invoke constructors
-            // Simple cases (no associated values) are NOT emitted - Swift doesn't export constructor
-            // functions for them. They use RawRepresentable which requires different handling.
+            // Simple cases (no associated values) use RawRepresentable if available
+            var simpleCases = new List<EnumCaseDecl>();
             foreach (var caseDecl in enumDecl.Cases)
             {
                 if (caseDecl.HasAssociatedValues)
@@ -1946,9 +1946,24 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    // Skip simple enum cases - Swift only exports witness table data (WC suffix),
-                    // not constructor functions. Proper support requires RawRepresentable implementation.
-                    _logger.LogWarning($"Skipping enum case '{enumDecl.Name}.{caseDecl.Name}' - simple enum cases without associated values are not yet supported (requires RawRepresentable).");
+                    simpleCases.Add(caseDecl);
+                }
+            }
+
+            // Handle simple cases via RawRepresentable if available
+            if (simpleCases.Count > 0)
+            {
+                if (enumDecl.IsRawRepresentable)
+                {
+                    EmitRawRepresentableSupport(csWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase);
+                }
+                else
+                {
+                    // No RawRepresentable - skip simple cases with warning
+                    foreach (var caseDecl in simpleCases)
+                    {
+                        _logger.LogWarning($"Skipping enum case '{enumDecl.Name}.{caseDecl.Name}' - simple enum cases require RawRepresentable conformance.");
+                    }
                 }
             }
 
@@ -2230,6 +2245,136 @@ namespace BindingsGeneration
                 result = "@" + result;
 
             return string.IsNullOrEmpty(result) ? "value" : result;
+        }
+
+        /// <summary>
+        /// Emits RawRepresentable support for enums with simple cases.
+        /// This includes a FromRawValue method and static properties for each case.
+        /// </summary>
+        private void EmitRawRepresentableSupport(CSharpWriter csWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            var enumTypeName = enumDecl.Name;
+            var rawTypeName = enumDecl.RawValueTypeName!;
+            var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+
+            // Map Swift raw type to C# type
+            var csharpRawType = rawTypeName switch
+            {
+                "Int" => "long",
+                "Int8" => "sbyte",
+                "Int16" => "short",
+                "Int32" => "int",
+                "Int64" => "long",
+                "UInt" => "ulong",
+                "UInt8" => "byte",
+                "UInt16" => "ushort",
+                "UInt32" => "uint",
+                "UInt64" => "ulong",
+                "String" => "string",
+                _ => rawTypeName // Fall back to the Swift name
+            };
+
+            // Find the init(rawValue:) constructor in the enum's methods
+            var initRawValueMethod = enumDecl.Methods.FirstOrDefault(m =>
+                m.IsConstructor &&
+                m.Name == "init" &&
+                m.CSSignature.Count == 2 && // Return type + rawValue parameter
+                m.CSSignature.Any(a => a.Name == "rawValue" || a.PrivateName == "rawValue"));
+
+            if (initRawValueMethod == null)
+            {
+                _logger.LogWarning($"Enum '{enumTypeName}' is RawRepresentable but init(rawValue:) constructor not found. Skipping simple case emission.");
+                foreach (var caseDecl in simpleCases)
+                {
+                    _logger.LogWarning($"Skipping enum case '{enumTypeName}.{caseDecl.Name}' - init(rawValue:) constructor not found.");
+                }
+                return;
+            }
+
+            // Check if the enum is non-frozen - failable initializers for non-frozen enums
+            // have complex calling conventions that aren't yet supported
+            if (!enumDecl.IsFrozen)
+            {
+                _logger.LogWarning($"Enum '{enumTypeName}' is RawRepresentable but non-frozen. Failable initializers (init?(rawValue:)) for non-frozen enums require indirect return handling that isn't yet implemented. Skipping simple case emission.");
+                foreach (var caseDecl in simpleCases)
+                {
+                    _logger.LogWarning($"Skipping enum case '{enumTypeName}.{caseDecl.Name}' - non-frozen RawRepresentable enums not yet supported.");
+                }
+                return;
+            }
+
+            // Emit FromRawValue method
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine($"/// Creates a {enumTypeName} from its raw value.");
+            csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
+            csWriter.WriteLine("/// </summary>");
+            csWriter.WriteLine($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);");
+            csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("return null;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine($"var result = new {enumTypeName}();");
+            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(resultPtr);");
+            csWriter.WriteLine("return result;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // Emit P/Invoke for init(rawValue:)
+            // The mangled name should already have 'C' suffix from PatchMangledName
+            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+            csWriter.WriteLine($"private static extern IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
+            csWriter.WriteLine();
+
+            // Emit static properties for each simple case
+            // Simple cases use sequential raw values starting from 0 (Swift default behavior)
+            for (int i = 0; i < simpleCases.Count; i++)
+            {
+                var caseDecl = simpleCases[i];
+                var caseName = caseDecl.Name;
+                var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+
+                // Determine the raw value - for Int-based enums, Swift uses sequential values starting at 0
+                // For String-based enums, the raw value is the case name
+                string rawValueLiteral;
+                if (csharpRawType == "string")
+                {
+                    rawValueLiteral = $"\"{caseName}\"";
+                }
+                else
+                {
+                    rawValueLiteral = i.ToString();
+                }
+
+                csWriter.WriteLine("/// <summary>");
+                csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                csWriter.WriteLine("/// </summary>");
+                csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("get");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"var result = FromRawValue({rawValueLiteral});");
+                csWriter.WriteLine("if (result == null)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {rawValueLiteral}\");");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("return result;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+            }
         }
     }
 

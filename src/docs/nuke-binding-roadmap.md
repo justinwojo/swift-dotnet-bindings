@@ -34,6 +34,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 14 | Async Tuple Return Support | [phase-14-async-tuple-returns.md](CompletedPhases/phase-14-async-tuple-returns.md) |
 | Phase 15 | Throwing Closures Support | [phase-15-throwing-closures.md](CompletedPhases/phase-15-throwing-closures.md) |
 | Phase 16 | Bug Fixes & Stability | See Phase 16+ section below |
+| Phase 17 | RawRepresentable Enum Support (Partial) | See Phase 17 section below |
 
 ---
 
@@ -145,17 +146,27 @@ Properties returning non-frozen struct types that contain existential containers
 **Workaround**: Avoid accessing properties that return non-frozen structs with existential container fields; use alternative APIs.
 
 ### Simple Swift Enum Case Support
-**Status**: Known limitation (requires RawRepresentable)
+**Status**: Partial progress (Phase 17) - non-frozen enums still limited
 
-Simple Swift enum cases (without associated values) cannot be called from C#. Swift only exports witness table data symbols (WC suffix) for these cases, not constructor functions.
+Simple Swift enum cases (without associated values) cannot be constructed from C# for **non-frozen** enums. While Phase 17 added RawRepresentable detection and infrastructure, non-frozen enums require indirect return handling for failable initializers (`init?(rawValue:)`).
+
+**Current state (Phase 17)**:
+- ✅ Parser extracts `enumRawTypeName` from ABI JSON
+- ✅ `EnumDecl.IsRawRepresentable` detection works
+- ✅ Frozen RawRepresentable enums would work (none in Nuke)
+- ❌ Non-frozen RawRepresentable enums skip with warning
 
 **Affected APIs**:
 - `ImageRequest.Priority.*` cases (VeryLow, Low, Normal, High, VeryHigh)
 - `ImagePipeline.Error.DataIsEmpty`
+- `ImageTask.State.*` cases
 
-**Why this happens**: Swift enum case symbols in TBD files have a `WC` (Witness Case) suffix and are marked as DATA (`S`), not FUNCTION (`T`). There is no exported constructor function to P/Invoke.
+**Why non-frozen is hard**: Swift's `init?(rawValue:)` returns `Optional<Self>`. For non-frozen types, this uses indirect return semantics requiring:
+1. Pre-allocated result buffer
+2. `SwiftIndirectResult` parameter passing
+3. Optional marshaling to detect nil
 
-**Future fix**: Implement RawRepresentable protocol support to construct enum values from raw integers.
+**Workaround**: Use the enum's `rawValue` property to compare values if you receive an enum instance from Swift.
 
 Note: `ImageRequest.Options.*` (OptionSet) cases work correctly because they use getter symbols (`vgZ` suffix).
 
@@ -468,6 +479,85 @@ Issues discovered during Phase 15.4 runtime validation testing. Most have been r
 - `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` - Exclude existential generic returns
 
 **Remaining limitation**: Closure return types with existential containers in generic parameters (e.g., `SwiftOptional<ExistentialContainer1>`) are marked unsupported because the emitter cannot marshal `void*` back to the bound generic type.
+
+---
+
+## Phase 17: RawRepresentable Enum Support (Partial)
+
+Infrastructure for RawRepresentable enum support - parsing raw value types from ABI JSON.
+
+**Summary**:
+- 17.1 Parser Enhancement → COMPLETED (parse `enumRawTypeName` from ABI JSON)
+- 17.2 Model Update → COMPLETED (add `RawValueTypeName` and `IsRawRepresentable` to EnumDecl)
+- 17.3 Emitter Support → PARTIAL (frozen enums only - non-frozen requires indirect return handling)
+
+---
+
+### 17.1 Parser Enhancement
+**Status**: COMPLETED
+
+**Changes**:
+- Added `EnumRawTypeName` field to `Node` record in `SwiftABIParser.cs`
+- Parser now extracts `enumRawTypeName` from ABI JSON nodes
+
+**Files modified**:
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` - Added EnumRawTypeName to Node, pass to EnumDecl
+
+### 17.2 Model Update
+**Status**: COMPLETED
+
+**Changes**:
+- Added `RawValueTypeName` property to `EnumDecl` - stores Swift raw type (e.g., "Int", "String")
+- Added `IsRawRepresentable` computed property - true when RawValueTypeName is set
+
+**Files modified**:
+- `src/Swift.Bindings/src/Model/TypeDecl/EnumDecl.cs` - Added RawValueTypeName and IsRawRepresentable
+- `src/Swift.Bindings/tests/UnitTests/ParserTests/EnumParserTests.cs` - Added 5 unit tests
+
+### 17.3 Emitter Support for RawRepresentable
+**Status**: PARTIAL - Frozen enums only
+
+**Problem discovered**: Swift failable initializers (`init?(rawValue:)`) for non-frozen enums use indirect return semantics. The return type `Optional<Self>` requires:
+1. Pre-allocating space for the optional result
+2. Passing `SwiftIndirectResult` parameter
+3. Marshaling the optional to check for nil
+
+This is different from regular allocating initializers (`tcfC`) that can return pointers directly.
+
+**Current behavior**:
+- **Frozen RawRepresentable enums**: Would emit `FromRawValue()` and static case properties (no Nuke enums are frozen)
+- **Non-frozen RawRepresentable enums**: Skip with warning about requiring indirect return handling
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs`:
+  - Added `EmitRawRepresentableSupport()` method
+  - Detects RawRepresentable conformance
+  - Skips non-frozen enums with descriptive warning
+  - Maps Swift raw types to C# types (Int→long, String→string, etc.)
+
+**Example warning**:
+```
+Enum 'Priority' is RawRepresentable but non-frozen. Failable initializers (init?(rawValue:))
+for non-frozen enums require indirect return handling that isn't yet implemented.
+```
+
+### Future Work: Full Non-Frozen RawRepresentable Support
+
+To fully support non-frozen RawRepresentable enums like `Priority`, the following would be needed:
+
+1. **Understand failable initializer calling convention**: Swift's `init?(rawValue:)` returns `Optional<Self>` which for non-frozen types uses indirect returns
+
+2. **Implement indirect result handling**: Similar to how constructors use `SwiftIndirectResult`, but for optional returns
+
+3. **Marshal Optional<Self>**: After the call, marshal the optional to detect nil vs some
+
+4. **Alternative approach**: Use WC (witness case) data symbols to directly load enum case values from static memory
+
+**Affected APIs** (Nuke):
+- `ImageRequest.Priority` (veryLow, low, normal, high, veryHigh)
+- `ImagePipeline.Error.DataIsEmpty`
+- `ImageTask.State` (running, cancelled, completed)
+- `ImageDecodingError.unknown`
 
 ---
 

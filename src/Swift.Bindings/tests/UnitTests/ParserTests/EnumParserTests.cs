@@ -104,6 +104,65 @@ public class EnumParserTests
 
     #endregion
 
+    #region RawRepresentable Tests
+
+    [Fact]
+    public void EnumDecl_WithoutRawValueType_IsNotRawRepresentable()
+    {
+        var enumDecl = CreateEnumDecl("Direction");
+
+        Assert.Null(enumDecl.RawValueTypeName);
+        Assert.False(enumDecl.IsRawRepresentable);
+    }
+
+    [Fact]
+    public void EnumDecl_WithIntRawValueType_IsRawRepresentable()
+    {
+        var enumDecl = CreateEnumDecl("Priority");
+        enumDecl.RawValueTypeName = "Int";
+
+        Assert.Equal("Int", enumDecl.RawValueTypeName);
+        Assert.True(enumDecl.IsRawRepresentable);
+    }
+
+    [Fact]
+    public void EnumDecl_WithStringRawValueType_IsRawRepresentable()
+    {
+        var enumDecl = CreateEnumDecl("HTTPMethod");
+        enumDecl.RawValueTypeName = "String";
+
+        Assert.Equal("String", enumDecl.RawValueTypeName);
+        Assert.True(enumDecl.IsRawRepresentable);
+    }
+
+    [Fact]
+    public void EnumDecl_WithEmptyRawValueType_IsNotRawRepresentable()
+    {
+        var enumDecl = CreateEnumDecl("TestEnum");
+        enumDecl.RawValueTypeName = "";
+
+        Assert.False(enumDecl.IsRawRepresentable);
+    }
+
+    [Fact]
+    public void EnumDecl_RawRepresentable_WithSimpleCases()
+    {
+        // Simulates Priority enum: Int-backed with simple cases
+        var enumDecl = CreateEnumDecl("Priority");
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateEnumCaseDecl("veryLow"));
+        enumDecl.Cases.Add(CreateEnumCaseDecl("low"));
+        enumDecl.Cases.Add(CreateEnumCaseDecl("normal"));
+        enumDecl.Cases.Add(CreateEnumCaseDecl("high"));
+        enumDecl.Cases.Add(CreateEnumCaseDecl("veryHigh"));
+
+        Assert.True(enumDecl.IsRawRepresentable);
+        Assert.Equal(5, enumDecl.Cases.Count);
+        Assert.False(enumDecl.HasAssociatedValueCases);
+    }
+
+    #endregion
+
     #region Complete Enum Tests
 
     [Fact]
