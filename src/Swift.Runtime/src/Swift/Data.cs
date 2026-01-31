@@ -174,5 +174,17 @@ public struct Data : ISwiftObject
             return new Data(new UnsafeRawPointer(ptr), bytes.Length);
         }
     }
+
+    /// <summary>
+    /// Implicitly converts a Foundation.NSData to a Swift.Data.
+    /// </summary>
+    /// <param name="nsData">The NSData to convert.</param>
+    public static implicit operator Data(Foundation.NSData nsData) => FromNSData(nsData);
+
+    /// <summary>
+    /// Implicitly converts a Swift.Data to a Foundation.NSData.
+    /// </summary>
+    /// <param name="data">The Swift.Data to convert.</param>
+    public static implicit operator Foundation.NSData(Data data) => data.ToNSData();
 #endif
 }

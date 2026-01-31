@@ -51,11 +51,14 @@ The following phases have been completed. See individual documents for details:
 - **600 unit tests, 691 integration tests, 72 runtime tests passing (1,363 total)**
 
 **Remaining gaps**:
-- **1 property** with unsupported types (skipped):
-  - `didComplete` - @MainActor async closure with Optional wrapping; closure infrastructure ready but accessor signature unsupported
 - **~4 methods/constructors** with `AnyType` parameters:
   - `imagePublisher(...)` - Returns Combine `AnyPublisher` (reactive framework out of scope)
   - `ImageRequest` constructor - `() async throws -> Data` closure (async+throws closures not supported due to [UnmanagedCallersOnly] limitations)
+- **Fixed in Phase 15.2**:
+  - ✅ `didComplete` property - Optional closure properties now correctly emit nullable delegate types (`Action?`, `Func<Task>?`, etc.)
+  - Note: Async attribute in closures not preserved from ABI JSON `printedName` (pre-existing parser limitation)
+- **Fixed in Phase 15.3**:
+  - ✅ Implicit ObjC type conversions - `Swift.URL` and `Swift.Data` now have implicit operators for `Foundation.NSUrl`/`Foundation.NSData`
 - **Fixed in Phase 15**:
   - ✅ Throwing closures - Non-async throwing closures now map to `Func<..., SwiftResult<T, SwiftError>>`
   - Note: Async+throwing closures remain unsupported because `[UnmanagedCallersOnly]` callbacks cannot await Tasks
@@ -160,10 +163,12 @@ var image = response.Image; // UIImage
 - [x] **Swift wrapper imports** - Generator now emits imports automatically
 - [x] **Async non-frozen parameter cleanup** - FIXED: Cleanup runs after callback, not in defer
 - [x] **ObjC/Swift type strategy complete** - ObjC classes (UIImage, etc.) map to .NET iOS types; Swift structs (URL, Data) intentionally kept as Swift.* wrappers
+- [x] **Implicit ObjC conversions** - `Swift.URL` and `Swift.Data` have implicit operators for `Foundation.NSUrl`/`Foundation.NSData`
 - [x] **Existential parameters** - Methods with `any Protocol` parameters now generate valid `ExistentialContainer{N}` types
 - [x] **Closure bound generic parameters** - Closures accepting `Result<T,E>`, `Array<T>`, `Optional<T>`, etc. now generate valid C# code
 - [x] **Closure bound generic returns** - Closures returning `SwiftOptional<T>`, `SwiftResult<S,E>`, etc. now use indirect return marshalling
 - [x] **Throwing closures** - Non-async throwing closures map to `Func<..., SwiftResult<T, SwiftError>>`
+- [x] **Optional closure properties** - Properties with optional closure types now emit with nullable delegate types (`Action?`, `Func<...>?`)
 - [x] **Existential properties** - Properties with `any Protocol` types now generate `ExistentialContainer{N}` types
 - [x] **Generic constructors** - Constructors with generic parameters now work using same infrastructure as methods
 - [x] **Hasher type support** - `hash(into:)` methods now generate correctly
@@ -219,31 +224,16 @@ var image = response.Image; // UIImage
 - ✅ `EmitThrowingClosureReturnMarshalling()` for receiving throwing closures from Swift
 - ⚠️ Async+throws closures NOT supported - `[UnmanagedCallersOnly]` callbacks cannot await Tasks
 
-### 15.2 didComplete Property Accessor
-**Priority**: Medium
+### Phase 15.2 Completed
+- ✅ Optional closure property emission - PropertyHandler now checks `IsOptionalClosure` and uses `GetCSharpOptionalDelegateType()`
+- ✅ `didComplete` property now emits as `Action?` with getter and setter
+- Note: The async attribute isn't preserved from ABI JSON `printedName` field - this is a pre-existing parser limitation
 
-The `didComplete` property has @MainActor async closure infrastructure ready, but the accessor method signature is unsupported.
-
-```swift
-var didComplete: (@MainActor @Sendable () async -> Void)?
-```
-
-**Requirements**:
-- Analyze why accessor method signature fails
-- May need special handling for Optional closure property accessors
-- MainActor dispatch on C# side
-
-### 15.3 ObjC Type Remapping Enhancement
-**Priority**: Medium
-
-ObjC types currently use `Swift.*` wrappers (e.g., `Swift.URL`, `Swift.Data`) instead of existing .NET iOS bindings. This creates friction for .NET developers.
-
-**Current state**: ObjC classes (UIImage, URLResponse) correctly map to .NET iOS types. Swift structs bridged from ObjC (URL, Data) intentionally use wrappers.
-
-**Options**:
-1. Keep current design (Swift wrappers for safety)
-2. Add implicit conversions between Swift.* and Foundation types
-3. Full remapping (breaking change)
+### Phase 15.3 Completed
+- ✅ Implicit conversion operators added to `Swift.URL` for `Foundation.NSUrl`
+- ✅ Implicit conversion operators added to `Swift.Data` for `Foundation.NSData`
+- ✅ Bidirectional conversions enable seamless interop: `URL swiftUrl = nsUrl;` and `NSUrl ns = swiftUrl;`
+- ✅ Guarded by `#if IOS || MACCATALYST || MACOS` for platform compatibility
 
 ### 15.4 Complete API Coverage Validation
 **Priority**: Medium

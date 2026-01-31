@@ -139,7 +139,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         else if (isClosure)
         {
             var closureTypeSpec = propertyEnv.ClosureHandler.GetClosureTypeSpec(propertyDecl)!;
-            csTypeName = propertyEnv.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
+            // Check if it's an optional closure and use nullable delegate type if so
+            bool isOptionalClosure = propertyEnv.ClosureHandler.IsOptionalClosure(propertyDecl.SwiftTypeSpec);
+            csTypeName = isOptionalClosure
+                ? propertyEnv.ClosureHandler.GetCSharpOptionalDelegateType(propertyDecl.SwiftTypeSpec)
+                : propertyEnv.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
         }
         else if (propertyEnv.BoundGenericsHandler.IsBoundGeneric(propertyDecl))
         {
