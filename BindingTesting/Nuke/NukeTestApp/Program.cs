@@ -91,8 +91,8 @@ public class MainViewController : UIViewController
         var resultLabelHeight = 180.0;
         var imageHeight = 250.0;
 
-        // Total content height (title + 4 buttons + result label + image)
-        var totalContentHeight = titleHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + resultLabelHeight + spacing + imageHeight;
+        // Total content height (title + 5 buttons + result label + image)
+        var totalContentHeight = titleHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + buttonHeight + spacing + resultLabelHeight + spacing + imageHeight;
 
         // Center content vertically in safe area
         var safeHeight = screenHeight - safeTop - safeBottom;
@@ -136,6 +136,13 @@ public class MainViewController : UIViewController
         View.AddSubview(protocolTestButton);
         currentY += buttonHeight + spacing;
 
+        var imageProcessingTestButton = UIButton.FromType(UIButtonType.System);
+        imageProcessingTestButton.Frame = new CoreGraphics.CGRect(20, currentY, contentWidth, buttonHeight);
+        imageProcessingTestButton.SetTitle("Test ImageProcessing Proxy", UIControlState.Normal);
+        imageProcessingTestButton.TouchUpInside += TestImageProcessingProxy;
+        View.AddSubview(imageProcessingTestButton);
+        currentY += buttonHeight + spacing;
+
         _resultLabel = new UILabel
         {
             Tag = 100,
@@ -162,9 +169,19 @@ public class MainViewController : UIViewController
 
     private async void RunAutomatedTests()
     {
-        // Run protocol proxy test first (image loading has a pre-existing crash issue)
+        // Run protocol proxy tests first
         await Task.Delay(500); // Small delay for UI to settle
+
+        // Test 1: CancellableProxy (simple, single method)
         TestProtocolProxy(null, EventArgs.Empty);
+        await Task.Delay(1000);
+
+        // Test 2: ImageProcessingProxy (complex, multiple vtable entries)
+        TestImageProcessingProxy(null, EventArgs.Empty);
+        await Task.Delay(1000);
+
+        // Test 3: Async image loading
+        LoadImageWithNuke(null, EventArgs.Empty);
     }
 
     private void TestNukeBinding(object? sender, EventArgs e)
@@ -544,6 +561,79 @@ public class MainViewController : UIViewController
         }
     }
 
+    private void TestImageProcessingProxy(object? sender, EventArgs e)
+    {
+        _resultLabel!.Text = "Testing ImageProcessing Proxy...";
+        _imageView!.Image = null;
+
+        try
+        {
+            var results = new System.Text.StringBuilder();
+            results.AppendLine("ImageProcessing Proxy Test\n");
+            results.AppendLine("Testing complex protocol with multiple vtable entries...\n");
+
+            // Test 1: Create a C# implementation of ISwiftImageProcessing
+            results.AppendLine("1. Creating MyImageProcessor (C# implementation)...");
+            var myProcessor = new MyImageProcessor();
+            results.AppendLine($"   Created: {myProcessor.GetType().Name}");
+            Console.WriteLine($"IMAGE PROCESSING TEST: Created MyImageProcessor");
+
+            // Test 2: Verify the implementation works directly
+            results.AppendLine("\n2. Testing direct C# implementation...");
+            var testId = myProcessor.identifier;
+            results.AppendLine($"   identifier accessed, IdentifierCallCount = {myProcessor.IdentifierCallCount}");
+            Console.WriteLine($"IMAGE PROCESSING TEST: Direct call works, IdentifierCallCount = {myProcessor.IdentifierCallCount}");
+
+            // Test 3: Create an ImageProcessingProxy (triggers vtable initialization)
+            results.AppendLine("\n3. Creating ImageProcessingProxy...");
+            int registryCountBefore = SwiftObjectRegistry.Count;
+            try
+            {
+                var proxy = new ImageProcessingProxy(myProcessor);
+                results.AppendLine("   ImageProcessingProxy created successfully!");
+                results.AppendLine($"   Registry count before: {registryCountBefore}");
+                results.AppendLine($"   Registry count after: {SwiftObjectRegistry.Count}");
+                Console.WriteLine($"IMAGE PROCESSING TEST: Proxy created, registry count = {SwiftObjectRegistry.Count}");
+
+                // Test 4: Access identifier through the proxy
+                results.AppendLine("\n4. Accessing identifier through proxy...");
+                myProcessor.IdentifierCallCount = 0; // Reset count
+                var proxyId = proxy.identifier;
+                results.AppendLine($"   identifier via proxy, IdentifierCallCount = {myProcessor.IdentifierCallCount}");
+
+                if (myProcessor.IdentifierCallCount == 1)
+                {
+                    results.AppendLine("\n=== IMAGE PROCESSING PROXY TEST SUCCESS ===");
+                    Console.WriteLine("IMAGE PROCESSING TEST SUCCESS: Full proxy pattern works!");
+                }
+                else
+                {
+                    results.AppendLine("\n=== IMAGE PROCESSING PROXY TEST PARTIAL ===");
+                    results.AppendLine("Proxy created but callback may not have been invoked correctly.");
+                    Console.WriteLine("IMAGE PROCESSING TEST PARTIAL: Proxy created but callback not invoked");
+                }
+            }
+            catch (NotImplementedException niex)
+            {
+                results.AppendLine($"   NotImplementedException: {niex.Message}");
+                results.AppendLine("\n   NOTE: This may indicate witness table lookup issues.");
+                Console.WriteLine($"IMAGE PROCESSING TEST ERROR: {niex.Message}");
+            }
+            catch (Exception proxyEx)
+            {
+                results.AppendLine($"   Error: {proxyEx.GetType().Name}");
+                results.AppendLine($"   {proxyEx.Message}");
+                Console.WriteLine($"IMAGE PROCESSING TEST ERROR: {proxyEx}");
+            }
+
+            _resultLabel.Text = results.ToString();
+        }
+        catch (Exception ex)
+        {
+            LogError(ex);
+        }
+    }
+
     private void LogError(Exception ex)
     {
         var msg = new System.Text.StringBuilder();
@@ -591,5 +681,63 @@ public class MyCancellable : ISwiftCancellable
         CancelCount++;
         IsCancelled = true;
         Console.WriteLine($"MyCancellable.cancel() called! Count = {CancelCount}");
+    }
+}
+
+/// <summary>
+/// A C# implementation of the Swift ImageProcessing protocol.
+/// This tests a more complex protocol with multiple methods/properties.
+/// Note: The interface uses lowercase member names (identifier, process) matching Swift naming conventions.
+/// </summary>
+public class MyImageProcessor : ISwiftImageProcessing
+{
+    /// <summary>
+    /// Tracks how many times identifier was accessed.
+    /// </summary>
+    public int IdentifierCallCount { get; set; }
+
+    /// <summary>
+    /// Tracks how many times process() was called.
+    /// </summary>
+    public int ProcessCallCount { get; private set; }
+
+    /// <summary>
+    /// The processor identifier (Swift naming: lowercase).
+    /// </summary>
+    public SwiftString identifier
+    {
+        get
+        {
+            IdentifierCallCount++;
+            Console.WriteLine($"MyImageProcessor.identifier accessed! Count = {IdentifierCallCount}");
+            return new SwiftString("my-test-processor");
+        }
+    }
+
+    /// <summary>
+    /// The hashable identifier for caching (returns empty/default for test).
+    /// </summary>
+    public AnyType hashableIdentifier => default;
+
+    /// <summary>
+    /// Process a UIImage (Swift naming: lowercase).
+    /// Returns None for test purposes.
+    /// </summary>
+    public SwiftOptional<UIKit.UIImage> process(UIKit.UIImage arg0)
+    {
+        ProcessCallCount++;
+        Console.WriteLine($"MyImageProcessor.process(UIImage) called! Count = {ProcessCallCount}");
+        return SwiftOptional<UIKit.UIImage>.NewNone();
+    }
+
+    /// <summary>
+    /// Process an ImageContainer with context.
+    /// Returns input unchanged for test purposes.
+    /// </summary>
+    public ImageContainer process(ImageContainer arg0, ImageProcessingContext context)
+    {
+        ProcessCallCount++;
+        Console.WriteLine($"MyImageProcessor.process(ImageContainer, context) called! Count = {ProcessCallCount}");
+        return arg0;
     }
 }

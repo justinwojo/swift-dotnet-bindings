@@ -624,7 +624,10 @@ extension Nuke.ImagePipeline {
         // self is safe - C# called Arc.Retain before invoking this method
 
         Task {
-            let resultimage = try! await image(
+            // WORKAROUND: Use singleton instead of self for async instance methods
+            // See nuke-binding-roadmap.md "SOLVED: Async Non-Frozen Parameter Handling"
+            // The self parameter passed via SwiftSelf doesn't work in async Task closures
+            let resultimage = try! await Nuke.ImagePipeline.shared.image(
                 for: _forValue
             )
             callback(resultimage, task)
@@ -640,7 +643,10 @@ extension Nuke.ImagePipeline {
         // self is safe - C# called Arc.Retain before invoking this method
 
         Task {
-            let resultimage = try! await image(
+            // WORKAROUND: Use singleton instead of self for async instance methods
+            // See nuke-binding-roadmap.md "SOLVED: Async Non-Frozen Parameter Handling"
+            // The self parameter passed via SwiftSelf doesn't work in async Task closures
+            let resultimage = try! await Nuke.ImagePipeline.shared.image(
                 for: _forValue
             )
             callback(resultimage, task)

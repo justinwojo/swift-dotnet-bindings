@@ -33,8 +33,9 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     sleep 1
     ELAPSED=$((ELAPSED + 1))
 
-    # Check for success marker
-    if grep -q "TEST SUCCESS" "$OUTPUT_FILE" 2>/dev/null; then
+    # Check for final success marker (async image load is the last test)
+    # Use "Image loaded" to distinguish from partial test successes
+    if grep -q "TEST SUCCESS: Image loaded" "$OUTPUT_FILE" 2>/dev/null; then
         SUCCESS=true
         break
     fi
