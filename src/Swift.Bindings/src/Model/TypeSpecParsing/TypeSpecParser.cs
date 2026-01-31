@@ -70,18 +70,20 @@ public class TypeSpecParser
             token = tokenizer.Peek();
         }
 
-        // any, consume and continute
-        if (token.Kind == TypeTokenKind.TypeName && token.Value == "any")
+        // label, consume and continue
+        // NOTE: Label must be checked BEFORE 'any' because in "label: any Type"
+        // we need to consume the label first, then recognize 'any' as the keyword
+        if (token.Kind == TypeTokenKind.TypeLabel)
         {
-            isAny = true;
+            typeLabel = token.Value;
             tokenizer.Next();
             token = tokenizer.Peek();
         }
 
-        // label, consume and continue
-        if (token.Kind == TypeTokenKind.TypeLabel)
+        // any, consume and continue
+        if (token.Kind == TypeTokenKind.TypeName && token.Value == "any")
         {
-            typeLabel = token.Value;
+            isAny = true;
             tokenizer.Next();
             token = tokenizer.Peek();
         }
@@ -93,7 +95,11 @@ public class TypeSpecParser
             tokenizer.Next();
             TupleTypeSpec tuple = ParseTuple();
             type = tuple.Elements.Count == 1 ? tuple.Elements[0] : tuple;
-            typeLabel = type.TypeLabel;
+            // When unwrapping a single-element tuple, preserve the inner type's properties
+            // by merging them with any prefix modifiers we parsed before the tuple
+            typeLabel = type.TypeLabel ?? typeLabel;
+            isAny = type.IsAny || isAny;
+            inout = type.IsInOut || inout;
             type.TypeLabel = null;
         }
         else if (token.Kind == TypeTokenKind.TypeName)

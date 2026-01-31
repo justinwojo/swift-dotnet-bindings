@@ -1950,7 +1950,7 @@ namespace BindingsGeneration
                 }
             }
 
-            // Handle simple cases via RawRepresentable if available
+            // Handle simple cases via RawRepresentable if available, otherwise via direct P/Invoke
             if (simpleCases.Count > 0)
             {
                 if (enumDecl.IsRawRepresentable)
@@ -1959,10 +1959,10 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    // No RawRepresentable - skip simple cases with warning
+                    // No RawRepresentable - emit simple cases via direct P/Invoke
                     foreach (var caseDecl in simpleCases)
                     {
-                        _logger.LogWarning($"Skipping enum case '{enumDecl.Name}.{caseDecl.Name}' - simple enum cases require RawRepresentable conformance.");
+                        EmitSimpleCaseDirectPInvoke(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase);
                     }
                 }
             }
@@ -2041,6 +2041,51 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits a simple enum case (no associated values) via direct P/Invoke.
+        /// Swift enum case constructors use indirect return - they write to a buffer provided by the caller.
+        /// </summary>
+        private void EmitSimpleCaseDirectPInvoke(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            var caseName = caseDecl.Name;
+            var enumTypeName = enumDecl.Name;
+            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var pInvokeName = $"PInvoke_{capitalizedName}";
+            var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+
+            // Generate a static property for this case with backing P/Invoke
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+            csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Swift enum case constructors use indirect return - allocate buffer and pass it
+            csWriter.WriteLine($"var result = new {enumTypeName}();");
+            csWriter.WriteLine($"var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
+            csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
+            csWriter.WriteLine($"{pInvokeName}(indirectResult);");
+            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
+            csWriter.WriteLine("return result;");
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // P/Invoke declaration for the case constructor - uses indirect result
+            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+            csWriter.WriteLine($"private static extern void {pInvokeName}(SwiftIndirectResult result);");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
         /// Emits a static method for an enum case with associated values.
         /// </summary>
         private void EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
@@ -2084,23 +2129,28 @@ namespace BindingsGeneration
             csWriter.Indent++;
             csWriter.WriteLine($"var result = new {enumTypeName}();");
 
+            // Swift enum case constructors use indirect return - allocate buffer and pass it
+            csWriter.WriteLine($"var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
+            csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
+
             // Build the P/Invoke call with arguments
-            var argList = new List<string>();
+            var argList = new List<string> { "indirectResult" };
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, name, typeSpec) = parameters[i];
                 argList.Add(GetPInvokeArgument(name, typeSpec, typeDatabase));
             }
 
-            csWriter.WriteLine($"IntPtr casePtr = {pInvokeName}({string.Join(", ", argList)});");
-            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(casePtr);");
+            csWriter.WriteLine($"{pInvokeName}({string.Join(", ", argList)});");
+            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
             csWriter.WriteLine("return result;");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-            // P/Invoke declaration for the case constructor with associated values
-            var pInvokeParams = new List<string>();
+            // P/Invoke declaration for the case constructor with associated values - uses indirect result
+            var pInvokeParams = new List<string> { "SwiftIndirectResult result" };
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (_, name, typeSpec) = parameters[i];
@@ -2109,7 +2159,8 @@ namespace BindingsGeneration
             }
 
             csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
-            csWriter.WriteLine($"private static extern IntPtr {pInvokeName}({string.Join(", ", pInvokeParams)});");
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+            csWriter.WriteLine($"private static extern void {pInvokeName}({string.Join(", ", pInvokeParams)});");
             csWriter.WriteLine();
         }
 
@@ -2118,6 +2169,23 @@ namespace BindingsGeneration
         /// </summary>
         private static string GetCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
         {
+            // Handle existential types (any Protocol) - return ExistentialContainer
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null)
+                {
+                    return existentialHandler.GetCSharpExistentialType(protocolList);
+                }
+            }
+
+            // Handle protocol list types (protocol composition)
+            if (typeSpec is ProtocolListTypeSpec protocolListSpec)
+            {
+                return existentialHandler.GetCSharpExistentialType(protocolListSpec);
+            }
+
             // Handle bound generics (e.g., Optional<T>, Array<T>)
             if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
             {
@@ -2153,6 +2221,13 @@ namespace BindingsGeneration
         /// </summary>
         private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase)
         {
+            // Handle existential types - pass the container directly (it's a blittable struct)
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                return paramName;
+            }
+
             // Handle tuple types - need to construct a ValueTuple with extracted payloads
             if (typeSpec is TupleTypeSpec tupleType)
             {
@@ -2193,6 +2268,17 @@ namespace BindingsGeneration
         /// </summary>
         private static string GetPInvokeType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
         {
+            // Handle existential types - use the ExistentialContainer struct directly
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null)
+                {
+                    return existentialHandler.GetPInvokeExistentialType(protocolList);
+                }
+            }
+
             // Handle tuple types
             if (typeSpec is TupleTypeSpec tupleType)
             {

@@ -36,6 +36,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 16 | Bug Fixes & Stability | See Phase 16+ section below |
 | Phase 17 | RawRepresentable Enum Support (Partial) | See Phase 17 section below |
 | Phase 18 | Full Non-Frozen RawRepresentable Enum Support | See Phase 18 section below |
+| Phase 19 | Enum Associated Values Support | See Phase 19 section below |
 
 ---
 
@@ -51,7 +52,7 @@ The following phases have been completed. See individual documents for details:
 - Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **1,368 generator tests passing** (605 unit, 691 integration, 72 runtime)
+- **1,370 generator tests passing** (607 unit, 691 integration, 72 runtime)
 - **100% runtime validation pass rate** (30/30 tests in NukeTestApp, 2 skipped)
 
 **Runtime validated** (Phase 15.4):
@@ -147,24 +148,29 @@ Properties returning non-frozen struct types that contain existential containers
 **Workaround**: Avoid accessing properties that return non-frozen structs with existential container fields; use alternative APIs.
 
 ### Simple Swift Enum Case Support
-**Status**: COMPLETED (Phase 18) - RawRepresentable enums now fully supported
+**Status**: COMPLETED (Phase 18 + Phase 19)
 
-Simple Swift enum cases (without associated values) can now be constructed from C# for both frozen and **non-frozen** RawRepresentable enums.
+Simple Swift enum cases can now be constructed from C# via two mechanisms:
 
-**Current state (Phase 18)**:
+**RawRepresentable enums (Phase 18)**:
 - ✅ Parser extracts `enumRawTypeName` from ABI JSON
 - ✅ `EnumDecl.IsRawRepresentable` detection works
 - ✅ Frozen RawRepresentable enums emit `FromRawValue()` with direct IntPtr return
 - ✅ **Non-frozen RawRepresentable enums** emit `FromRawValue()` with indirect return handling
 - ✅ Static case properties (`VeryLow`, `Low`, `Normal`, `High`, `VeryHigh`) work for all RawRepresentable enums
 
-**Working APIs** (Phase 18):
-- ✅ `ImageRequest.Priority.*` cases (VeryLow, Low, Normal, High, VeryHigh) - **NOW WORKING**
-- ✅ `ImageTask.State.*` cases (Running, Cancelled, Completed) - **NOW WORKING**
+**Non-RawRepresentable enums (Phase 19)**:
+- ✅ Simple cases emit via direct P/Invoke to case constructor
+- ✅ Uses indirect return pattern (SwiftIndirectResult)
+- ✅ Works for any enum, regardless of RawRepresentable conformance
 
-**Still limited** (not RawRepresentable):
-- `ImagePipeline.Error.*` cases with associated values (requires factory methods)
-- Enums without RawRepresentable conformance
+**Working APIs**:
+- ✅ `ImageRequest.Priority.*` cases (VeryLow, Low, Normal, High, VeryHigh)
+- ✅ `ImageTask.State.*` cases (Running, Cancelled, Completed)
+- ✅ Simple cases on non-RawRepresentable enums (e.g., `ImagePipeline.Error.DataIsEmpty`)
+
+**Still limited**:
+- Enum cases with associated values containing closures or nested enums
 
 **Technical solution**: Phase 18 implemented indirect return handling for non-frozen failable initializers:
 1. Allocate buffer for `SwiftOptional<EnumType>`
@@ -602,6 +608,141 @@ private static extern void PInvoke_InitWithRawValue(SwiftIndirectResult result, 
 
 ---
 
+## Phase 19: Enum Associated Values Support
+
+**Status**: COMPLETED (2026-01-31)
+
+Support for enum cases with associated values, including existential types like `any Swift.Error`.
+
+### Summary
+
+- 19.1 Existential Type Handling → COMPLETED (map `any Protocol` to `ExistentialContainer1`)
+- 19.2 Simple Case Direct P/Invoke → COMPLETED (emit without RawRepresentable requirement)
+- 19.3 TypeSpecParser Fix → COMPLETED (parse labeled existential types correctly)
+- 19.4 Unit Tests → COMPLETED (2 new tests for existential parsing)
+
+### Problem
+
+Enum cases with associated values in `ImagePipeline.Error` were broken or skipped:
+
+1. **Simple cases skipped** - Cases like `dataMissingInCache`, `dataIsEmpty` weren't emitted because `ImagePipeline.Error` is NOT RawRepresentable
+2. **Existential types → AnyType** - Cases like `dataLoadingFailed(error: Swift.Error)` generated broken `Swift.AnyType` parameters instead of `ExistentialContainer1`
+3. **TypeSpec parsing issue** - Labeled existentials like `(error: any Swift.Error)` weren't parsed correctly
+
+### Implementation Details
+
+#### 19.1 Existential Type Handling in Enum Associated Values
+
+**Problem**: `any Swift.Error` was mapping to `Swift.AnyType` instead of `ExistentialContainer1`.
+
+**Solution**:
+- Modified `GetCSharpTypeNameForEnumCase()` to detect existential types using `ExistentialHandler`
+- Returns `Swift.Runtime.ExistentialContainer1` for single-protocol existentials
+- Updated `GetPInvokeType()` and `GetPInvokeArgument()` to handle existentials correctly
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs`
+
+#### 19.2 Simple Case Direct P/Invoke
+
+**Problem**: Simple enum cases were skipped with a warning if the enum wasn't RawRepresentable.
+
+**Solution**:
+- Added `EmitSimpleCaseDirectPInvoke()` method that generates P/Invoke calls directly to Swift case constructors
+- Uses indirect return pattern: allocate buffer, pass via `SwiftIndirectResult`, create enum instance from result
+
+**Code pattern**:
+```csharp
+public static EnumType CaseName
+{
+    get
+    {
+        var metadata = PInvoke_getMetadata();
+        IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+        var indirectResult = new SwiftIndirectResult((void*)buffer);
+        PInvoke_CaseName(indirectResult);
+        return new EnumType(buffer, metadata);
+    }
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandler.cs`
+
+#### 19.3 TypeSpecParser Fix for Labeled Existentials
+
+**Problem**: `(error: any Swift.Error)` was being misparsed because the parser checked for `any` keyword BEFORE `TypeLabel`.
+
+**Root cause**: In the input `error: any Swift.Error`, the tokenizer produces:
+- `TypeLabel`: "error"
+- `TypeName`: "any"
+- `TypeName`: "Swift.Error"
+
+The parser was checking for `any` first, consuming "error" as a type name instead of a label.
+
+**Solution**:
+1. Reordered prefix checks: TypeLabel checked BEFORE `any` keyword
+2. Fixed tuple unwrapping to preserve inner type's `IsAny` and `TypeLabel` properties:
+   ```csharp
+   typeLabel = type.TypeLabel ?? typeLabel;
+   isAny = type.IsAny || isAny;
+   inout = type.IsInOut || inout;
+   type.TypeLabel = null;
+   ```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Model/TypeSpecParsing/TypeSpecParser.cs`
+
+#### 19.4 Unit Tests
+
+Added two tests for existential type parsing:
+
+```csharp
+[Fact]
+public static void TestAnySwiftError()
+{
+    var ts = TypeSpecParser.Parse("any Swift.Error");
+    var ns = ts as NamedTypeSpec;
+    Assert.NotNull(ns);
+    Assert.Equal("Swift.Error", ns.Name);
+    Assert.True(ns.IsAny);
+}
+
+[Fact]
+public static void TestLabeledTupleWithExistential()
+{
+    var ts = TypeSpecParser.Parse("(error: any Swift.Error)");
+    var ns = ts as NamedTypeSpec;
+    Assert.NotNull(ns);
+    Assert.Equal("Swift.Error", ns.Name);
+    Assert.True(ns.IsAny);
+    Assert.Equal("error", ns.TypeLabel);
+}
+```
+
+**Files modified**:
+- `src/Swift.Bindings/tests/UnitTests/TypeSpecTests/TypeSpecParserTests.cs`
+
+### Verification
+
+- All 1,370 generator tests pass (607 unit + 691 integration + 72 runtime)
+- Nuke bindings regenerate without `Swift.AnyType` in enum case signatures
+- Simple cases like `DataIsEmpty` now appear in generated code
+
+### Generated Code Example
+
+Before (broken):
+```csharp
+public static Error DataLoadingFailed((Swift.AnyType error, Swift.AnyType) value0)
+```
+
+After (fixed):
+```csharp
+public static Error DataLoadingFailed(Swift.Runtime.ExistentialContainer1 error)
+```
+
+---
+
 ## Related Issues
 
 - [#2875 - Existential Containers](https://github.com/dotnet/runtimelab/issues/2875) - Parameters, properties, bound generic arguments, ExistentialContainerFactory implemented
@@ -647,14 +788,14 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 ### Generator Tests
 | Category | Count |
 |----------|-------|
-| Unit tests | 605 |
+| Unit tests | 607 |
 | Integration tests | 691 |
 | Runtime tests | 72 |
-| **Total** | **1,368** |
+| **Total** | **1,370** |
 
 All generator tests passing.
 
-### NukeTestApp Validation (Phase 18)
+### NukeTestApp Validation (Phase 19)
 | Category | Passed | Failed | Warnings |
 |----------|--------|--------|----------|
 | Basic Binding | 4 | 0 | 1 |
@@ -679,7 +820,7 @@ All generator tests passing.
 - **Priority enum cases** (VeryLow, Low, Normal, High, VeryHigh) - NEW in Phase 18
 
 **Skipped with warnings** (documented limitations):
-- ImagePipeline.Error enum cases with associated values (requires factory methods)
+- Enum cases with associated values containing closures or nested enums
 - ConfigurationValue property (non-frozen struct with existential containers - Phase 16.1)
 
 **Fixed in Phase 16**:
@@ -690,3 +831,8 @@ All generator tests passing.
 
 **Fixed in Phase 18**:
 - ✅ Non-frozen RawRepresentable enum case construction (Priority, State enums)
+
+**Fixed in Phase 19**:
+- ✅ Simple enum cases on non-RawRepresentable enums (direct P/Invoke)
+- ✅ Existential types in enum associated values (`any Swift.Error` → `ExistentialContainer1`)
+- ✅ TypeSpecParser parsing of labeled existentials (`error: any Swift.Error`)

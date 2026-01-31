@@ -436,4 +436,29 @@ public class TypeSpecParserTests : IClassFixture<TypeSpecParserTests.TestFixture
         Assert.NotNull(ns);
         Assert.Equal("τ_1_0", ns.Name);
     }
+
+    [Fact]
+    public static void TestAnySwiftError()
+    {
+        // Test parsing "any Swift.Error" - an existential type
+        var ts = TypeSpecParser.Parse("any Swift.Error");
+        var ns = ts as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("Swift.Error", ns.Name);
+        Assert.True(ns.IsAny);
+    }
+
+    [Fact]
+    public static void TestLabeledTupleWithExistential()
+    {
+        // Test parsing "(error: any Swift.Error)" - a labeled tuple with existential
+        var ts = TypeSpecParser.Parse("(error: any Swift.Error)");
+
+        // Single-element tuple should be unwrapped to the inner type
+        var ns = ts as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("Swift.Error", ns.Name);
+        Assert.True(ns.IsAny);
+        Assert.Equal("error", ns.TypeLabel);
+    }
 }
