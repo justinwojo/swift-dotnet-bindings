@@ -100,26 +100,57 @@ public class TupleHandler
             return protocolList != null && _existentialHandler.IsSupportedExistential(protocolList);
         }
 
-        // Named types should be resolvable in the type database and frozen
+        // Named types should be resolvable in the type database
         if (typeSpec is NamedTypeSpec namedType)
         {
-            // Generic parameters in tuples not supported yet
+            // Handle bound generic types (e.g., Optional<T>, Array<T>)
             if (namedType.ContainsGenericParameters)
-                return false;
+            {
+                return IsSupportedGenericTupleElement(namedType);
+            }
 
             // Try to get the type record
             if (!_typeDatabase.TryGetTypeRecord(namedType, out var typeRecord))
                 return false;
 
-            // Only frozen types are supported in Phase 1
-            if ((typeRecord.Flags & TypeRecordFlags.Frozen) == 0)
-                return false;
-
+            // Frozen types and ObjC-bridged types are supported
+            // Non-frozen, non-ObjC types are also allowed since they can be wrapped
             return true;
         }
 
         // Other type specs (ProtocolList, etc.) not supported
         return false;
+    }
+
+    /// <summary>
+    /// Checks if a generic type is supported as a tuple element.
+    /// Supports bound generic types (Optional, Array, etc.) where the base type is in the database.
+    /// </summary>
+    private bool IsSupportedGenericTupleElement(NamedTypeSpec namedType)
+    {
+        // Check if base type is in type database
+        var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out _))
+            return false;
+
+        // Recursively check all generic parameters are supported
+        foreach (var genericParam in namedType.GenericParameters)
+        {
+            // Handle existential generic parameters (e.g., Optional<any Protocol>)
+            if (_existentialHandler.IsExistential(genericParam))
+            {
+                var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
+                if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
+                    return false;
+                continue;
+            }
+
+            // Recursively check element type
+            if (!IsSupportedTupleElementType(genericParam))
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -204,12 +235,53 @@ public class TupleHandler
 
         if (typeSpec is NamedTypeSpec namedType)
         {
+            // Handle bound generic types (e.g., Optional<T>, Array<T>)
+            if (namedType.ContainsGenericParameters)
+            {
+                return TranslateBoundGenericToCSharp(namedType);
+            }
+
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
             return typeRecord.CSharpTypeName.FullyQualifiedName;
         }
 
         // Fallback for unsupported types
         return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+    }
+
+    /// <summary>
+    /// Translates a bound generic NamedTypeSpec to its full C# type name with generic parameters.
+    /// </summary>
+    private string TranslateBoundGenericToCSharp(NamedTypeSpec namedType)
+    {
+        var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
+        {
+            // Fallback if base type not in database
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        }
+
+        // Recursively translate all generic parameters
+        var translatedParams = new List<string>();
+        foreach (var genericParam in namedType.GenericParameters)
+        {
+            // Handle existential generic parameters (e.g., Optional<any Protocol>)
+            if (_existentialHandler.IsExistential(genericParam))
+            {
+                var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
+                if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
+                {
+                    translatedParams.Add(_existentialHandler.GetCSharpExistentialType(protocolList));
+                    continue;
+                }
+            }
+            translatedParams.Add(TranslateElementTypeToCSharp(genericParam));
+        }
+
+        // Build full type name with generics
+        return translatedParams.Count > 0
+            ? $"{typeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>"
+            : typeRecord.CSharpTypeName.FullyQualifiedName;
     }
 
     /// <summary>
@@ -228,6 +300,10 @@ public class TupleHandler
 
         if (typeSpec is NamedTypeSpec namedType)
         {
+            // Bound generic types are passed as opaque pointers in P/Invoke
+            if (namedType.ContainsGenericParameters)
+                return "void*";
+
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
             return typeRecord.CSharpTypeName.FullyQualifiedName;
         }

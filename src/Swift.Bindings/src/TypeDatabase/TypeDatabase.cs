@@ -21,6 +21,13 @@ namespace BindingsGeneration
         // TODO: This is a temporary solution and should be replaced with a more robust mechanism.
         private readonly ConcurrentDictionary<SwiftTypeName, TypeRecord> _outOfModuleTypes = new();
 
+        // Module aliases for types that appear under different module names in ABI JSON vs their canonical location.
+        // For example, CGSize appears as CoreFoundation.CGSize in ABI JSON but is registered under CoreGraphics.
+        private static readonly Dictionary<string, string> _moduleAliases = new()
+        {
+            { "CoreFoundation", "CoreGraphics" },
+        };
+
         public TypeDatabase()
         {
         }
@@ -174,6 +181,19 @@ namespace BindingsGeneration
                     return true;
             }
 
+            // Try module alias (e.g., CoreFoundation -> CoreGraphics)
+            if (_moduleAliases.TryGetValue(swiftTypeName.Module, out var aliasedModule))
+            {
+                if (_modules.TryGetValue(aliasedModule, out moduleDatabase))
+                {
+                    // Create an aliased SwiftTypeName with the canonical module
+                    var aliasedTypeName = SwiftTypeName.FromModuleQualifiedName(
+                        $"{aliasedModule}.{swiftTypeName.Name}");
+                    if (moduleDatabase.TryGetTypeRecord(aliasedTypeName, out record))
+                        return true;
+                }
+            }
+
             // Try looking in the out-of-module types
             if (_outOfModuleTypes.TryGetValue(swiftTypeName, out record))
                 return true;
@@ -196,6 +216,17 @@ namespace BindingsGeneration
         {
             if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
                 return moduleDatabase.IsTypeProcessed(swiftTypeName);
+
+            // Try module alias (e.g., CoreFoundation -> CoreGraphics)
+            if (_moduleAliases.TryGetValue(swiftTypeName.Module, out var aliasedModule))
+            {
+                if (_modules.TryGetValue(aliasedModule, out moduleDatabase))
+                {
+                    var aliasedTypeName = SwiftTypeName.FromModuleQualifiedName(
+                        $"{aliasedModule}.{swiftTypeName.Name}");
+                    return moduleDatabase.IsTypeProcessed(aliasedTypeName);
+                }
+            }
 
             return false;
         }

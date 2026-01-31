@@ -281,10 +281,11 @@ namespace BindingsGeneration
             }
 
             // Handle tuple return types
+            // Note: Async methods with tuple returns are not yet supported
             if (_env.TupleHandler.IsTuple(argument.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)argument.SwiftTypeSpec;
-                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
+                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) && !_env.MethodDecl.IsAsync)
                     SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec));
                 else
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
@@ -542,10 +543,11 @@ namespace BindingsGeneration
             }
 
             // Handle tuple return types
+            // Note: Async methods with tuple returns are not yet supported
             if (_env.TupleHandler.IsTuple(returnType.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)returnType.SwiftTypeSpec;
-                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
+                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) && !_env.MethodDecl.IsAsync)
                     SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec));
                 else
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);

@@ -27,64 +27,38 @@ The following phases have been completed. See individual documents for details:
 | Phase 7 | Protocol Proxy Emitter | [phase-7-protocol-proxy-emitter.md](CompletedPhases/phase-7-protocol-proxy-emitter.md) |
 | Phase 8 | Remaining Validation & Bug Fixes | [phase-8-validation-bug-fixes.md](CompletedPhases/phase-8-validation-bug-fixes.md) |
 | Phase 9 | Binding Gap Reduction | [phase-9-binding-gap-reduction.md](CompletedPhases/phase-9-binding-gap-reduction.md) |
-| Phase 10 | Remaining Binding Gap Fixes | See below |
-
----
-
-## Phase 10: Remaining Binding Gap Fixes (In Progress)
-
-Phase 10 implements infrastructure for the remaining skipped properties.
-
-### 10.1 Frozen Struct Closure Parameters ✅
-**Status**: IMPLEMENTED
-
-Extended closure handling to support frozen structs as closure parameters:
-- `ClosureHandler.IsFrozenStruct()` - detects frozen structs in TypeDatabase
-- `ClosureHandler.RequiresStructMarshalling()` - checks if closure needs struct marshalling
-- `ClosureEmitter.EmitClosureReturnMarshallingWithStructParams()` - generates stackalloc + MarshalToSwift code
-- Updated `IsInvocableParameter()` to allow frozen structs
-
-**Limitation**: Only supports frozen structs. Non-frozen structs like `ImageDecodingContext` require additional opaque payload handling.
-
-### 10.2 AsyncStream Infrastructure ✅
-**Status**: INFRASTRUCTURE IMPLEMENTED
-
-Created foundation for AsyncStream property support:
-- `AsyncStreamHandler.cs` - detects `_Concurrency.AsyncStream` and `AsyncThrowingStream` types
-- `SwiftAsyncStream<T>.cs` - runtime type implementing `IAsyncEnumerable<T>` with Channel-based buffering
-- Added `AsyncStreamHandler` to `PropertyEnvironment`
-
-**Remaining work**: PropertyHandler emission of AsyncStream properties with Swift wrapper generation.
-
-### 10.3 Async Closure Support ✅
-**Status**: IMPLEMENTED
-
-Extended closure handling to support async closures:
-- `IsSupportedClosure()` now allows async closures (only rejects async+throwing)
-- `GetCSharpDelegateType()` maps async closures to `Func<..., Task>` or `Func<..., Task<T>>`
-- Added `IsAsyncClosure()` helper method
-
-**Note**: Properties with async closures may still be skipped if their accessor methods have other unsupported types.
+| Phase 10 | Remaining Binding Gap Fixes | [phase-10-binding-gap-fixes.md](CompletedPhases/phase-10-binding-gap-fixes.md) |
+| Phase 11 | Advanced Binding Gap Fixes | [phase-11-binding-gap-fixes.md](CompletedPhases/phase-11-binding-gap-fixes.md) |
+| Phase 12 | CoreFoundation/TupleHandler Fixes | [phase-12-corefoundation-tuple-fixes.md](CompletedPhases/phase-12-corefoundation-tuple-fixes.md) |
 
 ---
 
 ## Current State
 
-**Generated**: ~15,400+ lines of C# code
+**Generated**: ~18,400+ lines of C# code
 - 30+ classes implementing `ISwiftObject`
 - 8 protocol interfaces (all fully typed - no AnyType fallbacks)
 - 8 protocol proxy classes with witness table export
 - Protocol subscripts emitted as C# indexers
 - Property getters and setters
+- AsyncStream properties with `IAsyncEnumerable<T>` return types
+- Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **569 unit tests, 691 integration tests, 72 runtime tests passing**
+- **591 unit tests, 691 integration tests, 72 runtime tests passing (1,354 total)**
 
 **Remaining gaps**:
-- ~6 properties with unsupported types (skipped):
-  - 3 AsyncStream properties (`progress`, `previews`, `events`) - infrastructure in place, needs PropertyHandler emission
-  - 2 closure properties with non-frozen struct parameters (`makeImageDecoder`, `makeImageEncoder`) - frozen struct support implemented, but these use non-frozen structs
-  - 1 async closure property (`didComplete`) - async closure support implemented, but accessor has other unsupported types
+- **1 property** with unsupported types (skipped):
+  - `didComplete` - @MainActor async closure with Optional wrapping; closure infrastructure ready but accessor signature unsupported
+- **~6 methods/constructors** with `AnyType` parameters:
+  - `data(_for:)` - Async method returning tuple `(Data, URLResponse?)` - async tuple returns not yet supported
+  - `loadImage(with:queue:progress:completion:)` - Progress closure has `Optional<ImageResponse>` parameter (module-local type)
+  - `imagePublisher(...)` - Returns Combine `AnyPublisher` (reactive framework out of scope)
+  - `ImageRequest` constructor - `() async throws -> Data` closure (throwing closures not supported)
+- **Fixed in Phase 12**:
+  - ✅ `ImageProcessors.Resize` constructor - CGSize now resolved via module aliasing
+  - ✅ `ImageRequest.ThumbnailOptions` constructor - CGSize now resolved
+  - ✅ `loadData` completion callback - Tuple `(Data, URLResponse?)` now properly typed
 - **ObjC types use `Swift.*` wrappers instead of existing .NET iOS bindings** (see Phase 2.8 in completed phases) - Major UX issue
 
 ---
@@ -206,53 +180,90 @@ var image = response.Image; // UIImage
 
 ---
 
-## Future Work (Phase 11+)
+## Future Work (Phase 13+)
 
-### 11.1 Non-Frozen Struct Closure Parameters
+### Phase 12 Completed
+- ✅ CGSize module aliasing (CoreFoundation → CoreGraphics)
+- ✅ TupleHandler support for bound generics (Optional<T>, Array<T>)
+- ✅ Async tuple return exclusion (prevents crash, falls back to AnyType)
+
+### 13.1 Async Tuple Return Support
+**Priority**: High
+
+Async methods with tuple return types (like `(Data, URLResponse?)`) currently fall back to AnyType.
+
+**Affected APIs**:
+- `data(_for:)` → returns `(Data, URLResponse?)`
+
+**Requirements**:
+- Add tuple handling to `EmitAsyncWrapper`
+- Handle tuple marshalling in async callback context
+
+### 13.2 Module-Local Types in Closures
+**Priority**: High
+
+Closures with parameters of module-local types (types being generated, not pre-loaded) show as AnyType.
+
+**Affected APIs**:
+- `loadImage/loadData` → `progress` closure has `ImageResponse?` parameter
+
+**Root Cause**: ClosureHandler/TupleHandler only check global TypeDatabase, not module-local types being generated.
+
+**Requirements**:
+- Pass module database to handlers during emission
+- Or register types earlier in the processing pipeline
+
+### 13.3 Throwing Closures
 **Priority**: Medium
 
-Enable closure properties like `makeImageDecoder` that have non-frozen struct parameters (e.g., `ImageDecodingContext`).
+Closures with `throws` attribute are excluded from support.
+
+**Affected APIs**:
+- `ImageRequest` init with `() async throws -> Data` parameter
 
 **Requirements**:
-- Runtime metadata access for non-frozen struct size
-- Opaque payload allocation similar to non-frozen method parameters
-- Integration with existing non-frozen struct handling in MethodHandler
+- Implement error marshalling for closure returns
+- Handle Swift Error to C# Exception conversion
 
-**Note**: Phase 10.1 implemented frozen struct support; non-frozen structs need additional work.
-
-### 11.2 AsyncStream Property Emission
+### 13.4 didComplete Property Accessor
 **Priority**: Medium
 
-Complete emission of properties returning `AsyncStream<T>` like `progress`, `previews`, `events`.
+The `didComplete` property has @MainActor async closure infrastructure ready, but the accessor method signature is unsupported.
+
+```swift
+var didComplete: (@MainActor @Sendable () async -> Void)?
+```
 
 **Requirements**:
-- Swift wrapper functions to iterate streams (similar to async methods)
-- PropertyHandler integration to detect and emit AsyncStream properties
-- Connect SwiftAsyncStream<T> runtime type to emitted code
+- Analyze why accessor method signature fails
+- May need special handling for Optional closure property accessors
+- MainActor dispatch on C# side
 
-**Note**: Phase 10.2 implemented the infrastructure (AsyncStreamHandler, SwiftAsyncStream<T>); PropertyHandler emission is remaining.
+### 13.5 ObjC Type Remapping Enhancement
+**Priority**: Medium
 
-### 11.3 Async Closure Property Emission
-**Priority**: Low
+ObjC types currently use `Swift.*` wrappers (e.g., `Swift.URL`, `Swift.Data`) instead of existing .NET iOS bindings. This creates friction for .NET developers.
 
-Enable properties with async closures like `didComplete` where accessor methods have complex signatures.
+**Current state**: ObjC classes (UIImage, URLResponse) correctly map to .NET iOS types. Swift structs bridged from ObjC (URL, Data) intentionally use wrappers.
 
-**Requirements**:
-- Swift wrapper for async closure callback
-- Complete accessor method signature support
-- Integration with Phase 10.3 async closure delegate mapping
+**Options**:
+1. Keep current design (Swift wrappers for safety)
+2. Add implicit conversions between Swift.* and Foundation types
+3. Full remapping (breaking change)
 
-### 11.4 Proper Async Instance Method Fix
-**Status**: IMPLEMENTED (Phase 8 - Singleton Pattern Detection)
+### 13.6 Complete API Coverage Validation
+**Priority**: Medium
 
-The sed workaround has been replaced with proper generator support:
+Validate that all emitted APIs actually work at runtime, not just compile.
 
-**Implementation**:
-- `TypeDecl.HasSingletonPattern` property detects classes with static `shared` property returning Self
-- `MethodHandler.cs` skips `_self` parameter for singleton classes in async contexts
-- Swift wrapper uses `ClassName.shared.method()` for singletons, `unsafeBitCast(_self, to: ClassName.self)` for non-singletons
+**Test plan**:
+- Create integration tests for AsyncStream properties
+- Test closure property invocation
+- Verify non-frozen struct closure parameter marshalling
 
-**Limitation**: Async instance methods on non-singleton classes use `unsafeBitCast` which may have edge cases with certain Swift class hierarchies. The root cause (SwiftSelf register + Task closure capture) would require .NET runtime changes to fix properly.
+### Note: Async Instance Method Workaround
+
+The singleton pattern detection (Phase 8) handles most async instance methods. For non-singleton classes, `unsafeBitCast` is used which may have edge cases. A proper fix would require .NET runtime changes to support SwiftSelf register with async Task closure capture.
 
 ---
 
@@ -300,9 +311,9 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 
 | Category | Count |
 |----------|-------|
-| Unit tests | 569 |
+| Unit tests | 591 |
 | Integration tests | 691 |
 | Runtime tests | 72 |
-| **Total** | **1332** |
+| **Total** | **1,354** |
 
 All tests passing. iOS Simulator validation successful.
