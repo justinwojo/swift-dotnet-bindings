@@ -446,12 +446,18 @@ namespace BindingsGeneration
             // Use "I" prefix for interface naming convention
             var csharpTypeIdentifier = NameProvider.GetInterfaceName(protocolDecl.Name);
 
+            // Protocols with associated types generate generic C# interfaces
+            // Mark them so we can skip them in generic constraints (can't use generic interfaces without type arguments)
+            var flags = protocolDecl.AssociatedTypes.Count > 0
+                ? TypeRecordFlags.HasAssociatedTypes
+                : TypeRecordFlags.None;
+
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = protocolDecl.SwiftTypeName,
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, csharpTypeIdentifier),
                 MetadataAccessor = string.Empty, // Protocols don't have direct metadata accessors
-                Flags = TypeRecordFlags.None, // Protocols are not frozen
+                Flags = flags,
                 Kind = TypeRecordKind.Protocol,
             };
 

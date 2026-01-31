@@ -39,6 +39,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 19 | Enum Associated Values Support | See Phase 19 section below |
 | Phase 20 | Enum Associated Value Extraction | See Phase 20 section below |
 | Phase 21 | Generic Type Parameter & Swift Wrapper Fixes | [phase-21-generic-param-fixes.md](CompletedPhases/phase-21-generic-param-fixes.md) |
+| Phase 22 | Generic Protocol Proxy Compilation Fix | [phase-22-generic-protocol-proxy-fix.md](CompletedPhases/phase-22-generic-protocol-proxy-fix.md) |
 
 ---
 
@@ -55,7 +56,7 @@ The following phases have been completed. See individual documents for details:
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
 - **619 unit tests passing**
-- **Integration tests**: Pre-existing compilation errors in `GenericTests` module (generic protocol proxy limitation - see Phase 21)
+- **Integration tests**: Generic protocol proxy errors resolved (Phase 22); remaining pre-existing errors unrelated to protocols
 - **100% runtime validation pass rate** (30/30 tests in NukeTestApp, 2 skipped)
 
 **Runtime validated** (Phase 15.4):
@@ -151,19 +152,25 @@ Properties returning non-frozen struct types that contain existential containers
 **Workaround**: Avoid accessing properties that return non-frozen structs with existential container fields; use alternative APIs.
 
 ### Generic Protocol Proxy Classes
-**Status**: Known limitation (discovered Phase 21)
+**Status**: Graceful degradation (Phase 22)
 
-Protocols with associated types (PATs) generate generic proxy classes like `ContainerProxy<TElement>`. These classes contain `[UnmanagedCallersOnly]` callback methods for Swift-to-C# callbacks, but C# doesn't allow `[UnmanagedCallersOnly]` methods inside generic types.
+Protocols with associated types (PATs) generate generic proxy classes like `ContainerProxy<TElement>`. These classes would contain `[UnmanagedCallersOnly]` callback methods for Swift-to-C# callbacks, but C# doesn't allow `[UnmanagedCallersOnly]` methods inside generic types.
 
-**Errors**:
+**Original errors** (now resolved):
 ```
 error CS8895: Methods attributed with 'UnmanagedCallersOnly' cannot have generic type parameters
 error CS7042: The DllImport attribute cannot be applied to a method that is generic or contained in a generic type
 ```
 
-**Affected**: Integration tests (`GenericTests` module), any protocol with associated types.
+**Solution**: Phase 22 implemented graceful degradation - the generator now:
+1. Marks protocols with associated types via `TypeRecordFlags.HasAssociatedTypes`
+2. Skips proxy class generation for these protocols with a warning
+3. Skips using them as generic constraints (can't use `ISwiftContainer<TElement>` without type arguments)
+4. Skips them in protocol conformance dictionaries
 
-**Workaround**: None currently. Requires architectural changes to the protocol proxy emitter - possibly using runtime code generation or a non-generic base class pattern.
+**Affected**: Protocols with associated types cannot be implemented from C# (no proxy generation). They can still be consumed as interface types when Swift provides the implementation.
+
+**Future work**: More sophisticated support could use runtime code generation or specialized proxy classes per type argument.
 
 ### Simple Swift Enum Case Support
 **Status**: COMPLETED (Phase 18 + Phase 19 + Phase 20)
@@ -1009,7 +1016,7 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 
 **Unit tests**: All 619 passing.
 
-**Integration tests**: Pre-existing compilation errors in `GenericTests` module. The `ContainerProxy<TElement>` generic class contains `[UnmanagedCallersOnly]` callback methods, which C# doesn't allow in generic types. This is a known architectural limitation with protocols that have associated types. See Phase 21 for details.
+**Integration tests**: Generic protocol proxy compilation errors (CS8895, CS7042, CS0305) resolved in Phase 22. The generator now skips proxy generation for protocols with associated types. Remaining pre-existing errors are unrelated to protocol handling (missing property setters, boxing conversions).
 
 ### NukeTestApp Validation (Phase 21)
 | Category | Passed | Failed | Warnings |
@@ -1062,3 +1069,9 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 - ✅ TypeConversionHandler crash with generic type parameters (`τ_0_0`)
 - ✅ EveryProtocolEmitter closure type rendering in Swift wrapper
 - ✅ EveryProtocolEmitter existential metatype syntax (`(any Protocol).self`)
+
+**Fixed in Phase 22**:
+- ✅ Generic protocol proxy compilation errors (CS8895, CS7042, CS0305)
+- ✅ Protocols with associated types now skip proxy generation gracefully
+- ✅ Generic constraints skip protocols with associated types (can't use without type arguments)
+- ✅ Protocol conformance dictionaries skip generic protocol interfaces

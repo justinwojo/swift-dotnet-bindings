@@ -332,50 +332,32 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_GeneratesGenericProxyForProtocolsWithAssociatedTypes()
+    public void EmitProxyClass_SkipsProtocolsWithAssociatedTypes()
     {
+        // Protocols with associated types would create generic proxy classes,
+        // but C# doesn't allow [UnmanagedCallersOnly] or [DllImport] in generic types.
+        // So we skip proxy generation for these protocols.
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Element" });
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public unsafe class TestProtocolProxy<TElement>", output);
+        // Verify no proxy class is generated
+        Assert.DoesNotContain("public unsafe class TestProtocolProxy", output);
     }
 
     [Fact]
-    public void EmitProxyClass_GeneratesGenericConstraintsForAssociatedTypes()
+    public void EmitProxyClass_SkipsProtocolsWithMultipleAssociatedTypes()
     {
-        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
-        protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Element" });
-
-        var output = EmitProxyClass(protocolDecl);
-
-        Assert.Contains("where TElement : ISwiftObject", output);
-    }
-
-    [Fact]
-    public void EmitProxyClass_GeneratesMultipleGenericParameters()
-    {
+        // Protocols with multiple associated types would also be skipped
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Key" });
         protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Value" });
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("TestProtocolProxy<TKey, TValue>", output);
-        Assert.Contains("where TKey : ISwiftObject", output);
-        Assert.Contains("where TValue : ISwiftObject", output);
-    }
-
-    [Fact]
-    public void EmitProxyClass_ImplementsGenericInterface()
-    {
-        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
-        protocolDecl.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Element" });
-
-        var output = EmitProxyClass(protocolDecl);
-
-        Assert.Contains(": ISwiftTestProtocol<TElement>,", output);
+        // Verify no proxy class is generated
+        Assert.DoesNotContain("TestProtocolProxy", output);
     }
 
     #endregion

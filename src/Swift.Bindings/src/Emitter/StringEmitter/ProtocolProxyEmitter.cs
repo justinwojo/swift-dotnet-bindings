@@ -38,6 +38,17 @@ public class ProtocolProxyEmitter
             return;
         }
 
+        // Skip protocols with associated types (would create generic proxy classes)
+        // C# doesn't allow [UnmanagedCallersOnly] or [DllImport] in generic types,
+        // and nested classes inside generic types inherit this restriction.
+        // TODO: Implement a more sophisticated approach for generic protocol proxies
+        // (e.g., using runtime code generation or non-generic base classes)
+        if (protocolDecl.AssociatedTypes.Count > 0)
+        {
+            _logger.LogWarning($"Skipping proxy class for {protocolDecl.Name}: protocols with associated types are not yet supported for proxy generation (would require [UnmanagedCallersOnly] in generic type)");
+            return;
+        }
+
         // Skip protocols with no implementable members
         var hasImplementableMembers = protocolDecl.Properties.Any() ||
                                       protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||

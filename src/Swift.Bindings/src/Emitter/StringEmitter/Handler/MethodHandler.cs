@@ -150,6 +150,15 @@ namespace BindingsGeneration
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var methodEnv = (MethodEnvironment)env;
+
+            // Skip methods with constraints on protocols with associated types
+            // (these protocols generate generic C# interfaces which can't be used as constraints without type arguments)
+            if (HasUnsupportedProtocolConstraints(methodEnv))
+            {
+                _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: has constraints on protocols with associated types");
+                return;
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -162,6 +171,36 @@ namespace BindingsGeneration
             wrapperEmitter.EmitMethod(csWriter, swiftWriter);
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Checks if the method has constraints on protocols with associated types.
+        /// Such protocols generate generic C# interfaces which can't be used as constraints without type arguments.
+        /// </summary>
+        private bool HasUnsupportedProtocolConstraints(MethodEnvironment methodEnv)
+        {
+            if (!methodEnv.MethodDecl.IsGeneric)
+                return false;
+
+            foreach (var param in methodEnv.MethodDecl.GenericParameters)
+            {
+                foreach (var conformance in param.GenericConformances)
+                {
+                    if (conformance.Kind == ConformanceKind.Protocol)
+                    {
+                        if (methodEnv.TypeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record))
+                        {
+                            if (record.Kind == TypeRecordKind.Protocol &&
+                                record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
         }
     }
 
@@ -1948,8 +1987,9 @@ namespace BindingsGeneration
                 var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);
                 foreach (var conformance in conformances)
                 {
-                    // Skip unknown protocols - only emit witness table lookup if protocol is in our TypeDatabase
-                    if (!IsProtocolAvailable(conformance.ConformanceTarget))
+                    // Skip unknown protocols and protocols with associated types
+                    // (protocols with associated types generate generic interfaces which can't be used here)
+                    if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget))
                         continue;
 
                     var pwtName = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ConformanceTarget.Name);
@@ -2214,8 +2254,9 @@ namespace BindingsGeneration
 
                 foreach (var conformance in param.GenericConformances)
                 {
-                    // Skip unknown protocols - only add constraint if protocol is in our TypeDatabase
-                    if (!IsProtocolAvailable(conformance.ConformanceTarget))
+                    // Skip unknown protocols and protocols with associated types
+                    // (protocols with associated types generate generic interfaces which can't be used as constraints)
+                    if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget))
                         continue;
 
                     var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name);
@@ -2231,15 +2272,20 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Checks if a protocol is available in the TypeDatabase.
+        /// Checks if a protocol is available in the TypeDatabase and can be used as a generic constraint.
+        /// Protocols with associated types cannot be used as constraints because they generate generic
+        /// C# interfaces which require type arguments.
         /// </summary>
         /// <param name="protocolTypeName">The protocol type name to check.</param>
-        /// <returns>True if the protocol is known, false otherwise.</returns>
-        private bool IsProtocolAvailable(SwiftTypeName protocolTypeName)
+        /// <returns>True if the protocol is known and can be used as a constraint, false otherwise.</returns>
+        private bool IsProtocolAvailableForConstraint(SwiftTypeName protocolTypeName)
         {
             if (_env.TypeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
             {
-                return record.Kind == TypeRecordKind.Protocol;
+                // Must be a protocol and must NOT have associated types
+                // (protocols with associated types generate generic interfaces which can't be used as constraints)
+                return record.Kind == TypeRecordKind.Protocol &&
+                       !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes);
             }
             return false;
         }

@@ -27,6 +27,10 @@ public enum TypeRecordFlags
     // These types should be remapped to their .NET iOS binding equivalents (e.g., UIKit.UIImage)
     // rather than custom Swift.* wrapper types.
     ObjCBridged = 1 << 2,
+    // This flag indicates a protocol has associated types.
+    // Such protocols generate generic C# interfaces (e.g., ISwiftContainer<TElement>) and
+    // cannot be used directly as generic constraints without type arguments.
+    HasAssociatedTypes = 1 << 3,
 }
 
 /// <summary>

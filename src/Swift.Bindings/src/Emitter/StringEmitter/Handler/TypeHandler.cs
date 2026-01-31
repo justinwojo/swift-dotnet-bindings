@@ -88,7 +88,7 @@ namespace BindingsGeneration
 
             // Get generic type parts if this is a generic type
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
-            var whereClause = GenericTypeEmitter.GetWhereClause(structDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
             var interfaces = new List<string> {
                 typeof(ISwiftObject).Name,
@@ -285,7 +285,7 @@ namespace BindingsGeneration
 
             // Get generic type parts if this is a generic type
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
-            var whereClause = GenericTypeEmitter.GetWhereClause(structDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
             var interfaces = new List<string> {
                 typeof(ISwiftObject).Name,
@@ -428,7 +428,7 @@ namespace BindingsGeneration
 
             // Get generic type parts if this is a generic type
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
-            var whereClause = GenericTypeEmitter.GetWhereClause(classDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(classDecl, env.TypeDatabase);
 
             var interfaces = new List<string> {
                 typeof(ISwiftObject).Name,
@@ -805,6 +805,14 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Skip protocols with associated types (they generate generic interfaces that can't be used with typeof)
+                if (_typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record) &&
+                    record.Kind == TypeRecordKind.Protocol &&
+                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+                {
+                    continue;
+                }
+
                 var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, _structDecl.Name);
                 var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
 
@@ -1135,6 +1143,14 @@ namespace BindingsGeneration
             foreach (var conformance in _classDecl.Conformances)
             {
                 if (conformance.Protocol.Module != _moduleDecl.Name && !crossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
+                {
+                    continue;
+                }
+
+                // Skip protocols with associated types (they generate generic interfaces that can't be used with typeof)
+                if (_typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record) &&
+                    record.Kind == TypeRecordKind.Protocol &&
+                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
                 {
                     continue;
                 }
@@ -3050,6 +3066,14 @@ namespace BindingsGeneration
             foreach (var conformance in _enumDecl.Conformances)
             {
                 if (conformance.Protocol.Module != _moduleDecl.Name && !crossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
+                {
+                    continue;
+                }
+
+                // Skip protocols with associated types (they generate generic interfaces that can't be used with typeof)
+                if (_typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record) &&
+                    record.Kind == TypeRecordKind.Protocol &&
+                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
                 {
                     continue;
                 }

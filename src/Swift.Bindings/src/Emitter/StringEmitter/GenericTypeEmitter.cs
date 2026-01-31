@@ -42,8 +42,9 @@ public static class GenericTypeEmitter
     /// Each generic parameter gets an ISwiftObject constraint, plus any protocol constraints.
     /// </summary>
     /// <param name="typeDecl">The type declaration.</param>
+    /// <param name="typeDatabase">Optional type database for checking protocol capabilities.</param>
     /// <returns>The where clause, or empty string if no constraints.</returns>
-    public static string GetWhereClause(TypeDecl typeDecl)
+    public static string GetWhereClause(TypeDecl typeDecl, ITypeDatabase? typeDatabase = null)
     {
         if (!typeDecl.IsGeneric)
             return string.Empty;
@@ -63,13 +64,18 @@ public static class GenericTypeEmitter
             {
                 if (conformance.Kind == ConformanceKind.Protocol)
                 {
+                    // Skip Sendable as it doesn't have a C# equivalent
+                    if (conformance.ConformanceTarget.Name == "Sendable")
+                        continue;
+
+                    // Skip protocols with associated types (they generate generic interfaces
+                    // which can't be used as constraints without type arguments)
+                    if (typeDatabase != null && HasAssociatedTypes(typeDatabase, conformance.ConformanceTarget))
+                        continue;
+
                     // Convert Swift protocol name to C# interface name
                     var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name);
-                    // Skip Sendable as it doesn't have a C# equivalent
-                    if (conformance.ConformanceTarget.Name != "Sendable")
-                    {
-                        paramConstraints.Add(interfaceName);
-                    }
+                    paramConstraints.Add(interfaceName);
                 }
             }
 
@@ -83,15 +89,29 @@ public static class GenericTypeEmitter
     }
 
     /// <summary>
+    /// Checks if a protocol has associated types (which would make it a generic interface in C#).
+    /// </summary>
+    private static bool HasAssociatedTypes(ITypeDatabase typeDatabase, SwiftTypeName protocolTypeName)
+    {
+        if (typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+        {
+            return record.Kind == TypeRecordKind.Protocol &&
+                   record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes);
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Gets the full type declaration signature including generics and where clause.
     /// For example: "Box&lt;T0&gt; where T0 : ISwiftObject"
     /// </summary>
     /// <param name="typeDecl">The type declaration.</param>
+    /// <param name="typeDatabase">Optional type database for checking protocol capabilities.</param>
     /// <returns>The full type signature.</returns>
-    public static string GetFullTypeSignature(TypeDecl typeDecl)
+    public static string GetFullTypeSignature(TypeDecl typeDecl, ITypeDatabase? typeDatabase = null)
     {
         var name = GetTypeNameWithGenerics(typeDecl);
-        var whereClause = GetWhereClause(typeDecl);
+        var whereClause = GetWhereClause(typeDecl, typeDatabase);
 
         if (string.IsNullOrEmpty(whereClause))
             return name;
