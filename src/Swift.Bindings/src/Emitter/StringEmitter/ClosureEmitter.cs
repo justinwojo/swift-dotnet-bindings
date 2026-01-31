@@ -829,7 +829,10 @@ public static class ClosureEmitter
                     // Non-frozen struct: allocate on heap, initialize, and clean up after call
                     var _arg{{i}}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{{csharpType}}>();
                     byte* _arg{{i}}Buffer = (byte*)NativeMemory.Alloc((nuint)_arg{{i}}Metadata.Size, (nuint)_arg{{i}}Metadata.Stride);
-                    _arg{{i}}Metadata.ValueWitnessTable.InitializeWithCopy(new IntPtr(_arg{{i}}Buffer), ((ISwiftObject)_arg{{i}}).Payload);
+                    _arg{{i}}Metadata.ValueWitnessTable->InitializeWithCopy(
+                        (void*)_arg{{i}}Buffer,
+                        (void*)_arg{{i}}.Payload.DangerousGetHandle(),
+                        _arg{{i}}Metadata);
                     """);
                 invokeArgs.Add($"_arg{i}Buffer");
                 nonFrozenArgs.Add(i);
@@ -895,9 +898,8 @@ public static class ClosureEmitter
 
             foreach (var i in nonFrozenArgs)
             {
-                var csharpType = closureHandler.TranslateTypeSpecToCSharp(argTypes[i]);
                 csWriter.WriteLines($$"""
-                    _arg{{i}}Metadata.ValueWitnessTable.Destroy(new IntPtr(_arg{{i}}Buffer));
+                    _arg{{i}}Metadata.ValueWitnessTable->Destroy((void*)_arg{{i}}Buffer, _arg{{i}}Metadata);
                     NativeMemory.Free(_arg{{i}}Buffer);
                     """);
             }

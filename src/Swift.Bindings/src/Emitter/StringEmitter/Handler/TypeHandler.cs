@@ -1935,8 +1935,9 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // Emit case constructors for all cases
-            // Simple cases (no associated values) become static properties
-            // Cases with associated values become static methods
+            // Cases with associated values become static methods with P/Invoke constructors
+            // Simple cases (no associated values) are NOT emitted - Swift doesn't export constructor
+            // functions for them. They use RawRepresentable which requires different handling.
             foreach (var caseDecl in enumDecl.Cases)
             {
                 if (caseDecl.HasAssociatedValues)
@@ -1945,7 +1946,9 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    EmitEnumCase(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase);
+                    // Skip simple enum cases - Swift only exports witness table data (WC suffix),
+                    // not constructor functions. Proper support requires RawRepresentable implementation.
+                    _logger.LogWarning($"Skipping enum case '{enumDecl.Name}.{caseDecl.Name}' - simple enum cases without associated values are not yet supported (requires RawRepresentable).");
                 }
             }
 

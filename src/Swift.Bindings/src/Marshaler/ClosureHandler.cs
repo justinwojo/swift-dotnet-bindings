@@ -267,14 +267,11 @@ public class ClosureHandler
                 // Recursively check all generic parameters are supported
                 foreach (var genericParam in namedType.GenericParameters)
                 {
-                    // Handle existential generic parameters (e.g., Optional<any Protocol>)
+                    // Existential generic parameters (e.g., Optional<any Protocol>) are NOT supported
+                    // for closure return types because the emitter can't marshal void* back to the
+                    // bound generic type (e.g., SwiftOptional<ExistentialContainer1>)
                     if (_existentialHandler.IsExistential(genericParam))
-                    {
-                        var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
-                        if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
-                            return false;
-                        continue; // This parameter is valid
-                    }
+                        return false;
 
                     if (!IsSupportedClosureParameterType(genericParam))
                         return false;
