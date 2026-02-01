@@ -224,3 +224,24 @@ BindingTesting/**/output*/BindingTesting/
 
 # LLVM profiling data
 *.profraw
+
+# CMake generated files in IntegrationTests
+# Note: Source files are in FunctionalTests/ and StressTests/ subdirectories
+src/Swift.Bindings/tests/IntegrationTests/CMakeCache.txt
+src/Swift.Bindings/tests/IntegrationTests/CMakeFiles/
+src/Swift.Bindings/tests/IntegrationTests/Makefile
+src/Swift.Bindings/tests/IntegrationTests/cmake_install.cmake
+# CMake-generated test library directories (stale in-source build artifacts)
+src/Swift.Bindings/tests/IntegrationTests/Async/
+src/Swift.Bindings/tests/IntegrationTests/Closures/
+src/Swift.Bindings/tests/IntegrationTests/FrozenStructs/
+src/Swift.Bindings/tests/IntegrationTests/Generics/
+src/Swift.Bindings/tests/IntegrationTests/MemoryTests/
+src/Swift.Bindings/tests/IntegrationTests/NonFrozenStructs/
+src/Swift.Bindings/tests/IntegrationTests/PInvoke/
+src/Swift.Bindings/tests/IntegrationTests/Protocols/
+src/Swift.Bindings/tests/IntegrationTests/Runtime/
+src/Swift.Bindings/tests/IntegrationTests/StaticMethods/
+src/Swift.Bindings/tests/IntegrationTests/Structs/
+src/Swift.Bindings/tests/IntegrationTests/UnsafeBufferPointer/
+src/Swift.Bindings/tests/IntegrationTests/UnsafePointer/
