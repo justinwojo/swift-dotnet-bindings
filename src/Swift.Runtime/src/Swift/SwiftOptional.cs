@@ -115,7 +115,8 @@ public class SwiftOptional<T> : ISwiftObject, IDisposable
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
         where TProtocol : class
     {
-        // TODO: https://github.com/dotnet/runtimelab/issues/2963
+        // Protocol conformance for SwiftOptional is not implemented.
+        // SwiftOptional wraps Swift's Optional<T> but doesn't support protocol witness lookup.
         throw new NotImplementedException();
     }
 

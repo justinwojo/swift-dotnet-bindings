@@ -127,7 +127,7 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
         Assert.False(TypeMetadata.TryGetTypeMetadata<object>(out var md));
     }
 
-    [Fact(Skip = "Wrong value can be read from the cache: https://github.com/dotnet/runtimelab/issues/2966")]
+    [Fact(Skip = "TypeMetadata cache can return wrong values - GetOrAdd for existential containers has inconsistent caching behavior")]
     public static void FailsWhenMetadataIsNotValid()
     {
         Assert.False(TypeMetadata.TryGetTypeMetadata<AnyTypeMock>(out var md));

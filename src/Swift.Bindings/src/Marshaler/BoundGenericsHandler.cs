@@ -53,7 +53,7 @@ public class BoundGenericsHandler
     public bool IsBoundGeneric(PropertyDecl propertyDecl) =>
         propertyDecl.SwiftTypeSpec is NamedTypeSpec namedTypeSpec &&
         namedTypeSpec.ContainsGenericParameters &&
-        !_closureHandler.IsOptionalClosure(propertyDecl.SwiftTypeSpec); // TODO: Check whether return type is not type's generic parameter https://github.com/dotnet/runtimelab/issues/3013
+        !_closureHandler.IsOptionalClosure(propertyDecl.SwiftTypeSpec); // TODO: Should also check that return type is not the type's own generic parameter (e.g., T in class Foo<T>)
 
     /// <summary>
     /// Determines whether the specified argument declaration represents a bound generic type.

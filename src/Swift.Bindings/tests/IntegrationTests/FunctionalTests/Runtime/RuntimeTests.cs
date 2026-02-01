@@ -228,7 +228,8 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(1, Arc.RetainCount(*(IntPtr*)set.Payload.DangerousGetHandle()));
         }
 
-        // TODO: Remove helper methods when https://github.com/dotnet/runtimelab/issues/2970
+        // Helper methods needed because binding generator doesn't yet support SwiftSet<T> marshalling
+        // for method parameters and return types. These manually marshal between IntPtr and SwiftSet.
         private static unsafe SwiftSet<SwiftIntMock> GetSet(int count)
         {
             IntPtr variant = PInvoke_GetSet(count);

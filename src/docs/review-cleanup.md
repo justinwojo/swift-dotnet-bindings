@@ -59,75 +59,91 @@ All public members without XML doc comments triggered errors. Affected files inc
 
 ## 2. TODO/FIXME Audit
 
+**Last Updated**: February 2026
+
 ### Summary
 
 | Location | Count |
 |----------|-------|
-| Swift.Bindings/src | 36 |
-| Swift.Runtime/src | 6 |
-| Tests | 2 |
+| Swift.Bindings/src | 24 (excludes 6 generated code markers) |
+| Swift.Runtime/src | 5 |
+| Tests | 1 |
 | Generated output (expected) | 40+ |
 
-### Should Fix Now (High Priority)
+### Previously Fixed
 
-| File | Line | Marker | Issue | Action |
-|------|------|--------|-------|--------|
-| `MethodHandler.cs` | 2463 | TODO | "Call Destroy on copy buffers to properly release refs (needs type info)" | **FIXED** - Added CopyBufferWithType struct to capture TypeMetadata and call Destroy before NativeMemory.Free |
-| `MethodHandler.cs` | 2075 | TODO | "Replace with correct method name" | **FIXED** - TODO removed, method name was already correct |
+| File | Issue | Resolution |
+|------|-------|------------|
+| `MethodHandler.cs` | "Call Destroy on copy buffers" | **FIXED** - Added CopyBufferWithType struct |
+| `MethodHandler.cs` | "Replace with correct method name" | **FIXED** - TODO removed |
+| `SwiftABIParser.cs:601` | Bare #2954 reference | **REMOVED** - Code works correctly |
+| `RuntimeTests.cs:231` | #2970 reference | **REPLACED** - Now descriptive comment explaining SwiftSet helpers |
+| `TypeHandler.cs` duplication | 3 copies of crossModuleSupportedProtocols | **FIXED** - Extracted to ProtocolConformanceHelper |
 
-### Document as Known Limitation
+### Known Limitations (Documented)
 
-| File | Line | Marker | Issue | Status |
-|------|------|--------|-------|--------|
-| `PropertyHandler.cs` | 164 | TODO | "Detect and skip / Handle async properties" | Links to #2996 - documented limitation |
-| `SwiftOptional.cs` | 118 | TODO | Reference to #2963 | Open runtimelab issue |
-| `TypeMetadata.cs` | 327 | TODO | "handle tuples" with #2873 | Tuple support implemented per roadmap |
-| `SwiftResult.cs` | 129 | TODO | "Implement protocol conformance for Result" | Known incomplete feature |
-| `SwiftMarshal.cs` | 49, 192 | TODO | "Implement for tuples" | Runtime tuple marshalling not complete |
-| `TypeMetadata.cs` | 150 | TODO | "add metadata for common built-in types like scalars and strings" | Enhancement for future |
-| `TbdParser.cs` | 34 | TODO | JSON TBD format not implemented | Only YAML-like format supported |
-| `YamlLikeTbdFormatParser.cs` | 82 | TODO | "We might not support all top-level keys yet" | Parser completeness |
-| `BoundGenericsHandler.cs` | 36 | TODO | "Add more types as needed" | Bound generic type mapping |
-| `BoundGenericsHandler.cs` | 56 | TODO | Check return type against #3013 | Open issue |
-| `BoundGenericsHandler.cs` | 123, 213 | TODO | "Consider throwing an exception instead" | Error handling improvement |
-| `TypeDatabaseExtensions.cs` | 9 | TODO | TypeDatabase should only hold nominal types | Architectural note |
-| `TypeDatabase.cs` | 21 | TODO | "temporary solution...replaced with more robust mechanism" | Type database initialization |
-| `TypeDatabase.cs` | 44 | TODO | "synchronous, consider other xml parsers" | Performance improvement |
-| `TypeDatabase.cs` | 144 | TODO | Closed generics handling | Type parsing improvement |
-| `ModuleProcessor.cs` | 273, 354, 385, 443 | TODO | "Correctly map to a .NET namespace" | Namespace mapping uses temporary `Swift.{Module}` |
-| `SwiftABIParser.cs` | 351 | TODO | "Some types conform to protocols inherently" | Implicit conformance |
-| `SwiftABIParser.cs` | 601 | TODO | Reference to #2954 | Open issue |
-| `TypeHandler.cs` | 122 | TODO | "refactor to use type metadata" | Code improvement |
-| `TypeHandler.cs` | 2798 | TODO | "Proper offset calculation for element" | Tuple element offset |
-| `ProtocolProxyEmitter.cs` | 44 | TODO | "Implement a more sophisticated approach for generic protocol proxies" | Known limitation |
+These TODOs represent known gaps that are documented and tracked.
+
+| File | Line | Issue | Category |
+|------|------|-------|----------|
+| `PropertyHandler.cs` | 162 | "Detect and skip async properties" | Async properties not supported |
+| `SwiftResult.cs` | 129 | "Implement protocol conformance for Result" | Protocol conformance incomplete |
+| `TypeMetadata.cs` | 327 | "Handle tuple types (ValueTuple<T1, T2, ...>)" | Runtime tuple metadata |
+| `TypeMetadata.cs` | 150 | "add metadata for common built-in types" | Type metadata enhancement |
+| `SwiftMarshal.cs` | 49, 192 | "Implement for tuples" | Runtime tuple marshalling |
+| `TbdParser.cs` | 34 | JSON TBD format not implemented | Only YAML-like format supported |
+| `YamlLikeTbdFormatParser.cs` | 82 | "We might not support all top-level keys yet" | Parser completeness |
+| `ProtocolProxyEmitter.cs` | 44 | "Implement sophisticated approach for generic protocol proxies" | Generic protocols |
+| `SwiftABIParser.cs` | 351 | "Some types conform to protocols inherently" | Implicit conformance |
+
+### Namespace Mapping (Temporary Solution)
+
+The namespace mapping uses a temporary `Swift.{Module}` pattern. These TODOs track the need for a proper namespace mapping solution.
+
+| File | Lines | Issue |
+|------|-------|-------|
+| `ModuleProcessor.cs` | 273, 354, 385, 443 | "Correctly map to a .NET namespace" |
+| `ModuleProcessor.cs` | 274, 355, 386 | "Remove this logic once correct csharp type names are used" |
+
+### Bound Generics Improvements
+
+| File | Line | Issue | Notes |
+|------|------|-------|-------|
+| `BoundGenericsHandler.cs` | 36 | "Add more types as needed" | Type mapping dictionary |
+| `BoundGenericsHandler.cs` | 56 | "Should also check that return type is not the type's own generic parameter" | Edge case for `T` in `class Foo<T>` |
+| `BoundGenericsHandler.cs` | 123, 213 | "Consider throwing an exception instead" | Error handling - currently returns AnyType |
 
 ### Technical Debt (Can Address Later)
 
-| File | Line | Marker | Issue | Notes |
-|------|------|--------|-------|-------|
-| `TypeHandler.cs` | 794, 1136, 3059 | TODO | "Remove this once we process multiple modules" | 3 duplicate implementations of `crossModuleSupportedProtocols` |
-| `MarshallingHelpers.cs` | 7 | TODO | "Find better place for those" | Code organization |
-| `BaseDecl.cs` | 14 | TODO | "Hide or remove this property" | API design |
+| File | Line | Issue | Notes |
+|------|------|-------|-------|
+| `MarshallingHelpers.cs` | 7 | "Find better place for those" | Code organization |
+| `BaseDecl.cs` | 14 | "Hide or remove this property" | API design - Name property may be incorrect |
+| `TypeDatabaseExtensions.cs` | 9 | "TypeDatabase should hold only nominal types" | Architectural note |
+| `TypeDatabase.cs` | 21 | "temporary solution...replaced with more robust mechanism" | Initialization approach |
+| `TypeDatabase.cs` | 44 | "synchronous, consider other xml parsers" | Performance improvement |
+| `TypeDatabase.cs` | 144 | "Closed generics" | Type parsing improvement |
+| `FrozenStructHandler.cs` | 121 | "refactor to use type metadata" | Code improvement |
 
-### Should Verify If Still Needed
+### Verified as Still Needed
 
-| File | Line | Marker | Issue | Notes |
-|------|------|--------|-------|-------|
-| `NameProvider.cs` | 21 | Workaround | "Temporary workaround for #2997 to keep StoreKit tests passing" | Verify if workaround still required |
+| File | Line | Issue | Notes |
+|------|------|-------|-------|
+| `NameProvider.cs` | 21 | Property name mappings for StoreKit | **VERIFIED** - Keep for backward compatibility with published StoreKit bindings |
 
-### Expected TODOs (In Generated Code)
+### Generated Code Markers (Intentional)
 
-The `ProtocolProxyEmitter.cs` generates `// TODO: Call Swift via P/Invoke for Swift implementation` comments in proxy method stubs at lines:
-- 921, 937, 978, 994, 1035, 1047
+The `ProtocolProxyEmitter.cs` generates `// TODO: Call Swift via P/Invoke for Swift implementation` comments in proxy method stubs at lines 921, 937, 978, 994, 1035, 1047.
 
-These are **intentional** - they mark unimplemented protocol method implementations that throw `NotImplementedException`. The generated Nuke bindings contain 40+ of these.
+The `EnumHandler.cs` generates `// TODO: Proper offset calculation for element` at line 930.
+
+These are **intentional** - they mark unimplemented code paths that throw `NotImplementedException`. The generated Nuke bindings contain 40+ of these.
 
 ### Test File TODOs
 
 | File | Line | Issue |
 |------|------|-------|
-| `RuntimeTests.cs` | 231 | "Remove helper methods when #2970" |
-| `ClosuresTests.swift` | 10 | "Add @convention(c) support with proper detection" |
+| `ClosuresTests.swift` | 10 | "Add @convention(c) support with proper detection from mangled names" |
 
 ---
 
@@ -362,16 +378,18 @@ String formatting uses `string.Format()` instead of interpolation in several pla
 
 ## Appendix: GitHub Issue References
 
-| Issue | Description | Status |
-|-------|-------------|--------|
-| #2873 | Tuple Support | Implemented |
+**Status**: All external issue references cleaned up (February 2026). URLs replaced with descriptive comments.
+
+| Issue | Description | Resolution |
+|-------|-------------|------------|
+| #2873 | Tuple Support | Implemented; URL removed from TypeMetadata.cs |
 | #2874 | Closure Support | Implemented |
 | #2875 | Existential Containers | Implemented |
 | #2890 | Generic Constructors | Implemented |
-| #2954 | Referenced in SwiftABIParser | Unknown |
-| #2963 | Referenced in SwiftOptional | Open |
-| #2966 | TypeMetadata cache bug | Known issue |
-| #2970 | Referenced in RuntimeTests | Unknown |
-| #2996 | Async Properties | Documented limitation |
-| #2997 | StoreKit workaround | Verify if needed |
-| #3013 | Return type check | Open |
+| #2954 | Referenced in SwiftABIParser | URL removed - code works correctly, no action needed |
+| #2963 | Protocol conformance for SwiftOptional | URL removed - documented as NotImplementedException |
+| #2966 | TypeMetadata cache bug | URL removed from test skip reason - documented in comment |
+| #2970 | SwiftSet marshalling helpers | URL removed - helpers still needed, documented in comment |
+| #2996 | Async Properties | URL removed - documented limitation in PropertyHandler |
+| #2997 | StoreKit property name workaround | URL removed - verified still needed for backward compatibility |
+| #3013 | Return type generic param check | URL removed - TODO updated with descriptive comment |

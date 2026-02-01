@@ -324,7 +324,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
 
         // NB - all further methods here should finish by putting the type into the cache
 
-        // TODO: handle tuples https://github.com/dotnet/runtimelab/issues/2873
+        // TODO: Handle tuple types (ValueTuple<T1, T2, ...>) - need to create Swift tuple metadata
 
         // Handle closure/delegate types
         // Closures are represented as Function metadata kind in Swift

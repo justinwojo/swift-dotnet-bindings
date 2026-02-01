@@ -159,7 +159,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // TODO Detect and skip / Handle async properties https://github.com/dotnet/runtimelab/issues/2996
+        // TODO: Detect and skip async properties (properties with async getters/setters are not yet supported)
 
         // Get nested type names from parent for collision detection
         // In Swift, a property can have the same name as its type (e.g., cacheType: CacheType)

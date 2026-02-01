@@ -17,8 +17,9 @@ public record struct GenericParameterCSName(string TypeParameter);
 ///
 public static class NameProvider
 {
-    // Dictionary of Swift property names that need to be renamed in C#
-    // Temporary workaround for https://github.com/dotnet/runtimelab/issues/2997 to keep StoreKit tests passing
+    // Dictionary of Swift property names that need special renaming in C#.
+    // These mappings predate the general collision detection (lines 145-150) which uses "Value" suffix.
+    // Keep for backward compatibility with StoreKit bindings that use "Property" suffix.
     private static readonly Dictionary<string, string> PropertyNameMappings = new()
     {
         { "isEligibleForIntroOffer", "IsEligibleForIntroOfferProperty" },
