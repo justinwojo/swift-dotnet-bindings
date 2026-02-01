@@ -794,10 +794,11 @@ namespace BindingsGeneration
             var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
 
             // Swift represents multi-value associated types as a single tuple type.
-            // Check if the single associated value is a tuple (multi-element extraction not yet supported).
+            // Check if the single associated value is a tuple (multi-element extraction).
             if (caseDecl.AssociatedValues.Count == 1 && caseDecl.AssociatedValues[0] is TupleTypeSpec tupleSpec && tupleSpec.Elements.Count > 1)
             {
-                _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has tuple associated value with {tupleSpec.Elements.Count} elements. TryGet for tuple extraction not yet supported.");
+                // Delegate to tuple-specific TryGet emission
+                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase);
                 return;
             }
 
@@ -941,6 +942,271 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits a TryGet method for an enum case with tuple associated values.
+        /// Generates multiple out parameters, one for each tuple element.
+        /// Uses TupleTypeMetadata to get element offsets at runtime.
+        /// </summary>
+        private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase)
+        {
+            var caseName = caseDecl.Name;
+            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var tupleHandler = new TupleHandler(typeDatabase);
+
+            // Validate tuple element count (max 7 per C# ValueTuple limit)
+            if (tupleSpec.Elements.Count > TupleHandler.MaxSupportedTupleElements)
+            {
+                _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has tuple with {tupleSpec.Elements.Count} elements (max {TupleHandler.MaxSupportedTupleElements}). Skipping TryGet method.");
+                return;
+            }
+
+            // Validate and build parameter list from tuple elements
+            var parameters = new List<(string type, string name, TypeSpec typeSpec)>();
+            for (int i = 0; i < tupleSpec.Elements.Count; i++)
+            {
+                var element = tupleSpec.Elements[i];
+
+                // Check if element is a nested tuple (not supported)
+                if (element is TupleTypeSpec)
+                {
+                    // Nested tuples not supported
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has nested tuple at element {i}. Skipping TryGet method.");
+                    return;
+                }
+
+                var csharpType = GetCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler);
+
+                // Check if type is unsupported
+                if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported tuple element type at index {i}. Skipping TryGet method.");
+                    return;
+                }
+
+                // Use element label if available, otherwise generate a name
+                var paramName = element.TypeLabel ?? $"value{i}";
+                paramName = SanitizeParameterName(paramName);
+                parameters.Add((csharpType, paramName, element));
+            }
+
+            // Build the out parameter list for the method signature
+            var outParams = parameters.Select(p => $"[MaybeNullWhen(false)] out {p.type} {p.name}");
+            var outParamString = string.Join(", ", outParams);
+
+            // Emit the TryGet method
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine($"/// Attempts to extract the associated value(s) for the '{caseName}' case.");
+            csWriter.WriteLine("/// </summary>");
+            foreach (var (_, name, _) in parameters)
+            {
+                csWriter.WriteLine($"/// <param name=\"{name}\">When this method returns true, contains the associated value.</param>");
+            }
+            csWriter.WriteLine($"/// <returns>True if this enum is the '{caseName}' case; otherwise, false.</returns>");
+            csWriter.WriteLine($"public unsafe bool TryGet{capitalizedName}({outParamString})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Check if we're in the right case
+            csWriter.WriteLine($"if (Tag != CaseTag.{capitalizedName})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            foreach (var (_, name, _) in parameters)
+            {
+                csWriter.WriteLine($"{name} = default;");
+            }
+            csWriter.WriteLine("return false;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            csWriter.WriteLine("var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine();
+
+            // Create a copy to avoid destroying the original
+            csWriter.WriteLine("// Create a non-destructive copy of the enum");
+            csWriter.WriteLine("byte* enumCopy = stackalloc byte[(int)metadata.Size];");
+            csWriter.WriteLine("bool success = false;");
+            csWriter.WriteLine("_payload.DangerousAddRef(ref success);");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("if (success)");
+            csWriter.Indent++;
+            csWriter.WriteLine("_payload.DangerousRelease();");
+            csWriter.Indent--;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // Strip the tag to get the payload
+            csWriter.WriteLine("// Strip the tag to get the raw payload (which is the tuple)");
+            csWriter.WriteLine("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);");
+            csWriter.WriteLine();
+
+            // Get tuple type metadata to access element offsets
+            csWriter.WriteLine("// Get tuple metadata to determine element offsets");
+            csWriter.WriteLine($"var tupleMetadata = GetTupleMetadata_{capitalizedName}();");
+            csWriter.WriteLine();
+
+            // Marshal each tuple element using its computed offset
+            csWriter.WriteLine("// Marshal each tuple element from its computed offset");
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var (_, name, typeSpec) = parameters[i];
+                csWriter.WriteLine($"var offset{i} = tupleMetadata->GetElementOffset({i});");
+                EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, "enumCopy", $"offset{i}", typeDatabase);
+            }
+            csWriter.WriteLine();
+
+            csWriter.WriteLine("return true;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // Emit the tuple metadata accessor helper
+            EmitTupleMetadataAccessor(csWriter, capitalizedName, parameters, typeDatabase);
+        }
+
+        /// <summary>
+        /// Emits a cached tuple metadata accessor for a specific enum case.
+        /// This generates the tuple type metadata once and caches it for efficiency.
+        /// </summary>
+        private void EmitTupleMetadataAccessor(CSharpWriter csWriter, string capitalizedCaseName, List<(string type, string name, TypeSpec typeSpec)> parameters, ITypeDatabase typeDatabase)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Emit the static cached field
+            csWriter.WriteLine($"private static TupleTypeMetadata* _tupleMetadata_{capitalizedCaseName};");
+            csWriter.WriteLine();
+
+            // Emit the accessor method
+            csWriter.WriteLine($"private static unsafe TupleTypeMetadata* GetTupleMetadata_{capitalizedCaseName}()");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            csWriter.WriteLine($"if (_tupleMetadata_{capitalizedCaseName} != null)");
+            csWriter.Indent++;
+            csWriter.WriteLine($"return _tupleMetadata_{capitalizedCaseName};");
+            csWriter.Indent--;
+            csWriter.WriteLine();
+
+            // Get element type metadata - build an array of TypeMetadata
+            csWriter.WriteLine("// Build tuple metadata from element types");
+            csWriter.WriteLine($"var elementMetadataArray = new TypeMetadata[{parameters.Count}];");
+
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var (_, _, typeSpec) = parameters[i];
+                EmitGetTypeMetadataForElement(csWriter, typeSpec, i, typeDatabase);
+            }
+            csWriter.WriteLine();
+
+            // Use TypeMetadata.GetTupleTypeMetadataFromElements
+            csWriter.WriteLine("// Get tuple type metadata from Swift runtime");
+            csWriter.WriteLine("var tupleMetadata = TypeMetadata.GetTupleTypeMetadataFromElements(elementMetadataArray);");
+            csWriter.WriteLine();
+
+            csWriter.WriteLine($"_tupleMetadata_{capitalizedCaseName} = tupleMetadata.AsTupleMetadata();");
+            csWriter.WriteLine($"return _tupleMetadata_{capitalizedCaseName};");
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits code to get the TypeMetadata for a tuple element type.
+        /// Stores the result in elementMetadataArray[index].
+        /// </summary>
+        private void EmitGetTypeMetadataForElement(CSharpWriter csWriter, TypeSpec typeSpec, int index, ITypeDatabase typeDatabase)
+        {
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Handle existential types
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null)
+                {
+                    var protocolCount = protocolList.Protocols.Count;
+                    csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetExistentialTypeMetadata({protocolCount});");
+                    return;
+                }
+            }
+
+            // For types that implement ISwiftObject, use their static metadata accessor
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+
+            // Check if it's a primitive type with known metadata
+            if (IsPrimitiveTypeWithKnownMetadata(csharpType))
+            {
+                csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>();");
+            }
+            else
+            {
+                // Assume the type implements ISwiftObject
+                csWriter.WriteLine($"elementMetadataArray[{index}] = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
+            }
+        }
+
+        /// <summary>
+        /// Checks if a C# type name corresponds to a primitive type with known metadata.
+        /// </summary>
+        private static bool IsPrimitiveTypeWithKnownMetadata(string csharpType)
+        {
+            return csharpType switch
+            {
+                "bool" or "System.Boolean" => true,
+                "sbyte" or "System.SByte" => true,
+                "byte" or "System.Byte" => true,
+                "short" or "System.Int16" => true,
+                "ushort" or "System.UInt16" => true,
+                "int" or "System.Int32" => true,
+                "uint" or "System.UInt32" => true,
+                "long" or "System.Int64" => true,
+                "ulong" or "System.UInt64" => true,
+                "nint" or "System.IntPtr" => true,
+                "nuint" or "System.UIntPtr" => true,
+                "float" or "System.Single" => true,
+                "double" or "System.Double" => true,
+                _ => false
+            };
+        }
+
+        /// <summary>
+        /// Emits code to marshal a payload value from Swift memory at a specific offset.
+        /// </summary>
+        private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase)
+        {
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Get the C# type name
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+
+            // Handle existential types
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null)
+                {
+                    var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
+                    csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                    return;
+                }
+            }
+
+            csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
         }
 
         /// <summary>

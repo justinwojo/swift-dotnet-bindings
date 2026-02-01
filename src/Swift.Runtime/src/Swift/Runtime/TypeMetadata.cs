@@ -582,4 +582,143 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     {
         return (void*)value.Handle;
     }
+
+    /// <summary>
+    /// Creates a TupleTypeMetadata accessor for this metadata.
+    /// Only valid if this metadata represents a Tuple type (Kind == TypeMetadataKind.Tuple).
+    /// </summary>
+    /// <returns>A TupleTypeMetadata for accessing element offsets.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if this is not tuple metadata.</exception>
+    public unsafe TupleTypeMetadata* AsTupleMetadata()
+    {
+        if (Kind != TypeMetadataKind.Tuple)
+            throw new InvalidOperationException($"Cannot access tuple metadata for non-tuple type (kind: {Kind})");
+        return (TupleTypeMetadata*)Handle;
+    }
+
+    /// <summary>
+    /// Gets tuple type metadata from element types at runtime.
+    /// </summary>
+    /// <param name="elementMetadata">Array of element type metadata.</param>
+    /// <returns>The tuple type metadata.</returns>
+    public static unsafe TypeMetadata GetTupleTypeMetadataFromElements(params TypeMetadata[] elementMetadata)
+    {
+        if (elementMetadata == null || elementMetadata.Length == 0)
+            throw new ArgumentException("At least one element metadata is required", nameof(elementMetadata));
+
+        if (elementMetadata.Length > 7)
+            throw new ArgumentException("Maximum 7 tuple elements supported", nameof(elementMetadata));
+
+        var elementsArray = stackalloc IntPtr[elementMetadata.Length];
+        for (int i = 0; i < elementMetadata.Length; i++)
+        {
+            elementsArray[i] = elementMetadata[i].Handle;
+        }
+
+        return swift_getTupleTypeMetadata(
+            TypeMetadataRequest.Complete,
+            (nuint)elementMetadata.Length,
+            elementsArray,
+            IntPtr.Zero,
+            IntPtr.Zero
+        );
+    }
+}
+
+/// <summary>
+/// Represents Swift's tuple type metadata layout.
+/// Swift tuple metadata has a specific layout with element types and offsets
+/// stored in an element vector following the base metadata.
+/// </summary>
+/// <remarks>
+/// Swift tuple metadata layout (from Swift ABI):
+/// - Offset -1: Value witness table pointer
+/// - Offset 0: Kind (TypeMetadataKind.Tuple = 0x301)
+/// - Offset 1: Number of elements
+/// - Offset 2: Labels string pointer (space-separated, null if no labels)
+/// - Offset 3+: Element vector (pairs of: element type metadata, element offset)
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct TupleTypeMetadata
+{
+    /// <summary>
+    /// The metadata kind. For tuples, this is TypeMetadataKind.Tuple (0x301).
+    /// </summary>
+    public nuint Kind;
+
+    /// <summary>
+    /// The number of elements in the tuple.
+    /// </summary>
+    public nuint NumElements;
+
+    /// <summary>
+    /// Pointer to a space-separated string of element labels.
+    /// Null if no labels are present. Empty string for unlabeled elements.
+    /// </summary>
+    public IntPtr Labels;
+
+    // Element vector follows immediately after this struct.
+    // Each element is a pair of (TypeMetadata*, nuint offset).
+
+    /// <summary>
+    /// Gets the byte offset of a tuple element at the specified index.
+    /// </summary>
+    /// <param name="index">The zero-based index of the element.</param>
+    /// <returns>The byte offset of the element within the tuple's memory layout.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if index is out of range.</exception>
+    public nuint GetElementOffset(int index)
+    {
+        if (index < 0 || (nuint)index >= NumElements)
+            throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of range. Tuple has {NumElements} elements.");
+
+        // Element vector starts immediately after this struct
+        // Each element has: IntPtr typeMetadata, nuint offset
+        // So the offset for element i is at: elementVector + (i * 2 + 1) * sizeof(IntPtr)
+        fixed (TupleTypeMetadata* self = &this)
+        {
+            // Skip past the struct fields to get to element vector
+            IntPtr* elementVector = (IntPtr*)((byte*)self + sizeof(TupleTypeMetadata));
+            // Element i: [type at i*2, offset at i*2+1]
+            return (nuint)elementVector[index * 2 + 1];
+        }
+    }
+
+    /// <summary>
+    /// Gets the type metadata pointer for a tuple element at the specified index.
+    /// </summary>
+    /// <param name="index">The zero-based index of the element.</param>
+    /// <returns>The type metadata handle for the element.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if index is out of range.</exception>
+    public IntPtr GetElementTypeHandle(int index)
+    {
+        if (index < 0 || (nuint)index >= NumElements)
+            throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of range. Tuple has {NumElements} elements.");
+
+        fixed (TupleTypeMetadata* self = &this)
+        {
+            IntPtr* elementVector = (IntPtr*)((byte*)self + sizeof(TupleTypeMetadata));
+            // Element i: [type at i*2, offset at i*2+1]
+            return elementVector[index * 2];
+        }
+    }
+
+    /// <summary>
+    /// Gets the value witness table for this tuple type.
+    /// </summary>
+    public ValueWitnessTable* ValueWitnessTable
+    {
+        get
+        {
+            fixed (TupleTypeMetadata* self = &this)
+            {
+                // VWT is at offset -1 (one pointer before the metadata)
+                return (ValueWitnessTable*)(*((IntPtr*)self - 1));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the total size of the tuple type in bytes.
+    /// </summary>
+    public nuint Size => ValueWitnessTable->Size;
 }

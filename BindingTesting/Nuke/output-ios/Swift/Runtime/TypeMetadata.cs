@@ -296,7 +296,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     {
         if (TryGetTypeMetadata<T>(out var result))
             return result.Value;
-        throw new SwiftRuntimeException(string.Format("Unable to get type metadata for type {0}", typeof(T).Name));
+        throw new SwiftRuntimeException($"Unable to get type metadata for type {typeof(T).Name}");
     }
 
     /// <summary>
@@ -324,7 +324,20 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
 
         // NB - all further methods here should finish by putting the type into the cache
 
-        // TODO: handle tuples https://github.com/dotnet/runtimelab/issues/2873
+        // Handle tuple types (ValueTuple<T1, T2, ...>)
+        // Note: Tuple metadata lookup uses reflection internally, but this is intentional
+        // for the generic runtime path. Generated bindings use inline code instead.
+#pragma warning disable IL3050 // Calling members annotated with 'RequiresDynamicCodeAttribute'
+        if (IsValueTupleType(type))
+        {
+            if (TryGetTupleTypeMetadata(type, out var tupleMetadata))
+            {
+                cache.GetOrAdd(type, _ => tupleMetadata);
+                result = tupleMetadata;
+                return true;
+            }
+        }
+#pragma warning restore IL3050
 
         // Handle closure/delegate types
         // Closures are represented as Function metadata kind in Swift
@@ -395,6 +408,126 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         IntPtr protocols);
 
     /// <summary>
+    /// Determines whether the specified type is a ValueTuple type.
+    /// </summary>
+    /// <param name="type">The type to check.</param>
+    /// <returns><c>true</c> if the type is a ValueTuple; otherwise, <c>false</c>.</returns>
+    public static bool IsValueTupleType(Type type)
+    {
+        if (!type.IsGenericType)
+            return false;
+
+        var genericDef = type.GetGenericTypeDefinition();
+        return genericDef == typeof(ValueTuple<>) ||
+               genericDef == typeof(ValueTuple<,>) ||
+               genericDef == typeof(ValueTuple<,,>) ||
+               genericDef == typeof(ValueTuple<,,,>) ||
+               genericDef == typeof(ValueTuple<,,,,>) ||
+               genericDef == typeof(ValueTuple<,,,,,>) ||
+               genericDef == typeof(ValueTuple<,,,,,,>);
+    }
+
+    /// <summary>
+    /// Gets the element types from a ValueTuple type.
+    /// </summary>
+    /// <param name="tupleType">The ValueTuple type.</param>
+    /// <returns>An array of element types.</returns>
+    public static Type[] GetTupleElementTypes(Type tupleType)
+    {
+        if (!IsValueTupleType(tupleType))
+            throw new ArgumentException("Type is not a ValueTuple", nameof(tupleType));
+
+        return tupleType.GetGenericArguments();
+    }
+
+    /// <summary>
+    /// Attempts to get tuple type metadata for a C# ValueTuple type.
+    /// </summary>
+    /// <param name="tupleType">The ValueTuple type.</param>
+    /// <param name="result">The resulting tuple metadata.</param>
+    /// <returns><c>true</c> if metadata was successfully retrieved; otherwise, <c>false</c>.</returns>
+    [RequiresDynamicCode("Tuple metadata lookup uses MakeGenericMethod")]
+    private static unsafe bool TryGetTupleTypeMetadata(Type tupleType, out TypeMetadata result)
+    {
+        result = Zero;
+
+        var elementTypes = GetTupleElementTypes(tupleType);
+        var elementCount = elementTypes.Length;
+
+        if (elementCount == 0 || elementCount > 7)
+            return false;
+
+        // Get metadata for each element type
+        var elementMetadata = new TypeMetadata[elementCount];
+        for (int i = 0; i < elementCount; i++)
+        {
+            // Try to get metadata for each element type using reflection to call the generic method
+            var tryGetMethod = typeof(TypeMetadata).GetMethod(nameof(TryGetTypeMetadata), BindingFlags.Public | BindingFlags.Static)!;
+            var genericMethod = tryGetMethod.MakeGenericMethod(elementTypes[i]);
+
+            var args = new object?[] { null };
+            var success = (bool)genericMethod.Invoke(null, args)!;
+            if (!success)
+                return false;
+
+            elementMetadata[i] = ((TypeMetadata?)args[0])!.Value;
+        }
+
+        // Allocate array of element metadata pointers
+        var elementsArray = stackalloc IntPtr[elementCount];
+        for (int i = 0; i < elementCount; i++)
+        {
+            elementsArray[i] = elementMetadata[i].Handle;
+        }
+
+        // Call Swift runtime to get tuple metadata
+        // flags is just the number of elements for basic tuples
+        result = swift_getTupleTypeMetadata(
+            TypeMetadataRequest.Complete,
+            (nuint)elementCount,
+            elementsArray,
+            IntPtr.Zero, // no labels
+            IntPtr.Zero  // let Swift compute the value witness table
+        );
+
+        return result.IsValid;
+    }
+
+    /// <summary>
+    /// Gets the type metadata for a Swift tuple type.
+    /// </summary>
+    /// <param name="request">The metadata request type.</param>
+    /// <param name="flags">Flags encoding the number of elements.</param>
+    /// <param name="elements">Pointer to array of element metadata.</param>
+    /// <param name="labels">Optional space-separated element labels (can be null).</param>
+    /// <param name="proposedWitnesses">Optional proposed value witness table (can be null).</param>
+    /// <returns>The tuple type metadata.</returns>
+    [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    private static extern unsafe TypeMetadata swift_getTupleTypeMetadata(
+        TypeMetadataRequest request,
+        nuint flags,
+        IntPtr* elements,
+        IntPtr labels,
+        IntPtr proposedWitnesses);
+
+    /// <summary>
+    /// Gets tuple metadata for a ValueTuple type, throwing on failure.
+    /// </summary>
+    /// <typeparam name="T">A ValueTuple type.</typeparam>
+    /// <returns>The tuple type metadata.</returns>
+    /// <exception cref="SwiftRuntimeException">Thrown if tuple metadata cannot be retrieved.</exception>
+    public static TypeMetadata GetTupleTypeMetadataOrThrow<T>()
+    {
+        if (!IsValueTupleType(typeof(T)))
+            throw new ArgumentException($"Type {typeof(T).Name} is not a ValueTuple type");
+
+        if (TryGetTypeMetadata<T>(out var result))
+            return result.Value;
+
+        throw new SwiftRuntimeException($"Unable to get tuple type metadata for {typeof(T).Name}");
+    }
+
+    /// <summary>
     /// Returns an enumeration of known Type and TypeMetadata objects
     /// </summary>
     /// <returns>An enumeration of known Type and TypeMetadata objects</returns>
@@ -403,7 +536,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     {
         var libraryHandle = NativeLibrary.Load(KnownLibraries.SwiftCore);
         if (libraryHandle == IntPtr.Zero)
-            throw new SwiftRuntimeException(string.Format("Unable to load library {0}", KnownLibraries.SwiftCore));
+            throw new SwiftRuntimeException($"Unable to load library {KnownLibraries.SwiftCore}");
         // types from libSwiftCore
         yield return (typeof(bool), MetadataFromNativeLibrary(libraryHandle, "$sSbN"));
         yield return (typeof(nint), MetadataFromNativeLibrary(libraryHandle, "$sSiN"));
@@ -438,7 +571,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         {
             return new TypeMetadata(entryPoint);
         }
-        throw new SwiftRuntimeException(string.Format("Unable to find symbol {0} in library {1}", symbolName, libraryName));
+        throw new SwiftRuntimeException($"Unable to find symbol {symbolName} in library {libraryName}");
     }
 
 
@@ -449,4 +582,143 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     {
         return (void*)value.Handle;
     }
+
+    /// <summary>
+    /// Creates a TupleTypeMetadata accessor for this metadata.
+    /// Only valid if this metadata represents a Tuple type (Kind == TypeMetadataKind.Tuple).
+    /// </summary>
+    /// <returns>A TupleTypeMetadata for accessing element offsets.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if this is not tuple metadata.</exception>
+    public unsafe TupleTypeMetadata* AsTupleMetadata()
+    {
+        if (Kind != TypeMetadataKind.Tuple)
+            throw new InvalidOperationException($"Cannot access tuple metadata for non-tuple type (kind: {Kind})");
+        return (TupleTypeMetadata*)Handle;
+    }
+
+    /// <summary>
+    /// Gets tuple type metadata from element types at runtime.
+    /// </summary>
+    /// <param name="elementMetadata">Array of element type metadata.</param>
+    /// <returns>The tuple type metadata.</returns>
+    public static unsafe TypeMetadata GetTupleTypeMetadataFromElements(params TypeMetadata[] elementMetadata)
+    {
+        if (elementMetadata == null || elementMetadata.Length == 0)
+            throw new ArgumentException("At least one element metadata is required", nameof(elementMetadata));
+
+        if (elementMetadata.Length > 7)
+            throw new ArgumentException("Maximum 7 tuple elements supported", nameof(elementMetadata));
+
+        var elementsArray = stackalloc IntPtr[elementMetadata.Length];
+        for (int i = 0; i < elementMetadata.Length; i++)
+        {
+            elementsArray[i] = elementMetadata[i].Handle;
+        }
+
+        return swift_getTupleTypeMetadata(
+            TypeMetadataRequest.Complete,
+            (nuint)elementMetadata.Length,
+            elementsArray,
+            IntPtr.Zero,
+            IntPtr.Zero
+        );
+    }
+}
+
+/// <summary>
+/// Represents Swift's tuple type metadata layout.
+/// Swift tuple metadata has a specific layout with element types and offsets
+/// stored in an element vector following the base metadata.
+/// </summary>
+/// <remarks>
+/// Swift tuple metadata layout (from Swift ABI):
+/// - Offset -1: Value witness table pointer
+/// - Offset 0: Kind (TypeMetadataKind.Tuple = 0x301)
+/// - Offset 1: Number of elements
+/// - Offset 2: Labels string pointer (space-separated, null if no labels)
+/// - Offset 3+: Element vector (pairs of: element type metadata, element offset)
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct TupleTypeMetadata
+{
+    /// <summary>
+    /// The metadata kind. For tuples, this is TypeMetadataKind.Tuple (0x301).
+    /// </summary>
+    public nuint Kind;
+
+    /// <summary>
+    /// The number of elements in the tuple.
+    /// </summary>
+    public nuint NumElements;
+
+    /// <summary>
+    /// Pointer to a space-separated string of element labels.
+    /// Null if no labels are present. Empty string for unlabeled elements.
+    /// </summary>
+    public IntPtr Labels;
+
+    // Element vector follows immediately after this struct.
+    // Each element is a pair of (TypeMetadata*, nuint offset).
+
+    /// <summary>
+    /// Gets the byte offset of a tuple element at the specified index.
+    /// </summary>
+    /// <param name="index">The zero-based index of the element.</param>
+    /// <returns>The byte offset of the element within the tuple's memory layout.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if index is out of range.</exception>
+    public nuint GetElementOffset(int index)
+    {
+        if (index < 0 || (nuint)index >= NumElements)
+            throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of range. Tuple has {NumElements} elements.");
+
+        // Element vector starts immediately after this struct
+        // Each element has: IntPtr typeMetadata, nuint offset
+        // So the offset for element i is at: elementVector + (i * 2 + 1) * sizeof(IntPtr)
+        fixed (TupleTypeMetadata* self = &this)
+        {
+            // Skip past the struct fields to get to element vector
+            IntPtr* elementVector = (IntPtr*)((byte*)self + sizeof(TupleTypeMetadata));
+            // Element i: [type at i*2, offset at i*2+1]
+            return (nuint)elementVector[index * 2 + 1];
+        }
+    }
+
+    /// <summary>
+    /// Gets the type metadata pointer for a tuple element at the specified index.
+    /// </summary>
+    /// <param name="index">The zero-based index of the element.</param>
+    /// <returns>The type metadata handle for the element.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if index is out of range.</exception>
+    public IntPtr GetElementTypeHandle(int index)
+    {
+        if (index < 0 || (nuint)index >= NumElements)
+            throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of range. Tuple has {NumElements} elements.");
+
+        fixed (TupleTypeMetadata* self = &this)
+        {
+            IntPtr* elementVector = (IntPtr*)((byte*)self + sizeof(TupleTypeMetadata));
+            // Element i: [type at i*2, offset at i*2+1]
+            return elementVector[index * 2];
+        }
+    }
+
+    /// <summary>
+    /// Gets the value witness table for this tuple type.
+    /// </summary>
+    public ValueWitnessTable* ValueWitnessTable
+    {
+        get
+        {
+            fixed (TupleTypeMetadata* self = &this)
+            {
+                // VWT is at offset -1 (one pointer before the metadata)
+                return (ValueWitnessTable*)(*((IntPtr*)self - 1));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the total size of the tuple type in bytes.
+    /// </summary>
+    public nuint Size => ValueWitnessTable->Size;
 }

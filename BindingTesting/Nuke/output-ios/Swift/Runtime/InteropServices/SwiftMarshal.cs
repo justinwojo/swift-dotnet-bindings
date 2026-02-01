@@ -3,6 +3,8 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 namespace Swift.Runtime.InteropServices;
@@ -46,7 +48,15 @@ public static class SwiftMarshal
             }
         }
 
-        // TODO: Implement for tuples
+        // Handle tuple types (ValueTuple<T1, T2, ...>)
+        // Note: Tuple marshalling uses reflection internally, but this is intentional
+        // for the generic runtime path. Generated bindings use inline code instead.
+#pragma warning disable IL3050, IL2026, IL2087, IL2091 // Suppressing trimming/AOT warnings for tuple marshalling
+        if (TypeMetadata.IsValueTupleType(type))
+        {
+            return MarshalTupleToSwift(value, type, ref swiftDestSpan);
+        }
+#pragma warning restore IL3050, IL2026, IL2087, IL2091
 
         // Handle delegate types (closures)
         if (typeof(Delegate).IsAssignableFrom(type))
@@ -189,7 +199,15 @@ public static class SwiftMarshal
             }
         }
 
-        // TODO: Implement for tuples
+        // Handle tuple types (ValueTuple<T1, T2, ...>)
+        // Note: Tuple marshalling uses reflection internally, but this is intentional
+        // for the generic runtime path. Generated bindings use inline code instead.
+#pragma warning disable IL3050, IL2026, IL2091 // Suppressing trimming/AOT warnings for tuple marshalling
+        if (TypeMetadata.IsValueTupleType(type))
+        {
+            return MarshalTupleFromSwift<T>(swiftSource);
+        }
+#pragma warning restore IL3050, IL2026, IL2091
 
         // Handle delegate types (closures) - Phase 3 support
         if (typeof(Delegate).IsAssignableFrom(typeof(T)))
@@ -284,5 +302,308 @@ public static class SwiftMarshal
         {
             throw new NotSupportedException($"Cannot marshal type {typeof(T)} from Swift");
         }
+    }
+
+    /// <summary>
+    /// Marshals a C# ValueTuple to Swift memory.
+    /// Uses direct unsafe memory access for primitive types to avoid reflection overhead.
+    /// </summary>
+    /// <typeparam name="T">The ValueTuple type.</typeparam>
+    /// <param name="value">The tuple value.</param>
+    /// <param name="tupleType">The tuple type.</param>
+    /// <param name="swiftDestSpan">The destination span.</param>
+    /// <returns>The number of bytes written.</returns>
+    [RequiresDynamicCode("Tuple marshalling uses reflection for non-primitive element types")]
+    [RequiresUnreferencedCode("Tuple marshalling requires access to ValueTuple fields")]
+    private static unsafe int MarshalTupleToSwift<T>(T value, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] Type tupleType, ref Span<byte> swiftDestSpan)
+    {
+        var elementTypes = TypeMetadata.GetTupleElementTypes(tupleType);
+        var elementCount = elementTypes.Length;
+
+        // Get tuple metadata to determine layout
+        if (!TypeMetadata.TryGetTypeMetadata<T>(out var tupleMetadata))
+            throw new NotSupportedException($"Cannot get tuple metadata for {tupleType.Name}");
+
+        var tupleSize = (int)tupleMetadata.Value.Size;
+        if (tupleSize > swiftDestSpan.Length)
+            throw new ArgumentException($"Span size does not match tuple size, Expected: {tupleSize}, Actual: {swiftDestSpan.Length}");
+
+        // Get field values using ValueTuple's Item1, Item2, etc. fields
+        var fields = GetTupleFields(tupleType);
+
+        fixed (byte* destPtr = swiftDestSpan)
+        {
+            // Calculate offsets and marshal each element
+            int currentOffset = 0;
+            for (int i = 0; i < elementCount; i++)
+            {
+                var elementType = elementTypes[i];
+                var elementValue = fields[i].GetValue(value);
+
+                // Get element metadata to determine alignment
+                var elementMetadata = GetTypeMetadataForType(elementType);
+                var elementAlignment = elementMetadata.Alignment;
+                var elementSize = (int)elementMetadata.Size;
+
+                // Align the offset
+                currentOffset = AlignOffset(currentOffset, elementAlignment);
+
+                // Marshal the element directly using unsafe pointers
+                MarshalElementToSwiftUnsafe(elementValue, elementType, destPtr + currentOffset);
+
+                currentOffset += elementSize;
+            }
+        }
+
+        return tupleSize;
+    }
+
+    /// <summary>
+    /// Marshals a Swift tuple to a C# ValueTuple.
+    /// Uses direct unsafe memory access for primitive types to avoid reflection overhead.
+    /// </summary>
+    /// <typeparam name="T">The ValueTuple type.</typeparam>
+    /// <param name="swiftSource">The Swift memory source.</param>
+    /// <returns>The marshalled ValueTuple.</returns>
+    [RequiresDynamicCode("Tuple marshalling uses reflection for non-primitive element types")]
+    [RequiresUnreferencedCode("Tuple marshalling requires access to ValueTuple constructors")]
+    private static unsafe T MarshalTupleFromSwift<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicFields)] T>(IntPtr swiftSource)
+    {
+        var tupleType = typeof(T);
+        var elementTypes = TypeMetadata.GetTupleElementTypes(tupleType);
+        var elementCount = elementTypes.Length;
+
+        // Get element values
+        var elementValues = new object?[elementCount];
+        int currentOffset = 0;
+
+        for (int i = 0; i < elementCount; i++)
+        {
+            var elementType = elementTypes[i];
+
+            // Get element metadata to determine alignment and size
+            var elementMetadata = GetTypeMetadataForType(elementType);
+            var elementAlignment = elementMetadata.Alignment;
+            var elementSize = (int)elementMetadata.Size;
+
+            // Align the offset
+            currentOffset = AlignOffset(currentOffset, elementAlignment);
+
+            // Marshal the element from Swift
+            var elementPtr = IntPtr.Add(swiftSource, currentOffset);
+            elementValues[i] = MarshalElementFromSwiftUnsafe(elementPtr, elementType);
+
+            currentOffset += elementSize;
+        }
+
+        // Create the ValueTuple using the constructor
+        return CreateValueTuple<T>(tupleType, elementValues);
+    }
+
+    /// <summary>
+    /// Gets the fields of a ValueTuple in order (Item1, Item2, etc.).
+    /// </summary>
+    [RequiresUnreferencedCode("ValueTuple field access")]
+    private static FieldInfo[] GetTupleFields([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] Type tupleType)
+    {
+        var elementCount = tupleType.GetGenericArguments().Length;
+        var fields = new FieldInfo[elementCount];
+
+        for (int i = 0; i < elementCount; i++)
+        {
+            var fieldName = $"Item{i + 1}";
+            fields[i] = tupleType.GetField(fieldName)
+                ?? throw new InvalidOperationException($"Could not find field {fieldName} on {tupleType.Name}");
+        }
+
+        return fields;
+    }
+
+    /// <summary>
+    /// Gets TypeMetadata for a runtime Type.
+    /// </summary>
+    [RequiresDynamicCode("Type metadata lookup uses reflection")]
+    private static TypeMetadata GetTypeMetadataForType(Type type)
+    {
+        // Use reflection to call the generic TryGetTypeMetadata<T>
+        var tryGetMethod = typeof(TypeMetadata).GetMethod(nameof(TypeMetadata.TryGetTypeMetadata), BindingFlags.Public | BindingFlags.Static)!;
+        var genericMethod = tryGetMethod.MakeGenericMethod(type);
+
+        var args = new object?[] { null };
+        var success = (bool)genericMethod.Invoke(null, args)!;
+
+        if (!success)
+            throw new NotSupportedException($"Cannot get type metadata for {type.Name}");
+
+        return ((TypeMetadata?)args[0])!.Value;
+    }
+
+    /// <summary>
+    /// Aligns an offset to the given alignment.
+    /// </summary>
+    private static int AlignOffset(int offset, int alignment)
+    {
+        var remainder = offset % alignment;
+        return remainder == 0 ? offset : offset + (alignment - remainder);
+    }
+
+    /// <summary>
+    /// Marshals a single element value to Swift memory using direct pointer access.
+    /// </summary>
+    [RequiresDynamicCode("Non-primitive element marshalling uses reflection")]
+    private static unsafe void MarshalElementToSwiftUnsafe(object? value, Type elementType, byte* dest)
+    {
+        if (value == null)
+            throw new ArgumentNullException(nameof(value), "Tuple element cannot be null");
+
+        // Handle primitives directly without reflection
+        if (elementType == typeof(bool))
+        {
+            *dest = (byte)((bool)value ? 1 : 0);
+        }
+        else if (elementType == typeof(byte))
+        {
+            *dest = (byte)value;
+        }
+        else if (elementType == typeof(sbyte))
+        {
+            *(sbyte*)dest = (sbyte)value;
+        }
+        else if (elementType == typeof(short))
+        {
+            *(short*)dest = (short)value;
+        }
+        else if (elementType == typeof(ushort))
+        {
+            *(ushort*)dest = (ushort)value;
+        }
+        else if (elementType == typeof(int))
+        {
+            *(int*)dest = (int)value;
+        }
+        else if (elementType == typeof(uint))
+        {
+            *(uint*)dest = (uint)value;
+        }
+        else if (elementType == typeof(long))
+        {
+            *(long*)dest = (long)value;
+        }
+        else if (elementType == typeof(ulong))
+        {
+            *(ulong*)dest = (ulong)value;
+        }
+        else if (elementType == typeof(float))
+        {
+            *(float*)dest = (float)value;
+        }
+        else if (elementType == typeof(double))
+        {
+            *(double*)dest = (double)value;
+        }
+        else if (elementType == typeof(nint))
+        {
+            *(nint*)dest = (nint)value;
+        }
+        else if (elementType == typeof(nuint))
+        {
+            *(nuint*)dest = (nuint)value;
+        }
+        else if (typeof(ISwiftObject).IsAssignableFrom(elementType))
+        {
+            // For ISwiftObject types, use MarshalToSwift through the interface
+            var swiftObject = (ISwiftObject)value;
+            var metadata = GetTypeMetadataForType(elementType);
+            var span = new Span<byte>(dest, (int)metadata.Size);
+            swiftObject.MarshalToSwift(ref span);
+        }
+        else
+        {
+            throw new NotSupportedException($"Cannot marshal tuple element type {elementType.Name} to Swift");
+        }
+    }
+
+    /// <summary>
+    /// Marshals a single element from Swift memory using direct pointer access.
+    /// </summary>
+    [RequiresDynamicCode("Non-primitive element marshalling uses reflection")]
+    private static unsafe object? MarshalElementFromSwiftUnsafe(IntPtr source, Type elementType)
+    {
+        // Handle primitives directly without reflection
+        if (elementType == typeof(bool))
+        {
+            return ((*(byte*)source) & 1) != 0;
+        }
+        else if (elementType == typeof(byte))
+        {
+            return *(byte*)source;
+        }
+        else if (elementType == typeof(sbyte))
+        {
+            return *(sbyte*)source;
+        }
+        else if (elementType == typeof(short))
+        {
+            return *(short*)source;
+        }
+        else if (elementType == typeof(ushort))
+        {
+            return *(ushort*)source;
+        }
+        else if (elementType == typeof(int))
+        {
+            return *(int*)source;
+        }
+        else if (elementType == typeof(uint))
+        {
+            return *(uint*)source;
+        }
+        else if (elementType == typeof(long))
+        {
+            return *(long*)source;
+        }
+        else if (elementType == typeof(ulong))
+        {
+            return *(ulong*)source;
+        }
+        else if (elementType == typeof(float))
+        {
+            return *(float*)source;
+        }
+        else if (elementType == typeof(double))
+        {
+            return *(double*)source;
+        }
+        else if (elementType == typeof(nint))
+        {
+            return *(nint*)source;
+        }
+        else if (elementType == typeof(nuint))
+        {
+            return *(nuint*)source;
+        }
+        else if (typeof(ISwiftObject).IsAssignableFrom(elementType))
+        {
+            // For ISwiftObject types, use NewFromPayload through reflection
+            var helperType = typeof(SwiftObjectHelper<>).MakeGenericType(elementType);
+            return helperType.GetMethod("NewFromPayload")!.Invoke(null, new object[] { source });
+        }
+        else
+        {
+            throw new NotSupportedException($"Cannot marshal tuple element type {elementType.Name} from Swift");
+        }
+    }
+
+    /// <summary>
+    /// Creates a ValueTuple from an array of element values.
+    /// </summary>
+    [RequiresUnreferencedCode("ValueTuple constructor access")]
+    private static T CreateValueTuple<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(Type tupleType, object?[] values)
+    {
+        // Use the ValueTuple constructor directly
+        var constructor = tupleType.GetConstructor(tupleType.GetGenericArguments())
+            ?? throw new InvalidOperationException($"Could not find constructor for {tupleType.Name}");
+
+        return (T)constructor.Invoke(values);
     }
 }

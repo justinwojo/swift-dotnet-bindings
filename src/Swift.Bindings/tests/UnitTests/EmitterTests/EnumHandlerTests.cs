@@ -376,6 +376,198 @@ public class EnumHandlerTests
 
     #endregion
 
+    #region Tuple Associated Value Tests
+
+    [Fact]
+    public void EnumDecl_CaseWithTupleAssociatedValue_HasOneTupleTypeSpec()
+    {
+        var enumDecl = CreateEnumDecl("Error");
+        var failedCase = CreateEnumCaseDecl("failed");
+
+        // Create a tuple with (code: Int, message: String)
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "code" },
+            new NamedTypeSpec("Swift.String") { TypeLabel = "message" }
+        });
+        failedCase.AssociatedValues.Add(tupleSpec);
+        enumDecl.Cases.Add(failedCase);
+
+        // The case has one associated value (the tuple itself)
+        Assert.Single(enumDecl.Cases[0].AssociatedValues);
+        Assert.IsType<TupleTypeSpec>(enumDecl.Cases[0].AssociatedValues[0]);
+
+        // The tuple contains two elements
+        var tuple = (TupleTypeSpec)enumDecl.Cases[0].AssociatedValues[0];
+        Assert.Equal(2, tuple.Elements.Count);
+    }
+
+    [Fact]
+    public void EnumDecl_CaseWithTupleAssociatedValue_PreservesLabels()
+    {
+        var enumDecl = CreateEnumDecl("NetworkError");
+        var httpCase = CreateEnumCaseDecl("httpError");
+
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "statusCode" },
+            new NamedTypeSpec("Swift.String") { TypeLabel = "body" },
+            new NamedTypeSpec("Foundation.URLResponse") { TypeLabel = "response" }
+        });
+        httpCase.AssociatedValues.Add(tupleSpec);
+        enumDecl.Cases.Add(httpCase);
+
+        var tuple = (TupleTypeSpec)enumDecl.Cases[0].AssociatedValues[0];
+        Assert.Equal("statusCode", tuple.Elements[0].TypeLabel);
+        Assert.Equal("body", tuple.Elements[1].TypeLabel);
+        Assert.Equal("response", tuple.Elements[2].TypeLabel);
+    }
+
+    [Fact]
+    public void EnumDecl_CaseWithTupleNoLabels_HasNullLabels()
+    {
+        var enumDecl = CreateEnumDecl("Pair");
+        var pairCase = CreateEnumCaseDecl("both");
+
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.String")
+        });
+        pairCase.AssociatedValues.Add(tupleSpec);
+        enumDecl.Cases.Add(pairCase);
+
+        var tuple = (TupleTypeSpec)enumDecl.Cases[0].AssociatedValues[0];
+        Assert.Null(tuple.Elements[0].TypeLabel);
+        Assert.Null(tuple.Elements[1].TypeLabel);
+    }
+
+    [Fact]
+    public void EnumDecl_CaseWith7ElementTuple_IsSupported()
+    {
+        var enumDecl = CreateEnumDecl("LargeTuple");
+        var maxCase = CreateEnumCaseDecl("max");
+
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "a" },
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "b" },
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "c" },
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "d" },
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "e" },
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "f" },
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "g" }
+        });
+        maxCase.AssociatedValues.Add(tupleSpec);
+        enumDecl.Cases.Add(maxCase);
+
+        var tuple = (TupleTypeSpec)enumDecl.Cases[0].AssociatedValues[0];
+        Assert.Equal(7, tuple.Elements.Count);
+    }
+
+    [Fact]
+    public void EnumDecl_CaseWith8ElementTuple_ExceedsMaxSupported()
+    {
+        var enumDecl = CreateEnumDecl("TooLargeTuple");
+        var hugeCase = CreateEnumCaseDecl("huge");
+
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int") // 8th element
+        });
+        hugeCase.AssociatedValues.Add(tupleSpec);
+        enumDecl.Cases.Add(hugeCase);
+
+        var tuple = (TupleTypeSpec)enumDecl.Cases[0].AssociatedValues[0];
+        Assert.Equal(8, tuple.Elements.Count);
+
+        // This should exceed the max supported (7) in TupleHandler
+        Assert.True(tuple.Elements.Count > TupleHandler.MaxSupportedTupleElements);
+    }
+
+    [Fact]
+    public void EnumDecl_CaseWithMixedTypes_CollectsAllElementTypes()
+    {
+        var enumDecl = CreateEnumDecl("MixedResult");
+        var detailCase = CreateEnumCaseDecl("detail");
+
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "code" },
+            new NamedTypeSpec("Swift.Bool") { TypeLabel = "success" },
+            new NamedTypeSpec("Swift.String") { TypeLabel = "message" }
+        });
+        detailCase.AssociatedValues.Add(tupleSpec);
+        enumDecl.Cases.Add(detailCase);
+
+        var tuple = (TupleTypeSpec)enumDecl.Cases[0].AssociatedValues[0];
+        Assert.IsType<NamedTypeSpec>(tuple.Elements[0]);
+        Assert.IsType<NamedTypeSpec>(tuple.Elements[1]);
+        Assert.IsType<NamedTypeSpec>(tuple.Elements[2]);
+
+        Assert.Equal("Swift.Int", ((NamedTypeSpec)tuple.Elements[0]).Name);
+        Assert.Equal("Swift.Bool", ((NamedTypeSpec)tuple.Elements[1]).Name);
+        Assert.Equal("Swift.String", ((NamedTypeSpec)tuple.Elements[2]).Name);
+    }
+
+    [Fact]
+    public void EnumDecl_MultipleCasesWithDifferentTuples_EachHasOwnStructure()
+    {
+        var enumDecl = CreateEnumDecl("Error");
+
+        var networkCase = CreateEnumCaseDecl("network");
+        networkCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "code" },
+            new NamedTypeSpec("Swift.String") { TypeLabel = "message" }
+        }));
+        enumDecl.Cases.Add(networkCase);
+
+        var validationCase = CreateEnumCaseDecl("validation");
+        validationCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.String") { TypeLabel = "field" },
+            new NamedTypeSpec("Swift.String") { TypeLabel = "reason" },
+            new NamedTypeSpec("Swift.String") { TypeLabel = "suggestion" }
+        }));
+        enumDecl.Cases.Add(validationCase);
+
+        var networkTuple = (TupleTypeSpec)enumDecl.Cases[0].AssociatedValues[0];
+        var validationTuple = (TupleTypeSpec)enumDecl.Cases[1].AssociatedValues[0];
+
+        Assert.Equal(2, networkTuple.Elements.Count);
+        Assert.Equal(3, validationTuple.Elements.Count);
+    }
+
+    [Fact]
+    public void TupleTypeSpec_IsNotEmptyTuple_WhenHasElements()
+    {
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.String")
+        });
+
+        Assert.False(tupleSpec.IsEmptyTuple);
+    }
+
+    [Fact]
+    public void TupleTypeSpec_IsEmptyTuple_WhenNoElements()
+    {
+        var tupleSpec = new TupleTypeSpec();
+
+        Assert.True(tupleSpec.IsEmptyTuple);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static EnumDecl CreateEnumDecl(
