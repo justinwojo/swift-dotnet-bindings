@@ -296,7 +296,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     {
         if (TryGetTypeMetadata<T>(out var result))
             return result.Value;
-        throw new SwiftRuntimeException(string.Format("Unable to get type metadata for type {0}", typeof(T).Name));
+        throw new SwiftRuntimeException($"Unable to get type metadata for type {typeof(T).Name}");
     }
 
     /// <summary>
@@ -403,7 +403,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     {
         var libraryHandle = NativeLibrary.Load(KnownLibraries.SwiftCore);
         if (libraryHandle == IntPtr.Zero)
-            throw new SwiftRuntimeException(string.Format("Unable to load library {0}", KnownLibraries.SwiftCore));
+            throw new SwiftRuntimeException($"Unable to load library {KnownLibraries.SwiftCore}");
         // types from libSwiftCore
         yield return (typeof(bool), MetadataFromNativeLibrary(libraryHandle, "$sSbN"));
         yield return (typeof(nint), MetadataFromNativeLibrary(libraryHandle, "$sSiN"));
@@ -438,7 +438,7 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         {
             return new TypeMetadata(entryPoint);
         }
-        throw new SwiftRuntimeException(string.Format("Unable to find symbol {0} in library {1}", symbolName, libraryName));
+        throw new SwiftRuntimeException($"Unable to find symbol {symbolName} in library {libraryName}");
     }
 
 

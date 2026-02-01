@@ -230,7 +230,7 @@ public class SwiftOptional<T> : ISwiftObject, IDisposable
     {
         SwiftOptionalCases.Some => Some,
         SwiftOptionalCases.None => default(T),
-        _ => throw new SwiftRuntimeException(string.Format("Unknown case {0}", Case))
+        _ => throw new SwiftRuntimeException($"Unknown case {Case}")
     };
 
     /// <summary>

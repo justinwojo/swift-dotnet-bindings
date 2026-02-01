@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -74,7 +75,7 @@ public static class Arc
             throw new ArgumentNullException(nameof(p));
         if (swift_isDeallocating(p))
         {
-            throw new Exception(string.Format("Attempt to release a Swift object that has been deinitialized {0}", p.ToString($"X{IntPtr.Size * 2}")));
+            throw new Exception($"Attempt to release a Swift object that has been deinitialized {p.ToString($"X{IntPtr.Size * 2}")}");
         }
         swift_release(p);
         return p;
