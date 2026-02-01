@@ -1011,11 +1011,11 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 ### Generator Tests
 | Category | Count | Status |
 |----------|-------|--------|
-| Unit tests | 619 | All passing |
-| Integration tests | 691 | 676 passed, 15 skipped, 0 failed |
-| Runtime tests | 72 | Passing |
+| Unit tests | 883 | All passing |
+| Integration tests | 691 | 678 passed, 13 skipped, 0 failed |
+| Runtime tests | 94 | 93 passed, 1 skipped |
 
-**Unit tests**: All 619 passing.
+**Unit tests**: All 883 passing (includes 18 new tuple marshalling tests).
 
 **Integration tests**: Phase 23 restored all tests to a passing or appropriately-skipped state. The 15 skipped tests are due to known limitations:
 - 3 primitive generic tests (primitives don't implement ISwiftObject)

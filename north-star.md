@@ -155,14 +155,14 @@ To maintain focus, these are explicitly **out of scope**:
 
 ---
 
-## Current State (January 2026)
+## Current State (February 2026)
 
 ### What Works
 - Classes, structs (frozen and non-frozen)
 - Instance and static methods, property getters and setters
 - Async methods (with frozen and non-frozen parameter types)
 - Closures (`@convention(c)`, `@escaping` with frozen types, bound generics, existentials)
-- Tuples (1-7 elements with frozen types and existentials)
+- Tuples (1-7 elements with frozen types and existentials, runtime marshalling support)
 - Operators (arithmetic, comparison, bitwise, unary)
 - Basic enums (with payload construction for associated values)
 - **RawRepresentable enums** (both frozen and non-frozen) - `FromRawValue()` and static case properties
