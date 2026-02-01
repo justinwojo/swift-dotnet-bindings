@@ -329,10 +329,11 @@ state.CancellationSource?.Cancel();
 
 - [x] `ClosureHandler.IsSupportedClosure()` returns `true` for `() async throws -> T`
 - [x] Generated bindings compile without errors
-- [x] Nuke's `ImageRequest.init(data:)` works from C# (Data closure support added)
+- [x] Nuke's `ImageRequest.init(data:)` binding generated correctly
 - [x] Error propagation works (C# exception → Swift error)
 - [x] No memory leaks (GCHandle freed, ContinuationBox released)
 - [x] All existing closure tests still pass
+- [ ] **Blocked**: Runtime invocation of `ImageRequest.init(data:)` crashes due to `SwiftArray<ExistentialContainer1>` metadata issue (see below)
 
 ## Implementation Notes (Data Return Type Support)
 
@@ -354,6 +355,30 @@ Foundation.Data return types in async+throwing closures are now fully supported:
    - Calls `result.ToByteArray()` to get bytes
    - Pins bytes and calls Swift's success callback with `(boxPtr, dataPtr, length)`
    - Swift copies the bytes to create a new Data object
+
+## Known Issue: SwiftArray<ExistentialContainer> Metadata Crash
+
+**Discovered**: During NukeTestApp validation testing
+
+The `ImageRequest.init(data:)` constructor requires an `IEnumerable<ExistentialContainer1>` parameter for image processors. When this is converted to `SwiftArray<ExistentialContainer1>`, the array's static constructor attempts to get element type metadata, which crashes:
+
+```
+Managed Stacktrace:
+  at Swift.Runtime.TypeMetadata:swift_getExistentialTypeMetadata
+  at Swift.Runtime.TypeMetadata:GetExistentialTypeMetadata
+  at Swift.SwiftArray`1:get_ElementTypeMetadata
+  at Swift.SwiftArray`1:.cctor
+```
+
+**Impact**: The binding is generated correctly and compiles, but cannot be invoked at runtime.
+
+**Test Status**: NukeTestApp includes an "Async Closures" test section that:
+- ✅ Verifies the constructor binding exists
+- ✅ Verifies `Func<Task<Swift.Data>>` delegate creation works
+- ✅ Verifies `Swift.Data.FromNSData()` conversion works
+- ⚠️ Documents the runtime limitation (warning, not failure)
+
+**Next Steps**: Fix the existential container metadata lookup issue to enable full runtime invocation.
 
 ## References
 
