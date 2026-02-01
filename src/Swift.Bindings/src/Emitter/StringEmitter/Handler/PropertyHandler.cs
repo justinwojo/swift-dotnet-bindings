@@ -36,11 +36,9 @@ public class PropertyHandlerFactory : IFactory<BaseDecl, IPropertyHandler>
 
 /// <summary>
 /// Handler class for property declarations that generates the binding code for Swift properties.
-/// </summary> 
+/// </summary>
 public class PropertyHandler : BaseHandler, IPropertyHandler
 {
-    // private readonly ILogger _logger;
-
     /// <summary>
     /// Initializes a new instance of the <see cref="PropertyHandler"/> class.
     /// </summary>

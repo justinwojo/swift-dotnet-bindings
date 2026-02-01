@@ -1,0 +1,1198 @@
+// Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using System.CodeDom.Compiler;
+using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.Logging;
+using Swift.Runtime;
+
+namespace BindingsGeneration
+{
+    /// <summary>
+    /// Factory class for creating instances of EnumHandler.
+    /// </summary>
+    public class EnumHandlerFactory : HandlerFactory, IFactory<BaseDecl, ITypeHandler>
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="EnumHandlerFactory"/> class.
+        /// </summary>
+        /// <param name="loggerFactory">The logger factory instance.</param>
+        public EnumHandlerFactory(ILoggerFactory loggerFactory) : base(loggerFactory.CreateLogger<EnumHandler>())
+        {
+        }
+
+        /// <summary>
+        /// Determines if the factory handles the specified declaration.
+        /// </summary>
+        /// <param name="decl">The base declaration.</param>
+        public bool Handles(BaseDecl decl)
+        {
+            return decl is EnumDecl;
+        }
+
+        /// <summary>
+        /// Constructs a new instance of EnumHandler.
+        /// </summary>
+        public ITypeHandler Construct()
+        {
+            return new EnumHandler(_handlerLogger);
+        }
+    }
+
+    /// <summary>
+    /// Handler class for enum declarations.
+    /// </summary>
+    public class EnumHandler : BaseHandler, ITypeHandler
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="EnumHandler"/> class.
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        public EnumHandler(ILogger logger) : base(logger)
+        {
+        }
+
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
+        {
+            if (baseDecl is not EnumDecl enumDecl)
+            {
+                throw new ArgumentException("The provided decl must be an EnumDecl.", nameof(baseDecl));
+            }
+            return new TypeEnvironment(enumDecl, typeDatabase);
+        }
+
+        /// <inheritdoc/>
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        {
+            var enumEnv = (TypeEnvironment)env;
+            var enumDecl = (EnumDecl)enumEnv.TypeDecl;
+            var parentDecl = enumDecl.ParentDecl ?? throw new ArgumentNullException(nameof(enumDecl.ParentDecl));
+            var moduleDecl = enumDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(enumDecl.ModuleDecl));
+
+
+            // Use unsafe class since methods may use function pointers
+            csWriter.WriteLine($"public unsafe class {enumDecl.Name} : {typeof(ISwiftObject).Name}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Emit payload field and property - enums need this for property accessors
+            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{enumDecl.Name}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine($"SwiftSafeHandle<{enumDecl.Name}> _payload = SwiftSafeHandle<{enumDecl.Name}>.Zero;");
+            csWriter.WriteLine($"public SwiftSafeHandle<{enumDecl.Name}> Payload => _payload;");
+            csWriter.WriteLine();
+
+            // Emit case constructors for all cases
+            // Cases with associated values become static methods with P/Invoke constructors
+            // Simple cases (no associated values) use RawRepresentable if available
+            var simpleCases = new List<EnumCaseDecl>();
+            foreach (var caseDecl in enumDecl.Cases)
+            {
+                if (caseDecl.HasAssociatedValues)
+                {
+                    EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase);
+                }
+                else
+                {
+                    simpleCases.Add(caseDecl);
+                }
+            }
+
+            // Handle simple cases via RawRepresentable if available, otherwise via direct P/Invoke
+            if (simpleCases.Count > 0)
+            {
+                if (enumDecl.IsRawRepresentable)
+                {
+                    EmitRawRepresentableSupport(csWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase);
+                }
+                else
+                {
+                    // No RawRepresentable - emit simple cases via direct P/Invoke
+                    foreach (var caseDecl in simpleCases)
+                    {
+                        EmitSimpleCaseDirectPInvoke(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase);
+                    }
+                }
+            }
+
+            // Emit CaseTag enum and Tag property for enums with any cases
+            if (enumDecl.Cases.Any())
+            {
+                EmitCaseTagEnum(csWriter, enumDecl);
+                EmitTagProperty(csWriter, enumDecl);
+            }
+
+            // Emit TryGet methods for cases with associated values
+            foreach (var caseDecl in enumDecl.Cases.Where(c => c.HasAssociatedValues))
+            {
+                EmitTryGetMethod(csWriter, enumDecl, caseDecl, env.TypeDatabase);
+            }
+
+            // Add a blank line between cases and other members
+            if (enumDecl.Cases.Any())
+            {
+                csWriter.WriteLine();
+            }
+
+            // Emit properties using the same pattern as other handlers
+            foreach (var propertyDecl in enumDecl.Properties)
+            {
+                if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                {
+                    var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                }
+                else
+                {
+                    _logger.LogWarning($"No handler found for property {propertyDecl.Name}");
+                }
+            }
+
+            // Emit ISwiftObject implementation
+            var iSwiftObjectWriter = new EnumISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, enumDecl);
+            iSwiftObjectWriter.WriteEnumImplementation();
+
+            // Collect property names for method/property collision detection
+            var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+
+            // Emit nested types and methods using base handler
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase, propertyNames);
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits a static property for a simple enum case (no associated values).
+        /// </summary>
+        private void EmitEnumCase(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            var caseName = caseDecl.Name;
+            var enumTypeName = enumDecl.Name;
+            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var pInvokeName = $"PInvoke_{capitalizedName}";
+            var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+
+            // Generate a static property for this case with backing P/Invoke
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+            csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var result = new {enumTypeName}();");
+            csWriter.WriteLine($"IntPtr casePtr = {pInvokeName}();");
+            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(casePtr);");
+            csWriter.WriteLine("return result;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // P/Invoke declaration for the case constructor
+            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
+            csWriter.WriteLine($"private static extern IntPtr {pInvokeName}();");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits a simple enum case (no associated values) via direct P/Invoke.
+        /// Swift enum case constructors use indirect return - they write to a buffer provided by the caller.
+        /// </summary>
+        private void EmitSimpleCaseDirectPInvoke(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            var caseName = caseDecl.Name;
+            var enumTypeName = enumDecl.Name;
+            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var pInvokeName = $"PInvoke_{capitalizedName}";
+            var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+
+            // Generate a static property for this case with backing P/Invoke
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+            csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Swift enum case constructors use indirect return - allocate buffer and pass it
+            csWriter.WriteLine($"var result = new {enumTypeName}();");
+            csWriter.WriteLine($"var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
+            csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
+            csWriter.WriteLine($"{pInvokeName}(indirectResult);");
+            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
+            csWriter.WriteLine("return result;");
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // P/Invoke declaration for the case constructor - uses indirect result
+            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+            csWriter.WriteLine($"private static extern void {pInvokeName}(SwiftIndirectResult result);");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits a static method for an enum case with associated values.
+        /// </summary>
+        private void EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            var caseName = caseDecl.Name;
+            var enumTypeName = enumDecl.Name;
+            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var pInvokeName = $"PInvoke_{capitalizedName}";
+            var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Build parameter list from associated values
+            var parameters = new List<(string type, string name, TypeSpec typeSpec)>();
+            for (int i = 0; i < caseDecl.AssociatedValues.Count; i++)
+            {
+                var typeSpec = caseDecl.AssociatedValues[i];
+                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+
+                // Check if type is unsupported
+                if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping case.");
+                    return;
+                }
+
+                // Use type label if available, otherwise generate a name
+                var paramName = typeSpec.TypeLabel ?? $"value{i}";
+                // Sanitize parameter name (remove invalid characters, ensure starts with letter)
+                paramName = SanitizeParameterName(paramName);
+                parameters.Add((csharpType, paramName, typeSpec));
+            }
+
+            // Generate the static method for this case
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Creates the '{caseName}' case of {enumTypeName}.");
+            csWriter.WriteLine($"/// </summary>");
+
+            var parameterString = string.Join(", ", parameters.Select(p => $"{p.type} {p.name}"));
+            csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}({parameterString})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var result = new {enumTypeName}();");
+
+            // Swift enum case constructors use indirect return - allocate buffer and pass it
+            csWriter.WriteLine($"var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
+            csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
+
+            // Build the P/Invoke call with arguments
+            var argList = new List<string> { "indirectResult" };
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var (type, name, typeSpec) = parameters[i];
+                argList.Add(GetPInvokeArgument(name, typeSpec, typeDatabase));
+            }
+
+            csWriter.WriteLine($"{pInvokeName}({string.Join(", ", argList)});");
+            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
+            csWriter.WriteLine("return result;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // P/Invoke declaration for the case constructor with associated values - uses indirect result
+            var pInvokeParams = new List<string> { "SwiftIndirectResult result" };
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var (_, name, typeSpec) = parameters[i];
+                var pInvokeType = GetPInvokeType(typeSpec, typeDatabase);
+                pInvokeParams.Add($"{pInvokeType} {name}");
+            }
+
+            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+            csWriter.WriteLine($"private static extern void {pInvokeName}({string.Join(", ", pInvokeParams)});");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Gets the C# type name for an enum case associated value type.
+        /// </summary>
+        private static string GetCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
+        {
+            // Handle existential types (any Protocol) - return ExistentialContainer
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null)
+                {
+                    return existentialHandler.GetCSharpExistentialType(protocolList);
+                }
+            }
+
+            // Handle protocol list types (protocol composition)
+            if (typeSpec is ProtocolListTypeSpec protocolListSpec)
+            {
+                return existentialHandler.GetCSharpExistentialType(protocolListSpec);
+            }
+
+            // Handle bound generics (e.g., Optional<T>, Array<T>)
+            if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            {
+                // Create a temporary property to use the BoundGenericsHandler
+                var tempProperty = new PropertyDecl
+                {
+                    Name = "_temp",
+                    SwiftTypeSpec = typeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                };
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+            }
+
+            // Handle tuple types
+            if (typeSpec is TupleTypeSpec tupleType)
+            {
+                var tupleHandler = new TupleHandler(typeDatabase);
+                // Use a recursive translator that handles bound generics for each element
+                return tupleHandler.GetCSharpTupleType(tupleType, elementTypeSpec =>
+                    GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler));
+            }
+
+            // For non-generic types, use the standard lookup
+            return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
+        /// Gets the P/Invoke argument expression for a parameter.
+        /// </summary>
+        private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            // Handle existential types - pass the container directly (it's a blittable struct)
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                return paramName;
+            }
+
+            // Handle tuple types - need to construct a ValueTuple with extracted payloads
+            if (typeSpec is TupleTypeSpec tupleType)
+            {
+                var elementArgs = new List<string>();
+                for (int i = 0; i < tupleType.Elements.Count; i++)
+                {
+                    var element = tupleType.Elements[i];
+                    // Access tuple element by name if it has a label, otherwise by Item1, Item2, etc.
+                    var elementAccess = !string.IsNullOrEmpty(element.TypeLabel)
+                        ? $"{paramName}.{element.TypeLabel}"
+                        : $"{paramName}.Item{i + 1}";
+
+                    // Recursively get the P/Invoke argument for this element
+                    elementArgs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase));
+                }
+                return $"({string.Join(", ", elementArgs)})";
+            }
+
+            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+            // ObjC bridged types use .Handle to get the native pointer
+            if (MarshallingHelpers.IsObjCBridged(typeRecord))
+            {
+                return $"{paramName}.Handle";
+            }
+
+            // For types that have payloads (non-frozen structs, classes), access the Payload.DangerousGetHandle()
+            if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+            {
+                return $"{paramName}.Payload.DangerousGetHandle()";
+            }
+
+            return paramName;
+        }
+
+        /// <summary>
+        /// Gets the P/Invoke parameter type for an associated value.
+        /// </summary>
+        private static string GetPInvokeType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            // Handle existential types - use the ExistentialContainer struct directly
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null)
+                {
+                    return existentialHandler.GetPInvokeExistentialType(protocolList);
+                }
+            }
+
+            // Handle tuple types
+            if (typeSpec is TupleTypeSpec tupleType)
+            {
+                var tupleHandler = new TupleHandler(typeDatabase);
+                // Use recursive type translation for P/Invoke tuple elements
+                return tupleHandler.GetPInvokeTupleType(tupleType, elementTypeSpec =>
+                    GetPInvokeType(elementTypeSpec, typeDatabase));
+            }
+
+            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+            // For types that require memory management, use IntPtr in P/Invoke
+            if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+            {
+                return "IntPtr";
+            }
+
+            // For primitives and frozen structs, use the C# type directly
+            return typeRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
+        /// Sanitizes a parameter name to be a valid C# identifier.
+        /// </summary>
+        private static string SanitizeParameterName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return "value";
+
+            // Replace invalid characters with underscores
+            var sanitized = new System.Text.StringBuilder();
+            foreach (var c in name)
+            {
+                if (char.IsLetterOrDigit(c) || c == '_')
+                    sanitized.Append(c);
+                else
+                    sanitized.Append('_');
+            }
+
+            var result = sanitized.ToString();
+
+            // Ensure starts with letter or underscore
+            if (result.Length > 0 && char.IsDigit(result[0]))
+                result = "_" + result;
+
+            // Handle C# reserved keywords
+            var keywords = new HashSet<string> { "string", "int", "bool", "float", "double", "object", "class", "struct", "enum", "delegate", "event", "interface", "namespace", "using", "static", "public", "private", "protected", "internal", "abstract", "sealed", "virtual", "override", "new", "return", "if", "else", "for", "foreach", "while", "do", "switch", "case", "default", "break", "continue", "goto", "throw", "try", "catch", "finally", "lock", "using", "checked", "unchecked", "fixed", "unsafe", "volatile", "extern", "ref", "out", "in", "params", "this", "base", "null", "true", "false", "is", "as", "typeof", "sizeof", "stackalloc", "await", "async", "yield", "nameof", "var", "dynamic" };
+
+            if (keywords.Contains(result))
+                result = "@" + result;
+
+            return string.IsNullOrEmpty(result) ? "value" : result;
+        }
+
+        /// <summary>
+        /// Emits RawRepresentable support for enums with simple cases.
+        /// This includes a FromRawValue method and static properties for each case.
+        /// </summary>
+        private void EmitRawRepresentableSupport(CSharpWriter csWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            var enumTypeName = enumDecl.Name;
+            var rawTypeName = enumDecl.RawValueTypeName!;
+            var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+
+            // Map Swift raw type to C# type
+            var csharpRawType = rawTypeName switch
+            {
+                "Int" => "long",
+                "Int8" => "sbyte",
+                "Int16" => "short",
+                "Int32" => "int",
+                "Int64" => "long",
+                "UInt" => "ulong",
+                "UInt8" => "byte",
+                "UInt16" => "ushort",
+                "UInt32" => "uint",
+                "UInt64" => "ulong",
+                "String" => "string",
+                _ => rawTypeName // Fall back to the Swift name
+            };
+
+            // Find the init(rawValue:) constructor in the enum's methods
+            var initRawValueMethod = enumDecl.Methods.FirstOrDefault(m =>
+                m.IsConstructor &&
+                m.Name == "init" &&
+                m.CSSignature.Count == 2 && // Return type + rawValue parameter
+                m.CSSignature.Any(a => a.Name == "rawValue" || a.PrivateName == "rawValue"));
+
+            if (initRawValueMethod == null)
+            {
+                _logger.LogWarning($"Enum '{enumTypeName}' is RawRepresentable but init(rawValue:) constructor not found. Skipping simple case emission.");
+                foreach (var caseDecl in simpleCases)
+                {
+                    _logger.LogWarning($"Skipping enum case '{enumTypeName}.{caseDecl.Name}' - init(rawValue:) constructor not found.");
+                }
+                return;
+            }
+
+            // Emit FromRawValue method - different implementations for frozen vs non-frozen enums
+            // Frozen enums can return directly, non-frozen enums require indirect return via SwiftOptional
+            if (enumDecl.IsFrozen)
+            {
+                // Frozen enum: P/Invoke returns IntPtr directly, null check via IntPtr.Zero
+                csWriter.WriteLine("/// <summary>");
+                csWriter.WriteLine($"/// Creates a {enumTypeName} from its raw value.");
+                csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
+                csWriter.WriteLine("/// </summary>");
+                csWriter.WriteLine($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);");
+                csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("return null;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine($"var result = new {enumTypeName}();");
+                csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(resultPtr);");
+                csWriter.WriteLine("return result;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Emit P/Invoke for init(rawValue:) - frozen version returns IntPtr directly
+                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine($"private static extern IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
+                csWriter.WriteLine();
+            }
+            else
+            {
+                // Non-frozen enum: failable initializer returns Optional<Self> via indirect return
+                // We allocate buffer for SwiftOptional<EnumType>, call P/Invoke, then check the tag
+                csWriter.WriteLine("/// <summary>");
+                csWriter.WriteLine($"/// Creates a {enumTypeName} from its raw value.");
+                csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
+                csWriter.WriteLine("/// </summary>");
+                csWriter.WriteLine($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                // Get metadata for the enum type and SwiftOptional<EnumType>
+                csWriter.WriteLine("// Get metadata for the enum type");
+                csWriter.WriteLine("var enumMetadata = PInvoke_getMetadata();");
+                csWriter.WriteLine();
+                csWriter.WriteLine("// Get metadata for SwiftOptional<EnumType>");
+                csWriter.WriteLine("var optionalMetadata = PInvokesForSwiftOptional_MetadataAccessor(");
+                csWriter.Indent++;
+                csWriter.WriteLine("TypeMetadataRequest.Complete, enumMetadata);");
+                csWriter.Indent--;
+                csWriter.WriteLine();
+
+                // Allocate buffer for optional result
+                csWriter.WriteLine("// Allocate buffer for SwiftOptional<EnumType> result");
+                csWriter.WriteLine("void* resultBuffer = NativeMemory.AllocZeroed(optionalMetadata.Size);");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                // Call P/Invoke with indirect result
+                csWriter.WriteLine("// Call the failable initializer with indirect result");
+                csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
+                csWriter.WriteLine("PInvoke_InitWithRawValue(swiftIndirectResult, rawValue);");
+                csWriter.WriteLine();
+
+                // Check if Some or None via enum tag
+                csWriter.WriteLine("// Check if result is Some (tag 0) or None (tag 1)");
+                csWriter.WriteLine("uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);");
+                csWriter.WriteLine();
+                csWriter.WriteLine("// SwiftOptionalCases.None = 1");
+                csWriter.WriteLine("if (tag == 1)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("return null;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Extract enum payload (it's at the start of the optional buffer)
+                csWriter.WriteLine("// Extract the enum value from the optional's payload");
+                csWriter.WriteLine("IntPtr enumBuffer = (IntPtr)NativeMemory.Alloc(enumMetadata.Size);");
+                csWriter.WriteLine("enumMetadata.ValueWitnessTable->InitializeWithCopy((void*)enumBuffer, resultBuffer, enumMetadata);");
+                csWriter.WriteLine();
+                csWriter.WriteLine($"var result = new {enumTypeName}();");
+                csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(enumBuffer);");
+                csWriter.WriteLine("return result;");
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("finally");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("// Clean up the optional buffer");
+                csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
+                csWriter.WriteLine("NativeMemory.Free(resultBuffer);");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Emit P/Invoke for init(rawValue:) - non-frozen version uses indirect result
+                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine($"private static extern void PInvoke_InitWithRawValue(SwiftIndirectResult result, {csharpRawType} rawValue);");
+                csWriter.WriteLine();
+
+                // Emit P/Invoke for SwiftOptional metadata accessor (using Swift stdlib symbol)
+                csWriter.WriteLine("// SwiftOptional metadata accessor from Swift stdlib");
+                csWriter.WriteLine("[DllImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine("private static extern TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
+                csWriter.WriteLine();
+            }
+
+            // Emit static properties for each simple case
+            // Simple cases use sequential raw values starting from 0 (Swift default behavior)
+            for (int i = 0; i < simpleCases.Count; i++)
+            {
+                var caseDecl = simpleCases[i];
+                var caseName = caseDecl.Name;
+                var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+
+                // Determine the raw value - for Int-based enums, Swift uses sequential values starting at 0
+                // For String-based enums, the raw value is the case name
+                string rawValueLiteral;
+                if (csharpRawType == "string")
+                {
+                    rawValueLiteral = $"\"{caseName}\"";
+                }
+                else
+                {
+                    rawValueLiteral = i.ToString();
+                }
+
+                csWriter.WriteLine("/// <summary>");
+                csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                csWriter.WriteLine("/// </summary>");
+                csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("get");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"var result = FromRawValue({rawValueLiteral});");
+                csWriter.WriteLine("if (result == null)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {rawValueLiteral}\");");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("return result;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+            }
+        }
+
+        /// <summary>
+        /// Emits a nested CaseTag enum for type-safe case discrimination.
+        /// Tag values follow Swift's ordering: payload cases first (in declaration order),
+        /// then no-payload cases (in declaration order).
+        /// </summary>
+        private void EmitCaseTagEnum(CSharpWriter csWriter, EnumDecl enumDecl)
+        {
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine($"/// Enum representing the possible cases of {enumDecl.Name}.");
+            csWriter.WriteLine("/// Tag values follow Swift's ordering: payload cases first, then no-payload cases.");
+            csWriter.WriteLine("/// </summary>");
+            csWriter.WriteLine("public enum CaseTag : uint");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Emit payload cases first (in declaration order)
+            foreach (var caseDecl in enumDecl.PayloadCases)
+            {
+                var capitalizedName = char.ToUpper(caseDecl.Name[0]) + caseDecl.Name.Substring(1);
+                var tag = enumDecl.GetCaseTag(caseDecl);
+                csWriter.WriteLine($"{capitalizedName} = {tag},");
+            }
+
+            // Then emit no-payload cases
+            foreach (var caseDecl in enumDecl.NoPayloadCases)
+            {
+                var capitalizedName = char.ToUpper(caseDecl.Name[0]) + caseDecl.Name.Substring(1);
+                var tag = enumDecl.GetCaseTag(caseDecl);
+                csWriter.WriteLine($"{capitalizedName} = {tag},");
+            }
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits the Tag property that returns the current case of the enum.
+        /// Uses ValueWitnessTable->GetEnumTag to determine the case.
+        /// </summary>
+        private void EmitTagProperty(CSharpWriter csWriter, EnumDecl enumDecl)
+        {
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine("/// Gets the current case of this enum instance.");
+            csWriter.WriteLine("/// </summary>");
+            csWriter.WriteLine("public unsafe CaseTag Tag");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            csWriter.WriteLine("bool success = false;");
+            csWriter.WriteLine("_payload.DangerousAddRef(ref success);");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            csWriter.WriteLine("var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine("byte* payload = (byte*)_payload.DangerousGetHandle();");
+            csWriter.WriteLine("return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);");
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("if (success)");
+            csWriter.Indent++;
+            csWriter.WriteLine("_payload.DangerousRelease();");
+            csWriter.Indent--;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits a TryGet method for an enum case with associated values.
+        /// The method extracts the associated value(s) if the enum is in the specified case.
+        /// </summary>
+        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase)
+        {
+            var caseName = caseDecl.Name;
+            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+
+            // Swift represents multi-value associated types as a single tuple type.
+            // Check if the single associated value is a tuple (multi-element extraction not yet supported).
+            if (caseDecl.AssociatedValues.Count == 1 && caseDecl.AssociatedValues[0] is TupleTypeSpec tupleSpec && tupleSpec.Elements.Count > 1)
+            {
+                _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has tuple associated value with {tupleSpec.Elements.Count} elements. TryGet for tuple extraction not yet supported.");
+                return;
+            }
+
+            // Also skip if somehow there are multiple associated values (shouldn't happen with current parsing)
+            if (caseDecl.AssociatedValues.Count > 1)
+            {
+                _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has {caseDecl.AssociatedValues.Count} associated values. TryGet for multi-value cases not yet supported.");
+                return;
+            }
+
+            var tag = enumDecl.GetCaseTag(caseDecl);
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Determine the output type based on associated values
+            string outType;
+            List<(string type, string name, TypeSpec typeSpec)> parameters = new();
+
+            for (int i = 0; i < caseDecl.AssociatedValues.Count; i++)
+            {
+                var typeSpec = caseDecl.AssociatedValues[i];
+                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+
+                // Check if type is unsupported
+                if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping TryGet method.");
+                    return;
+                }
+
+                // Use type label if available, otherwise generate a name
+                var paramName = typeSpec.TypeLabel ?? $"value{i}";
+                paramName = SanitizeParameterName(paramName);
+                parameters.Add((csharpType, paramName, typeSpec));
+            }
+
+            // Single value: output is just that type
+            // Multiple values: output is a tuple
+            if (parameters.Count == 1)
+            {
+                outType = parameters[0].type;
+            }
+            else
+            {
+                var tupleElements = parameters.Select(p =>
+                    !string.IsNullOrEmpty(p.typeSpec.TypeLabel)
+                        ? $"{p.type} {SanitizeParameterName(p.typeSpec.TypeLabel)}"
+                        : p.type);
+                outType = $"({string.Join(", ", tupleElements)})";
+            }
+
+            // Emit the TryGet method
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine($"/// Attempts to extract the associated value(s) for the '{caseName}' case.");
+            csWriter.WriteLine("/// </summary>");
+            csWriter.WriteLine($"/// <param name=\"value\">When this method returns true, contains the associated value(s).</param>");
+            csWriter.WriteLine($"/// <returns>True if this enum is the '{caseName}' case; otherwise, false.</returns>");
+            csWriter.WriteLine($"public unsafe bool TryGet{capitalizedName}([MaybeNullWhen(false)] out {outType} value)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Check if we're in the right case
+            csWriter.WriteLine($"if (Tag != CaseTag.{capitalizedName})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("value = default;");
+            csWriter.WriteLine("return false;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            csWriter.WriteLine("var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine();
+
+            // Create a copy to avoid destroying the original
+            csWriter.WriteLine("// Create a non-destructive copy of the enum");
+            csWriter.WriteLine("byte* enumCopy = stackalloc byte[(int)metadata.Size];");
+            csWriter.WriteLine("bool success = false;");
+            csWriter.WriteLine("_payload.DangerousAddRef(ref success);");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("if (success)");
+            csWriter.Indent++;
+            csWriter.WriteLine("_payload.DangerousRelease();");
+            csWriter.Indent--;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // Strip the tag to get the payload
+            csWriter.WriteLine("// Strip the tag to get the raw payload");
+            csWriter.WriteLine("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);");
+            csWriter.WriteLine();
+
+            // Marshal the payload to C# type(s)
+            csWriter.WriteLine("// Marshal the payload to C# type(s)");
+            if (parameters.Count == 1)
+            {
+                var (type, name, typeSpec) = parameters[0];
+                EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase);
+            }
+            else
+            {
+                // For tuples, we need to marshal each element
+                // Swift stores tuple elements sequentially in memory
+                // We'll create individual values and then construct the tuple
+                csWriter.WriteLine("// For multi-value associated types, values are stored sequentially");
+
+                var valueNames = new List<string>();
+                for (int i = 0; i < parameters.Count; i++)
+                {
+                    var (_, _, typeSpec) = parameters[i];
+                    var valueName = $"_val{i}";
+                    valueNames.Add(valueName);
+
+                    if (i == 0)
+                    {
+                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, valueName, "enumCopy", typeDatabase);
+                    }
+                    else
+                    {
+                        // For subsequent elements, we need to calculate offset based on type sizes
+                        // This is a simplification - in practice, we'd need alignment handling
+                        csWriter.WriteLine($"// TODO: Proper offset calculation for element {i}");
+                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, valueName, "enumCopy", typeDatabase);
+                    }
+                }
+
+                // Construct the tuple
+                var tupleConstruction = string.Join(", ", valueNames);
+                csWriter.WriteLine($"value = ({tupleConstruction});");
+            }
+
+            csWriter.WriteLine("return true;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits code to marshal a payload value from Swift memory to a C# variable (with assignment).
+        /// </summary>
+        private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase)
+        {
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Handle existential types
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null)
+                {
+                    var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
+                    csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                    return;
+                }
+            }
+
+            // Use GetCSharpTypeNameForEnumCase to properly handle bound generics
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+            csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
+        }
+
+        /// <summary>
+        /// Emits code to marshal a payload value from Swift memory with a variable declaration.
+        /// </summary>
+        private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase)
+        {
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Get the C# type name for this typeSpec
+            string csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+
+            // Handle existential types
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null)
+                {
+                    var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
+                    csWriter.WriteLine($"var {varName} = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                    return;
+                }
+            }
+
+            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+            // For types requiring memory management (classes, non-frozen structs), use SwiftMarshal
+            if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+            {
+                csWriter.WriteLine($"var {varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
+            }
+            else
+            {
+                // For primitives and frozen structs, marshal directly
+                csWriter.WriteLine($"var {varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Class responsible for emitting the necessary code for ISwiftObject methods for enums.
+    /// </summary>
+    class EnumISwiftObjectMethodWriter
+    {
+        private readonly IndentedTextWriter _writer;
+        private readonly ITypeDatabase _typeDatabase;
+        private readonly ModuleDecl _moduleDecl;
+        private readonly EnumDecl _enumDecl;
+
+        public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl)
+        {
+            _writer = csWriter;
+            _typeDatabase = typeDatabase;
+            _moduleDecl = moduleDecl;
+            _enumDecl = enumDecl;
+        }
+
+        /// <summary>
+        /// Writes the implementation for ISwiftObject methods for enums.
+        /// </summary>
+        public void WriteEnumImplementation()
+        {
+            WriteGetTypeMetadata();
+            WriteNewFromPayload();
+            WriteMarshalToSwift();
+            WriteGetProtocolConformanceDescriptor();
+        }
+
+        /// <summary>
+        /// Writes the GetTypeMetadata method for the enum along with the PInvoke method.
+        /// </summary>
+        private void WriteGetTypeMetadata()
+        {
+            _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+            _writer.WriteLine();
+
+            string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+
+            var pinvokeText = $$"""
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("{{libPath}}", EntryPoint = "{{_enumDecl.MetadataAccessor}}")]
+            internal static extern TypeMetadata PInvoke_getMetadata();
+            """;
+
+            _writer.WriteLines(pinvokeText);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the NewFromPayload method for the enum.
+        /// </summary>
+        private void WriteNewFromPayload()
+        {
+            var text = $$"""
+            static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+            {
+                return new {{_enumDecl.Name}}(handle);
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+
+            EmitDefaultConstructor();
+            EmitPrivateConstructor();
+        }
+
+        /// <summary>
+        /// Writes the default private constructor (for enum case construction).
+        /// </summary>
+        private void EmitDefaultConstructor()
+        {
+            var text = $$"""
+            {{_enumDecl.Name}}()
+            {
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the private constructor accepting a SwiftHandle.
+        /// </summary>
+        private void EmitPrivateConstructor()
+        {
+            var text = $$"""
+            {{_enumDecl.Name}}(SwiftHandle handle)
+            {
+                _payload = new SwiftSafeHandle<{{_enumDecl.Name}}>(handle);
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the MarshalToSwift method for the enum.
+        /// </summary>
+        private void WriteMarshalToSwift()
+        {
+            var text = $$"""
+            unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+            {
+                var metadata = SwiftObjectHelper<{{_enumDecl.Name}}>.GetTypeMetadata();
+                if ((int)metadata.Size > swiftDestSpan.Length)
+                {
+                    throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+                }
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    // Ensure that the instance is valid before making copy
+                    bool success = false;
+                    _payload.DangerousAddRef(ref success);
+                    try
+                    {
+                        metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                        return (int)metadata.Size;
+                    }
+                    finally
+                    {
+                        if (success)
+                            _payload.DangerousRelease();
+                    }
+                }
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the GetProtocolConformanceDescriptor method for the enum.
+        /// </summary>
+        private void WriteGetProtocolConformanceDescriptor()
+        {
+            WriteStaticConstructor();
+            var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            var text = $$"""
+            static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+                where TProtocol : class
+            {
+                if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+                {
+                    throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_enumDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                }
+
+                return ProtocolConformanceDescriptor.LoadFromSymbol("{{libPath}}", symbolName);
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the static constructor for the enum.
+        /// </summary>
+        private void WriteStaticConstructor()
+        {
+            var text = $$"""
+            private static Dictionary<Type, string> _protocolConformanceSymbols;
+
+            static {{_enumDecl.Name}}()
+            {
+                _protocolConformanceSymbols = new Dictionary<Type, string>
+                {
+                    {{GenerateGetProtocolConformanceDictionaryEntries()}}
+                };
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        private string GenerateGetProtocolConformanceDictionaryEntries()
+        {
+            return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+                _enumDecl.Conformances,
+                _moduleDecl.Name,
+                _enumDecl.Name,
+                _typeDatabase);
+        }
+    }
+}

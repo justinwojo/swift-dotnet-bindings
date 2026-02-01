@@ -1,0 +1,161 @@
+// Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using System.CodeDom.Compiler;
+using Microsoft.Extensions.Logging;
+using Swift.Runtime;
+
+namespace BindingsGeneration
+{
+    /// <summary>
+    /// Factory class for creating instances of NonFrozenStructHandler.
+    /// </summary>
+    public class NonFrozenStructHandlerFactory : HandlerFactory, IFactory<BaseDecl, ITypeHandler>
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="NonFrozenStructHandlerFactory"/> class.
+        /// </summary>
+        /// <param name="loggerFactory">The logger factory instance.</param>
+        public NonFrozenStructHandlerFactory(ILoggerFactory loggerFactory) : base(loggerFactory.CreateLogger<NonFrozenStructHandler>())
+        {
+        }
+
+        /// <summary>
+        /// Determines if the factory handles the specified declaration.
+        /// </summary>
+        /// <param name="decl">The base declaration.</param>
+        public bool Handles(BaseDecl decl)
+        {
+            return decl is StructDecl structDecl && !structDecl.IsFrozen;
+        }
+
+        /// <summary>
+        /// Constructs a new instance of StructHandler.
+        /// </summary>
+        public ITypeHandler Construct()
+        {
+            return new NonFrozenStructHandler(_handlerLogger);
+        }
+    }
+
+    /// <summary>
+    /// Handler class for non-frozen struct declarations.
+    /// </summary>
+    public class NonFrozenStructHandler : BaseHandler, ITypeHandler
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="NonFrozenStructHandler"/> class.
+        /// </summary>
+        /// <param name="logger">The logger instance.</param>
+        public NonFrozenStructHandler(ILogger logger) : base(logger)
+        {
+        }
+
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
+        {
+            if (baseDecl is not StructDecl structDecl)
+            {
+                throw new ArgumentException("The provided decl must be a StructDecl.", nameof(baseDecl));
+
+            }
+            return new TypeEnvironment(structDecl, typeDatabase);
+        }
+
+        /// <inheritdoc/>
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        {
+            var structEnv = (TypeEnvironment)env;
+            var structDecl = (StructDecl)structEnv.TypeDecl;
+            var moduleDecl = structDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(structDecl.ModuleDecl));
+
+            // Check for equality/inequality operators (explicit or synthesized)
+            bool hasEquality = OperatorHandler.WillHaveEqualityOperator(structDecl.Operators);
+            bool hasInequality = OperatorHandler.WillHaveInequalityOperator(structDecl.Operators);
+
+            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl);
+            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, hasEquality, hasInequality);
+            bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+
+            // Get generic type parts if this is a generic type
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
+
+            var interfaces = new List<string> {
+                typeof(ISwiftObject).Name,
+            };
+            if (implementsEquatable)
+            {
+                interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
+            }
+            var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+            if (!string.IsNullOrEmpty(whereClause))
+                classDeclaration += $" {whereClause}";
+            csWriter.WriteLine(classDeclaration);
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            foreach (PropertyDecl propertyDecl in structDecl.Properties)
+            {
+                if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                {
+                    var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                }
+                else
+                    _logger.LogWarning($"No handler found for field {propertyDecl.Name}");
+            }
+
+            WritePrivateFields(csWriter, structDecl);
+            WritePayload(csWriter, structDecl);
+
+            // Emit operators
+            var operatorHandler = new OperatorHandler(_logger);
+            foreach (var operatorDecl in structDecl.Operators)
+            {
+                if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
+                {
+                    operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase);
+                }
+            }
+            // Handle paired operators (e.g., if == is defined but != is not)
+            operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, structDecl.Name);
+
+            // Add Equatable support if the struct conforms to Equatable
+            SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
+            ISwiftObjectMethodWriter.WriteNonFrozenStructImplementation();
+
+            csWriter.WriteLine();
+
+            // Collect property names for method/property collision detection
+            var propertyNames = new HashSet<string>(structDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+
+            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, propertyNames);
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the private fields for the class.
+        /// </summary>
+        private static void WritePrivateFields(CSharpWriter csWriter, StructDecl structDecl)
+        {
+            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{structDecl.Name}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine($"SwiftSafeHandle<{structDecl.Name}> _payload = SwiftSafeHandle<{structDecl.Name}>.Zero;");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the payload accessor for the class.
+        /// </summary>
+        private static void WritePayload(CSharpWriter csWriter, StructDecl structDecl)
+        {
+            csWriter.WriteLine($"public SwiftSafeHandle<{structDecl.Name}> Payload => _payload;");
+            csWriter.WriteLine();
+        }
+    }
+}

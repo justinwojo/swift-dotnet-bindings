@@ -250,7 +250,7 @@ All contain identical hardcoded `crossModuleSupportedProtocols` HashSet with onl
 | File | Lines | Description | Action |
 |------|-------|-------------|--------|
 | `Swift5Reducer.cs` | 476-491 | 16 lines of alternative function type conversion logic | **DONE** - Removed |
-| `PropertyHandler.cs` | 42 | `// private readonly ILogger _logger;` | Can remove - uses base class Logger |
+| `PropertyHandler.cs` | 42 | `// private readonly ILogger _logger;` | **DONE** - Removed |
 
 ### Swallowed Exceptions
 
@@ -267,8 +267,8 @@ All contain identical hardcoded `crossModuleSupportedProtocols` HashSet with onl
 | File | Lines | Assessment |
 |------|-------|------------|
 | `Swift5Demangler.cs` | 3,274 | State machine - complexity unavoidable |
-| `TypeHandler.cs` | 3,090 | Contains 5 handler classes - could split into separate files |
-| `MethodHandler.cs` | 2,905 | Contains multiple builders - could split |
+| `TypeHandler.cs` | 3,090 | **DONE** - Split into FrozenStructHandler.cs, NonFrozenStructHandler.cs, ClassHandler.cs, EnumHandler.cs, ProtocolHandler.cs, TypeHandlerHelpers.cs |
+| `MethodHandler.cs` | 2,905 | **DONE** - Extracted SignatureBuilderBase base class to reduce duplication |
 | `ProtocolProxyEmitter.cs` | 1,384 | Complex but cohesive |
 | `SwiftABIParser.cs` | 1,160 | Parser logic - reasonable |
 
@@ -325,8 +325,8 @@ String formatting uses `string.Format()` instead of interpolation in several pla
 | 10 | Create MethodHandler unit tests | Test signature builders, emit logic |
 | 11 | Create TypeHandler unit tests | Split tests by handler class |
 | 12 | Create SwiftABIParser tests | Feed real ABI JSON, validate parsing |
-| 13 | Extract SignatureBuilder base class | Reduce duplication in MethodHandler |
-| 14 | Split TypeHandler into multiple files | One file per handler class |
+| 13 | Extract SignatureBuilder base class | **DONE** - Created `SignatureBuilderBase` abstract class with shared fields (_returnType, _parameters, _env) and methods (Build, SetReturnType, AddParameter) |
+| 14 | Split TypeHandler into multiple files | **DONE** - Split into FrozenStructHandler.cs, NonFrozenStructHandler.cs, ClassHandler.cs, EnumHandler.cs, ProtocolHandler.cs, TypeHandlerHelpers.cs |
 
 ---
 

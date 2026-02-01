@@ -1,0 +1,473 @@
+// Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using System.CodeDom.Compiler;
+using Microsoft.Extensions.Logging;
+using Swift.Runtime;
+
+namespace BindingsGeneration
+{
+    /// <summary>
+    /// Factory class for creating instances of ClassHandler.
+    /// </summary>
+    public class ClassHandlerFactory : HandlerFactory, IFactory<BaseDecl, ITypeHandler>
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ClassHandlerFactory"/> class.
+        /// </summary>
+        /// <param name="loggerFactory">The logger factory instance.</param>
+        public ClassHandlerFactory(ILoggerFactory loggerFactory) : base(loggerFactory.CreateLogger<ClassHandler>())
+        {
+        }
+
+        /// <summary>
+        /// Determines if the factory handles the specified declaration.
+        /// </summary>
+        /// <param name="decl">The base declaration.</param>
+        public bool Handles(BaseDecl decl)
+        {
+            return decl is ClassDecl;
+        }
+
+        /// <summary>
+        /// Constructs a new instance of ClassHandler.
+        /// </summary>
+        public ITypeHandler Construct()
+        {
+            return new ClassHandler(_handlerLogger);
+        }
+    }
+
+    /// <summary>
+    /// Handler class for class declarations.
+    /// </summary>
+    public class ClassHandler : BaseHandler, ITypeHandler
+    {
+        public ClassHandler(ILogger logger) : base(logger)
+        {
+        }
+
+        /// <inheritdoc/>
+        public IEnvironment Marshal(BaseDecl baseDecl, ITypeDatabase typeDatabase)
+        {
+            if (baseDecl is not ClassDecl classDecl)
+            {
+                throw new ArgumentException("The provided decl must be a ClassDecl.", nameof(baseDecl));
+            }
+            return new TypeEnvironment(classDecl, typeDatabase);
+        }
+
+        /// <inheritdoc/>
+        public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
+        {
+            var classEnv = (TypeEnvironment)env;
+            var classDecl = (ClassDecl)classEnv.TypeDecl;
+            var moduleDecl = classDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(classDecl.ModuleDecl));
+
+            // Check for equality/inequality operators (explicit or synthesized)
+            bool hasEquality = OperatorHandler.WillHaveEqualityOperator(classDecl.Operators);
+            bool hasInequality = OperatorHandler.WillHaveInequalityOperator(classDecl.Operators);
+            bool implementsEquatable = classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+
+            // Get generic type parts if this is a generic type
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(classDecl, env.TypeDatabase);
+
+            var interfaces = new List<string> {
+                typeof(ISwiftObject).Name,
+            };
+            if (implementsEquatable)
+            {
+                interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
+            }
+
+            var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+            if (!string.IsNullOrEmpty(whereClause))
+                classDeclaration += $" {whereClause}";
+            csWriter.WriteLine(classDeclaration);
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Emit properties
+            foreach (PropertyDecl propertyDecl in classDecl.Properties)
+            {
+                if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                {
+                    var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                }
+                else
+                {
+                    _logger.LogWarning($"No handler found for property {propertyDecl.Name}");
+                }
+            }
+
+            // Emit private fields and payload
+            WriteClassPrivateFields(csWriter, classDecl);
+            WriteClassPayload(csWriter, classDecl);
+
+            // Emit operators
+            var operatorHandler = new OperatorHandler(_logger);
+            foreach (var operatorDecl in classDecl.Operators)
+            {
+                if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
+                {
+                    operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase);
+                }
+            }
+            // Handle paired operators (e.g., if == is defined but != is not)
+            operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, classDecl.Name);
+
+            // Emit ISwiftObject implementation
+            var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl);
+            var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, hasEquality, hasInequality);
+
+            equatableWriter.WriteSwiftEquatableImplementation();
+            iSwiftObjectWriter.WriteClassImplementation();
+
+            // Collect property names for method/property collision detection
+            var propertyNames = new HashSet<string>(classDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+
+            base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase);
+            base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, propertyNames);
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the private fields for the class.
+        /// </summary>
+        private static void WriteClassPrivateFields(CSharpWriter csWriter, ClassDecl classDecl)
+        {
+            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{classDecl.Name}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine($"SwiftSafeHandle<{classDecl.Name}> _payload = SwiftSafeHandle<{classDecl.Name}>.Zero;");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the payload accessor for the class.
+        /// </summary>
+        private static void WriteClassPayload(CSharpWriter csWriter, ClassDecl classDecl)
+        {
+            csWriter.WriteLine($"public SwiftSafeHandle<{classDecl.Name}> Payload => _payload;");
+            csWriter.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// Class responsible for emitting the necessary code for ISwiftObject methods for classes.
+    /// </summary>
+    class ClassISwiftObjectMethodWriter
+    {
+        private readonly IndentedTextWriter _writer;
+        private readonly ITypeDatabase _typeDatabase;
+        private readonly ModuleDecl _moduleDecl;
+        private readonly ClassDecl _classDecl;
+
+        public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl)
+        {
+            _writer = csWriter;
+            _typeDatabase = typeDatabase;
+            _moduleDecl = moduleDecl;
+            _classDecl = classDecl;
+        }
+
+        /// <summary>
+        /// Writes the implementation for ISwiftObject methods for classes.
+        /// </summary>
+        public void WriteClassImplementation()
+        {
+            WriteGetTypeMetadata();
+            WriteNewFromPayload();
+            WriteMarshalToSwift();
+            WriteGetProtocolConformanceDescriptor();
+        }
+
+        /// <summary>
+        /// Writes the GetTypeMetadata method for the class along with the PInvoke method.
+        /// </summary>
+        private void WriteGetTypeMetadata()
+        {
+            _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+            _writer.WriteLine();
+
+            string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            // For classes, the metadata accessor is the mangled name + "Ma"
+            string metadataAccessor = $"{_classDecl.MangledName}Ma";
+
+            var pinvokeText = $$"""
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("{{libPath}}", EntryPoint = "{{metadataAccessor}}")]
+            internal static extern TypeMetadata PInvoke_getMetadata();
+            """;
+
+            _writer.WriteLines(pinvokeText);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the NewFromPayload method for the class.
+        /// </summary>
+        private void WriteNewFromPayload()
+        {
+            var text = $$"""
+            static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+            {
+                return new {{_classDecl.Name}}(handle);
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+
+            EmitPrivateConstructor();
+        }
+
+        /// <summary>
+        /// Writes the private constructor accepting a SwiftHandle.
+        /// </summary>
+        private void EmitPrivateConstructor()
+        {
+            var text = $$"""
+            {{_classDecl.Name}}(SwiftHandle handle)
+            {
+                _payload = new SwiftSafeHandle<{{_classDecl.Name}}>(handle);
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the MarshalToSwift method for the class.
+        /// </summary>
+        private void WriteMarshalToSwift()
+        {
+            var text = $$"""
+            unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+            {
+                var metadata = SwiftObjectHelper<{{_classDecl.Name}}>.GetTypeMetadata();
+                if ((int)metadata.Size > swiftDestSpan.Length)
+                {
+                    throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+                }
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    // Ensure that the instance is valid before making copy
+                    bool success = false;
+                    _payload.DangerousAddRef(ref success);
+                    try
+                    {
+                        metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                        return (int)metadata.Size;
+                    }
+                    finally
+                    {
+                        if (success)
+                            _payload.DangerousRelease();
+                    }
+                }
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the GetProtocolConformanceDescriptor method for the class.
+        /// </summary>
+        private void WriteGetProtocolConformanceDescriptor()
+        {
+            WriteStaticConstructor();
+            var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            var text = $$"""
+            static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+                where TProtocol : class
+            {
+                if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+                {
+                    throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_classDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                }
+
+                return ProtocolConformanceDescriptor.LoadFromSymbol("{{libPath}}", symbolName);
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the static constructor for the class.
+        /// </summary>
+        private void WriteStaticConstructor()
+        {
+            var text = $$"""
+            private static Dictionary<Type, string> _protocolConformanceSymbols;
+
+            static {{_classDecl.Name}}()
+            {
+                _protocolConformanceSymbols = new Dictionary<Type, string>
+                {
+                    {{GenerateGetProtocolConformanceDictionaryEntries()}}
+                };
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        private string GenerateGetProtocolConformanceDictionaryEntries()
+        {
+            return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+                _classDecl.Conformances,
+                _moduleDecl.Name,
+                _classDecl.Name,
+                _typeDatabase);
+        }
+    }
+
+    /// <summary>
+    /// Class responsible for emitting equality methods for class types.
+    /// </summary>
+    public class ClassEqualityMethodsWriter
+    {
+        private readonly IndentedTextWriter _writer;
+        private readonly ClassDecl _classDecl;
+        private readonly bool _implementsEquatable;
+        private readonly bool _hasExplicitEqualityOperator;
+        private readonly bool _hasExplicitInequalityOperator;
+
+        public ClassEqualityMethodsWriter(CSharpWriter csWriter, ClassDecl classDecl, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
+        {
+            _writer = csWriter;
+            _classDecl = classDecl;
+            _implementsEquatable = _classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+            _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
+            _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
+        }
+
+        public void WriteSwiftEquatableImplementation()
+        {
+            if (_implementsEquatable)
+            {
+                WriteSwiftEquatableImplementationWithSwiftEquals();
+            }
+            else
+            {
+                WriteDefaultEquatableImplementation();
+            }
+        }
+
+        private void WriteSwiftEquatableImplementationWithSwiftEquals()
+        {
+            // Always write Equals and GetHashCode methods
+            var equalsMethods = $$"""
+            public override bool Equals(object? obj)
+            {
+                return obj is {{_classDecl.Name}} other && Swift.Runtime.SwiftEquatable.Equals(this, other);
+            }
+
+            public override int GetHashCode()
+            {
+                throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Hashable protocol, so GetHashCode() is not supported.");
+            }
+            """;
+
+            _writer.WriteLines(equalsMethods);
+            _writer.WriteLine();
+
+            // Only write operator == if no explicit operator is defined
+            if (!_hasExplicitEqualityOperator)
+            {
+                var equalityOperator = $$"""
+                public static bool operator ==({{_classDecl.Name}} left, {{_classDecl.Name}} right)
+                {
+                    return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                }
+                """;
+                _writer.WriteLines(equalityOperator);
+                _writer.WriteLine();
+            }
+
+            // Only write operator != if no explicit operator is defined
+            if (!_hasExplicitInequalityOperator)
+            {
+                var inequalityOperator = $$"""
+                public static bool operator !=({{_classDecl.Name}} left, {{_classDecl.Name}} right)
+                {
+                    return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                }
+                """;
+                _writer.WriteLines(inequalityOperator);
+                _writer.WriteLine();
+            }
+
+            // Write the IEquatable<T>.Equals method
+            var equatableEquals = $$"""
+            public bool Equals({{_classDecl.Name}}? other)
+            {
+                return Swift.Runtime.SwiftEquatable.Equals(this, other);
+            }
+            """;
+
+            _writer.WriteLines(equatableEquals);
+            _writer.WriteLine();
+        }
+
+        private void WriteDefaultEquatableImplementation()
+        {
+            // Always write Equals and GetHashCode methods
+            var equalsMethods = $$"""
+            // Swift classes cannot be compared using .NET's default equality semantics,
+            // since Swift's equality is defined by the Equatable protocol.
+            // This type does not implement Swift's Equatable protocol.
+
+            public override bool Equals(object? obj)
+            {
+                throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
+            }
+
+            public override int GetHashCode()
+            {
+                throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
+            }
+            """;
+
+            _writer.WriteLines(equalsMethods);
+            _writer.WriteLine();
+
+            // Only write operator == if no explicit operator is defined
+            if (!_hasExplicitEqualityOperator)
+            {
+                var equalityOperator = $$"""
+                public static bool operator ==({{_classDecl.Name}} left, {{_classDecl.Name}} right)
+                {
+                    throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
+                }
+                """;
+                _writer.WriteLines(equalityOperator);
+                _writer.WriteLine();
+            }
+
+            // Only write operator != if no explicit operator is defined
+            if (!_hasExplicitInequalityOperator)
+            {
+                var inequalityOperator = $$"""
+                public static bool operator !=({{_classDecl.Name}} left, {{_classDecl.Name}} right)
+                {
+                    throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
+                }
+                """;
+                _writer.WriteLines(inequalityOperator);
+                _writer.WriteLine();
+            }
+        }
+    }
+}

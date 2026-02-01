@@ -265,15 +265,70 @@ namespace BindingsGeneration
         }
     }
 
-    public class WrapperSignatureBuilder
+    /// <summary>
+    /// Base class for signature builders that provides common fields and methods.
+    /// </summary>
+    public abstract class SignatureBuilderBase
     {
-        private string _returnType = "invalid";
-        private readonly List<Parameter> _parameters = new();
-        private readonly MethodEnvironment _env;
+        /// <summary>The return type of the method.</summary>
+        protected string _returnType = "invalid";
 
-        public WrapperSignatureBuilder(MethodEnvironment env)
+        /// <summary>The list of parameters.</summary>
+        protected readonly List<Parameter> _parameters = new();
+
+        /// <summary>The method environment.</summary>
+        protected readonly MethodEnvironment _env;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SignatureBuilderBase"/> class.
+        /// </summary>
+        /// <param name="env">The method environment.</param>
+        protected SignatureBuilderBase(MethodEnvironment env)
         {
             _env = env;
+        }
+
+        /// <summary>
+        /// Builds the signature.
+        /// </summary>
+        /// <returns>The signature.</returns>
+        public Signature Build()
+        {
+            return new Signature(_returnType, _parameters.ToArray());
+        }
+
+        /// <summary>
+        /// Sets the return type of the method.
+        /// </summary>
+        /// <param name="returnType">The return type.</param>
+        protected void SetReturnType(string returnType)
+        {
+            _returnType = returnType;
+        }
+
+        /// <summary>
+        /// Adds a parameter to the signature.
+        /// </summary>
+        /// <param name="type">The parameter type.</param>
+        /// <param name="name">The parameter name.</param>
+        /// <param name="modifier">Optional parameter modifier (e.g., "out").</param>
+        protected void AddParameter(string type, string name, string modifier = "")
+        {
+            _parameters.Add(new Parameter(type, name, modifier));
+        }
+    }
+
+    /// <summary>
+    /// Builds the wrapper method signature (C# public API).
+    /// </summary>
+    public class WrapperSignatureBuilder : SignatureBuilderBase
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="WrapperSignatureBuilder"/> class.
+        /// </summary>
+        /// <param name="env">The method environment.</param>
+        public WrapperSignatureBuilder(MethodEnvironment env) : base(env)
+        {
         }
 
         /// <summary>
@@ -464,35 +519,6 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds the PInvoke signature.
-        /// </summary>
-        /// <returns>The PInvoke signature.</returns>
-        public Signature Build()
-        {
-            return new Signature(_returnType, _parameters.ToArray());
-        }
-
-
-        /// <summary>
-        /// Sets the return type of the method.
-        /// </summary>
-        /// <param name="returnType">The return type.</param>
-        private void SetReturnType(string returnType)
-        {
-            _returnType = returnType;
-        }
-
-        /// <summary>
-        /// Adds a parameter to the PInvoke signature.
-        /// </summary>
-        /// <param name="type">The parameter type.</param>
-        /// <param name="name">The parameter name.</param>s
-        private void AddParameter(string type, string name)
-        {
-            _parameters.Add(new Parameter(type, name));
-        }
-
-        /// <summary>
         /// Translates a TypeSpec to C# type name for use in type conversion handlers.
         /// Handles generic types by translating their type parameters.
         /// </summary>
@@ -533,23 +559,16 @@ namespace BindingsGeneration
     }
 
     /// <summary>
-    /// Represents a PInvoke signature builder.
+    /// Builds the P/Invoke signature (low-level native interop).
     /// </summary>
-    public class PInvokeSignatureBuilder
+    public class PInvokeSignatureBuilder : SignatureBuilderBase
     {
-        private string _returnType = "invalid";
-        private readonly List<Parameter> _parameters = new();
-        private readonly MethodEnvironment _env;
-
         /// <summary>
         /// Initializes a new instance of the <see cref="PInvokeSignatureBuilder"/> class.
         /// </summary>
-        /// <param name="methodDecl">The method declaration.</param>
-        /// <param name="parentDecl">The parent declaration.</param>
-        /// <param name="typeDatabase">The type database.</param>
-        public PInvokeSignatureBuilder(MethodEnvironment env)
+        /// <param name="env">The method environment.</param>
+        public PInvokeSignatureBuilder(MethodEnvironment env) : base(env)
         {
-            _env = env;
         }
 
         /// <summary>
@@ -880,34 +899,6 @@ namespace BindingsGeneration
             {
                 AddParameter("SwiftError", "error", "out");
             }
-        }
-
-        /// <summary>
-        /// Builds the PInvoke signature.
-        /// </summary>
-        /// <returns>The PInvoke signature.</returns>
-        public Signature Build()
-        {
-            return new Signature(_returnType, _parameters.ToArray());
-        }
-
-        /// <summary>
-        /// Sets the return type of the method.
-        /// </summary>
-        /// <param name="returnType">The return type.</param>
-        private void SetReturnType(string returnType)
-        {
-            _returnType = returnType;
-        }
-
-        /// <summary>
-        /// Adds a parameter to the PInvoke signature.
-        /// </summary>
-        /// <param name="type">The parameter type.</param>
-        /// <param name="name">The parameter name.</param>s
-        private void AddParameter(string type, string name, string modifier = "")
-        {
-            _parameters.Add(new Parameter(type, name, modifier));
         }
 
         /// <summary>

@@ -1,0 +1,493 @@
+// Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using System.CodeDom.Compiler;
+using Swift.Runtime;
+
+namespace BindingsGeneration
+{
+    /// <summary>
+    /// Class responsible for emitting the necessary code for ISwiftObject methods.
+    /// </summary>
+    class ISwiftObjectMethodWriter
+    {
+        private readonly IndentedTextWriter _writer;
+        private readonly ITypeDatabase _typeDatabase;
+        private readonly ModuleDecl _moduleDecl;
+        private readonly StructDecl _structDecl;
+
+        public ISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, StructDecl structDecl)
+        {
+            _writer = csWriter;
+            _typeDatabase = typeDatabase;
+            _moduleDecl = moduleDecl;
+            _structDecl = structDecl;
+        }
+
+        /// <summary>
+        /// Writes the implementation for ISwiftObject methods for non-frozen structs.
+        /// </summary>
+        public void WriteNonFrozenStructImplementation()
+        {
+            WriteGetTypeMetadata();
+            WriteNewFromPayloadNonFrozenStruct();
+            WriteMarshalToSwiftNonFrozenStruct();
+            WriteGetProtocolConformanceDescriptor();
+        }
+
+        /// <summary>
+        /// Writes the implementation for ISwiftObject methods for frozen structs.
+        /// </summary>
+        public void WriteFrozenStructImplementation()
+        {
+            WriteGetTypeMetadata();
+            WriteNewFromPayloadFrozenStruct();
+            WriteMarshalToSwiftFrozenStruct();
+            WriteGetProtocolConformanceDescriptor();
+        }
+
+        /// <summary>
+        /// Writes the GetTypeMetadata method for the struct along with the PInvoke method.
+        /// </summary>
+        private void WriteGetTypeMetadata()
+        {
+            _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+            _writer.WriteLine();
+
+            string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+
+            var pinvokeText = $$"""
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("{{libPath}}", EntryPoint = "{{_structDecl.MetadataAccessor}}")]
+            internal static extern TypeMetadata PInvoke_getMetadata();
+            """;
+
+            _writer.WriteLines(pinvokeText);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the NewFromPayload method for the struct.
+        /// </summary>
+        private void WriteNewFromPayloadFrozenStruct()
+        {
+            TypeRecord typeRecord = _typeDatabase.GetTypeRecordOrThrow(_structDecl.SwiftTypeName);
+            if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+            {
+                var text = $$"""
+                static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+                {
+                    return new {{_structDecl.Name}}(handle);
+                }
+
+                unsafe {{_structDecl.Name}}(IntPtr handle)
+                {
+                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({{_structDecl.Name}}.Buffer));
+                    *({{_structDecl.Name}}.Buffer*)bufferPtr = *({{_structDecl.Name}}.Buffer*)handle;
+                    _payload = new SwiftSafeHandle<{{_structDecl.Name}}>(bufferPtr);
+                }
+                """;
+
+                _writer.WriteLines(text);
+                _writer.WriteLine();
+            }
+            else
+            {
+                var text = $$"""
+                static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+                {
+                    return *({{_structDecl.Name}}*)handle;
+                }
+                """;
+
+                _writer.WriteLines(text);
+                _writer.WriteLine();
+            }
+        }
+
+        /// <summary>
+        /// Writes the NewFromPayload method for the struct.
+        /// </summary>
+        private void WriteNewFromPayloadNonFrozenStruct()
+        {
+            var text = $$"""
+            static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+            {
+                return new {{_structDecl.Name}}(handle);
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+
+            EmitPrivateConstructor();
+        }
+
+        /// <summary>
+        /// Writes the private constructor accepting a SwiftHandle.
+        /// </summary>
+        private void EmitPrivateConstructor()
+        {
+            var text = $$"""
+            {{_structDecl.Name}}(SwiftHandle handle)
+            {
+                _payload = new SwiftSafeHandle<{{_structDecl.Name}}>(handle);
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the MarshalToSwift method for the struct.
+        /// </summary>
+        private void WriteMarshalToSwiftFrozenStruct()
+        {
+            TypeRecord typeRecord = _typeDatabase.GetTypeRecordOrThrow(_structDecl.SwiftTypeName);
+            if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+            {
+                var text = $$"""
+                unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+                {
+                    var metadata = SwiftObjectHelper<{{_structDecl.Name}}>.GetTypeMetadata();
+                    if ((int)metadata.Size > swiftDestSpan.Length)
+                    {
+                        throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+                    }
+                    fixed (void* swiftDest = swiftDestSpan)
+                    {
+                        // Ensure that the instance is valid before making copy
+                        bool success = false;
+                        _payload.DangerousAddRef(ref success);
+                        try
+                        {
+                            metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                            return (int)metadata.Size;
+                        }
+                        finally
+                        {
+                            if (success)
+                                _payload.DangerousRelease();
+                        }
+                    }
+                }
+                """;
+
+                _writer.WriteLines(text);
+            }
+            else
+            {
+                var text = $$"""
+                unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+                {
+                    var metadata = SwiftObjectHelper<{{_structDecl.Name}}>.GetTypeMetadata();
+                    if ((int)metadata.Size > swiftDestSpan.Length)
+                    {
+                        throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+                    }
+                    fixed (void* payload = &this)
+                    fixed (void* swiftDest = swiftDestSpan)
+                    {
+                        metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, payload, metadata);
+                        return (int)metadata.Size;
+                    }
+                }
+                """;
+
+                _writer.WriteLines(text);
+            }
+
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the MarshalToSwift method for the struct.
+        /// </summary>
+        private void WriteMarshalToSwiftNonFrozenStruct()
+        {
+            var text = $$"""
+            unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+            {
+                var metadata = SwiftObjectHelper<{{_structDecl.Name}}>.GetTypeMetadata();
+                if ((int)metadata.Size > swiftDestSpan.Length)
+                {
+                    throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+                }
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    // Ensure that the instance is valid before making copy
+                    bool success = false;
+                    _payload.DangerousAddRef(ref success);
+                    try
+                    {
+                        metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                        return (int)metadata.Size;
+                    }
+                    finally
+                    {
+                        if (success)
+                            _payload.DangerousRelease();
+                    }
+                }
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the GetProtocolConformanceDescriptor method for the struct.
+        /// </summary>
+        private void WriteGetProtocolConformanceDescriptor()
+        {
+            WriteStaticConstructor();
+            var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            var text = $$"""
+            static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+                where TProtocol : class
+            {
+                if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+                {
+                    throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_structDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                }
+
+                return ProtocolConformanceDescriptor.LoadFromSymbol("{{libPath}}", symbolName);
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the static constructor for the struct.
+        /// </summary>
+        private void WriteStaticConstructor()
+        {
+            var text = $$"""
+            private static Dictionary<Type, string> _protocolConformanceSymbols;
+
+            static {{_structDecl.Name}}()
+            {
+                _protocolConformanceSymbols = new Dictionary<Type, string>
+                {
+                    {{GenerateGetProtocolConformanceDictionaryEntries()}}
+                };
+            }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        private string GenerateGetProtocolConformanceDictionaryEntries()
+        {
+            return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+                _structDecl.Conformances,
+                _moduleDecl.Name,
+                _structDecl.Name,
+                _typeDatabase);
+        }
+    }
+
+    public class EqualityMethodsWriter
+    {
+        private readonly IndentedTextWriter _writer;
+        private readonly StructDecl _structDecl;
+        private readonly bool _implementsEquatable;
+        private readonly bool _isRefType;
+        private readonly bool _hasExplicitEqualityOperator;
+        private readonly bool _hasExplicitInequalityOperator;
+
+        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType)
+            : this(csWriter, structDecl, refType, false, false)
+        {
+        }
+
+        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
+        {
+            _writer = csWriter;
+            _structDecl = structDecl;
+            _implementsEquatable = _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+            _isRefType = refType;
+            _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
+            _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
+        }
+
+        public void WriteSwiftEquatableImplementation()
+        {
+            if (_implementsEquatable)
+            {
+                WriteSwiftEquatableImplementationWithSwiftEquals(_isRefType);
+            }
+            else
+            {
+                WriteDefaultEquatableImplementation();
+            }
+        }
+
+        private void WriteSwiftEquatableImplementationWithSwiftEquals(bool refType)
+        {
+            // Always write Equals and GetHashCode methods
+            var equalsMethods = $$"""
+            public override bool Equals(object? obj)
+            {
+                return obj is {{_structDecl.Name}} other && Swift.Runtime.SwiftEquatable.Equals(this, other);
+            }
+
+            public override int GetHashCode()
+            {
+                throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Hashable protocol, so GetHashCode() is not supported.");
+            }
+            """;
+
+            _writer.WriteLines(equalsMethods);
+            _writer.WriteLine();
+
+            // Only write operator == if no explicit operator is defined
+            if (!_hasExplicitEqualityOperator)
+            {
+                var equalityOperator = $$"""
+                public static bool operator ==({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                {
+                    return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                }
+                """;
+                _writer.WriteLines(equalityOperator);
+                _writer.WriteLine();
+            }
+
+            // Only write operator != if no explicit operator is defined
+            if (!_hasExplicitInequalityOperator)
+            {
+                var inequalityOperator = $$"""
+                public static bool operator !=({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                {
+                    return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                }
+                """;
+                _writer.WriteLines(inequalityOperator);
+                _writer.WriteLine();
+            }
+
+            // Write the IEquatable<T>.Equals method
+            var equatableEquals = $$"""
+            public bool Equals({{_structDecl.Name}}{{(refType == true ? "?" : "")}} other)
+            {
+                return Swift.Runtime.SwiftEquatable.Equals(this, other);
+            }
+            """;
+
+            _writer.WriteLines(equatableEquals);
+            _writer.WriteLine();
+        }
+
+        private void WriteDefaultEquatableImplementation()
+        {
+            // Always write Equals and GetHashCode methods
+            var equalsMethods = $$"""
+            // Swift structs cannot be compared using .NET's default equality semantics,
+            // since Swift's equality is defined by the Equatable protocol.
+            // This type does not implement Swift's Equatable protocol.
+
+            public override bool Equals(object? obj)
+            {
+                throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
+            }
+
+            public override int GetHashCode()
+            {
+                throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
+            }
+            """;
+
+            _writer.WriteLines(equalsMethods);
+            _writer.WriteLine();
+
+            // Only write operator == if no explicit operator is defined
+            if (!_hasExplicitEqualityOperator)
+            {
+                var equalityOperator = $$"""
+                public static bool operator ==({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                {
+                    throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
+                }
+                """;
+                _writer.WriteLines(equalityOperator);
+                _writer.WriteLine();
+            }
+
+            // Only write operator != if no explicit operator is defined
+            if (!_hasExplicitInequalityOperator)
+            {
+                var inequalityOperator = $$"""
+                public static bool operator !=({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                {
+                    throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
+                }
+                """;
+                _writer.WriteLines(inequalityOperator);
+                _writer.WriteLine();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Static helper class for protocol conformance code generation shared across type handlers.
+    /// </summary>
+    internal static class ProtocolConformanceHelper
+    {
+        /// <summary>
+        /// Protocols from other modules that we support for cross-module conformance.
+        /// This will be removed once we process multiple modules properly.
+        /// </summary>
+        private static readonly HashSet<string> CrossModuleSupportedProtocols = new()
+        {
+            "Swift.Equatable"
+        };
+
+        /// <summary>
+        /// Generates the dictionary entries for GetProtocolConformanceDescriptor implementation.
+        /// </summary>
+        /// <param name="conformances">The conformances to process.</param>
+        /// <param name="moduleName">The current module name.</param>
+        /// <param name="typeName">The name of the type implementing the conformances.</param>
+        /// <param name="typeDatabase">The type database for protocol lookups.</param>
+        /// <returns>A comma-separated string of dictionary entries.</returns>
+        public static string GenerateProtocolConformanceDictionaryEntries(
+            IEnumerable<TypeConformance> conformances,
+            string moduleName,
+            string typeName,
+            ITypeDatabase typeDatabase)
+        {
+            var entries = new List<string>();
+
+            foreach (var conformance in conformances)
+            {
+                if (conformance.Protocol.Module != moduleName &&
+                    !CrossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
+                {
+                    continue;
+                }
+
+                // Skip protocols with associated types (they generate generic interfaces that can't be used with typeof)
+                if (typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record) &&
+                    record.Kind == TypeRecordKind.Protocol &&
+                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+                {
+                    continue;
+                }
+
+                var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName);
+                var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
+
+                entries.Add($"{{typeof({protocol}), \"{protocolConformanceSymbol}\"}}");
+            }
+
+            return string.Join(",\n", entries);
+        }
+    }
+}
