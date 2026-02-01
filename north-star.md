@@ -170,7 +170,7 @@ To maintain focus, these are explicitly **out of scope**:
 - Existential types (`any Protocol`) - parameters, returns, properties, closures, tuples
 - Generic constructors and generic methods (with where clause constraints)
 - StoreKit 2 bindings (published as experimental NuGet)
-- 605 unit tests, 691 integration tests, 72 runtime tests passing
+- Comprehensive test coverage (unit, integration, and runtime tests)
 
 ### What Doesn't Work Yet
 - Actors - unsupported

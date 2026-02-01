@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -115,8 +116,9 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
 
             return true; // Continue iteration
         }
-        catch
+        catch (Exception ex)
         {
+            Debug.WriteLine($"SwiftAsyncStream.OnElement: Error marshaling element - {ex.GetType().Name}: {ex.Message}");
             return false; // Stop on error
         }
     }
@@ -181,8 +183,9 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
             var handle = GCHandle.FromIntPtr(new IntPtr(context));
             return handle.Target as SwiftAsyncStream<TElement>;
         }
-        catch
+        catch (Exception ex)
         {
+            Debug.WriteLine($"SwiftAsyncStream.FromContext: Invalid context {context} - {ex.GetType().Name}: {ex.Message}");
             return null;
         }
     }

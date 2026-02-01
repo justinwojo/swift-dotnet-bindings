@@ -72,8 +72,8 @@ All public members without XML doc comments triggered errors. Affected files inc
 
 | File | Line | Marker | Issue | Action |
 |------|------|--------|-------|--------|
-| `MethodHandler.cs` | 2463 | TODO | "Call Destroy on copy buffers to properly release refs (needs type info)" | **Memory leak risk** - buffers for non-frozen struct copies aren't being destroyed |
-| `MethodHandler.cs` | 2075 | TODO | "Replace with correct method name" | Placeholder in error message generation |
+| `MethodHandler.cs` | 2463 | TODO | "Call Destroy on copy buffers to properly release refs (needs type info)" | **FIXED** - Added CopyBufferWithType struct to capture TypeMetadata and call Destroy before NativeMemory.Free |
+| `MethodHandler.cs` | 2075 | TODO | "Replace with correct method name" | **FIXED** - TODO removed, method name was already correct |
 
 ### Document as Known Limitation
 
@@ -137,8 +137,8 @@ These are **intentional** - they mark unimplemented protocol method implementati
 
 | Section | Current Value | Actual Value | Action |
 |---------|---------------|--------------|--------|
-| Repository Structure | "73 C# files" | 89 C# files | Update count |
-| Project Overview | ".NET 9.0+" | .NET 10.0 | Update target framework |
+| Repository Structure | "73 C# files" | 89 C# files | **DONE** - Updated |
+| Project Overview | ".NET 9.0+" | .NET 10.0 | **DONE** - Updated |
 | Current Capabilities | Test counts | Cannot verify (build broken) | Verify after build fix |
 
 ### north-star.md Issues
@@ -249,7 +249,7 @@ All contain identical hardcoded `crossModuleSupportedProtocols` HashSet with onl
 
 | File | Lines | Description | Action |
 |------|-------|-------------|--------|
-| `Swift5Reducer.cs` | 476-491 | 16 lines of alternative function type conversion logic | Can remove - replaced by `ConvertFunctionAsyncThrows()` |
+| `Swift5Reducer.cs` | 476-491 | 16 lines of alternative function type conversion logic | **DONE** - Removed |
 | `PropertyHandler.cs` | 42 | `// private readonly ILogger _logger;` | Can remove - uses base class Logger |
 
 ### Swallowed Exceptions
@@ -304,19 +304,19 @@ String formatting uses `string.Format()` instead of interpolation in several pla
 
 | # | Action | File | Details |
 |---|--------|------|---------|
-| 2 | Fix buffer cleanup memory leak | `MethodHandler.cs:2463` | Add proper `Destroy()` calls with type info |
-| 3 | Update CLAUDE.md file count | `CLAUDE.md` | Change "73 C# files" to "89 C# files" |
-| 4 | Update CLAUDE.md target framework | `CLAUDE.md` | Change ".NET 9.0+" to ".NET 10.0" |
-| 5 | Reconcile test counts | `north-star.md` | Verify and update "605 unit tests" vs "619 unit tests" |
+| 2 | Fix buffer cleanup memory leak | `MethodHandler.cs:2463` | **DONE** - Added CopyBufferWithType struct with TypeMetadata |
+| 3 | Update CLAUDE.md file count | `CLAUDE.md` | **DONE** - Changed "73 C# files" to "89 C# files" |
+| 4 | Update CLAUDE.md target framework | `CLAUDE.md` | **DONE** - Changed ".NET 9.0+" to ".NET 10.0" |
+| 5 | Reconcile test counts | `north-star.md` | **DONE** - Simplified to "Comprehensive test coverage" (specific counts don't belong in vision doc) |
 
 ### P2 - Technical Debt
 
 | # | Action | Files | Details |
 |---|--------|-------|---------|
-| 6 | Extract shared protocol conformance logic | `TypeHandler.cs` | Remove 3 duplicate implementations |
-| 7 | Remove commented code | `Swift5Reducer.cs:476-491` | Delete obsolete implementation |
-| 8 | Add logging to async stream exceptions | `SwiftAsyncStream.cs` | Log before returning false/null |
-| 9 | Verify NameProvider workaround | `NameProvider.cs:21` | Check if #2997 workaround still needed |
+| 6 | Extract shared protocol conformance logic | `TypeHandler.cs` | **DONE** - Created `ProtocolConformanceHelper` static class with shared logic |
+| 7 | Remove commented code | `Swift5Reducer.cs:476-491` | **DONE** - Deleted obsolete implementation |
+| 8 | Add logging to async stream exceptions | `SwiftAsyncStream.cs` | **DONE** - Added Debug.WriteLine for exception details in OnElement and FromContext |
+| 9 | Verify NameProvider workaround | `NameProvider.cs:21` | **VERIFIED** - Workaround still needed for backward compatibility. The hardcoded mappings (`status`→`StatusProperty`, `isEligibleForIntroOffer`→`IsEligibleForIntroOfferProperty`) predate the general collision detection (lines 145-150) which uses "Value" suffix. Removing would change StoreKit API surface. Keep for compatibility. |
 
 ### P3 - Nice to Have
 

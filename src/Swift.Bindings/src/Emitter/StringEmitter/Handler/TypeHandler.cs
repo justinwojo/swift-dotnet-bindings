@@ -791,35 +791,11 @@ namespace BindingsGeneration
 
         private string GenerateGetProtocolConformanceDictionaryEntries()
         {
-            var crossModuleSupportedProtocols = new HashSet<string> // TODO: Remove this once we process multiple modules
-            {
-                { "Swift.Equatable"},
-            };
-            var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
-            var entries = new List<string>();
-
-            foreach (var conformance in _structDecl.Conformances)
-            {
-                if (conformance.Protocol.Module != _moduleDecl.Name && !crossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
-                {
-                    continue;
-                }
-
-                // Skip protocols with associated types (they generate generic interfaces that can't be used with typeof)
-                if (_typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record) &&
-                    record.Kind == TypeRecordKind.Protocol &&
-                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
-                {
-                    continue;
-                }
-
-                var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, _structDecl.Name);
-                var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
-
-                entries.Add($"{{typeof({protocol}), \"{protocolConformanceSymbol}\"}}");
-            }
-
-            return string.Join(",\n", entries);
+            return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+                _structDecl.Conformances,
+                _moduleDecl.Name,
+                _structDecl.Name,
+                _typeDatabase);
         }
     }
 
@@ -1133,35 +1109,11 @@ namespace BindingsGeneration
 
         private string GenerateGetProtocolConformanceDictionaryEntries()
         {
-            var crossModuleSupportedProtocols = new HashSet<string> // TODO: Remove this once we process multiple modules
-            {
-                { "Swift.Equatable"},
-            };
-            var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
-            var entries = new List<string>();
-
-            foreach (var conformance in _classDecl.Conformances)
-            {
-                if (conformance.Protocol.Module != _moduleDecl.Name && !crossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
-                {
-                    continue;
-                }
-
-                // Skip protocols with associated types (they generate generic interfaces that can't be used with typeof)
-                if (_typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record) &&
-                    record.Kind == TypeRecordKind.Protocol &&
-                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
-                {
-                    continue;
-                }
-
-                var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, _classDecl.Name);
-                var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
-
-                entries.Add($"{{typeof({protocol}), \"{protocolConformanceSymbol}\"}}");
-            }
-
-            return string.Join(",\n", entries);
+            return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+                _classDecl.Conformances,
+                _moduleDecl.Name,
+                _classDecl.Name,
+                _typeDatabase);
         }
     }
 
@@ -3056,29 +3008,61 @@ namespace BindingsGeneration
 
         private string GenerateGetProtocolConformanceDictionaryEntries()
         {
-            var crossModuleSupportedProtocols = new HashSet<string> // TODO: Remove this once we process multiple modules
-            {
-                { "Swift.Equatable"},
-            };
-            var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+                _enumDecl.Conformances,
+                _moduleDecl.Name,
+                _enumDecl.Name,
+                _typeDatabase);
+        }
+    }
+
+    /// <summary>
+    /// Static helper class for protocol conformance code generation shared across type handlers.
+    /// </summary>
+    internal static class ProtocolConformanceHelper
+    {
+        /// <summary>
+        /// Protocols from other modules that we support for cross-module conformance.
+        /// This will be removed once we process multiple modules properly.
+        /// </summary>
+        private static readonly HashSet<string> CrossModuleSupportedProtocols = new()
+        {
+            "Swift.Equatable"
+        };
+
+        /// <summary>
+        /// Generates the dictionary entries for GetProtocolConformanceDescriptor implementation.
+        /// </summary>
+        /// <param name="conformances">The conformances to process.</param>
+        /// <param name="moduleName">The current module name.</param>
+        /// <param name="typeName">The name of the type implementing the conformances.</param>
+        /// <param name="typeDatabase">The type database for protocol lookups.</param>
+        /// <returns>A comma-separated string of dictionary entries.</returns>
+        public static string GenerateProtocolConformanceDictionaryEntries(
+            IEnumerable<TypeConformance> conformances,
+            string moduleName,
+            string typeName,
+            ITypeDatabase typeDatabase)
+        {
             var entries = new List<string>();
 
-            foreach (var conformance in _enumDecl.Conformances)
+            foreach (var conformance in conformances)
             {
-                if (conformance.Protocol.Module != _moduleDecl.Name && !crossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
+                if (conformance.Protocol.Module != moduleName &&
+                    !CrossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
                 {
                     continue;
                 }
 
                 // Skip protocols with associated types (they generate generic interfaces that can't be used with typeof)
-                if (_typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record) &&
+                if (typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record) &&
                     record.Kind == TypeRecordKind.Protocol &&
                     record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
                 {
                     continue;
                 }
 
-                var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, _enumDecl.Name);
+                var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName);
                 var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
 
                 entries.Add($"{{typeof({protocol}), \"{protocolConformanceSymbol}\"}}");
