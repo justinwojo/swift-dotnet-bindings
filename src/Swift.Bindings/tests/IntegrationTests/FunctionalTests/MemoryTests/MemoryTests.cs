@@ -65,7 +65,7 @@ namespace BindingsGeneration.FunctionalTests
             // Check the metadata flags for a class
             Assert.Equal(0x3, payload.At(0).At(1));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest);
+            Assert.Equal(0, vType.RefTypeTest);
 
             var metadata = SwiftObjectHelper<Bindings.VType>.GetTypeMetadata();
 
@@ -88,7 +88,7 @@ namespace BindingsGeneration.FunctionalTests
             Arc.Release(payload.At(0));
 
             // // Check deinit is called
-            Assert.Equal(1, vType.refTypeTest);
+            Assert.Equal(1, vType.RefTypeTest);
 
             NativeMemory.Free((void*)payloadCopy);
         }
@@ -106,7 +106,7 @@ namespace BindingsGeneration.FunctionalTests
             // Check the metadata flags for a class
             Assert.Equal(0x3, payload.At(0).At(1));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest);
+            Assert.Equal(0, vType.RefTypeTest);
 
             Arc.Retain(payload.At(0));
             Arc.Retain(payload.At(0));
@@ -119,18 +119,18 @@ namespace BindingsGeneration.FunctionalTests
             // Check the count after destroy
             Assert.Equal(2, Arc.RetainCount(payload.At(0)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest);
+            Assert.Equal(0, vType.RefTypeTest);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
             // Check the count after destroy
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest);
+            Assert.Equal(0, vType.RefTypeTest);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
 
             // Check deinit is called
-            Assert.Equal(1, vType.refTypeTest);
+            Assert.Equal(1, vType.RefTypeTest);
         }
 
         [Fact]
@@ -146,7 +146,7 @@ namespace BindingsGeneration.FunctionalTests
             // Check the metadata flags for a class
             Assert.Equal(0x3, payload.At(0).At(1));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest);
+            Assert.Equal(0, vType.RefTypeTest);
 
             var metadata = SwiftObjectHelper<Bindings.VType>.GetTypeMetadata();
 
@@ -178,7 +178,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, Arc.RetainCount(payloadCopy.At(0)));
             Assert.Equal(2, Arc.RetainCount(payloadCopyCopy.At(0)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest);
+            Assert.Equal(0, vType.RefTypeTest);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
             // Check the count after destroy
@@ -186,12 +186,12 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(1, Arc.RetainCount(payloadCopy.At(0)));
             Assert.Equal(1, Arc.RetainCount(payloadCopyCopy.At(0)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest);
+            Assert.Equal(0, vType.RefTypeTest);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
 
             // Check deinit is called
-            Assert.Equal(1, vType.refTypeTest);
+            Assert.Equal(1, vType.RefTypeTest);
 
             NativeMemory.Free((void*)payloadCopy);
             NativeMemory.Free((void*)payloadCopyCopy);
@@ -212,8 +212,8 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(0x3, payload.At(0).At(1));
             Assert.Equal(0x3, payload.At(2).At(1));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
 
             var metadata = SwiftObjectHelper<Bindings.NestedVType>.GetTypeMetadata();
 
@@ -243,8 +243,8 @@ namespace BindingsGeneration.FunctionalTests
             Arc.Release(payload.At(2));
 
             // Check deinit is called
-            Assert.Equal(1, vType.refTypeTest1);
-            Assert.Equal(1, vType.refTypeTest2);
+            Assert.Equal(1, vType.RefTypeTest1);
+            Assert.Equal(1, vType.RefTypeTest2);
 
             NativeMemory.Free((void*)payloadCopy);
         }
@@ -264,8 +264,8 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(0x3, payload.At(0).At(1));
             Assert.Equal(0x3, payload.At(2).At(1));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
 
             Arc.Retain(payload.At(0));
             Arc.Retain(payload.At(0));
@@ -282,22 +282,22 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, Arc.RetainCount(payload.At(0)));
             Assert.Equal(2, Arc.RetainCount(payload.At(2)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
             // Check the count after destroy
             Assert.Equal(1, Arc.RetainCount(payload.At(0)));
             Assert.Equal(1, Arc.RetainCount(payload.At(2)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
 
             // Check deinit is called
-            Assert.Equal(1, vType.refTypeTest1);
-            Assert.Equal(1, vType.refTypeTest2);
+            Assert.Equal(1, vType.RefTypeTest1);
+            Assert.Equal(1, vType.RefTypeTest2);
         }
 
         [Fact]
@@ -315,8 +315,8 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(0x3, payload.At(0).At(1));
             Assert.Equal(0x3, payload.At(2).At(1));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
 
             var metadata = SwiftObjectHelper<Bindings.NestedVType>.GetTypeMetadata();
 
@@ -359,8 +359,8 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, Arc.RetainCount(payloadCopy.At(2)));
             Assert.Equal(2, Arc.RetainCount(payloadCopyCopy.At(2)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
             // Check the count after destroy
@@ -371,14 +371,14 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(1, Arc.RetainCount(payloadCopy.At(2)));
             Assert.Equal(1, Arc.RetainCount(payloadCopyCopy.At(2)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
 
             // Check deinit is called
-            Assert.Equal(1, vType.refTypeTest1);
-            Assert.Equal(1, vType.refTypeTest2);
+            Assert.Equal(1, vType.RefTypeTest1);
+            Assert.Equal(1, vType.RefTypeTest2);
 
             NativeMemory.Free((void*)payloadCopy);
             NativeMemory.Free((void*)payloadCopyCopy);
@@ -401,9 +401,9 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(0x3, payload.At(2).At(1));
             Assert.Equal(0x3, payload.At(4).At(1));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
-            Assert.Equal(0, vType.refTypeTest3);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest3);
 
             var metadata = SwiftObjectHelper<Bindings.NestedNestedVType>.GetTypeMetadata();
 
@@ -440,9 +440,9 @@ namespace BindingsGeneration.FunctionalTests
             Arc.Release(payload.At(4));
 
             // Check deinit is called
-            Assert.Equal(1, vType.refTypeTest1);
-            Assert.Equal(1, vType.refTypeTest2);
-            Assert.Equal(1, vType.refTypeTest3);
+            Assert.Equal(1, vType.RefTypeTest1);
+            Assert.Equal(1, vType.RefTypeTest2);
+            Assert.Equal(1, vType.RefTypeTest3);
 
             NativeMemory.Free((void*)payloadCopy);
         }
@@ -464,9 +464,9 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(0x3, payload.At(2).At(1));
             Assert.Equal(0x3, payload.At(4).At(1));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
-            Assert.Equal(0, vType.refTypeTest3);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest3);
 
             Arc.Retain(payload.At(0));
             Arc.Retain(payload.At(0));
@@ -487,9 +487,9 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, Arc.RetainCount(payload.At(2)));
             Assert.Equal(2, Arc.RetainCount(payload.At(4)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
-            Assert.Equal(0, vType.refTypeTest3);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest3);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
             // Check the count after destroy
@@ -497,16 +497,16 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(1, Arc.RetainCount(payload.At(2)));
             Assert.Equal(1, Arc.RetainCount(payload.At(4)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
-            Assert.Equal(0, vType.refTypeTest3);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest3);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
 
             // Check deinit is called
-            Assert.Equal(1, vType.refTypeTest1);
-            Assert.Equal(1, vType.refTypeTest2);
-            Assert.Equal(1, vType.refTypeTest3);
+            Assert.Equal(1, vType.RefTypeTest1);
+            Assert.Equal(1, vType.RefTypeTest2);
+            Assert.Equal(1, vType.RefTypeTest3);
         }
 
         [Fact]
@@ -526,9 +526,9 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(0x3, payload.At(2).At(1));
             Assert.Equal(0x3, payload.At(4).At(1));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
-            Assert.Equal(0, vType.refTypeTest3);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest3);
 
             var metadata = SwiftObjectHelper<Bindings.NestedNestedVType>.GetTypeMetadata();
 
@@ -582,9 +582,9 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(2, Arc.RetainCount(payloadCopy.At(4)));
             Assert.Equal(2, Arc.RetainCount(payloadCopyCopy.At(4)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
-            Assert.Equal(0, vType.refTypeTest3);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest3);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
             // Check the count after destroy
@@ -598,16 +598,16 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(1, Arc.RetainCount(payloadCopy.At(4)));
             Assert.Equal(1, Arc.RetainCount(payloadCopyCopy.At(4)));
             // Check deinit is not called
-            Assert.Equal(0, vType.refTypeTest1);
-            Assert.Equal(0, vType.refTypeTest2);
-            Assert.Equal(0, vType.refTypeTest3);
+            Assert.Equal(0, vType.RefTypeTest1);
+            Assert.Equal(0, vType.RefTypeTest2);
+            Assert.Equal(0, vType.RefTypeTest3);
 
             metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
 
             // Check deinit is called
-            Assert.Equal(1, vType.refTypeTest1);
-            Assert.Equal(1, vType.refTypeTest2);
-            Assert.Equal(1, vType.refTypeTest3);
+            Assert.Equal(1, vType.RefTypeTest1);
+            Assert.Equal(1, vType.RefTypeTest2);
+            Assert.Equal(1, vType.RefTypeTest3);
 
             NativeMemory.Free((void*)payloadCopy);
             NativeMemory.Free((void*)payloadCopyCopy);
@@ -763,16 +763,16 @@ namespace BindingsGeneration.FunctionalTests
         public unsafe void TestPassThroughEmbeddedStruct()
         {
             EmbeddedStruct vtype = new EmbeddedStruct();
-            Assert.Equal(1, vtype.x.x);
-            Assert.Equal(2, vtype.x.y);
-            Assert.Equal(3, vtype.y);
+            Assert.Equal(1, vtype.X.X);
+            Assert.Equal(2, vtype.X.Y);
+            Assert.Equal(3, vtype.Y);
 
             Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
             EmbeddedStruct copy = Bindings.MemoryTests.PassThroughEmbeddedStruct(vtype);
 
-            Assert.Equal(1, copy.x.x);
-            Assert.Equal(2, copy.x.y);
-            Assert.Equal(3, copy.y);
+            Assert.Equal(1, copy.X.X);
+            Assert.Equal(2, copy.X.Y);
+            Assert.Equal(3, copy.Y);
 
             Assert.Equal(2, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
             Assert.Equal(2, Arc.RetainCount(copy.Payload.DangerousGetHandle().At(1)));
@@ -836,7 +836,7 @@ namespace BindingsGeneration.FunctionalTests
                 Assert.False(Payload.IsInvalid);
 
                 Assert.Equal(1, Arc.RetainCount(Payload.DangerousGetHandle().At(0)));
-                Assert.Equal(42, b);
+                Assert.Equal(42, B);
 
 #pragma warning restore CS8500
                 if (success)
@@ -852,7 +852,7 @@ namespace BindingsGeneration.FunctionalTests
         public unsafe void TestSafeHandleDispose()
         {
             FrozenStructExtension frozenRequiresMemoryManagement = new FrozenStructExtension();
-            Assert.Equal(42, frozenRequiresMemoryManagement.b);
+            Assert.Equal(42, frozenRequiresMemoryManagement.B);
 
             frozenRequiresMemoryManagement.CallDispose();
             Assert.True(frozenRequiresMemoryManagement.Payload.IsClosed);
@@ -871,7 +871,7 @@ namespace BindingsGeneration.FunctionalTests
                     barrier.SignalAndWait();
                     try
                     {
-                        Assert.Equal(42, resource.b);
+                        Assert.Equal(42, resource.B);
                     }
                     catch (ObjectDisposedException ex)
                     {
@@ -884,7 +884,7 @@ namespace BindingsGeneration.FunctionalTests
                     barrier.SignalAndWait();
                     try
                     {
-                        Assert.Equal(42, resource.getValue());
+                        Assert.Equal(42, resource.GetValue());
                     }
                     catch (ObjectDisposedException ex)
                     {
@@ -935,7 +935,7 @@ namespace BindingsGeneration.FunctionalTests
                     barrier.SignalAndWait();
                     try
                     {
-                        Assert.Equal(42, resource.b);
+                        Assert.Equal(42, resource.B);
                     }
                     catch (ObjectDisposedException ex)
                     {
@@ -948,7 +948,7 @@ namespace BindingsGeneration.FunctionalTests
                     barrier.SignalAndWait();
                     try
                     {
-                        Assert.Equal(42, resource.getValue());
+                        Assert.Equal(42, resource.GetValue());
                     }
                     catch (ObjectDisposedException ex)
                     {
@@ -1087,7 +1087,7 @@ namespace BindingsGeneration.FunctionalTests
 
             // Clean up: release the strong reference to trigger deinit
             Arc.Release(refTypePtr);
-            Assert.Equal(1, vType.refTypeTest); // deinit was called
+            Assert.Equal(1, vType.RefTypeTest); // deinit was called
         }
 
         [Fact]
@@ -1107,7 +1107,7 @@ namespace BindingsGeneration.FunctionalTests
             for (int i = 0; i < iterations; i++)
             {
                 var frozenStruct = new Bindings.FrozenStructRequiresMemoryManagement(i);
-                Assert.Equal(i, frozenStruct.b);
+                Assert.Equal(i, frozenStruct.B);
                 Assert.Equal(1, Arc.RetainCount(frozenStruct.Payload.DangerousGetHandle().At(0)));
                 frozenStruct.Payload.Dispose();
                 Assert.True(frozenStruct.Payload.IsClosed);

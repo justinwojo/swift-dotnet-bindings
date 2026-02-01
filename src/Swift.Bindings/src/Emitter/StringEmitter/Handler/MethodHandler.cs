@@ -791,10 +791,33 @@ namespace BindingsGeneration
                 var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);
                 foreach (var conformance in conformances)
                 {
+                    // Skip unknown protocols and protocols with associated types
+                    // (protocols with associated types generate generic interfaces which can't be used here)
+                    // This must match the check in EmitProtocolWitnessTables to avoid generating
+                    // PInvoke signatures with parameters that have no corresponding variables.
+                    if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget, _env.TypeDatabase))
+                        continue;
+
                     var pwtName = NameProvider.GetProtocolWitnessTableName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter, conformance.ConformanceTarget.Name);
                     AddParameter("ProtocolWitnessTable", pwtName);
                 }
             }
+        }
+
+        /// <summary>
+        /// Determines whether a protocol can be used as a generic constraint.
+        /// Returns false for unknown protocols or protocols with associated types.
+        /// </summary>
+        private static bool IsProtocolAvailableForConstraint(SwiftTypeName protocolTypeName, ITypeDatabase typeDatabase)
+        {
+            if (typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+            {
+                // Must be a protocol and must NOT have associated types
+                // (protocols with associated types generate generic interfaces which can't be used as constraints)
+                return record.Kind == TypeRecordKind.Protocol &&
+                       !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes);
+            }
+            return false;
         }
 
         /// <summary>
@@ -832,7 +855,7 @@ namespace BindingsGeneration
                         // Getters can use value semantics for frozen structs
                         var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                         if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
-                            AddParameter($"SwiftSelf<Buffer>", "self");
+                            AddParameter($"SwiftSelf<{_env.ParentDecl.Name}.Buffer>", "self");
                         else
                             AddParameter($"SwiftSelf<{_env.ParentDecl.Name}>", "self");
                     }
@@ -1188,8 +1211,15 @@ namespace BindingsGeneration
             else if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)
             {
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
-                if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
-                    csWriter.WriteLine($"var self = new SwiftSelf<{structDecl.Name}.Buffer>(*({structDecl.Name}.Buffer*)_payload.DangerousGetHandle());");
+                if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+                {
+                    // Setters need pointer semantics (SwiftSelf without type parameter)
+                    // Getters can use value semantics (SwiftSelf<T.Buffer>)
+                    if (MarshallingHelpers.MethodIsSetter(_env.MethodDecl))
+                        csWriter.WriteLine($"var self = new SwiftSelf((void*)_payload.DangerousGetHandle());");
+                    else
+                        csWriter.WriteLine($"var self = new SwiftSelf<{structDecl.Name}.Buffer>(*({structDecl.Name}.Buffer*)_payload.DangerousGetHandle());");
+                }
                 else
                     csWriter.WriteLine($"var self = new SwiftSelf<{structDecl.Name}>(this);");
             }
@@ -2372,8 +2402,13 @@ namespace BindingsGeneration
             TypeRecord returnTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
             var isObjCBridged = !voidReturn && MarshallingHelpers.IsObjCBridged(returnTypeRecord);
 
-            // ObjC bridged types don't need InitWithCopy - they use GetNSObject directly
-            var requiresInitWithCopy = !voidReturn && !isObjCBridged && (MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord) || returnType.IsGeneric);
+            // Convertible types (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.) are already
+            // properly marshalled and don't need InitWithCopy. Using SwiftObjectHelper with their projected
+            // types (string, IReadOnlyList<T>) would fail since those types don't implement ISwiftObject.
+            var isConvertibleType = _env.TypeConversionHandler.IsConvertibleType(returnType.SwiftTypeSpec);
+
+            // ObjC bridged types and convertible types don't need InitWithCopy
+            var requiresInitWithCopy = !voidReturn && !isObjCBridged && !isConvertibleType && (MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord) || returnType.IsGeneric);
 
             // For ObjC bridged types, the rawResult is the ObjC object pointer directly
             // For Swift types, we need to marshal from Swift memory layout
