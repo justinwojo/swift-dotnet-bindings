@@ -31,6 +31,11 @@ namespace BindingsGeneration
             if (returnType.IsGeneric) return true;
 
             TypeRecord typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
+
+            // Swift classes return pointers directly in registers, not via indirect result
+            if (typeRecord.Kind == TypeRecordKind.Class)
+                return false;
+
             if (!IsTypeFrozen(typeRecord)) return true;
             return false;
         }

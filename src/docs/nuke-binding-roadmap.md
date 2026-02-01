@@ -44,6 +44,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 24 | Tuple Associated Values in Enum TryGet | See Phase 24 section below |
 | Phase 25 | Async DllImport Fix | See Phase 25 section below |
 | Phase 26 | Native Type Remapping (URL → NSUrl, Data → NSData) | See Phase 26 section below |
+| Phase 27 | Swift Class Return Value Marshalling Fix | See Phase 27 section below |
 
 ---
 
@@ -73,13 +74,11 @@ The following phases have been completed. See individual documents for details:
 
 **Remaining gaps** (in priority order):
 
-1. **Non-Frozen Struct with Existential Containers** - `ImagePipeline.ConfigurationValue` crashes with SIGSEGV in Swift's copy witness. The `Configuration` struct contains protocol types like `DataLoading` that fail during copy operations.
+1. **Async+Throwing Closures** - `ImageRequest` constructor with `() async throws -> Data` closure unsupported. `[UnmanagedCallersOnly]` callbacks cannot await Tasks - fundamental .NET limitation.
 
-2. **Async+Throwing Closures** - `ImageRequest` constructor with `() async throws -> Data` closure unsupported. `[UnmanagedCallersOnly]` callbacks cannot await Tasks - fundamental .NET limitation.
+2. **Combine Framework** - `imagePublisher(...)` returns `AnyPublisher` (reactive framework out of scope for this project).
 
-3. **Combine Framework** - `imagePublisher(...)` returns `AnyPublisher` (reactive framework out of scope for this project).
-
-4. **Generic Protocol Proxies** - Protocols with associated types (PATs) skip proxy generation. Can consume Swift implementations but can't implement from C#.
+3. **Generic Protocol Proxies** - Protocols with associated types (PATs) skip proxy generation. Can consume Swift implementations but can't implement from C#.
 
 ---
 
@@ -133,17 +132,17 @@ The `Swift.URL.FromString()` method fails with the same non-blittable type error
 Bindings still generate, but conformance information is incomplete.
 
 ### Non-Frozen Struct with Existential Containers
-**Status**: Known crash (partially addressed in Phase 16.1)
+**Status**: FIXED (Phase 27)
 
-Properties returning non-frozen struct types that contain existential containers crash at runtime with SIGSEGV in Swift's copy witness.
+Properties returning non-frozen struct types that contain existential containers previously crashed at runtime with SIGSEGV in Swift's copy witness.
 
 **Phase 16.1 fixed**: SafeHandle ref counting for class instance methods (e.g., `ImagePipeline.CacheValue` now works).
 
-**Still crashes**:
-- `ImagePipeline.ConfigurationValue` - The `Configuration` struct contains existential container fields (protocol types like `DataLoading`)
-- Swift's copy witness operation fails when copying structs with existentials
+**Phase 27 fixed**: Swift class return value marshalling. The root cause was that Swift classes return pointers directly in registers (x0 on ARM64), not via `SwiftIndirectResult` buffers. The generator was incorrectly treating class types like non-frozen structs.
 
-**Workaround**: Avoid accessing properties that return non-frozen structs with existential container fields; use alternative APIs.
+**Now working**:
+- `ImagePipeline.Shared` - Returns valid class pointer
+- `ImagePipeline.ConfigurationValue` - The `Configuration` struct with existential container fields now works correctly
 
 ### Generic Protocol Proxy Classes
 **Status**: Graceful degradation (Phase 22)
@@ -412,7 +411,7 @@ Issues discovered during Phase 15.4 runtime validation testing. Most have been r
 
 ### 16.1 Class SafeHandle Ref Counting Fix
 **Priority**: High
-**Status**: COMPLETED (partial - ref counting fixed, existential struct crash remains)
+**Status**: COMPLETED (fully fixed in Phase 27)
 
 **Problem**: Properties on Swift **classes** that return non-frozen struct types were crashing because `EmitSafeHandleAddRef` and `EmitSafeHandleRelease` only handled `StructDecl`, not `ClassDecl`. Without ref counting, the GC could finalize the SafeHandle during the P/Invoke call, causing SIGSEGV.
 
@@ -429,11 +428,9 @@ Issues discovered during Phase 15.4 runtime validation testing. Most have been r
 - All 1,363 generator tests pass
 - NukeTestApp validation passes (29/29 tests)
 
-**Remaining issue** (separate root cause):
-- `ImagePipeline.ConfigurationValue` still crashes in Swift's copy witness (`$s4Nuke13ImagePipelineC13ConfigurationVWOc`)
-- Root cause: The `Configuration` struct contains existential containers (protocol types like `DataLoading`) which cause crashes during Swift's value copy operation
-- This is NOT a ref counting issue - it's an existential container marshalling issue in non-frozen struct returns
-- Workaround: Skip accessing properties that return non-frozen structs with existential container fields
+**Remaining issue** (fixed in Phase 27):
+- `ImagePipeline.ConfigurationValue` was still crashing - root cause was Swift class return value marshalling, not ref counting
+- See Phase 27 for the complete fix
 
 ### 16.2 Simple Swift Enum Case Support
 **Priority**: Medium
@@ -1017,10 +1014,10 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 - 6 protocol conformance tests (C# structs don't implement protocol interfaces)
 - 6 async tests (Swift concurrency executor doesn't run from C#)
 
-### NukeTestApp Validation (Phase 25)
+### NukeTestApp Validation (Phase 27)
 | Category | Passed | Failed | Warnings |
 |----------|--------|--------|----------|
-| Basic Binding | 4 | 0 | 1 |
+| Basic Binding | 5 | 0 | 0 |
 | Async Image Load | 3 | 0 | 0 |
 | Cache Operations | 3 | 0 | 0 |
 | ImageRequest Options | 4 | 0 | 0 |
@@ -1028,9 +1025,9 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 | Memory Management | 4 | 0 | 0 |
 | Performance | 4 | 0 | 0 |
 | Protocols | 6 | 0 | 0 |
-| **Total** | **30** | **0** | **2** |
+| **Total** | **31** | **0** | **1** |
 
-**Pass rate**: 100% (30/30 tests passing)
+**Pass rate**: 100% (31/31 tests passing)
 
 **Core functionality verified**:
 - Async image loading from network URLs
@@ -1043,7 +1040,6 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 
 **Skipped with warnings** (documented limitations):
 - Enum cases with associated values containing closures or nested enums
-- ConfigurationValue property (non-frozen struct with existential containers - Phase 16.1)
 
 **Fixed in Phase 16**:
 - ✅ Class SafeHandle ref counting for instance methods (Phase 16.1)
@@ -1088,6 +1084,11 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 - ✅ Native type remapping for Foundation.URL → Foundation.NSUrl in public method signatures
 - ✅ Native type remapping for Foundation.Data → Foundation.NSData in public method signatures
 - ✅ Automatic conversion at marshalling layer (no developer effort required)
+
+**Fixed in Phase 27**:
+- ✅ Swift class return value marshalling (classes return pointers in registers, not via indirect result)
+- ✅ `ImagePipeline.Shared` now returns valid class pointer
+- ✅ `ImagePipeline.ConfigurationValue` now works (non-frozen struct with existential containers)
 
 ---
 
@@ -1411,3 +1412,113 @@ public static Task<ImageResponse> Image(Foundation.NSUrl url)
     var urlSwift = Swift.URL.FromNSUrl(url);
     // ... internal implementation uses Swift.URL ...
 }
+```
+
+---
+
+## Phase 27: Swift Class Return Value Marshalling Fix
+
+**Status**: COMPLETED (2026-02-01)
+
+Fixed Swift class return value marshalling. Swift classes return pointers directly in registers (x0 on ARM64), not via `SwiftIndirectResult` buffers.
+
+### Summary
+
+- 27.1 Root Cause Analysis → COMPLETED (class types incorrectly using indirect result)
+- 27.2 MarshallingHelpers Fix → COMPLETED (return false for class types)
+- 27.3 MethodHandler Enhancements → COMPLETED (class return handling)
+- 27.4 Runtime Validation → COMPLETED (31/31 tests pass)
+
+### Problem
+
+`ImagePipeline.Shared` was returning a null class pointer, and subsequently accessing `ConfigurationValue` crashed with SIGSEGV in Swift's copy witness.
+
+**Diagnostic output before fix**:
+```
+[INFO] ImagePipeline.Shared class pointer: 0x0
+[WARN] Class pointer is null!
+```
+
+**Root cause**: Swift classes return pointers directly in registers, but the generator was treating them like non-frozen structs - using `SwiftIndirectResult` to pass a buffer for the return value. This resulted in the return value never being captured.
+
+### Implementation Details
+
+#### 27.1 MarshallingHelpers Fix
+
+Added check for `TypeRecordKind.Class` in `MethodRequiresIndirectResult()`:
+
+```csharp
+TypeRecord typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
+
+// Swift classes return pointers directly in registers, not via indirect result
+if (typeRecord.Kind == TypeRecordKind.Class)
+    return false;
+
+if (!IsTypeFrozen(typeRecord)) return true;
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/MarshallingHelpers.cs`
+
+#### 27.2 MethodHandler Enhancements
+
+Already in place from earlier work:
+- P/Invoke return type set to `IntPtr` for class types
+- Wrapper method allocates buffer, stores returned pointer, creates object via `SwiftMarshal.MarshalFromSwift`
+- Class self pointer dereferenced correctly for instance methods
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs`
+
+### Generated Code
+
+**Before (broken)**:
+```csharp
+[DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC6sharedACvgZ")]
+private static extern void PInvoke_shared_Get(SwiftIndirectResult swiftIndirectResult);
+
+private static ImagePipeline Shared_Get()
+{
+    var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+    var swiftIndirectResult = new SwiftIndirectResult(payload);
+    PInvoke_shared_Get(swiftIndirectResult);  // Return value lost!
+    return SwiftMarshal.MarshalFromSwift<ImagePipeline>(new IntPtr(swiftIndirectResult.Value));
+}
+```
+
+**After (fixed)**:
+```csharp
+[DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC6sharedACvgZ")]
+private static extern IntPtr PInvoke_shared_Get();  // Returns pointer directly
+
+private static ImagePipeline Shared_Get()
+{
+    var result = PInvoke_shared_Get();  // Capture return value
+    var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
+    *(IntPtr*)classPayload = result;
+    return (ImagePipeline)SwiftMarshal.MarshalFromSwift<ImagePipeline>(new IntPtr(classPayload));
+}
+```
+
+### Verification
+
+**Diagnostic output after fix**:
+```
+[INFO] ImagePipeline.Shared class pointer: 0x1080403A0
+[MEM] ImagePipeline.Shared retain count (correct): 2
+[PASS] ImagePipeline.Shared access
+[INFO] ConfigurationValue access succeeded!
+[PASS] Configuration property access
+```
+
+- All 892 unit tests pass
+- All 678 integration tests pass (13 skipped - known limitations)
+- All 93 runtime tests pass (1 skipped)
+- All 31 NukeTestApp validation tests pass (was 30, ConfigurationValue now included)
+
+### Impact
+
+This fix resolves a fundamental issue with Swift class interop:
+- All Swift class static properties now return valid pointers
+- Instance methods on Swift classes work correctly
+- Properties returning non-frozen structs (like `Configuration`) work even when containing existential containers

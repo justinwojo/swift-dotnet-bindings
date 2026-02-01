@@ -670,8 +670,23 @@ public class MainViewController : UIViewController
         try
         {
             var pipeline = ImagePipeline.Shared;
-            TestLogger.Info($"ImagePipeline.Shared handle: 0x{pipeline.Payload.DangerousGetHandle():X}");
-            MemoryTracker.TrackRetainCount("ImagePipeline.Shared", pipeline.Payload.DangerousGetHandle());
+            IntPtr bufferAddr1 = pipeline.Payload.DangerousGetHandle();
+            TestLogger.Info($"ImagePipeline.Shared buffer: 0x{bufferAddr1:X}");
+            unsafe
+            {
+                IntPtr classPtr1 = *(IntPtr*)bufferAddr1;
+                TestLogger.Info($"ImagePipeline.Shared class pointer: 0x{classPtr1:X}");
+                if (classPtr1 != IntPtr.Zero)
+                {
+                    // Actual retain count using the class pointer
+                    var retainCount = Arc.RetainCount(classPtr1);
+                    TestLogger.Memory($"ImagePipeline.Shared retain count (correct): {retainCount}");
+                }
+                else
+                {
+                    TestLogger.Warning("Class pointer is null!");
+                }
+            }
             results.Pass("ImagePipeline.Shared access");
         }
         catch (Exception ex)
@@ -705,12 +720,41 @@ public class MainViewController : UIViewController
             results.Fail("ImageRequest construction", ex.Message);
         }
 
-        // Test 5: Configuration access
-        // Note: ConfigurationValue causes a native crash due to non-frozen struct marshalling issues.
-        // The struct itself is complex with protocol existential containers.
-        // Phase 16.1 fixed class SafeHandle ref counting but the underlying struct copy is still problematic.
-        TestLogger.Warning("Skipping ConfigurationValue test (non-frozen struct with existentials - known issue)");
-        results.Warn("Configuration property access skipped (non-frozen struct limitation)");
+        // Test 5: Configuration access - investigating existential container crash
+        try
+        {
+            var pipeline = ImagePipeline.Shared;
+            IntPtr bufferAddress = pipeline.Payload.DangerousGetHandle();
+            TestLogger.Info("Pipeline buffer address: 0x" + bufferAddress.ToString("X"));
+
+            // The buffer contains the class pointer - dereference to get it
+            unsafe
+            {
+                IntPtr classPointer = *(IntPtr*)bufferAddress;
+                TestLogger.Info("Pipeline class pointer: 0x" + classPointer.ToString("X"));
+            }
+
+            // Get metadata information for diagnostics
+            var configMetadata = SwiftObjectHelper<ImagePipeline.Configuration>.GetTypeMetadata();
+            TestLogger.Info($"Configuration metadata size: {configMetadata.Size}");
+            TestLogger.Info($"Configuration metadata stride: {configMetadata.Stride}");
+            TestLogger.Info($"Configuration metadata alignment: {configMetadata.Alignment}");
+
+            // Also get Cache metadata for comparison (Cache works, Configuration crashes)
+            var cacheMetadata = SwiftObjectHelper<ImagePipeline.Cache>.GetTypeMetadata();
+            TestLogger.Info($"Cache metadata size: {cacheMetadata.Size} (comparison)");
+
+            // Now attempt the actual ConfigurationValue access
+            TestLogger.Info("Attempting ConfigurationValue access...");
+            var config = pipeline.ConfigurationValue;
+            TestLogger.Info("ConfigurationValue access succeeded!");
+            results.Pass("Configuration property access");
+        }
+        catch (Exception ex)
+        {
+            TestLogger.Warning($"ConfigurationValue access failed: {ex.GetType().Name}: {ex.Message}");
+            results.Warn("Configuration property access failed (non-frozen struct with existentials)");
+        }
 
         await Task.CompletedTask;
     }

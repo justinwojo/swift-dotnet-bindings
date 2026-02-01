@@ -265,6 +265,8 @@ namespace BindingsGeneration
                 { Type: "NativeRemappedSafeHandle" } => $"{parameter.Name}Swift.Payload",
                 { Type: var type } when type.StartsWith("NativeRemapped:") => $"{parameter.Name}Swift",
                 // Async instance methods pass self as explicit IntPtr (not SwiftSelf register)
+                // For classes, dereference the payload buffer to get the actual class pointer
+                { Name: "_self", Type: "IntPtrSelfClass" } => "*(IntPtr*)_payload.DangerousGetHandle()",
                 { Name: "_self", Type: "IntPtr" } => "_payload.DangerousGetHandle()",
                 _ => parameter.Name
             };
@@ -682,6 +684,14 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Swift classes return pointers directly in registers (not via indirect result)
+            // Since classes don't have a Buffer struct, return IntPtr and create the object from it
+            if (returnTypeRecord.Kind == TypeRecordKind.Class)
+            {
+                SetReturnType("IntPtr");
+                return;
+            }
+
             if (_env.MethodDecl.IsAsync && !MarshallingHelpers.IsTypeFrozen(returnTypeRecord))
             {
                 SetReturnType("IntPtr");
@@ -902,7 +912,10 @@ namespace BindingsGeneration
                 if (!hasSingleton)
                 {
                     // For non-singleton async methods, pass self as explicit IntPtr
-                    AddParameter("IntPtr", "_self");
+                    // For classes, use IntPtrSelfClass to indicate we need to dereference the payload
+                    // (the payload buffer contains a pointer to the class instance)
+                    var selfType = _env.ParentDecl is ClassDecl ? "IntPtrSelfClass" : "IntPtr";
+                    AddParameter(selfType, "_self");
                 }
                 // For singleton classes, don't add any self parameter - we use .shared in Swift
                 return;
@@ -1265,8 +1278,15 @@ namespace BindingsGeneration
                 else
                     csWriter.WriteLine($"var self = new SwiftSelf<{structDecl.Name}>(this);");
             }
+            else if (_env.ParentDecl is ClassDecl)
+            {
+                // For Swift classes, the payload buffer contains a pointer to the class instance.
+                // We need to dereference to get the actual class pointer for SwiftSelf.
+                csWriter.WriteLine("var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());");
+            }
             else
             {
+                // For non-frozen structs, the buffer IS the struct data, so buffer address is correct.
                 csWriter.WriteLine("var self = new SwiftSelf((void*)_payload.DangerousGetHandle());");
             }
 
@@ -1357,8 +1377,9 @@ namespace BindingsGeneration
                 if (isInstanceMethod && isSwiftClass)
                 {
                     // For Swift classes, retain self and store a RetainedSelfPtr marker
+                    // The payload buffer contains a pointer to the class instance - we need to dereference it
                     csWriter.WriteLines($$"""
-            IntPtr _selfPtr = _payload.DangerousGetHandle();
+            IntPtr _selfPtr = *(IntPtr*)_payload.DangerousGetHandle();
             Arc.Retain(_selfPtr);
             """);
                     selfInHolder = ", new RetainedSelfPtr(_selfPtr), (object)this";
@@ -1385,9 +1406,10 @@ namespace BindingsGeneration
                 // For Swift classes, also retain self to prevent deallocation during async execution
                 if (isSwiftClass)
                 {
+                    // The payload buffer contains a pointer to the class instance - we need to dereference it
                     csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            IntPtr _selfPtr = _payload.DangerousGetHandle();
+            IntPtr _selfPtr = *(IntPtr*)_payload.DangerousGetHandle();
             Arc.Retain(_selfPtr);
             object[] _asyncCallHolder = new object[] { task, new RetainedSelfPtr(_selfPtr), (object)this };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
@@ -2302,6 +2324,18 @@ namespace BindingsGeneration
                 if (MarshallingHelpers.IsObjCBridged(typeRecord))
                 {
                     csWriter.WriteLine($"return ObjCRuntime.Runtime.GetNSObject<{_wrapperSignature.ReturnType}>(result);");
+                    return;
+                }
+
+                // Swift classes return pointer directly - allocate buffer and store the pointer
+                // The buffer is then managed by SwiftSafeHandle
+                if (typeRecord.Kind == TypeRecordKind.Class)
+                {
+                    csWriter.WriteLines($$"""
+                        var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
+                        *(IntPtr*)classPayload = result;
+                        return ({{_wrapperSignature.ReturnType}})SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(new IntPtr(classPayload));
+                        """);
                     return;
                 }
 
