@@ -6,7 +6,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <PreTestCommand>cd $(OutputPath)$(TargetFramework) &amp;&amp; cmake $(MSBuildThisFileDirectory) &gt; cmake_output.log 2&gt;&amp;1 &amp;&amp; make &gt;&gt; cmake_output.log 2&gt;&amp;1</PreTestCommand>
+    <PreTestCommand>cd "$(MSBuildThisFileDirectory)bin/$(Configuration)/$(TargetFramework)" &amp;&amp; cmake $(MSBuildThisFileDirectory) &gt; cmake_output.log 2&gt;&amp;1 &amp;&amp; make &gt;&gt; cmake_output.log 2&gt;&amp;1</PreTestCommand>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
     <IsAotCompatible>true</IsAotCompatible>

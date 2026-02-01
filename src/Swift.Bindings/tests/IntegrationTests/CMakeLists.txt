@@ -2,7 +2,11 @@ cmake_minimum_required(VERSION 3.24)
 
 project(FunctionalTests)
 
-file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/**/*.swift")
+# Only look in FunctionalTests and StressTests, exclude bin directory
+file(GLOB_RECURSE SOURCES
+    "${CMAKE_SOURCE_DIR}/FunctionalTests/**/*.swift"
+    "${CMAKE_SOURCE_DIR}/StressTests/**/*.swift"
+)
 
 if (NOT SWIFT_COMPILER_TARGET)
     set(SWIFT_PLATFORM "macosx")
@@ -45,7 +49,7 @@ foreach(SOURCE_FILE ${SOURCES})
     get_filename_component(DOTNET_CONFIGURATION ${DOTNET_CONFIGURATION} NAME)
 
     add_custom_command(TARGET ${SOURCE_BASE_NAME} POST_BUILD
-        COMMAND ${CMAKE_SOURCE_DIR}/../../../../dotnet.sh ${CMAKE_BINARY_DIR}/../../../Swift.Bindings/${DOTNET_CONFIGURATION}/${DOTNET_VERSION}/Swift.Bindings.dll -a ${OUTPUT_DIR}/${SOURCE_BASE_NAME}.abi.json -d ${OUTPUT_DIR}/lib${SOURCE_BASE_NAME}.dylib -t ${OUTPUT_DIR}/lib${SOURCE_BASE_NAME}.tbd -o ${OUTPUT_DIR}
+        COMMAND ${CMAKE_SOURCE_DIR}/../../../../dotnet.sh ${CMAKE_SOURCE_DIR}/../../src/bin/${DOTNET_CONFIGURATION}/${DOTNET_VERSION}/Swift.Bindings.dll -a ${OUTPUT_DIR}/${SOURCE_BASE_NAME}.abi.json -d ${OUTPUT_DIR}/lib${SOURCE_BASE_NAME}.dylib -t ${OUTPUT_DIR}/lib${SOURCE_BASE_NAME}.tbd -o ${OUTPUT_DIR}
         COMMENT "Generating ${SOURCE_BASE_NAME} bindings"
     )
 

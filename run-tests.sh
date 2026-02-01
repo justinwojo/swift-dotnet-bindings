@@ -7,13 +7,19 @@ cd "$(dirname "$0")"
 
 DOTNET_PATH=$(which dotnet)
 
+# Build everything first (integration tests require cmake pre-build step)
+echo "=== Building Projects ==="
+./build.sh
+
+echo ""
 echo "=== Running Unit Tests ==="
-dotnet test src/Swift.Bindings/tests/UnitTests -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
+dotnet test src/Swift.Bindings/tests/UnitTests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
 
 echo ""
 echo "=== Running Integration Tests ==="
-dotnet test src/Swift.Bindings/tests/IntegrationTests -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
+# Use --no-build to avoid cmake reconfiguration issues
+dotnet test src/Swift.Bindings/tests/IntegrationTests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
 
 echo ""
 echo "=== Running Runtime Tests ==="
-dotnet test src/Swift.Runtime/tests -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
+dotnet test src/Swift.Runtime/tests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"

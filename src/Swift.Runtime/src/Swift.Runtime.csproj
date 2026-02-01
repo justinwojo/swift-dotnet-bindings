@@ -11,6 +11,9 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>false</IsPackable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CS1591: Missing XML comment for publicly visible type or member -->
+    <!-- Suppress as error until XML docs are added to all public APIs -->
+    <WarningsNotAsErrors>CS1591</WarningsNotAsErrors>
     <IsAotCompatible>true</IsAotCompatible>
     <!-- Minimum OS versions -->
     <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('ios'))">15.0</SupportedOSPlatformVersion>
