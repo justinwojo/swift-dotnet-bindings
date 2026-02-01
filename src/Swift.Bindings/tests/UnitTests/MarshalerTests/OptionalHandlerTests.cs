@@ -233,6 +233,8 @@ public class OptionalHandlerTests
     {
         private readonly Dictionary<string, TypeRecord> _types;
 
+        public string AsyncLibraryName => null!;
+
         public MockTypeDatabase()
         {
             _types = new Dictionary<string, TypeRecord>

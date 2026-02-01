@@ -36,4 +36,11 @@ public interface ITypeDatabase
     /// <returns>The file path of the library associated with the module.</returns>
     /// <exception cref="Exception">Thrown if the library path does not exist for the specified module.</exception>
     public string GetLibraryPath(string moduleName);
+
+    /// <summary>
+    /// Gets the library name for async wrapper functions.
+    /// This is where the generated Swift async wrappers are compiled to.
+    /// If null, falls back to the module's library path.
+    /// </summary>
+    public string? AsyncLibraryName { get; }
 }

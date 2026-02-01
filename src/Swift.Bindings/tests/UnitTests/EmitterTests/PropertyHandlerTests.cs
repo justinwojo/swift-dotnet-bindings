@@ -478,6 +478,8 @@ public class PropertyHandlerTests
 
     private class MockPropertyTypeDatabase : ITypeDatabase
     {
+        public string AsyncLibraryName => null!;
+
         public bool IsTypeProcessed(SwiftTypeName swiftTypeName) => false;
         public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record)
         {

@@ -10,4 +10,4 @@ dotnet run --project "$PROJECT_ROOT/src/Swift.Bindings/src" -- \
   -a "Nuke.xcframework/ios-arm64_x86_64-simulator/Nuke.framework/Modules/Nuke.swiftmodule/arm64-apple-ios-simulator.abi.json" \
   -d "Nuke.xcframework/ios-arm64_x86_64-simulator/Nuke.framework/Nuke" \
   -t "output-ios/Nuke.tbd" \
-  -o "output-ios" -l Nuke
+  -o "output-ios" -l Nuke --async-library SwiftBindings

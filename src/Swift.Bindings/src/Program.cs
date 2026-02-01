@@ -25,6 +25,10 @@ namespace BindingsGeneration
                 aliases: new[] { "-l", "--library-name" },
                 description: "Runtime library name for DllImport. If not specified, uses the dylib path. " +
                              "Note: If the name starts with '@' (e.g., @rpath/...), escape it with backslash: '\\@rpath/Nuke.framework/Nuke'");
+            Option<string> asyncLibraryOption = new(
+                aliases: new[] { "--async-library" },
+                description: "Library name for async wrapper functions. If not specified, uses the module library. " +
+                             "Typically 'SwiftBindings' when using a separate wrapper library.");
             Option<int> verboseOption = new(
                 aliases: new[] { "-v", "--verbose" },
                 description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -38,10 +42,11 @@ namespace BindingsGeneration
                 tbdOption,
                 outputDirectoryOption,
                 libraryNameOption,
+                asyncLibraryOption,
                 verboseOption,
                 helpOption,
             };
-            rootCommand.SetHandler((string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string? libraryName, int verbose, bool help) =>
+            rootCommand.SetHandler((string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string? libraryName, string? asyncLibrary, int verbose, bool help) =>
             {
                 if (help)
                 {
@@ -51,6 +56,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  -t, --tbd            Required. Path to the TBD file.");
                     Console.WriteLine("  -o, --output         Required. Output directory for generated bindings.");
                     Console.WriteLine("  -l, --library-name   Optional. Runtime library name for DllImport. Escape @ with backslash: '\\@rpath/...'");
+                    Console.WriteLine("  --async-library      Optional. Library name for async wrapper functions. Default uses module library.");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
                     return;
                 }
@@ -85,13 +91,14 @@ namespace BindingsGeneration
                 // Use the provided library name, or fall back to the dylib path
                 var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
 
-                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, logger, loggerFactory);
+                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, logger, loggerFactory);
             },
             swiftAbiOption,
             dylibOption,
             tbdOption,
             outputDirectoryOption,
             libraryNameOption,
+            asyncLibraryOption,
             verboseOption,
             helpOption
             );
@@ -107,11 +114,13 @@ namespace BindingsGeneration
         /// <param name="tbdPath">Path to the TBD file.</param>
         /// <param name="outputDirectory">Output directory for generated bindings.</param>
         /// <param name="runtimeLibraryName">Library name for DllImport in generated code.</param>
+        /// <param name="asyncLibraryName">Library name for async wrapper functions. If null, uses module library.</param>
         /// <param name="logger">ILogger instance.</param>
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
-        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, ILogger logger, ILoggerFactory loggerFactory)
+        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, ILogger logger, ILoggerFactory loggerFactory)
         {
             var typeDatabase = new TypeDatabase();
+            typeDatabase.AsyncLibraryName = asyncLibraryName;
             string[] moduleDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "AppKitDatabase.xml", "CoreImageDatabase.xml", "UIKitDatabase.xml" };
             foreach (var database in moduleDatabases)
             {

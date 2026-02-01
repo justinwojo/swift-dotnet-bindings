@@ -997,8 +997,12 @@ namespace BindingsGeneration
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
 
             var pInvokeName = NameProvider.GetPInvokeName(methodDecl);
-            // Async methods use generated Swift wrappers that are compiled into the module's dylib
-            var libPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            // Async methods use generated Swift wrappers that may be compiled into a separate library
+            // If AsyncLibraryName is set, use it; otherwise fall back to the module's library
+            var moduleLibPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var libPath = methodDecl.IsAsync && methodEnv.TypeDatabase.AsyncLibraryName != null
+                ? methodEnv.TypeDatabase.AsyncLibraryName
+                : moduleLibPath;
 
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 

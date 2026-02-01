@@ -28,6 +28,13 @@ namespace BindingsGeneration
             { "CoreFoundation", "CoreGraphics" },
         };
 
+        /// <summary>
+        /// Gets the library name for async wrapper functions.
+        /// This is where the generated Swift async wrappers are compiled to.
+        /// If null, falls back to the module's library path.
+        /// </summary>
+        public string? AsyncLibraryName { get; set; }
+
         public TypeDatabase()
         {
         }
