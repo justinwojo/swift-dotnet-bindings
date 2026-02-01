@@ -45,6 +45,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 25 | Async DllImport Fix | See Phase 25 section below |
 | Phase 26 | Native Type Remapping (URL → NSUrl, Data → NSData) | See Phase 26 section below |
 | Phase 27 | Swift Class Return Value Marshalling Fix | See Phase 27 section below |
+| Phase 28 | Async+Throwing Closures Support | [phase-28-async-throwing-closures.md](phase-28-async-throwing-closures.md) |
 
 ---
 
@@ -60,7 +61,7 @@ The following phases have been completed. See individual documents for details:
 - Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **892 unit tests passing**
+- **902 unit tests passing**
 - **Integration tests**: 678 passed, 13 skipped (known limitations)
 - **100% runtime validation pass rate** (30/30 tests in NukeTestApp)
 
@@ -74,7 +75,7 @@ The following phases have been completed. See individual documents for details:
 
 **Remaining gaps** (in priority order):
 
-1. **Async+Throwing Closures** - `ImageRequest` constructor with `() async throws -> Data` closure unsupported. `[UnmanagedCallersOnly]` callbacks cannot await Tasks - fundamental .NET limitation.
+1. **Async+Throwing Closures with Data Return** - `ImageRequest` constructor with `() async throws -> Data` closure still unsupported. Phase 28 added infrastructure for async+throwing closures, but closures returning `Foundation.Data` require complex byte array marshalling that isn't yet implemented.
 
 2. **Combine Framework** - `imagePublisher(...)` returns `AnyPublisher` (reactive framework out of scope for this project).
 
@@ -93,13 +94,13 @@ Initial binding generation (before any phases) revealed these gap categories:
 | Unsupported method signatures | 67 | ✅ **FIXED** - Only 2 remain (Combine framework) |
 | Unsupported property types | 70 | ✅ **FIXED** - Existentials, closures, generics supported |
 | Generic protocol types unsupported | 8 | ⚠️ Partial - Can consume but not implement from C# |
-| Unsupported constructor signatures | 22 | ✅ **FIXED** - Only 1 remains (async+throws closure) |
+| Unsupported constructor signatures | 22 | ⚠️ **MOSTLY FIXED** - Phase 28 added async+throws closures, but Data return type not yet supported (1 constructor remaining) |
 
 **Initial result**: Generated 417KB of C# bindings with 52 types, but many methods/properties skipped.
 
-**Current result** (after 26 phases): ~18,400+ lines of C# code, 30+ classes, 8 protocols. Only 3 items skipped:
+**Current result** (after 28 phases): ~18,400+ lines of C# code, 30+ classes, 8 protocols. Only 3 items skipped:
 - 2 methods returning Combine `AnyPublisher` (out of scope)
-- 1 constructor with `() async throws -> Data` closure (blocked by .NET limitation)
+- 1 constructor with `() async throws -> Data` closure (Phase 28 added async+throwing support, but Data return marshalling not yet implemented)
 
 ---
 
@@ -332,7 +333,7 @@ var image = response.Image; // UIImage
 - ✅ `SwiftResult.FromSuccess()` / `FromFailure()` factory methods
 - ✅ `EmitThrowingClosureCallback()` with SwiftError* out parameter handling
 - ✅ `EmitThrowingClosureReturnMarshalling()` for receiving throwing closures from Swift
-- ⚠️ Async+throws closures NOT supported - `[UnmanagedCallersOnly]` callbacks cannot await Tasks
+- ✅ Async+throws closures supported (Phase 28) - Uses Swift continuation wrapper pattern with `[UnmanagedCallersOnly]` start callback
 
 ### Phase 15.2 Completed
 - ✅ Optional closure property emission - PropertyHandler now checks `IsOptionalClosure` and uses `GetCSharpOptionalDelegateType()`
@@ -1003,11 +1004,11 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 ### Generator Tests
 | Category | Count | Status |
 |----------|-------|--------|
-| Unit tests | 892 | All passing |
+| Unit tests | 902 | All passing |
 | Integration tests | 691 | 678 passed, 13 skipped, 0 failed |
 | Runtime tests | 94 | 93 passed, 1 skipped |
 
-**Unit tests**: All 892 passing (includes 10 new tuple enum extraction tests in Phase 24).
+**Unit tests**: All 902 passing (includes 10 new async+throwing closure tests in Phase 28).
 
 **Integration tests**: Phase 23 restored all tests to a passing or appropriately-skipped state. The 15 skipped tests are due to known limitations:
 - 3 primitive generic tests (primitives don't implement ISwiftObject)
@@ -1089,6 +1090,14 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 - ✅ Swift class return value marshalling (classes return pointers in registers, not via indirect result)
 - ✅ `ImagePipeline.Shared` now returns valid class pointer
 - ✅ `ImagePipeline.ConfigurationValue` now works (non-frozen struct with existential containers)
+
+**Fixed in Phase 28**:
+- ✅ Async+throwing closure infrastructure added via Swift continuation wrapper pattern
+- ✅ `GetCSharpDelegateType` returns `Task<T>` for async+throwing (error handling via callback, not return type)
+- ✅ `AsyncThrowingClosureState<T>` runtime class for holding async delegate state
+- ✅ Helper method pattern to work around C# async lambda unsafe context restriction
+- ⚠️ Async+throwing closures with `Foundation.Data` return type NOT yet supported (complex marshalling)
+- ⚠️ `ImageRequest.init(data:)` constructor still skipped (requires Data return marshalling)
 
 ---
 

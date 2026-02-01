@@ -224,6 +224,11 @@ namespace BindingsGeneration
             // Native-remapped types: URL uses SafeHandle, Data uses the actual Swift type
             "NativeRemappedSafeHandle" => $"{modifier} SafeHandle {Name}",
             var t when t.StartsWith("NativeRemapped:") => $"{modifier} {t.Substring("NativeRemapped:".Length)} {Name}",
+            // Async+throwing closure context pointer
+            var t when t.StartsWith("AsyncThrowingContext:") => $"{modifier} IntPtr {Name}",
+            // Async+throwing closure start function pointer
+            var t when t.StartsWith("AsyncThrowingStartFunc:") =>
+                $"{modifier} delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> {Name}",
             _ => $"{modifier} {Type} {Name}"
         };
     }
@@ -256,6 +261,13 @@ namespace BindingsGeneration
                 { modifier: "out" } => $"out var {parameter.Name}",
                 // Handle escaping closures: parameter is SwiftClosureData, variable is {name}Closure
                 { Type: "SwiftClosureData" } => $"{parameter.Name}Closure",
+                // Handle async+throwing closure context: AsyncThrowingContext:{paramName} -> {paramName}ContextPtr
+                { Type: var type } when type.StartsWith("AsyncThrowingContext:") =>
+                    $"{type.Substring("AsyncThrowingContext:".Length)}ContextPtr",
+                // Handle async+throwing closure start function: AsyncThrowingStartFunc:{callbackName} -> s_{callbackName}_Start
+                // NOTE: We pass the function pointer directly (not cast to IntPtr) since P/Invoke expects the delegate* type
+                { Type: var type } when type.StartsWith("AsyncThrowingStartFunc:") =>
+                    $"s_{type.Substring("AsyncThrowingStartFunc:".Length)}_Start",
                 // Handle @convention(c) closure function pointers
                 { Type: var type } when type.StartsWith("delegate* unmanaged") =>
                     parameter.Name.EndsWith("FuncPtr") ? parameter.Name : $"{parameter.Name}FuncPtr",
@@ -744,7 +756,19 @@ namespace BindingsGeneration
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     {
-                        if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                        // Async+throwing closures use a different pattern - they pass context + start function
+                        // to a Swift wrapper that creates the actual async closure
+                        if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                        {
+                            // Pass context pointer and start function pointer as separate parameters
+                            // The Swift wrapper will use these to create the async closure
+                            // Use special type markers that include the parameter name for variable mapping
+                            var callbackName = ClosureHandler.GetCallbackFunctionName(
+                                _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
+                            AddParameter($"AsyncThrowingContext:{argument.Name}", argument.Name + "Context");
+                            AddParameter($"AsyncThrowingStartFunc:{callbackName}", argument.Name + "StartFunc");
+                        }
+                        else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                         {
                             // Escaping closures are passed as a single SwiftClosureData struct
                             // containing both function pointer and context.
@@ -1229,11 +1253,15 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"IntPtr {payloadName} = IntPtr.Zero;");
             }
 
-            // Declare GCHandle variables for escaping closures
+            // Declare GCHandle variables for escaping closures (except async+throwing which handle their own)
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
             {
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
-                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) && _env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                // Skip async+throwing closures - they declare GCHandle in EmitAsyncThrowingClosureMarshallingSetup
+                // and free it in the Task.Run's finally block
+                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
+                    _env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
+                    !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
                 {
                     csWriter.WriteLine($"GCHandle {argument.Name}Handle = default;");
                 }
@@ -1823,6 +1851,18 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"var {argumentDecl.Name}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({argumentDecl.Name});");
                     }
                 }
+                else if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                {
+                    // Async+throwing closures use a special pattern with AsyncThrowingClosureState
+                    // The state holds the user's async delegate, and we pass context + start function to Swift
+                    ClosureEmitter.EmitAsyncThrowingClosureMarshallingSetup(
+                        csWriter,
+                        _env.MethodDecl.Name,
+                        argumentDecl.Name,
+                        closureTypeSpec,
+                        _env.ClosureHandler,
+                        _env.MethodDecl.MangledName);
+                }
                 else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
                     // For escaping closures, create a SwiftClosureData struct with thunk pointer and delegate in context
@@ -1975,8 +2015,16 @@ namespace BindingsGeneration
 
                 if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
-                    // Check if this is a throwing closure
-                    if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
+                    // Check if this is an async+throwing closure (must check before throwing-only)
+                    if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                    {
+                        // Async+throwing closures use a special "start" callback pattern
+                        // The start function is synchronous and spawns Task.Run
+                        ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitAsyncThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    }
+                    // Check if this is a throwing closure (but not async+throwing)
+                    else if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
                     {
                         // Throwing closures need special callback that handles SwiftError
                         ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
@@ -2098,10 +2146,13 @@ namespace BindingsGeneration
                 }
 
                 // Free GCHandle for escaping closures
+                // Note: Async+throwing closures free their GCHandle inside Task.Run's finally block
                 if (_env.ClosureHandler.IsClosure(argumentDecl))
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
-                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) && _env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
+                        _env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
+                        !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
                     {
                         csWriter.WriteLine($"if ({argumentDecl.Name}Handle.IsAllocated) {argumentDecl.Name}Handle.Free();");
                     }

@@ -491,20 +491,21 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void IsSupportedClosure_WithAsyncThrowingClosure_ReturnsFalse()
+    public void IsSupportedClosure_WithAsyncThrowingClosure_ReturnsTrue()
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Async + throwing closures are NOT supported because [UnmanagedCallersOnly]
-        // callbacks cannot await Tasks to get the error/result synchronously.
+        // Async + throwing closures are now supported via Swift continuation wrapper pattern (Phase 28)
+        // The C# side provides a synchronous "start" callback that spawns Task.Run,
+        // while Swift uses withCheckedThrowingContinuation to create the actual async closure.
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
             new NamedTypeSpec("Swift.Bool"));
         closureTypeSpec.IsAsync = true;
         closureTypeSpec.Throws = true;
 
-        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
     }
 
     [Fact]
@@ -1050,9 +1051,7 @@ public class ClosureHandlerTests
         Assert.Equal("Func<System.Int64, Swift.SwiftResult<System.Boolean, SwiftError>>", result);
     }
 
-    // Note: Async+throwing closure delegate type tests removed because async+throws closures
-    // are not supported (rejected by IsSupportedClosure). The delegate type method would never
-    // be called for such closures in practice.
+    // Note: Async+throwing closure delegate type tests are in the "Async+Throwing Closure Tests" region below.
 
     [Fact]
     public void IsThrowingClosure_WithThrowingClosure_ReturnsTrue()
@@ -1556,6 +1555,164 @@ public class ClosureHandlerTests
         var closureTypeSpec = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
 
         Assert.True(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
+    }
+
+    #endregion
+
+    #region Async+Throwing Closure Tests (Phase 28)
+
+    [Fact]
+    public void IsAsyncThrowingClosure_WithAsyncAndThrows_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.True(handler.IsAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsAsyncThrowingClosure_WithAsyncOnly_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = false;
+
+        Assert.False(handler.IsAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsAsyncThrowingClosure_WithThrowsOnly_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = false;
+        closureTypeSpec.Throws = true;
+
+        Assert.False(handler.IsAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsAsyncThrowingClosure_WithNeither_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = false;
+        closureTypeSpec.Throws = false;
+
+        Assert.False(handler.IsAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_AsyncThrowingVoidToVoid_ReturnsTask()
+    {
+        // Async+throwing closures return Task (not Task<SwiftResult<...>>)
+        // because error handling is via Swift continuation callback, not return type
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<Task>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_AsyncThrowingVoidToInt_ReturnsTaskInt()
+    {
+        // Async+throwing closures return Task<T> (not Task<SwiftResult<T, SwiftError>>)
+        // because error handling is via Swift continuation callback, not return type
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<Task<System.Int64>>", result);
+    }
+
+    [Fact]
+    public void GetCSharpDelegateType_AsyncThrowingIntToBool_ReturnsFuncIntTaskBool()
+    {
+        // Async+throwing closures return Task<T> (not Task<SwiftResult<T, SwiftError>>)
+        // because error handling is via Swift continuation callback, not return type
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        var result = handler.GetCSharpDelegateType(closureTypeSpec);
+
+        Assert.Equal("Func<System.Int64, Task<System.Boolean>>", result);
+    }
+
+    [Fact]
+    public void GetAsyncThrowingStartFunctionPointerType_ReturnsCorrectType()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        var result = handler.GetAsyncThrowingStartFunctionPointerType(closureTypeSpec);
+
+        Assert.Equal("delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>", result);
+    }
+
+    [Fact]
+    public void IsSupportedClosure_AsyncThrowingWithPrimitiveTypes_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // () async throws -> Int
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_AsyncThrowingWithUnsupportedReturnType_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // () async throws -> UnknownType - unsupported because UnknownType not in database
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("SomeModule.UnknownType"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
     }
 
     #endregion

@@ -159,20 +159,31 @@ public class ClosureHandler
     /// - Escaping closures with concrete types (Phase 2)
     /// - Async closures (Phase 3) - mapped to Func&lt;..., Task&gt; or Func&lt;..., Task&lt;T&gt;&gt;
     /// - Throwing closures (Phase 4) - mapped to Func&lt;..., SwiftResult&lt;T, SwiftError&gt;&gt;
+    /// - Async+throwing closures (Phase 28) - mapped to Func&lt;..., Task&lt;SwiftResult&lt;T, SwiftError&gt;&gt;&gt;
+    ///   via Swift continuation wrapper pattern
     /// All must have concrete (non-generic) argument/return types.
     /// Return types must be primitive/blittable (complex return type marshalling not yet implemented).
-    /// Note: Async+throwing closures are NOT yet supported because [UnmanagedCallersOnly] callbacks
-    /// cannot await Tasks, making it impossible to properly handle the async error result.
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns><c>true</c> if the closure is supported; otherwise, <c>false</c>.</returns>
     public bool IsSupportedClosure(ClosureTypeSpec closureTypeSpec)
     {
-        // Async+throwing closures are NOT supported because [UnmanagedCallersOnly] callbacks
-        // cannot await Tasks. The callback would receive Task<SwiftResult<T, SwiftError>>
-        // but we can't await it to get the actual result/error synchronously.
+        // Async+throwing closures are now supported via Swift continuation wrapper pattern (Phase 28)
+        // The C# side provides a synchronous "start" callback that spawns Task.Run,
+        // while Swift uses withCheckedThrowingContinuation to create the actual async closure.
+        //
+        // LIMITATION: Async+throwing closures returning Foundation.Data are NOT yet supported.
+        // C# async lambdas cannot contain unsafe blocks, and Data requires complex marshalling
+        // to extract bytes and pass to Swift.
         if (closureTypeSpec.IsAsync && closureTypeSpec.Throws)
-            return false;
+        {
+            if (!closureTypeSpec.ReturnType.IsEmptyTuple &&
+                closureTypeSpec.ReturnType is NamedTypeSpec namedReturn &&
+                (namedReturn.Name == "Foundation.Data" || namedReturn.Name == "Swift.Data"))
+            {
+                return false;
+            }
+        }
 
         // Plain throwing closures are supported - mapped to SwiftResult<T, SwiftError>
         // Plain async closures are supported via Task-based delegates
@@ -429,23 +440,20 @@ public class ClosureHandler
 
         // Build the final return type based on async and throws modifiers
         string finalReturnType;
-        if (throws)
+        if (isAsync && throws)
         {
-            // Throwing closures wrap in SwiftResult<T, SwiftError>
+            // Async+throwing closures: error handling is via Swift continuation callback,
+            // NOT via SwiftResult return type. User's delegate returns Task<T> and
+            // exceptions are caught and forwarded to Swift's error callback.
+            finalReturnType = hasReturn ? $"Task<{coreReturnType}>" : "Task";
+        }
+        else if (throws)
+        {
+            // Throwing closures (non-async) wrap in SwiftResult<T, SwiftError>
             var resultType = hasReturn
                 ? $"Swift.SwiftResult<{coreReturnType}, SwiftError>"
                 : $"Swift.SwiftResult<Swift.SwiftVoid, SwiftError>";
-
-            if (isAsync)
-            {
-                // Async+throwing: Task<SwiftResult<T, SwiftError>>
-                finalReturnType = $"Task<{resultType}>";
-            }
-            else
-            {
-                // Throws only: SwiftResult<T, SwiftError>
-                finalReturnType = resultType;
-            }
+            finalReturnType = resultType;
         }
         else if (isAsync)
         {
@@ -483,6 +491,71 @@ public class ClosureHandler
     public bool IsThrowingClosure(ClosureTypeSpec closureTypeSpec)
     {
         return closureTypeSpec.Throws;
+    }
+
+    /// <summary>
+    /// Determines if a closure is both async and throwing.
+    /// Async+throwing closures require special handling via Swift continuation wrappers.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>True if the closure is both async and throws.</returns>
+    public bool IsAsyncThrowingClosure(ClosureTypeSpec closureTypeSpec)
+    {
+        return closureTypeSpec.IsAsync && closureTypeSpec.Throws;
+    }
+
+    /// <summary>
+    /// Gets the P/Invoke function pointer type for an async+throwing closure's "start" function.
+    /// The start function is called synchronously by Swift and spawns the async work via Task.Run.
+    /// Signature: (contextPtr, continuationBoxPtr, successCallbackPtr, errorCallbackPtr) -> void
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>The unmanaged function pointer type string for the start function.</returns>
+    public string GetAsyncThrowingStartFunctionPointerType(ClosureTypeSpec closureTypeSpec)
+    {
+        // The start function always has this signature:
+        // - IntPtr contextPtr: GCHandle to AsyncThrowingClosureState
+        // - IntPtr continuationBoxPtr: Swift's ContinuationBox pointer
+        // - IntPtr successCallbackPtr: Function pointer for success callback
+        // - IntPtr errorCallbackPtr: Function pointer for error callback
+        // - Returns void (spawns Task.Run internally)
+        return "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>";
+    }
+
+    /// <summary>
+    /// Gets the Swift success callback signature for an async+throwing closure.
+    /// The success callback is called by C# when the async work completes successfully.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns>The Swift @convention(c) callback signature.</returns>
+    public string GetAsyncThrowingSuccessCallbackSwiftSignature(ClosureTypeSpec closureTypeSpec)
+    {
+        var returnType = closureTypeSpec.ReturnType;
+        if (returnType.IsEmptyTuple)
+        {
+            // Void return: just boxPtr
+            return "@convention(c) (UnsafeMutableRawPointer) -> Void";
+        }
+
+        // For Data return type (most common case for async data loaders)
+        if (returnType is NamedTypeSpec namedType && namedType.Name == "Foundation.Data")
+        {
+            return "@convention(c) (UnsafeMutableRawPointer, UnsafePointer<UInt8>, Int) -> Void";
+        }
+
+        // Generic case - use opaque pointer for result
+        return "@convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer) -> Void";
+    }
+
+    /// <summary>
+    /// Gets the Swift error callback signature for an async+throwing closure.
+    /// The error callback is called by C# when the async work throws an exception.
+    /// </summary>
+    /// <returns>The Swift @convention(c) callback signature.</returns>
+    public string GetAsyncThrowingErrorCallbackSwiftSignature()
+    {
+        // Error callback: (boxPtr, errorMessage) -> Void
+        return "@convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void";
     }
 
     /// <summary>
