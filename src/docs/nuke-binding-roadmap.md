@@ -85,18 +85,22 @@ The following phases have been completed. See individual documents for details:
 
 ## Baseline Analysis
 
-Initial binding generation revealed these gap categories:
+Initial binding generation (before any phases) revealed these gap categories:
 
-| Category | Count | Impact |
-|----------|-------|--------|
-| Protocol conformance descriptors not found | 200 | Warnings only, types still emit |
-| Unsupported accessor kinds (set/_modify) | 128 | Properties are read-only |
-| Unsupported method signatures | 67 | Methods skipped |
-| Unsupported property types | 70 | Properties skipped |
-| Generic protocol types unsupported | 8 | Types skipped entirely |
-| Unsupported constructor signatures | 22 | Constructors skipped |
+| Category | Initial Count | Current Status |
+|----------|---------------|----------------|
+| Protocol conformance descriptors not found | 200 | ✅ Warnings only, types still emit |
+| Unsupported accessor kinds (set/_modify) | 128 | ✅ **FIXED** - Property setters implemented |
+| Unsupported method signatures | 67 | ✅ **FIXED** - Only 2 remain (Combine framework) |
+| Unsupported property types | 70 | ✅ **FIXED** - Existentials, closures, generics supported |
+| Generic protocol types unsupported | 8 | ⚠️ Partial - Can consume but not implement from C# |
+| Unsupported constructor signatures | 22 | ✅ **FIXED** - Only 1 remains (async+throws closure) |
 
 **Initial result**: Generated 417KB of C# bindings with 52 types, but many methods/properties skipped.
+
+**Current result** (after 26 phases): ~18,400+ lines of C# code, 30+ classes, 8 protocols. Only 3 items skipped:
+- 2 methods returning Combine `AnyPublisher` (out of scope)
+- 1 constructor with `() async throws -> Data` closure (blocked by .NET limitation)
 
 ---
 
