@@ -472,23 +472,6 @@ internal class Swift5Reducer
         var @return = node.Children[1];
 
         return ConvertFunctionAsyncThrows(argTuple, @return, false, false, noEscaping, mangledName);
-
-        // var reduction = ConvertFirstChild (argTuple, mangledName);
-        // if (reduction is ReductionError error)
-        //     return error;
-        // else if (reduction is TypeSpecReduction argsTypeSpecReduction) {
-        //     reduction = ConvertFirstChild (@return, mangledName);
-        //     if (reduction is ReductionError returnError)
-        //         return returnError;
-        //     else if (reduction is TypeSpecReduction returnTypeSpecReduction) {
-        //         var closure = new ClosureTypeSpec (argsTypeSpecReduction.TypeSpec, returnTypeSpecReduction.TypeSpec);
-        //         return new TypeSpecReduction () { Symbol = argsTypeSpecReduction.Symbol, TypeSpec = closure };
-        //     } else {
-        //         return ReductionErrorLow (ExpectedButGot ("TypeSpecReduction in function return type", reduction.GetType ().Name, mangledName), mangledName);
-        //     }
-        // } else {
-        //     return ReductionErrorLow (ExpectedButGot ("TypeSpecReduction in argument tuple type", reduction.GetType ().Name, mangledName), mangledName);
-        // }
     }
 
     /// <summary>

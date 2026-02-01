@@ -6,7 +6,7 @@ This is Microsoft's **experimental** Swift/.NET interoperability project. It gen
 
 **Branch**: `feature/swift-bindings`
 **Status**: Experimental (last active ~9 months ago by Microsoft, recently picked up by Justin Wojciechowski)
-**Target**: .NET 9.0+ on Apple platforms
+**Target**: .NET 10.0 on Apple platforms
 
 ## Copyright and Licensing
 
@@ -62,7 +62,7 @@ See also: `/src/docs/nuke-binding-roadmap.md` for real-world gap tracking from N
 swift-bindings/
 ├── src/
 │   ├── Swift.Bindings/          # Core binding generator tool
-│   │   ├── src/                 # Generator source (73 C# files)
+│   │   ├── src/                 # Generator source (89 C# files)
 │   │   │   ├── Demangler/       # Swift symbol demangling
 │   │   │   ├── Parser/          # ABI JSON parsing
 │   │   │   ├── Model/           # Type declarations (TypeDecl, MethodDecl, etc.)

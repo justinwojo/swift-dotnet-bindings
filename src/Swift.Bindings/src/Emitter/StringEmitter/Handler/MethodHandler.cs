@@ -1271,6 +1271,7 @@ namespace BindingsGeneration
                             (void*){p.Name}.Payload.DangerousGetHandle(),
                             {p.Name}Metadata);
                         IntPtr {p.Name}Handle = {p.Name}CopyBuffer;
+                        var {p.Name}CopyBufferWrapper = new CopyBufferWithType({p.Name}CopyBuffer, {p.Name}Metadata);
                         """);
                 }
 
@@ -1279,7 +1280,7 @@ namespace BindingsGeneration
                 // while the async task is still running (InitializeWithCopy increments ref count,
                 // but if original is destroyed, the internal storage could be freed prematurely)
                 // Also keep 'this' alive for instance methods since SwiftSelf doesn't prevent GC
-                var copyBufferList = string.Join(", ", nonFrozenParams.Select(p => $"{p.Name}CopyBuffer"));
+                var copyBufferList = string.Join(", ", nonFrozenParams.Select(p => $"{p.Name}CopyBufferWrapper"));
                 var originalParamList = string.Join(", ", nonFrozenParams.Select(p => $"(object){p.Name}"));
 
                 // For Swift classes, Arc.Retain the self pointer before async call.
@@ -2072,7 +2073,6 @@ namespace BindingsGeneration
                 return;
             }
 
-            // TODO: Replace with correct method name
             var text = $$"""
             if (error.Value != null)
             {
@@ -2460,7 +2460,6 @@ namespace BindingsGeneration
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
                                     // Note: Original params in holder keep internal storage alive
-                                    // TODO: Call Destroy on copy buffers to properly release refs (needs type info)
                                     for (int i = 1; i < holder.Length; i++)
                                     {
                                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
@@ -2473,9 +2472,11 @@ namespace BindingsGeneration
                                             // Release the SafeHandle that was kept alive for async safety
                                             deferred.Handle.DangerousRelease();
                                         }
-                                        else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                                         {
-                                            NativeMemory.Free((void*)copyBuffer);
+                                            // Call Destroy to release Swift references, then free buffer
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }
                                     }
                                     holderTcs.TrySetResult({{(voidReturn ? "" : "result")}});
@@ -2516,9 +2517,11 @@ namespace BindingsGeneration
                                             // Release the SafeHandle that was kept alive for async safety
                                             deferred.Handle.DangerousRelease();
                                         }
-                                        else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                                         {
-                                            NativeMemory.Free((void*)copyBuffer);
+                                            // Call Destroy to release Swift references, then free buffer
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }
                                     }
                                     holderTcs.TrySetException(exception);
@@ -2612,9 +2615,11 @@ namespace BindingsGeneration
                                             // Release the SafeHandle that was kept alive for async safety
                                             deferred.Handle.DangerousRelease();
                                         }
-                                        else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                                         {
-                                            NativeMemory.Free((void*)copyBuffer);
+                                            // Call Destroy to release Swift references, then free buffer
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }
                                     }
                                     holderTcs.TrySetResult(result);
@@ -2655,9 +2660,11 @@ namespace BindingsGeneration
                                             // Release the SafeHandle that was kept alive for async safety
                                             deferred.Handle.DangerousRelease();
                                         }
-                                        else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                                         {
-                                            NativeMemory.Free((void*)copyBuffer);
+                                            // Call Destroy to release Swift references, then free buffer
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }
                                     }
                                     holderTcs.TrySetException(exception);

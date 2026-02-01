@@ -110,6 +110,22 @@ namespace BindingsGeneration
                     public DeferredSafeHandleRelease(SafeHandle handle) => Handle = handle;
                 }
 
+                /// <summary>
+                /// Wraps a copy buffer pointer with its TypeMetadata for proper cleanup.
+                /// Used for non-frozen struct parameters in async operations.
+                /// Destroy must be called before freeing the buffer to release Swift references.
+                /// </summary>
+                internal readonly struct CopyBufferWithType
+                {
+                    public readonly IntPtr Buffer;
+                    public readonly TypeMetadata Metadata;
+                    public CopyBufferWithType(IntPtr buffer, TypeMetadata metadata)
+                    {
+                        Buffer = buffer;
+                        Metadata = metadata;
+                    }
+                }
+
                 """);
 
             // Emit top-level methods
