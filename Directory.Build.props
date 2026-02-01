@@ -1,30 +1,22 @@
 <Project>
-  <Import Condition="'$(UseMaui)' != 'true'" Project="Sdk.props" Sdk="Microsoft.DotNet.Arcade.Sdk" />
-
   <PropertyGroup>
-    <Copyright>$(CopyrightNetFoundation)</Copyright>
+    <Copyright>Copyright (c) Microsoft Corporation. Copyright (c) 2026 Justin Wojciechowski.</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
     <DebugType>embedded</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <LangVersion>Latest</LangVersion>
     <IsPackable>true</IsPackable>
-
-    <!-- Set this property to false if you don't want to use the runtime
-          framework version defined in Versions.props -->
-    <UseCustomRuntimeVersion>true</UseCustomRuntimeVersion>
-    <RuntimeFrameworkVersion Condition="$(UseCustomRuntimeVersion)">$(MicrosoftNETCoreAppVersion)</RuntimeFrameworkVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
     <IsPackable>false</IsPackable>
     <TestCaptureOutput>false</TestCaptureOutput>
-    <TargetPlatform Condition="'$(TargetPlatform)' == ''">x64</TargetPlatform>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(IsTestProject)' == 'true'">
-    <PackageReference Update="Microsoft.NET.Test.Sdk" Version="$(MicrosoftNETTestSdkVersion)" PrivateAssets="true" />
-    <PackageReference Update="xunit" Version="$(XunitVersion)" />
-    <PackageReference Update="xunit.runner.visualstudio" Version="$(XUnitRunnerVisualStudioVersion)" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.6.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.4" PrivateAssets="all" />
   </ItemGroup>
 </Project>
