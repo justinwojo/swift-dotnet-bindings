@@ -6,6 +6,7 @@ namespace BindingsGeneration;
 /// <summary>
 /// Handles automatic type conversions between Swift wrapper types (SwiftString, SwiftArray, SwiftOptional)
 /// and idiomatic .NET types (string, IEnumerable&lt;T&gt;, T?).
+/// Also handles native type remapping for Swift types that have .NET iOS equivalents (URL → NSUrl, Data → NSData).
 /// This makes Swift bindings feel as natural as Obj-C bindings.
 /// </summary>
 public class TypeConversionHandler
@@ -15,6 +16,8 @@ public class TypeConversionHandler
     private static readonly SwiftTypeName SwiftStringTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String");
     private static readonly SwiftTypeName SwiftArrayTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array");
     private static readonly SwiftTypeName SwiftOptionalTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional");
+    private static readonly SwiftTypeName FoundationURLTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL");
+    private static readonly SwiftTypeName FoundationDataTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data");
 
     public TypeConversionHandler(ITypeDatabase typeDatabase)
     {
@@ -275,4 +278,148 @@ public class TypeConversionHandler
 
         return null;
     }
+
+    #region Native Type Remapping (URL → NSUrl, Data → NSData)
+
+    /// <summary>
+    /// Determines whether the specified type spec represents Foundation.URL.
+    /// </summary>
+    public bool IsFoundationURL(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        if (!namedTypeSpec.HasModule())
+            return false;
+
+        var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
+        return typeName.Equals(FoundationURLTypeName);
+    }
+
+    /// <summary>
+    /// Determines whether the specified type spec represents Foundation.Data.
+    /// </summary>
+    public bool IsFoundationData(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        if (!namedTypeSpec.HasModule())
+            return false;
+
+        var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
+        return typeName.Equals(FoundationDataTypeName);
+    }
+
+    /// <summary>
+    /// Determines whether the specified type has a native type remapping configured.
+    /// When true, public method signatures should use the native .NET type (e.g., Foundation.NSUrl)
+    /// instead of the Swift wrapper type (e.g., Swift.URL).
+    /// </summary>
+    public bool HasNativeTypeRemapping(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        if (!namedTypeSpec.HasModule())
+            return false;
+
+        var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
+        if (_typeDatabase.TryGetTypeRecord(typeName, out var typeRecord))
+        {
+            return typeRecord.NativeTypeName != null;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Gets the native .NET type name for use in public method signatures.
+    /// Returns null if no native remapping is configured.
+    /// </summary>
+    public string? GetNativeTypeName(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return null;
+
+        if (!namedTypeSpec.HasModule())
+            return null;
+
+        var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
+        if (_typeDatabase.TryGetTypeRecord(typeName, out var typeRecord))
+        {
+            return typeRecord.NativeTypeName?.FullyQualifiedName;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the conversion expression for converting a native .NET parameter to a Swift type.
+    /// For example: Foundation.NSUrl nsUrl → Swift.URL.FromNSUrl(nsUrl)
+    /// </summary>
+    /// <param name="paramName">The parameter name.</param>
+    /// <param name="typeSpec">The Swift type specification.</param>
+    /// <returns>The conversion expression, or null if no conversion is needed.</returns>
+    public string? GetNativeParameterConversion(string paramName, TypeSpec? typeSpec)
+    {
+        if (IsFoundationURL(typeSpec))
+        {
+            // Foundation.NSUrl -> Swift.URL
+            return $"Swift.URL.FromNSUrl({paramName})";
+        }
+
+        if (IsFoundationData(typeSpec))
+        {
+            // Foundation.NSData -> Swift.Data
+            return $"Swift.Data.FromNSData({paramName})";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the conversion expression for converting a Swift return value to a native .NET type.
+    /// For example: Swift.URL url → url.ToNSUrl()
+    /// </summary>
+    /// <param name="resultVar">The variable containing the Swift result.</param>
+    /// <param name="typeSpec">The Swift type specification.</param>
+    /// <returns>The conversion expression, or null if no conversion is needed.</returns>
+    public string? GetNativeReturnConversion(string resultVar, TypeSpec? typeSpec)
+    {
+        if (IsFoundationURL(typeSpec))
+        {
+            // Swift.URL -> Foundation.NSUrl
+            return $"{resultVar}.ToNSUrl()";
+        }
+
+        if (IsFoundationData(typeSpec))
+        {
+            // Swift.Data -> Foundation.NSData
+            return $"{resultVar}.ToNSData()";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the internal Swift wrapper type name for native-remapped types.
+    /// This is used in P/Invoke declarations where the Swift ABI type is needed.
+    /// </summary>
+    public string? GetSwiftWrapperTypeForNative(TypeSpec? typeSpec)
+    {
+        if (IsFoundationURL(typeSpec))
+        {
+            return "Swift.URL";
+        }
+
+        if (IsFoundationData(typeSpec))
+        {
+            return "Swift.Data";
+        }
+
+        return null;
+    }
+
+    #endregion
 }

@@ -42,6 +42,8 @@ The following phases have been completed. See individual documents for details:
 | Phase 22 | Generic Protocol Proxy Compilation Fix | [phase-22-generic-protocol-proxy-fix.md](CompletedPhases/phase-22-generic-protocol-proxy-fix.md) |
 | Phase 23 | Integration Test Restoration | [phase-23-integration-test-restoration.md](CompletedPhases/phase-23-integration-test-restoration.md) |
 | Phase 24 | Tuple Associated Values in Enum TryGet | See Phase 24 section below |
+| Phase 25 | Async DllImport Fix | See Phase 25 section below |
+| Phase 26 | Native Type Remapping (URL → NSUrl, Data → NSData) | See Phase 26 section below |
 
 ---
 
@@ -57,9 +59,9 @@ The following phases have been completed. See individual documents for details:
 - Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
 - **0 compilation errors** (down from 95+)
-- **619 unit tests passing**
-- **Integration tests**: Generic protocol proxy errors resolved (Phase 22); remaining pre-existing errors unrelated to protocols
-- **100% runtime validation pass rate** (30/30 tests in NukeTestApp, 2 skipped)
+- **892 unit tests passing**
+- **Integration tests**: 678 passed, 13 skipped (known limitations)
+- **100% runtime validation pass rate** (30/30 tests in NukeTestApp)
 
 **Runtime validated** (Phase 15.4):
 - ✅ Async image loading from network URLs
@@ -69,29 +71,15 @@ The following phases have been completed. See individual documents for details:
 - ✅ Cache access and population
 - ✅ SwiftString and ImageRequest creation/disposal
 
-**Remaining gaps**:
-- **~4 methods/constructors** with `AnyType` parameters:
-  - `imagePublisher(...)` - Returns Combine `AnyPublisher` (reactive framework out of scope)
-  - `ImageRequest` constructor - `() async throws -> Data` closure (async+throws closures not supported due to [UnmanagedCallersOnly] limitations)
-- **Fixed in Phase 15.2**:
-  - ✅ `didComplete` property - Optional closure properties now correctly emit nullable delegate types (`Action?`, `Func<Task>?`, etc.)
-  - Note: Async attribute in closures not preserved from ABI JSON `printedName` (pre-existing parser limitation)
-- **Fixed in Phase 15.3**:
-  - ✅ Implicit ObjC type conversions - `Swift.URL` and `Swift.Data` now have implicit operators for `Foundation.NSUrl`/`Foundation.NSData`
-- **Fixed in Phase 15**:
-  - ✅ Throwing closures - Non-async throwing closures now map to `Func<..., SwiftResult<T, SwiftError>>`
-  - Note: Async+throwing closures remain unsupported because `[UnmanagedCallersOnly]` callbacks cannot await Tasks
-- **Fixed in Phase 14**:
-  - ✅ `data(_for:)` - Async method returning tuple `(Data, URLResponse?)` now properly typed
-- **Fixed in Phase 13**:
-  - ✅ `loadImage(with:queue:progress:completion:)` - Optional closure parameters now use `Action<...>?` syntax
-  - ✅ AsyncStream property collision - Properties like `Progress` renamed to `ProgressValue` when colliding with nested types
-  - ✅ Module-local types in closures - `ImageResponse?` in progress callback now correctly typed
-- **Fixed in Phase 12**:
-  - ✅ `ImageProcessors.Resize` constructor - CGSize now resolved via module aliasing
-  - ✅ `ImageRequest.ThumbnailOptions` constructor - CGSize now resolved
-  - ✅ `loadData` completion callback - Tuple `(Data, URLResponse?)` now properly typed
-- **ObjC types use `Swift.*` wrappers instead of existing .NET iOS bindings** (see Phase 2.8 in completed phases) - Major UX issue
+**Remaining gaps** (in priority order):
+
+1. **Non-Frozen Struct with Existential Containers** - `ImagePipeline.ConfigurationValue` crashes with SIGSEGV in Swift's copy witness. The `Configuration` struct contains protocol types like `DataLoading` that fail during copy operations.
+
+2. **Async+Throwing Closures** - `ImageRequest` constructor with `() async throws -> Data` closure unsupported. `[UnmanagedCallersOnly]` callbacks cannot await Tasks - fundamental .NET limitation.
+
+3. **Combine Framework** - `imagePublisher(...)` returns `AnyPublisher` (reactive framework out of scope for this project).
+
+4. **Generic Protocol Proxies** - Protocols with associated types (PATs) skip proxy generation. Can consume Swift implementations but can't implement from C#.
 
 ---
 
@@ -281,8 +269,8 @@ var image = response.Image; // UIImage
 - [x] **Existential type handling** - Generator handles `any Protocol` without crashing
 - [x] **Swift wrapper imports** - Generator now emits imports automatically
 - [x] **Async non-frozen parameter cleanup** - FIXED: Cleanup runs after callback, not in defer
-- [x] **ObjC/Swift type strategy complete** - ObjC classes (UIImage, etc.) map to .NET iOS types; Swift structs (URL, Data) intentionally kept as Swift.* wrappers
-- [x] **Implicit ObjC conversions** - `Swift.URL` and `Swift.Data` have implicit operators for `Foundation.NSUrl`/`Foundation.NSData`
+- [x] **ObjC/Swift type strategy complete** - ObjC classes (UIImage, etc.) map to .NET iOS types; Swift structs (URL, Data) now also use native types (NSUrl, NSData) in public signatures
+- [x] **Native type remapping** - `Swift.URL` → `Foundation.NSUrl` and `Swift.Data` → `Foundation.NSData` in public method signatures (Phase 26)
 - [x] **Existential parameters** - Methods with `any Protocol` parameters now generate valid `ExistentialContainer{N}` types
 - [x] **Closure bound generic parameters** - Closures accepting `Result<T,E>`, `Array<T>`, `Optional<T>`, etc. now generate valid C# code
 - [x] **Closure bound generic returns** - Closures returning `SwiftOptional<T>`, `SwiftResult<S,E>`, etc. now use indirect return marshalling
@@ -1025,22 +1013,20 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 - 6 protocol conformance tests (C# structs don't implement protocol interfaces)
 - 6 async tests (Swift concurrency executor doesn't run from C#)
 
-### NukeTestApp Validation (Phase 24)
+### NukeTestApp Validation (Phase 25)
 | Category | Passed | Failed | Warnings |
 |----------|--------|--------|----------|
 | Basic Binding | 4 | 0 | 1 |
-| Async Image Load | 0 | 3 | 0 |
-| Cache Operations | 2 | 1 | 0 |
+| Async Image Load | 3 | 0 | 0 |
+| Cache Operations | 3 | 0 | 0 |
 | ImageRequest Options | 4 | 0 | 0 |
 | Error Handling | 2 | 0 | 1 |
-| Memory Management | 3 | 1 | 0 |
-| Performance | 3 | 1 | 0 |
+| Memory Management | 4 | 0 | 0 |
+| Performance | 4 | 0 | 0 |
 | Protocols | 6 | 0 | 0 |
-| **Total** | **23** | **6** | **3** |
+| **Total** | **30** | **0** | **2** |
 
-**Pass rate**: 79% (23/29 tests, 6 failed - all async image loading related)
-
-**Known regression**: All 6 failures are related to the same async function `ImagePipeline.image(for:)`. These tests were passing in earlier phases but have regressed. The async Swift wrapper or P/Invoke mechanism may need investigation.
+**Pass rate**: 100% (30/30 tests passing)
 
 **Core functionality verified**:
 - Async image loading from network URLs
@@ -1089,6 +1075,53 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 - ✅ Tuple associated values in enum TryGet methods (multi-element extraction)
 - ✅ TupleTypeMetadata struct for accessing Swift tuple element offsets at runtime
 - ✅ Multiple out parameters generated for each tuple element
+
+**Fixed in Phase 25**:
+- ✅ Async DllImport regression fixed via configurable `--async-library` option
+- ✅ All async image loading tests now pass (was 6 failures in Phase 24)
+
+**Fixed in Phase 26**:
+- ✅ Native type remapping for Foundation.URL → Foundation.NSUrl in public method signatures
+- ✅ Native type remapping for Foundation.Data → Foundation.NSData in public method signatures
+- ✅ Automatic conversion at marshalling layer (no developer effort required)
+
+---
+
+## Phase 25: Async DllImport Fix
+
+**Status**: COMPLETED (2026-02-01)
+
+Fixed async method regression caused by .NET's DllImport validation for async P/Invoke calls.
+
+### Summary
+
+- 25.1 Root Cause Analysis → COMPLETED (DllImport async library mismatch)
+- 25.2 Configurable --async-library Option → COMPLETED (CLI flag for async library name)
+- 25.3 Runtime Validation → COMPLETED (100% pass rate restored)
+
+### Problem
+
+Phase 24's NukeTestApp validation showed 6 failures, all related to `ImagePipeline.image(for:)` async methods. The issue was that .NET's async P/Invoke requires a matching `[DllImport]` library name, but the generated Swift wrapper library had a different name than what was being specified.
+
+### Solution
+
+Added configurable `--async-library` (`-al`) command-line option to the binding generator. This allows specifying the correct library name for async wrapper P/Invoke declarations, which may differ from the main Swift library.
+
+**Usage**:
+```bash
+SwiftBindings -a abi.json -d lib.dylib -t lib.tbd -l "MainLib" -al "MainLibAsyncWrapper" -o output/
+```
+
+### Files Modified
+
+- `src/Swift.Bindings/src/Program.cs` - Added `--async-library` CLI option
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Use async library for wrapper P/Invoke
+
+### Verification
+
+- All 30 NukeTestApp tests pass (100% pass rate)
+- Async image loading from network URLs works correctly
+- No regressions in other test categories
 
 ---
 
@@ -1239,3 +1272,138 @@ Added 10 tests to `EnumHandlerTests.cs`:
 | `Error.decodingFailed` | `(decoder, context, error)` |
 | `Error.processingFailed` | `(processor, context, error)` |
 | `CoreImageError.failedToCreateFilter` | `(name, parameters)` |
+
+---
+
+## Phase 26: Native Type Remapping (URL → NSUrl, Data → NSData)
+
+**Status**: COMPLETED (2026-02-01)
+
+Public method signatures now use familiar .NET iOS types (`Foundation.NSUrl`, `Foundation.NSData`) instead of Swift wrapper types (`Swift.URL`, `Swift.Data`). Automatic conversion happens at the marshalling layer.
+
+### Summary
+
+- 26.1 TypeRecord Enhancement → COMPLETED (NativeTypeName property for configurable remapping)
+- 26.2 TypeDatabase XML Parsing → COMPLETED (nativeType attribute support)
+- 26.3 TypeConversionHandler → COMPLETED (detection and conversion methods)
+- 26.4 MethodHandler Integration → COMPLETED (public signatures use native types)
+- 26.5 Async Parameter Handling → COMPLETED (proper copy buffer management)
+
+### Problem
+
+Swift types like `Foundation.URL` and `Foundation.Data` are structs that bridge to ObjC classes (`NSUrl`, `NSData`). The binding generator was using Swift wrapper types (`Swift.URL`, `Swift.Data`) in public method signatures, requiring developers to manually convert from .NET iOS types.
+
+**Before**:
+```csharp
+// Developer must convert NSUrl → Swift.URL
+public Task<UIImage> Image(Swift.URL url);
+```
+
+**After**:
+```csharp
+// Developer can pass NSUrl directly
+public Task<UIImage> Image(Foundation.NSUrl url);
+```
+
+### Implementation Details
+
+#### 26.1 TypeRecord Enhancement
+
+Added `NativeTypeName` property to `TypeRecord` for configurable type remapping:
+
+```csharp
+/// <summary>
+/// Optional native type name to use in public method signatures.
+/// When set, the public API exposes this type (e.g., Foundation.NSUrl) instead of the
+/// internal Swift wrapper type (e.g., Swift.URL). Conversion happens at the marshalling layer.
+/// </summary>
+public CSharpTypeName? NativeTypeName { get; init; }
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/TypeDatabase/TypeRecord.cs`
+
+#### 26.2 TypeDatabase XML Parsing
+
+Added `nativeType` attribute parsing in `TypeDatabase.ReadVersion1_0()`:
+
+```xml
+<entity managedNameSpace="Swift" managedTypeName="URL">
+    <typedeclaration kind="struct" name="URL" module="Foundation"
+        mangledName="$s10Foundation3URLV" frozen="false"
+        requiresMemoryManagement="true" nativeType="Foundation.NSUrl" />
+</entity>
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/TypeDatabase/TypeDatabase.cs`
+- `src/Swift.Runtime/src/Swift/FoundationDatabase.xml` (configured URL and Data mappings)
+
+#### 26.3 TypeConversionHandler Methods
+
+Added comprehensive native type handling:
+
+```csharp
+public bool IsFoundationURL(TypeSpec? typeSpec);
+public bool IsFoundationData(TypeSpec? typeSpec);
+public bool HasNativeTypeRemapping(TypeSpec? typeSpec);
+public string? GetNativeTypeName(TypeSpec? typeSpec);
+public string? GetNativeParameterConversion(string paramName, TypeSpec? typeSpec);
+public string? GetNativeReturnConversion(string resultVar, TypeSpec? typeSpec);
+public string? GetSwiftWrapperTypeForNative(TypeSpec? typeSpec);
+```
+
+**Files modified**:
+- `src/Swift.Bindings/src/Marshaler/TypeConversionHandler.cs`
+
+#### 26.4 MethodHandler Integration
+
+Updated `WrapperSignatureBuilder` to use native types in public signatures:
+
+- `HandleReturnType()` - Returns `Foundation.NSUrl` / `Foundation.NSData` instead of Swift wrappers
+- `HandleArguments()` - Parameters use native types with automatic conversion
+- `EmitTypeConversions()` - Generates conversion code: `var urlSwift = Swift.URL.FromNSUrl(url);`
+- `EmitReturnMethod()` - Converts Swift result to native type: `return result.ToNSUrl();`
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs`
+
+#### 26.5 Async Parameter Handling
+
+Special handling for async methods with native-remapped parameters:
+
+```csharp
+// For async methods, convert native type and copy to buffer for Swift
+var urlMetadata = SwiftObjectHelper<Swift.URL>.GetTypeMetadata();
+IntPtr urlCopyBuffer = (IntPtr)NativeMemory.Alloc(urlMetadata.Size);
+using var urlSwiftTemp = Swift.URL.FromNSUrl(url);
+urlMetadata.ValueWitnessTable->InitializeWithCopy(
+    (void*)urlCopyBuffer,
+    (void*)urlSwiftTemp.Payload.DangerousGetHandle(),
+    urlMetadata);
+```
+
+### Verification
+
+- All 892 unit tests pass
+- All 678 integration tests pass (13 skipped - known limitations)
+- All 93 runtime tests pass (1 skipped)
+- 30/30 NukeTestApp validation tests pass
+
+### Generated Code Example
+
+**Before**:
+```csharp
+public static Task<ImageResponse> Image(Swift.URL url)
+{
+    // ...
+}
+```
+
+**After**:
+```csharp
+public static Task<ImageResponse> Image(Foundation.NSUrl url)
+{
+    var urlSwift = Swift.URL.FromNSUrl(url);
+    // ... internal implementation uses Swift.URL ...
+}

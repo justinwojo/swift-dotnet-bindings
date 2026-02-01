@@ -221,6 +221,9 @@ namespace BindingsGeneration
             "IntPtrFromNonFrozen" => $"{modifier} IntPtr {Name}",
             // ObjC bridged types use IntPtr in P/Invoke
             var t when t.StartsWith("ObjCBridged:") => $"{modifier} IntPtr {Name}",
+            // Native-remapped types: URL uses SafeHandle, Data uses the actual Swift type
+            "NativeRemappedSafeHandle" => $"{modifier} SafeHandle {Name}",
+            var t when t.StartsWith("NativeRemapped:") => $"{modifier} {t.Substring("NativeRemapped:".Length)} {Name}",
             _ => $"{modifier} {Type} {Name}"
         };
     }
@@ -258,6 +261,9 @@ namespace BindingsGeneration
                     parameter.Name.EndsWith("FuncPtr") ? parameter.Name : $"{parameter.Name}FuncPtr",
                 // ObjC bridged types: extract Handle from the .NET iOS binding object
                 { Type: var type } when type.StartsWith("ObjCBridged:") => $"{parameter.Name}Handle",
+                // Native-remapped types (URL, Data): use the converted Swift variable
+                { Type: "NativeRemappedSafeHandle" } => $"{parameter.Name}Swift.Payload",
+                { Type: var type } when type.StartsWith("NativeRemapped:") => $"{parameter.Name}Swift",
                 // Async instance methods pass self as explicit IntPtr (not SwiftSelf register)
                 { Name: "_self", Type: "IntPtr" } => "_payload.DangerousGetHandle()",
                 _ => parameter.Name
@@ -413,6 +419,18 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Check for native type remapping (URL → NSUrl, Data → NSData)
+            // Skip for property accessors to maintain property/accessor type consistency
+            if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
+            {
+                var nativeType = _env.TypeConversionHandler.GetNativeTypeName(argument.SwiftTypeSpec);
+                if (nativeType != null)
+                {
+                    SetReturnType(nativeType);
+                    return;
+                }
+            }
+
             var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
             // Protocol types (interfaces) are not supported as return types because they don't have Payload property
             if (typeRecord.Kind == TypeRecordKind.Protocol)
@@ -506,6 +524,18 @@ namespace BindingsGeneration
                 }
                 else
                 {
+                    // Check for native type remapping (URL → NSUrl, Data → NSData)
+                    // Skip for property accessors to maintain property/accessor type consistency
+                    if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
+                    {
+                        var nativeType = _env.TypeConversionHandler.GetNativeTypeName(argument.SwiftTypeSpec);
+                        if (nativeType != null)
+                        {
+                            AddParameter(nativeType, argument.Name);
+                            continue;
+                        }
+                    }
+
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
                     // Protocol types (interfaces) are not supported as parameters because they don't have Payload property
                     if (typeRecord.Kind == TypeRecordKind.Protocol)
@@ -749,6 +779,25 @@ namespace BindingsGeneration
                     else
                     {
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    }
+                    continue;
+                }
+
+                // Handle native type remapping (URL → NSUrl, Data → NSData in public API)
+                // Skip for property accessors to maintain consistency with wrapper signature
+                if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
+                {
+                    TypeRecord nativeRemapTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argument.SwiftTypeSpec);
+                    var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(argument.SwiftTypeSpec);
+                    if (!MarshallingHelpers.IsTypeFrozen(nativeRemapTypeRecord))
+                    {
+                        // Non-frozen (URL): use NativeRemappedSafeHandle marker
+                        AddParameter("NativeRemappedSafeHandle", argument.Name);
+                    }
+                    else
+                    {
+                        // Frozen (Data): use NativeRemapped:{type} marker
+                        AddParameter($"NativeRemapped:{swiftWrapperType}", argument.Name);
                     }
                     continue;
                 }
@@ -1258,16 +1307,39 @@ namespace BindingsGeneration
                 {
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
                     var typeName = typeRecord.CSharpTypeName.FullyQualifiedName;
-                    csWriter.WriteLines($"""
-                        var {p.Name}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
-                        IntPtr {p.Name}CopyBuffer = (IntPtr)NativeMemory.Alloc({p.Name}Metadata.Size);
-                        {p.Name}Metadata.ValueWitnessTable->InitializeWithCopy(
-                            (void*){p.Name}CopyBuffer,
-                            (void*){p.Name}.Payload.DangerousGetHandle(),
-                            {p.Name}Metadata);
-                        IntPtr {p.Name}Handle = {p.Name}CopyBuffer;
-                        var {p.Name}CopyBufferWrapper = new CopyBufferWithType({p.Name}CopyBuffer, {p.Name}Metadata);
-                        """);
+
+                    // For native-remapped types (e.g., Foundation.NSUrl -> Swift.URL), we need to
+                    // convert to the Swift type first before copying. The wrapper signature uses the
+                    // native type but the underlying Swift type is what we need to copy.
+                    if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(p.SwiftTypeSpec))
+                    {
+                        // Convert native type to Swift type, then copy from Swift type
+                        var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(p.Name, p.SwiftTypeSpec);
+                        csWriter.WriteLines($"""
+                            var {p.Name}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
+                            IntPtr {p.Name}CopyBuffer = (IntPtr)NativeMemory.Alloc({p.Name}Metadata.Size);
+                            using var {p.Name}SwiftTemp = {conversion};
+                            {p.Name}Metadata.ValueWitnessTable->InitializeWithCopy(
+                                (void*){p.Name}CopyBuffer,
+                                (void*){p.Name}SwiftTemp.Payload.DangerousGetHandle(),
+                                {p.Name}Metadata);
+                            IntPtr {p.Name}Handle = {p.Name}CopyBuffer;
+                            var {p.Name}CopyBufferWrapper = new CopyBufferWithType({p.Name}CopyBuffer, {p.Name}Metadata);
+                            """);
+                    }
+                    else
+                    {
+                        csWriter.WriteLines($"""
+                            var {p.Name}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
+                            IntPtr {p.Name}CopyBuffer = (IntPtr)NativeMemory.Alloc({p.Name}Metadata.Size);
+                            {p.Name}Metadata.ValueWitnessTable->InitializeWithCopy(
+                                (void*){p.Name}CopyBuffer,
+                                (void*){p.Name}.Payload.DangerousGetHandle(),
+                                {p.Name}Metadata);
+                            IntPtr {p.Name}Handle = {p.Name}CopyBuffer;
+                            var {p.Name}CopyBufferWrapper = new CopyBufferWithType({p.Name}CopyBuffer, {p.Name}Metadata);
+                            """);
+                    }
                 }
 
                 // Now create the holder with copy buffer pointers AND original parameters AND self (for instance methods)
@@ -1808,6 +1880,24 @@ namespace BindingsGeneration
                     var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
                     csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
                 }
+                else if (_env.TypeConversionHandler.HasNativeTypeRemapping(argumentDecl.SwiftTypeSpec))
+                {
+                    // Native type remapping: Foundation.NSUrl -> Swift.URL, Foundation.NSData -> Swift.Data
+                    var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(argumentDecl.Name, argumentDecl.SwiftTypeSpec);
+                    if (conversion != null)
+                    {
+                        if (_env.TypeConversionHandler.IsFoundationURL(argumentDecl.SwiftTypeSpec))
+                        {
+                            // URL is non-frozen and requires disposal
+                            csWriter.WriteLine($"using var {argumentDecl.Name}Swift = {conversion};");
+                        }
+                        else
+                        {
+                            // Data is a frozen struct
+                            csWriter.WriteLine($"var {argumentDecl.Name}Swift = {conversion};");
+                        }
+                    }
+                }
             }
         }
 
@@ -2129,6 +2219,31 @@ namespace BindingsGeneration
                     EmitTypeConvertedIndirectReturn(csWriter, returnArg);
                     return;
                 }
+
+                // Handle native type remapping for indirect result
+                // Skip for property accessors to maintain property/accessor type consistency
+                if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
+                {
+                    var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(returnArg.SwiftTypeSpec);
+                    if (_env.TypeConversionHandler.IsFoundationURL(returnArg.SwiftTypeSpec))
+                    {
+                        // URL via indirect result - create from handle and convert
+                        csWriter.WriteLines($$"""
+                            var swiftResult = new {{swiftWrapperType}}(new IntPtr(swiftIndirectResult.Value));
+                            return swiftResult.ToNSUrl();
+                            """);
+                    }
+                    else if (_env.TypeConversionHandler.IsFoundationData(returnArg.SwiftTypeSpec))
+                    {
+                        // Data via indirect result - marshal and convert
+                        csWriter.WriteLines($$"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftWrapperType}}>(new IntPtr(swiftIndirectResult.Value));
+                            return swiftResult.ToNSData();
+                            """);
+                    }
+                    return;
+                }
+
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(new IntPtr(swiftIndirectResult.Value));");
                 return;
             }
@@ -2187,6 +2302,31 @@ namespace BindingsGeneration
                 if (MarshallingHelpers.IsObjCBridged(typeRecord))
                 {
                     csWriter.WriteLine($"return ObjCRuntime.Runtime.GetNSObject<{_wrapperSignature.ReturnType}>(result);");
+                    return;
+                }
+
+                // Native type remapping: convert Swift type to native .NET type
+                // Skip for property accessors to maintain property/accessor type consistency
+                if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
+                {
+                    var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(returnArg.SwiftTypeSpec);
+                    if (_env.TypeConversionHandler.IsFoundationURL(returnArg.SwiftTypeSpec))
+                    {
+                        // URL is non-frozen, result is IntPtr (SafeHandle marshalling)
+                        // Create Swift.URL from handle, then convert to NSUrl
+                        csWriter.WriteLines($$"""
+                            var swiftResult = new {{swiftWrapperType}}(result);
+                            return swiftResult.ToNSUrl();
+                            """);
+                    }
+                    else if (_env.TypeConversionHandler.IsFoundationData(returnArg.SwiftTypeSpec))
+                    {
+                        // Data is frozen struct, marshal from buffer and convert to NSData
+                        csWriter.WriteLines($$"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftWrapperType}}>(new IntPtr(&result));
+                            return swiftResult.ToNSData();
+                            """);
+                    }
                     return;
                 }
 

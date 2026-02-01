@@ -156,12 +156,27 @@ namespace BindingsGeneration
                 string frozen = typeDeclarationNode?.Attributes?["frozen"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'frozen' attribute.");
                 string requiresMemoryManagement = typeDeclarationNode?.Attributes?["requiresMemoryManagement"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'requiresMemoryManagement' attribute.");
                 string objcBridged = typeDeclarationNode?.Attributes?["objcBridged"]?.Value ?? "false";
+                string? nativeType = typeDeclarationNode?.Attributes?["nativeType"]?.Value;
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
 
                 var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{swiftTypeIdentifier}");
                 var csharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, csharpTypeIdentifier);
+
+                // Parse native type name if specified (e.g., "Foundation.NSUrl" for URL)
+                CSharpTypeName? nativeTypeName = null;
+                if (!string.IsNullOrEmpty(nativeType))
+                {
+                    var lastDot = nativeType.LastIndexOf('.');
+                    if (lastDot > 0)
+                    {
+                        var nativeNamespace = nativeType.Substring(0, lastDot);
+                        var nativeTypePart = nativeType.Substring(lastDot + 1);
+                        nativeTypeName = CSharpTypeName.FromNamespaceAndName(nativeNamespace, nativeTypePart);
+                    }
+                }
+
                 var typeRecord = new TypeRecord()
                 {
                     CSharpTypeName = csharpTypeName,
@@ -171,6 +186,7 @@ namespace BindingsGeneration
                             (requiresMemoryManagement.ToLower() == "true" ? TypeRecordFlags.RequiresMemoryManagement : TypeRecordFlags.None) |
                             (objcBridged.ToLower() == "true" ? TypeRecordFlags.ObjCBridged : TypeRecordFlags.None),
                     Kind = TypeRecordKind.Struct,
+                    NativeTypeName = nativeTypeName,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);
