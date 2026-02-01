@@ -327,12 +327,33 @@ state.CancellationSource?.Cancel();
 
 ## Success Criteria
 
-- [ ] `ClosureHandler.IsSupportedClosure()` returns `true` for `() async throws -> T`
-- [ ] Generated bindings compile without errors
-- [ ] Nuke's `ImageRequest.init(data:)` works from C#
-- [ ] Error propagation works (C# exception → Swift error)
-- [ ] No memory leaks (GCHandle freed, ContinuationBox released)
-- [ ] All existing closure tests still pass
+- [x] `ClosureHandler.IsSupportedClosure()` returns `true` for `() async throws -> T`
+- [x] Generated bindings compile without errors
+- [x] Nuke's `ImageRequest.init(data:)` works from C# (Data closure support added)
+- [x] Error propagation works (C# exception → Swift error)
+- [x] No memory leaks (GCHandle freed, ContinuationBox released)
+- [x] All existing closure tests still pass
+
+## Implementation Notes (Data Return Type Support)
+
+Foundation.Data return types in async+throwing closures are now fully supported:
+
+1. **Runtime Helper Class**: `AsyncClosureHelper` in `Swift.Runtime` provides safe async
+   execution outside unsafe class contexts:
+   - `RunDataAsync()` - for `() async throws -> Data` closures
+   - `RunAsync<T>()` - for generic return types
+   - `RunVoidAsync()` - for void return types
+
+2. **Why Helper Class?**: Generated C# classes are often marked `unsafe` for P/Invoke
+   compatibility, but C# doesn't allow `await` in unsafe contexts. The runtime helper
+   class is NOT unsafe, enabling proper async/await execution.
+
+3. **Data Marshalling Pattern**:
+   - User provides `Func<Task<Swift.Data>>`
+   - C# awaits the task to get `Swift.Data`
+   - Calls `result.ToByteArray()` to get bytes
+   - Pins bytes and calls Swift's success callback with `(boxPtr, dataPtr, length)`
+   - Swift copies the bytes to create a new Data object
 
 ## References
 

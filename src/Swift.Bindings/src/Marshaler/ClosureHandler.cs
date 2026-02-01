@@ -172,18 +172,11 @@ public class ClosureHandler
         // The C# side provides a synchronous "start" callback that spawns Task.Run,
         // while Swift uses withCheckedThrowingContinuation to create the actual async closure.
         //
-        // LIMITATION: Async+throwing closures returning Foundation.Data are NOT yet supported.
-        // C# async lambdas cannot contain unsafe blocks, and Data requires complex marshalling
-        // to extract bytes and pass to Swift.
-        if (closureTypeSpec.IsAsync && closureTypeSpec.Throws)
-        {
-            if (!closureTypeSpec.ReturnType.IsEmptyTuple &&
-                closureTypeSpec.ReturnType is NamedTypeSpec namedReturn &&
-                (namedReturn.Name == "Foundation.Data" || namedReturn.Name == "Swift.Data"))
-            {
-                return false;
-            }
-        }
+        // Foundation.Data returns are supported via special byte[] marshalling:
+        // 1. User provides Func<Task<Swift.Data>>
+        // 2. C# awaits the task, calls result.ToByteArray()
+        // 3. Pins bytes and calls Swift's success callback with (boxPtr, dataPtr, length)
+        // 4. Swift copies the bytes to create a new Data object
 
         // Plain throwing closures are supported - mapped to SwiftResult<T, SwiftError>
         // Plain async closures are supported via Task-based delegates

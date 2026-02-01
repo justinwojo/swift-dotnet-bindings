@@ -979,8 +979,8 @@ public static class ClosureEmitter
 
         if (isDataReturn)
         {
-            // Data return type - this case is now marked as unsupported in IsSupportedClosure
-            // but we keep the code structure for potential future support
+            // Data return type - user provides Func<Task<Swift.Data>>, we extract bytes and pass to Swift
+            // Use runtime helper to avoid async in unsafe context (the class may be marked unsafe)
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr, IntPtr, nint>((box, dataPtr, len) =>
                     {
@@ -993,49 +993,15 @@ public static class ClosureEmitter
                         fp(box, errPtr);
                     });
 
-                    // Spawn async work using non-unsafe helper
-                    {{callbackName}}_RunAsync(handle, state, continuationBoxPtr, successAction, errorAction);
-                }
-
-                private static void {{callbackName}}_RunAsync(
-                    GCHandle handle,
-                    {{stateType}} state,
-                    IntPtr continuationBoxPtr,
-                    Action<IntPtr, IntPtr, nint> successAction,
-                    Action<IntPtr, IntPtr> errorAction)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var result = await state.AsyncFunc();
-                            // Data marshalling would go here - currently unsupported
-                            throw new NotSupportedException("Async+throwing closures returning Data are not yet supported");
-                        }
-                        catch (Exception ex)
-                        {
-                            var errorBytes = System.Text.Encoding.UTF8.GetBytes(ex.Message + "\0");
-                            var pinnedBytes = GCHandle.Alloc(errorBytes, GCHandleType.Pinned);
-                            try
-                            {
-                                errorAction(continuationBoxPtr, pinnedBytes.AddrOfPinnedObject());
-                            }
-                            finally
-                            {
-                                pinnedBytes.Free();
-                            }
-                        }
-                        finally
-                        {
-                            handle.Free();
-                        }
-                    });
+                    // Spawn async work using runtime helper (avoids async in unsafe class context)
+                    AsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
                 }
                 """);
         }
         else if (hasReturn)
         {
             // Generic return type - success callback takes (boxPtr, resultPtr)
+            // Use runtime helper to avoid async in unsafe context (the class may be marked unsafe)
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr, IntPtr>((box, resultPtr) =>
                     {
@@ -1048,61 +1014,15 @@ public static class ClosureEmitter
                         fp(box, errPtr);
                     });
 
-                    // Spawn async work using non-unsafe helper
-                    {{callbackName}}_RunAsync(handle, state, continuationBoxPtr, successAction, errorAction);
-                }
-
-                private static void {{callbackName}}_RunAsync(
-                    GCHandle handle,
-                    {{stateType}} state,
-                    IntPtr continuationBoxPtr,
-                    Action<IntPtr, IntPtr> successAction,
-                    Action<IntPtr, IntPtr> errorAction)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var result = await state.AsyncFunc();
-
-                            // Marshal result to native buffer and call Swift's success callback
-                            var metadata = TypeMetadata.GetTypeMetadataOrThrow<{{returnCSharpType}}>();
-                            var resultBuffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                            try
-                            {
-                                var resultSpan = new Span<byte>((void*)resultBuffer, (int)metadata.Size);
-                                SwiftMarshal.MarshalToSwift(result, ref resultSpan);
-                                successAction(continuationBoxPtr, resultBuffer);
-                            }
-                            finally
-                            {
-                                NativeMemory.Free((void*)resultBuffer);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            var errorBytes = System.Text.Encoding.UTF8.GetBytes(ex.Message + "\0");
-                            var pinnedBytes = GCHandle.Alloc(errorBytes, GCHandleType.Pinned);
-                            try
-                            {
-                                errorAction(continuationBoxPtr, pinnedBytes.AddrOfPinnedObject());
-                            }
-                            finally
-                            {
-                                pinnedBytes.Free();
-                            }
-                        }
-                        finally
-                        {
-                            handle.Free();
-                        }
-                    });
+                    // Spawn async work using runtime helper (avoids async in unsafe class context)
+                    AsyncClosureHelper.RunAsync(handle, state, continuationBoxPtr, successAction, errorAction);
                 }
                 """);
         }
         else
         {
             // Void return type
+            // Use runtime helper to avoid async in unsafe context (the class may be marked unsafe)
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr>((box) =>
                     {
@@ -1115,42 +1035,8 @@ public static class ClosureEmitter
                         fp(box, errPtr);
                     });
 
-                    // Spawn async work using non-unsafe helper
-                    {{callbackName}}_RunAsync(handle, state, continuationBoxPtr, successAction, errorAction);
-                }
-
-                private static void {{callbackName}}_RunAsync(
-                    GCHandle handle,
-                    {{stateType}} state,
-                    IntPtr continuationBoxPtr,
-                    Action<IntPtr> successAction,
-                    Action<IntPtr, IntPtr> errorAction)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await state.AsyncFunc();
-                            successAction(continuationBoxPtr);
-                        }
-                        catch (Exception ex)
-                        {
-                            var errorBytes = System.Text.Encoding.UTF8.GetBytes(ex.Message + "\0");
-                            var pinnedBytes = GCHandle.Alloc(errorBytes, GCHandleType.Pinned);
-                            try
-                            {
-                                errorAction(continuationBoxPtr, pinnedBytes.AddrOfPinnedObject());
-                            }
-                            finally
-                            {
-                                pinnedBytes.Free();
-                            }
-                        }
-                        finally
-                        {
-                            handle.Free();
-                        }
-                    });
+                    // Spawn async work using runtime helper (avoids async in unsafe class context)
+                    AsyncClosureHelper.RunVoidAsync(handle, state, continuationBoxPtr, successAction, errorAction);
                 }
                 """);
         }
