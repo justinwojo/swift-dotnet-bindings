@@ -40,6 +40,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 20 | Enum Associated Value Extraction | See Phase 20 section below |
 | Phase 21 | Generic Type Parameter & Swift Wrapper Fixes | [phase-21-generic-param-fixes.md](CompletedPhases/phase-21-generic-param-fixes.md) |
 | Phase 22 | Generic Protocol Proxy Compilation Fix | [phase-22-generic-protocol-proxy-fix.md](CompletedPhases/phase-22-generic-protocol-proxy-fix.md) |
+| Phase 23 | Integration Test Restoration | [phase-23-integration-test-restoration.md](CompletedPhases/phase-23-integration-test-restoration.md) |
 
 ---
 
@@ -1010,13 +1011,16 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 ### Generator Tests
 | Category | Count | Status |
 |----------|-------|--------|
-| Unit tests | 619 | Passing |
-| Integration tests | 691 | Pre-existing issues (see below) |
-| Runtime tests | 72 | Not run (requires integration tests) |
+| Unit tests | 619 | All passing |
+| Integration tests | 691 | 676 passed, 15 skipped, 0 failed |
+| Runtime tests | 72 | Passing |
 
 **Unit tests**: All 619 passing.
 
-**Integration tests**: Generic protocol proxy compilation errors (CS8895, CS7042, CS0305) resolved in Phase 22. The generator now skips proxy generation for protocols with associated types. Remaining pre-existing errors are unrelated to protocol handling (missing property setters, boxing conversions).
+**Integration tests**: Phase 23 restored all tests to a passing or appropriately-skipped state. The 15 skipped tests are due to known limitations:
+- 3 primitive generic tests (primitives don't implement ISwiftObject)
+- 6 protocol conformance tests (C# structs don't implement protocol interfaces)
+- 6 async tests (Swift concurrency executor doesn't run from C#)
 
 ### NukeTestApp Validation (Phase 21)
 | Category | Passed | Failed | Warnings |

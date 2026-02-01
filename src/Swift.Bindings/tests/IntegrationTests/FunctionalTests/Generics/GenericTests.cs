@@ -29,13 +29,13 @@ namespace BindingsGeneration.FunctionalTests
             }
         }
 
-        [Fact(Skip = "Primitives don't implement ISwiftObject")]
+        [Fact(Skip = "Primitives cannot implement ISwiftObject interface - requires wrapper types")]
         public void TestFunctionTakesPrimitiveGenericParamsThrows()
         {
             // Test disabled - primitives don't implement ISwiftObject
         }
 
-        [Fact(Skip = "Primitives don't implement ISwiftObject")]
+        [Fact(Skip = "Primitives cannot implement ISwiftObject interface - requires wrapper types")]
         public void TestFunctionTakesPrimitiveGenericParams()
         {
             // Test disabled - primitives don't implement ISwiftObject
@@ -50,7 +50,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(0, result);
         }
 
-        [Fact(Skip = "Primitives don't implement ISwiftObject")]
+        [Fact(Skip = "Primitives cannot implement ISwiftObject interface - requires wrapper types")]
         public void TestFunctionTakesGenericPrimitiveAndReturnsOne()
         {
             // Test disabled - primitives don't implement ISwiftObject
@@ -79,37 +79,37 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(a.Y, result.Y);
         }
 
-        [Fact(Skip = "Protocol conformances not yet implemented on C# structs")]
+        [Fact(Skip = "Protocol conformances not generated on C# structs - requires generator changes")]
         public void TestFunctionTakesGenericParameterConstrainedToProtocol()
         {
             // Test disabled - protocol conformances not yet implemented on C# structs
         }
 
-        [Fact(Skip = "Protocol conformances not yet implemented on C# structs")]
+        [Fact(Skip = "Protocol conformances not generated on C# structs - requires generator changes")]
         public void TestFunctionTakesMultipleGenericParametersOfSameTypeConstrainedToProtocol()
         {
             // Test disabled - protocol conformances not yet implemented on C# structs
         }
 
-        [Fact(Skip = "Protocol conformances not yet implemented on C# structs")]
+        [Fact(Skip = "Protocol conformances not generated on C# structs - requires generator changes")]
         public void TestFunctionTakesGenericParameterConstrainedToMultipleProtocols()
         {
             // Test disabled - protocol conformances not yet implemented on C# structs
         }
 
-        [Fact(Skip = "Protocol conformances not yet implemented on C# structs")]
+        [Fact(Skip = "Protocol conformances not generated on C# structs - requires generator changes")]
         public void TestFunctionTakesMultipleGenericParametersConstrainedToMultipleProtocols()
         {
             // Test disabled - protocol conformances not yet implemented on C# structs
         }
 
-        [Fact(Skip = "Protocol conformances not yet implemented on C# structs")]
+        [Fact(Skip = "Protocol conformances not generated on C# structs - requires generator changes")]
         public void TestFunctionTakesMultipleGenericParametersOfDifferentTypesConstrainedByTheSameProtocol()
         {
             // Test disabled - protocol conformances not yet implemented on C# structs
         }
 
-        [Fact(Skip = "Protocol conformances not yet implemented on C# structs")]
+        [Fact(Skip = "Protocol conformances not generated on C# structs - requires generator changes")]
         public void TestFunctionWithGenericParamConstrainedToPAT()
         {
             // Test disabled - protocol conformances not yet implemented on C# structs

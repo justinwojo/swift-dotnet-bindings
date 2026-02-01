@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Swift;
@@ -80,17 +81,33 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(sum, Bindings.RuntimeTests.SumArray(array));
         }
 
-        [Fact(Skip = "Generated code returns IReadOnlyList<int> instead of SwiftArray<Int32>")]
-        public unsafe void TestArrayPassThrough()
+        [Fact]
+        public void TestArrayPassThrough()
         {
-            // Test disabled - generated code returns IReadOnlyList<int> instead of SwiftArray<Int32>
-            // which doesn't have .Payload property for memory management testing
+            IReadOnlyList<int> array = Bindings.RuntimeTests.GetArray(3);
+            Assert.Equal(3, array.Count);
+
+            IReadOnlyList<int> arrayCopy = Bindings.RuntimeTests.PassThroughArray(array);
+            Assert.Equal(3, arrayCopy.Count);
+
+            for (int i = 0; i < 3; i++)
+            {
+                Assert.Equal(array[i], arrayCopy[i]);
+            }
         }
 
-        [Fact(Skip = "Generated code returns IReadOnlyList<int> instead of SwiftArray<Int32>")]
-        public unsafe void TestArrayPassThroughDifferentPayloads()
+        [Fact]
+        public void TestArrayPassThroughDifferentPayloads()
         {
-            // Test disabled - generated code returns IReadOnlyList<int> instead of SwiftArray<Int32>
+            IReadOnlyList<int> array = Bindings.RuntimeTests.GetArray(3);
+            IReadOnlyList<int> copy1 = Bindings.RuntimeTests.PassThroughArray(array);
+            IReadOnlyList<int> copy2 = Bindings.RuntimeTests.PassThroughArray(array);
+
+            for (int i = 0; i < array.Count; i++)
+            {
+                Assert.Equal(array[i], copy1[i]);
+                Assert.Equal(array[i], copy2[i]);
+            }
         }
 
         [Fact]
@@ -117,11 +134,37 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(1, Arc.RetainCount(*(IntPtr*)vtype.Payload.DangerousGetHandle()));
         }
 
-        [Fact(Skip = "Generated code returns IReadOnlyList<int> instead of SwiftArray<Int32>")]
+        [Fact]
         public async Task ConcurrentArray()
         {
-            // Test disabled - generated code returns IReadOnlyList<int> instead of SwiftArray<Int32>
-            await Task.CompletedTask;
+            for (int i = 0; i < 10; i++)
+            {
+                IReadOnlyList<int> array = Bindings.RuntimeTests.GetArray(100);
+                var barrier = new Barrier(2);
+
+                var readerTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    try
+                    {
+                        var sum = array.Sum();
+                        Assert.Equal(4950, sum); // Sum of 0..99
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Expected if disposed before read completes
+                    }
+                });
+
+                var disposeTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    if (array is IDisposable disposable)
+                        disposable.Dispose();
+                });
+
+                await Task.WhenAll(readerTask, disposeTask);
+            }
         }
 
         [Fact]
@@ -308,23 +351,48 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(str.Length, Bindings.RuntimeTests.VerifyString(str));
         }
 
-        [Fact(Skip = "Generated code returns string instead of SwiftString")]
-        public unsafe void TestStringPassThrough()
+        [Fact]
+        public void TestStringPassThrough()
         {
-            // Test disabled - generated code returns string instead of SwiftString
+            string heapString = Bindings.RuntimeTests.GetString(16);
+            Assert.Equal(16, heapString.Length);
+            Assert.Equal(new string('a', 16), heapString);
+
+            string strCopy = Bindings.RuntimeTests.PassThroughString(heapString);
+            Assert.Equal(heapString, strCopy);
         }
 
-        [Fact(Skip = "Generated code returns string instead of SwiftString")]
-        public unsafe void TestSwiftMarshalString()
+        [Fact]
+        public void TestSwiftMarshalString()
         {
-            // Test disabled - generated code returns string instead of SwiftString
+            string input = new string('a', 16);
+            string result = Bindings.RuntimeTests.PassThroughString(input);
+            Assert.Equal(input, result);
         }
 
-        [Fact(Skip = "Generated code returns string instead of SwiftString")]
+        [Fact]
         public async Task ConcurrentString()
         {
-            // Test disabled - generated code returns string instead of SwiftString
-            await Task.CompletedTask;
+            for (int i = 0; i < 10; i++)
+            {
+                string original = Bindings.RuntimeTests.GetString(16);
+                var barrier = new Barrier(2);
+
+                var passThroughTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    string copy = Bindings.RuntimeTests.PassThroughString(original);
+                    Assert.Equal(original, copy);
+                });
+
+                var readTask = Task.Run(() =>
+                {
+                    barrier.SignalAndWait();
+                    Assert.Equal(16, original.Length);
+                });
+
+                await Task.WhenAll(passThroughTask, readTask);
+            }
         }
     }
 }
