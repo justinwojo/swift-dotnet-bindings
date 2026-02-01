@@ -86,7 +86,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
-            // Emit helper struct for tracking retained self pointers in async operations
+            // Emit helper structs for tracking retained self pointers in async operations
             csWriter.WriteLines("""
                 /// <summary>
                 /// Wraps a retained Swift class pointer for async operations.
@@ -97,6 +97,17 @@ namespace BindingsGeneration
                 {
                     public readonly IntPtr Ptr;
                     public RetainedSelfPtr(IntPtr ptr) => Ptr = ptr;
+                }
+
+                /// <summary>
+                /// Wraps a SafeHandle that needs DangerousRelease() called after async completion.
+                /// Used for async instance methods on structs where the SafeHandle must stay alive
+                /// until the Swift async operation completes.
+                /// </summary>
+                internal readonly struct DeferredSafeHandleRelease
+                {
+                    public readonly SafeHandle Handle;
+                    public DeferredSafeHandleRelease(SafeHandle handle) => Handle = handle;
                 }
 
                 """);

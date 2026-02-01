@@ -1297,8 +1297,8 @@ namespace BindingsGeneration
                 }
                 else if (isInstanceMethod)
                 {
-                    // For structs, just keep 'this' alive (no Arc needed)
-                    selfInHolder = ", (object)this";
+                    // For structs, keep 'this' alive and defer SafeHandle release until callback
+                    selfInHolder = ", new DeferredSafeHandleRelease(_payload), (object)this";
                 }
                 else
                 {
@@ -1327,9 +1327,10 @@ namespace BindingsGeneration
                 }
                 else
                 {
+                    // For structs, keep 'this' alive and defer SafeHandle release until callback
                     csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            object[] _asyncCallHolder = new object[] { task, (object)this };
+            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -1505,8 +1506,17 @@ namespace BindingsGeneration
             }
             else if (isAsyncInstanceMethod)
             {
-                // Non-singleton async instance method: convert _self pointer to class reference
-                selfConversion = $"let __self = unsafeBitCast(_self, to: {parentTypeName.ModuleQualifiedName}.self)";
+                // Non-singleton async instance method: convert _self pointer to type reference
+                if (isSwiftClass)
+                {
+                    // For classes: the pointer IS the object reference, use unsafeBitCast
+                    selfConversion = $"let __self = unsafeBitCast(_self, to: {parentTypeName.ModuleQualifiedName}.self)";
+                }
+                else
+                {
+                    // For structs: the pointer points TO the struct data, dereference it
+                    selfConversion = $"let __self = UnsafePointer<{parentTypeName.ModuleQualifiedName}>(_self).pointee";
+                }
                 methodCallPrefix = "__self.";
             }
             else
@@ -1935,9 +1945,20 @@ namespace BindingsGeneration
         /// Frozen structs are passed as lowered buffers, so explicit release is needed.
         /// Non-frozen structs are passed as SafeHandle, so reference counting is managed automatically.
         /// Generics are copied prior to the call via MarshalToSwift, no ref counting is needed on a copy; Destroy is called on the copy.
+        ///
+        /// For async instance methods, DangerousRelease is deferred until the async callback fires.
+        /// This prevents the SafeHandle from being released while the Swift async Task is still running.
         /// </summary>
         private void EmitSafeHandleRelease(CSharpWriter csWriter)
         {
+            // For async instance methods, skip immediate release - the callback will handle it
+            // via DeferredSafeHandleRelease stored in the async holder
+            if (_env.MethodDecl.IsAsync && _env.MethodDecl.MethodType != MethodType.Static && !_env.MethodDecl.IsConstructor)
+            {
+                // Async instance methods defer release to callback
+                return;
+            }
+
             if (_env.MethodDecl.MethodType != MethodType.Static && !_env.MethodDecl.IsConstructor)
             {
                 if (_env.ParentDecl is StructDecl structDecl)
@@ -2447,6 +2468,11 @@ namespace BindingsGeneration
                                             // Release the extra retain added for async safety
                                             Arc.Release(retained.Ptr);
                                         }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            // Release the SafeHandle that was kept alive for async safety
+                                            deferred.Handle.DangerousRelease();
+                                        }
                                         else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
                                         {
                                             NativeMemory.Free((void*)copyBuffer);
@@ -2484,6 +2510,11 @@ namespace BindingsGeneration
                                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
                                         {
                                             Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            // Release the SafeHandle that was kept alive for async safety
+                                            deferred.Handle.DangerousRelease();
                                         }
                                         else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
                                         {
@@ -2576,6 +2607,11 @@ namespace BindingsGeneration
                                         {
                                             Arc.Release(retained.Ptr);
                                         }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            // Release the SafeHandle that was kept alive for async safety
+                                            deferred.Handle.DangerousRelease();
+                                        }
                                         else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
                                         {
                                             NativeMemory.Free((void*)copyBuffer);
@@ -2613,6 +2649,11 @@ namespace BindingsGeneration
                                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
                                         {
                                             Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            // Release the SafeHandle that was kept alive for async safety
+                                            deferred.Handle.DangerousRelease();
                                         }
                                         else if (holder[i] is IntPtr copyBuffer && copyBuffer != IntPtr.Zero)
                                         {

@@ -33,13 +33,17 @@ namespace BindingsGeneration.FunctionalTests
                 InitializeResources();
             }
 
+            [DllImport("Async/libAsyncTests.dylib", CallingConvention = CallingConvention.Cdecl)]
+            private static extern void AsyncTests_InitializeConcurrency();
+
             private static void InitializeResources()
             {
-                // Initialize
+                // Initialize Swift concurrency hook to enable async interop
+                AsyncTests_InitializeConcurrency();
             }
         }
 
-        [Fact(Skip = "Swift concurrency executor doesn't run when called from C# - requires runtime initialization")]
+        [Fact]
         public async Task TestInstanceMethods()
         {
             var myStruct = new Bindings.AsyncStruct(42);
@@ -57,7 +61,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.True(stopwatch.Elapsed.TotalSeconds >= seconds);
         }
 
-        [Fact(Skip = "Swift concurrency executor doesn't run when called from C# - requires runtime initialization")]
+        [Fact]
         public async Task TestStaticMethods()
         {
             var stopwatch = Stopwatch.StartNew();
@@ -87,7 +91,7 @@ namespace BindingsGeneration.FunctionalTests
             await Task.CompletedTask;
         }
 
-        [Fact(Skip = "Swift concurrency executor doesn't run when called from C# - requires runtime initialization")]
+        [Fact(Skip = "Async callback marshalling: Cannot marshal Array/String return types from Swift in async callbacks")]
         public async Task TestArray()
         {
             var myStruct = new Bindings.AsyncStruct(0);
@@ -104,7 +108,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal("three", result[2].ToString());
         }
 
-        [Fact(Skip = "Swift concurrency executor doesn't run when called from C# - requires runtime initialization")]
+        [Fact(Skip = "Async callback marshalling: Cannot marshal Array/String return types from Swift in async callbacks")]
         public async Task TestString()
         {
             var myStruct = new Bindings.AsyncStruct(0);
