@@ -1,0 +1,7 @@
+<Project>
+  <!-- Stop traversal and don't use Arcade SDK for test projects here -->
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <UseArcadeSDK>false</UseArcadeSDK>
+  </PropertyGroup>
+</Project>
