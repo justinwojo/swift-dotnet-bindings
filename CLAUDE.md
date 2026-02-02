@@ -54,7 +54,7 @@ When making architectural decisions or prioritizing work, refer to the north sta
 - **Phase 2**: Type system completeness - existentials, generics, protocols
 - **Phase 3**: Developer experience - MSBuild SDK, project templates, NuGet automation
 
-See also: `/src/docs/nuke-binding-roadmap.md` for real-world gap tracking from Nuke library testing.
+See also: `/src/docs/CURRENT-STATUS.md` for current compilation status and remaining gaps.
 
 ## Repository Structure
 
@@ -163,17 +163,33 @@ Output: NuGet package with C# bindings
 
 ## Current Capabilities
 
+**Status** (February 2026 - Phase 39):
+- **Unit Tests**: 1009 passed
+- **Nuke**: 0 errors ✅ (runtime validated)
+- **BlinkID**: 0 errors ✅
+- **Lottie**: 11 errors (architectural gaps)
+
 **Working**:
-- Classes, structs (frozen and non-frozen), basic enums
-- Instance and static methods, properties
+- Classes, structs (frozen and non-frozen), enums (with associated values)
+- Instance and static methods, properties (getters)
 - Async methods (via Swift wrapper generation)
-- Protocol conformance (basic)
-- Generics (bound generics, limited)
+- Protocols (interfaces + proxy generation for C# implementations)
+- Generics (bound generics, generic enums, generic types with DllImport)
 - SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>
 - Closures (`@convention(c)` and `@escaping` with frozen types)
 - Tuples (1-7 elements with frozen types)
 - Operators (arithmetic, comparison, bitwise, unary; automatic pair synthesis)
+- Existential containers (protocol composition types)
+- Binding completeness report (`binding-report.json`)
+- `[UnsupportedSwiftType]` attribute on degraded members
 - StoreKit 2 bindings (published as experimental NuGet)
+
+**Not Working**:
+- Property setters (only getters emitted)
+- Async properties
+- SwiftUI/Combine framework types (skipped)
+- Protocol conformance emission (types don't implement protocol interfaces)
+- Actors
 
 **Example Usage** (from README):
 ```csharp
