@@ -82,65 +82,83 @@ namespace BindingsGeneration
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
-            var interfaces = new List<string> {
-                typeof(ISwiftObject).Name,
-            };
-            if (implementsEquatable)
-            {
-                interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
-            }
-            var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
-            if (!string.IsNullOrEmpty(whereClause))
-                classDeclaration += $" {whereClause}";
-            csWriter.WriteLine(classDeclaration);
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
+            // Create P/Invoke helper context for generic types (to avoid CS7042)
+            // Set it on the conductor so nested method handlers can access it
+            var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
+            var previousContext = conductor.CurrentPInvokeHelperContext;
+            conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
 
-            foreach (PropertyDecl propertyDecl in structDecl.Properties)
+            try
             {
-                if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                var interfaces = new List<string> {
+                    typeof(ISwiftObject).Name,
+                };
+                if (implementsEquatable)
                 {
-                    var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
-                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                    interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
                 }
-                else
-                    _logger.LogWarning($"No handler found for field {propertyDecl.Name}");
-            }
 
-            WritePrivateFields(csWriter, structDecl);
-            WritePayload(csWriter, structDecl);
+                var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                if (!string.IsNullOrEmpty(whereClause))
+                    classDeclaration += $" {whereClause}";
+                csWriter.WriteLine(classDeclaration);
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
 
-            // Emit operators
-            var operatorHandler = new OperatorHandler(_logger);
-            foreach (var operatorDecl in structDecl.Operators)
-            {
-                if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
+                foreach (PropertyDecl propertyDecl in structDecl.Properties)
                 {
-                    operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase);
+                    if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                    {
+                        var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                        propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                    }
+                    else
+                        _logger.LogWarning($"No handler found for field {propertyDecl.Name}");
                 }
+
+                WritePrivateFields(csWriter, structDecl);
+                WritePayload(csWriter, structDecl);
+
+                // Emit operators (operators also have P/Invoke - need to handle for generic types)
+                var operatorHandler = new OperatorHandler(_logger);
+                foreach (var operatorDecl in structDecl.Operators)
+                {
+                    if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
+                    {
+                        operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext);
+                    }
+                }
+                // Handle paired operators (e.g., if == is defined but != is not)
+                // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
+                operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, typeNameWithGenerics);
+
+                // Add Equatable support if the struct conforms to Equatable
+                SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
+                ISwiftObjectMethodWriter.WriteNonFrozenStructImplementation(pinvokeHelperContext);
+
+                csWriter.WriteLine();
+
+                // Collect property names for method/property collision detection
+                // Include nested type names and containing type name for consistent naming with PropertyHandler
+                var nestedTypeNames = new HashSet<string>(structDecl.Types.Select(t => t.Name));
+                var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
+                    NameProvider.GetPropertyName(p.Name, nestedTypeNames, structDecl.Name)));
+
+                base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
+                base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, propertyNames, pinvokeHelperContext);
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Emit the P/Invoke helper class after the main class
+                pinvokeHelperContext?.EmitHelperClass(csWriter);
             }
-            // Handle paired operators (e.g., if == is defined but != is not)
-            // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
-            operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, typeNameWithGenerics);
-
-            // Add Equatable support if the struct conforms to Equatable
-            SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
-            ISwiftObjectMethodWriter.WriteNonFrozenStructImplementation();
-
-            csWriter.WriteLine();
-
-            // Collect property names for method/property collision detection
-            // Include nested type names and containing type name for consistent naming with PropertyHandler
-            var nestedTypeNames = new HashSet<string>(structDecl.Types.Select(t => t.Name));
-            var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
-                NameProvider.GetPropertyName(p.Name, nestedTypeNames, structDecl.Name)));
-
-            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, propertyNames);
-
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
+            finally
+            {
+                // Restore the previous context
+                conductor.CurrentPInvokeHelperContext = previousContext;
+            }
         }
 
         /// <summary>

@@ -25,6 +25,14 @@ namespace BindingsGeneration
         private readonly List<IArgumentHandlerFactory> _argumentHandlerFactories;
 
         /// <summary>
+        /// Gets or sets the current P/Invoke helper context for generic types.
+        /// This is set by type handlers when processing a generic type, and cleared afterward.
+        /// Used to collect P/Invoke declarations that need to be emitted in a separate helper class
+        /// to avoid CS7042 (DllImport in generic type).
+        /// </summary>
+        public PInvokeHelperContext? CurrentPInvokeHelperContext { get; set; }
+
+        /// <summary>
         /// Initializes a new instance of the Conductor class and loads all handler factories.
         /// </summary>
         public Conductor(ILoggerFactory loggerFactory)

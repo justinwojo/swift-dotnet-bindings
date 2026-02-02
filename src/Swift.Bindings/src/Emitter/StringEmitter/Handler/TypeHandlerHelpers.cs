@@ -28,43 +28,69 @@ namespace BindingsGeneration
         /// <summary>
         /// Writes the implementation for ISwiftObject methods for non-frozen structs.
         /// </summary>
-        public void WriteNonFrozenStructImplementation()
+        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
+        public void WriteNonFrozenStructImplementation(PInvokeHelperContext? pinvokeHelperContext = null)
         {
-            WriteGetTypeMetadata();
+            WriteGetTypeMetadata(pinvokeHelperContext);
             WriteNewFromPayloadNonFrozenStruct();
             WriteMarshalToSwiftNonFrozenStruct();
-            WriteGetProtocolConformanceDescriptor();
+            WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
         }
 
         /// <summary>
         /// Writes the implementation for ISwiftObject methods for frozen structs.
         /// </summary>
-        public void WriteFrozenStructImplementation()
+        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
+        public void WriteFrozenStructImplementation(PInvokeHelperContext? pinvokeHelperContext = null)
         {
-            WriteGetTypeMetadata();
+            WriteGetTypeMetadata(pinvokeHelperContext);
             WriteNewFromPayloadFrozenStruct();
             WriteMarshalToSwiftFrozenStruct();
-            WriteGetProtocolConformanceDescriptor();
+            WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
         }
 
         /// <summary>
         /// Writes the GetTypeMetadata method for the struct along with the PInvoke method.
         /// </summary>
-        private void WriteGetTypeMetadata()
+        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
+        private void WriteGetTypeMetadata(PInvokeHelperContext? pinvokeHelperContext)
         {
-            _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
-            _writer.WriteLine();
-
             string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
 
-            var pinvokeText = $$"""
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("{{libPath}}", EntryPoint = "{{_structDecl.MetadataAccessor}}")]
-            internal static extern TypeMetadata PInvoke_getMetadata();
-            """;
+            if (pinvokeHelperContext != null)
+            {
+                // For generic types, call the helper class with type metadata arguments
+                var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
+                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({metadataArgs});");
+                _writer.WriteLine();
 
-            _writer.WriteLines(pinvokeText);
-            _writer.WriteLine();
+                // Add the P/Invoke declaration to the helper context
+                var declaration = new PInvokeDeclaration
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = _structDecl.MetadataAccessor,
+                    MethodName = "PInvoke_getMetadata",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "",
+                    IsAsync = false,
+                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                };
+                pinvokeHelperContext.AddDeclaration(declaration);
+            }
+            else
+            {
+                _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+                _writer.WriteLine();
+
+                var pinvokeText = $$"""
+                [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+                [DllImport("{{libPath}}", EntryPoint = "{{_structDecl.MetadataAccessor}}")]
+                internal static extern TypeMetadata PInvoke_getMetadata();
+                """;
+
+                _writer.WriteLines(pinvokeText);
+                _writer.WriteLine();
+            }
         }
 
         /// <summary>
@@ -241,10 +267,12 @@ namespace BindingsGeneration
         /// <summary>
         /// Writes the GetProtocolConformanceDescriptor method for the struct.
         /// </summary>
-        private void WriteGetProtocolConformanceDescriptor()
+        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context (unused, for API consistency).</param>
+        private void WriteGetProtocolConformanceDescriptor(PInvokeHelperContext? pinvokeHelperContext)
         {
             WriteStaticConstructor();
             var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            // Note: LoadFromSymbol is a runtime call, not a DllImport, so no helper class needed
             var text = $$"""
             static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
                 where TProtocol : class

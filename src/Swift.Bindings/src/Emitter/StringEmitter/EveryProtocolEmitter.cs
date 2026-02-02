@@ -598,8 +598,30 @@ public class EveryProtocolEmitter
     {
         if (typeSpec == null) return "Any";
 
+        // Handle ProtocolListTypeSpec (protocol composition types)
+        // An empty protocol list represents "Any" in Swift
+        if (typeSpec is ProtocolListTypeSpec protocolList)
+        {
+            if (protocolList.Protocols.Count == 0)
+                return "Any";
+            if (protocolList.Protocols.Count == 1)
+                return $"any {protocolList.Protocols.Keys.First().Name}";
+            // Multiple protocols: any P1 & P2 & P3
+            var protocolNames = string.Join(" & ", protocolList.Protocols.Keys.Select(p => p.Name));
+            return $"any {protocolNames}";
+        }
+
         if (typeSpec is NamedTypeSpec namedType)
         {
+            // Check for generic type parameters first (τ_0_0, T, Element, etc.)
+            // These can't be resolved to concrete types, so use Any
+            if (IsGenericTypeParameter(namedType.Name))
+                return "Any";
+
+            // Handle metatype patterns like "any Any.Type" or "Any.Type"
+            if (namedType.Name == "any Any.Type" || namedType.Name == "Any.Type")
+                return "Any.Type";
+
             // Handle existential types (any Protocol)
             var anyPrefix = namedType.IsAny ? "any " : "";
 
@@ -654,6 +676,14 @@ public class EveryProtocolEmitter
 
         return typeSpec.ToString() ?? "Any";
     }
+
+    /// <summary>
+    /// Checks if a type name represents a generic type parameter.
+    /// Swift generic type parameters appear as τ_0_0, τ_0_1, etc., or as simple names like T, U, Element.
+    /// Delegates to the shared TypeSpecHelpers.IsGenericTypeParameter method.
+    /// </summary>
+    private static bool IsGenericTypeParameter(string typeName) =>
+        TypeSpecHelpers.IsGenericTypeParameter(typeName);
 
     /// <summary>
     /// Gets the Swift type name suitable for use with .self metatype access.

@@ -73,7 +73,8 @@ namespace BindingsGeneration
     /// <param name="methodDecl">The method declaration.</param>
     /// <param name="typeDatabase">The type database instance.</param>
     /// <param name="siblingPropertyNames">Optional set of property names in the same type, used for collision detection.</param>
-    public class MethodEnvironment(MethodDecl methodDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null) : IEnvironment
+    /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types (to avoid CS7042).</param>
+    public class MethodEnvironment(MethodDecl methodDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null, PInvokeHelperContext? pinvokeHelperContext = null) : IEnvironment
     {
         /// <summary>
         /// Gets the method declaration.
@@ -130,6 +131,17 @@ namespace BindingsGeneration
         /// Gets the C# method name, resolving any collisions with property names.
         /// </summary>
         public string CSharpMethodName => NameProvider.GetMethodName(MethodDecl.Name, SiblingPropertyNames);
+
+        /// <summary>
+        /// Gets the P/Invoke helper context for collecting P/Invoke declarations in generic types.
+        /// When non-null, P/Invoke declarations are collected here instead of emitted inline (to avoid CS7042).
+        /// </summary>
+        public PInvokeHelperContext? PInvokeHelperContext { get; } = pinvokeHelperContext;
+
+        /// <summary>
+        /// Indicates whether the containing type is generic and P/Invoke must be emitted in a helper class.
+        /// </summary>
+        public bool IsContainingTypeGeneric => PInvokeHelperContext != null;
     }
 
     /// <summary>

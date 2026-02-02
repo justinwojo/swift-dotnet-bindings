@@ -377,28 +377,10 @@ public class ClosureHandler
     /// <summary>
     /// Checks if a type name represents a generic type parameter.
     /// Swift generic type parameters appear as τ_0_0, τ_0_1, etc., or as simple names like T, U, Element.
+    /// Delegates to the shared TypeSpecHelpers.IsGenericTypeParameter method.
     /// </summary>
-    private static bool IsGenericTypeParameter(string typeName)
-    {
-        // Swift internal generic parameter notation: τ_0_0, τ_0_1, τ_1_0, etc.
-        if (typeName.StartsWith("τ_"))
-            return true;
-
-        // Check for simple generic parameter names (single letters or common names without module qualifier)
-        // These would not have a dot in them and would typically be short
-        if (!typeName.Contains('.') && typeName.Length <= 10)
-        {
-            // Common single-letter generic parameters
-            if (typeName is "T" or "U" or "V" or "W" or "E" or "K" or "R" or "S")
-                return true;
-
-            // Common named generic parameters
-            if (typeName is "Element" or "Key" or "Value" or "Index" or "Result" or "Failure" or "Success")
-                return true;
-        }
-
-        return false;
-    }
+    private static bool IsGenericTypeParameter(string typeName) =>
+        TypeSpecHelpers.IsGenericTypeParameter(typeName);
 
     /// <summary>
     /// Checks if a generic type is supported in closures.

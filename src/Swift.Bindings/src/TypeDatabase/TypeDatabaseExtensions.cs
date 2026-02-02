@@ -36,6 +36,12 @@ public static class TypeDatabaseExtensions
     /// <returns>True if the type has been processed; otherwise, false.</returns>
     public static bool IsTypeProcessed(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
+        // Generic type parameters are handled as AnyType (considered "processed")
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
+        {
+            return true;
+        }
+
         // Existential types (any X) are handled separately, not processed as regular types
         if (IsExistentialTypeName(typeSpec))
         {
@@ -71,6 +77,13 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrAnyType(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
+        // Generic type parameters (τ_0_0, T, Element, etc.) should return AnyType
+        // since their concrete types aren't known at binding generation time
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
+        {
+            return AnyType;
+        }
+
         // Existential types (any X) return AnyType
         if (IsExistentialTypeName(typeSpec))
         {
@@ -124,6 +137,13 @@ public static class TypeDatabaseExtensions
     /// <returns>True if the type record was found; otherwise, false.</returns>
     public static bool TryGetTypeRecord(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(returnValue: true)] out TypeRecord? record)
     {
+        // Generic type parameters return AnyType
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
+        {
+            record = AnyType;
+            return true;
+        }
+
         // Existential types (any X) return AnyType
         if (IsExistentialTypeName(typeSpec))
         {
@@ -143,6 +163,12 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrThrow(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
+        // Generic type parameters return AnyType (they can't be resolved to concrete types)
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
+        {
+            return AnyType;
+        }
+
         // Existential types (any X) return AnyType
         if (IsExistentialTypeName(typeSpec))
         {
@@ -252,6 +278,14 @@ public static class TypeDatabaseExtensions
         if (typeSpec.Name == "any" || typeSpec.Name.StartsWith("any "))
         {
             return true;
+        }
+
+        // Don't classify generic type parameters as existential types.
+        // Generic parameters (τ_0_0, T, Element, etc.) are unbound type parameters
+        // that should be handled by the generic type system, not as existentials.
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
+        {
+            return false;
         }
 
         // Check if this is a type name without a module qualifier (no dot)

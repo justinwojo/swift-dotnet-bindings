@@ -1,5 +1,9 @@
 import Lottie
 import Foundation
+import CoreFoundation
+import CoreGraphics
+import CoreText
+import QuartzCore
 
 // EveryProtocol is a Swift class that can conform to any protocol.
 // Protocol method implementations call back to C# via vtable function pointers.
@@ -351,12 +355,12 @@ private var _anyValueProvider_vtable = AnyValueProvider_vtable()
 
 // EveryProtocol conformance to AnyValueProvider
 extension EveryProtocol: Lottie.AnyValueProvider {
-    public var valueType: any Any.Type {
+    public var valueType: Any.Type {
         get {
             var selfProto: Lottie.AnyValueProvider = self
             let resultPtr = _anyValueProvider_vtable.func_valueType_get!(
                 _anyValueProvider_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: (any Any.Type).self).pointee
+            return resultPtr.assumingMemoryBound(to: Any.Type.self).pointee
         }
     }
     
@@ -377,12 +381,12 @@ extension EveryProtocol: Lottie.AnyValueProvider {
             return resultPtr.assumingMemoryBound(to: Swift.Bool.self).pointee
     }
     
-    public func value(frame: CoreGraphics.CGFloat) ->  {
+    public func value(frame: CoreGraphics.CGFloat) -> Any {
             var selfProto: Lottie.AnyValueProvider = self
             var frameCopy = frame
                 let resultPtr = _anyValueProvider_vtable.func_value_1!(
                 _anyValueProvider_vtable.csVTHandle, &selfProto, &frameCopy)
-            return resultPtr.assumingMemoryBound(to: .self).pointee
+            return resultPtr.assumingMemoryBound(to: Any.self).pointee
     }
     
 }
@@ -536,16 +540,16 @@ private var _interpolatable_vtable = Interpolatable_vtable()
 
 // EveryProtocol conformance to Interpolatable
 extension EveryProtocol: Lottie.Interpolatable {
-    public func interpolate(to: τ_0_0, amount: CoreGraphics.CGFloat) -> τ_0_0 {
+    public func interpolate(to: Any, amount: CoreGraphics.CGFloat) -> Any {
             var selfProto: Lottie.Interpolatable = self
             var toCopy = to
                 var amountCopy = amount
                 let resultPtr = _interpolatable_vtable.func_interpolate_0!(
                 _interpolatable_vtable.csVTHandle, &selfProto, &toCopy, &amountCopy)
-            return resultPtr.assumingMemoryBound(to: τ_0_0.self).pointee
+            return resultPtr.assumingMemoryBound(to: Any.self).pointee
     }
     
-    public func _interpolate(to: τ_0_0, amount: CoreGraphics.CGFloat, spatialOutTangent: (CoreFoundation.CGPoint)?, spatialInTangent: (CoreFoundation.CGPoint)?) -> τ_0_0 {
+    public func _interpolate(to: Any, amount: CoreGraphics.CGFloat, spatialOutTangent: (CoreFoundation.CGPoint)?, spatialInTangent: (CoreFoundation.CGPoint)?) -> Any {
             var selfProto: Lottie.Interpolatable = self
             var toCopy = to
                 var amountCopy = amount
@@ -553,7 +557,7 @@ extension EveryProtocol: Lottie.Interpolatable {
                 var spatialInTangentCopy = spatialInTangent
                 let resultPtr = _interpolatable_vtable.func__interpolate_1!(
                 _interpolatable_vtable.csVTHandle, &selfProto, &toCopy, &amountCopy, &spatialOutTangentCopy, &spatialInTangentCopy)
-            return resultPtr.assumingMemoryBound(to: τ_0_0.self).pointee
+            return resultPtr.assumingMemoryBound(to: Any.self).pointee
     }
     
 }
@@ -593,7 +597,7 @@ private var _spatialInterpolatable_vtable = SpatialInterpolatable_vtable()
 
 // EveryProtocol conformance to SpatialInterpolatable
 extension EveryProtocol: Lottie.SpatialInterpolatable {
-    public func interpolate(to: τ_0_0, amount: CoreGraphics.CGFloat, spatialOutTangent: (CoreFoundation.CGPoint)?, spatialInTangent: (CoreFoundation.CGPoint)?) -> τ_0_0 {
+    public func interpolate(to: Any, amount: CoreGraphics.CGFloat, spatialOutTangent: (CoreFoundation.CGPoint)?, spatialInTangent: (CoreFoundation.CGPoint)?) -> Any {
             var selfProto: Lottie.SpatialInterpolatable = self
             var toCopy = to
                 var amountCopy = amount
@@ -601,7 +605,7 @@ extension EveryProtocol: Lottie.SpatialInterpolatable {
                 var spatialInTangentCopy = spatialInTangent
                 let resultPtr = _spatialInterpolatable_vtable.func_interpolate_0!(
                 _spatialInterpolatable_vtable.csVTHandle, &selfProto, &toCopy, &amountCopy, &spatialOutTangentCopy, &spatialInTangentCopy)
-            return resultPtr.assumingMemoryBound(to: τ_0_0.self).pointee
+            return resultPtr.assumingMemoryBound(to: Any.self).pointee
     }
     
 }
@@ -666,7 +670,7 @@ public func getEveryProtocolAnyInterpolatableWitnessTable() -> UnsafeRawPointer 
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom4data8filename13dispatchQueueAC10Foundation4DataV_SSSo03OS_H6_queueCtYaKFZ_async")
-    public static func PInvoke_loadedFrom_5968983B(callback: @escaping @convention(c) (Lottie.DotLottieFile, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_06F584CA(callback: @escaping @convention(c) (Lottie.DotLottieFile, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let dispatchQueueValue = dispatchQueue.assumingMemoryBound(to: Dispatch.DispatchQueue.self).pointee

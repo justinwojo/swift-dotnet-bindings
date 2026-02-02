@@ -48,6 +48,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 28 | Async+Throwing Closures Support | [phase-28-async-throwing-closures.md](phase-28-async-throwing-closures.md) |
 | Phase 29 | ExistentialContainer Workaround (ImageRequestFactory) | See Phase 29 section below |
 | Phase 30 | Generic Operator & Member Collision Fixes | See Phase 30 section below |
+| Phase 31 | Generic DllImport, Protocol Proxy & AnyType Fixes | See Phase 31 section below |
 
 ---
 
@@ -64,10 +65,13 @@ The following phases have been completed. See individual documents for details:
 - P/Invoke declarations with Swift calling convention
 - Operators on generic types with correct type parameters (Phase 30)
 - Member name collision detection (Phase 30)
+- Generic types with DllImport via helper classes (Phase 31)
+- Protocol proxy generation with full framework imports (Phase 31)
+- Generic type parameter handling in TypeDatabase (Phase 31)
 - **0 compilation errors** (down from 95+)
-- **902 unit tests passing**
+- **935 unit tests passing**
 - **Integration tests**: 678 passed, 13 skipped (known limitations)
-- **100% runtime validation pass rate** (30/30 tests in NukeTestApp)
+- **100% runtime validation pass rate** (34/34 tests in NukeTestApp)
 - **Cross-library validated**: BlinkID (0 errors), Lottie (0 errors)
 
 **Runtime validated** (Phase 15.4):
@@ -103,7 +107,7 @@ Initial binding generation (before any phases) revealed these gap categories:
 
 **Initial result**: Generated 417KB of C# bindings with 52 types, but many methods/properties skipped.
 
-**Current result** (after 28 phases): ~18,400+ lines of C# code, 30+ classes, 8 protocols. Only 2 items skipped:
+**Current result** (after 31 phases): ~18,400+ lines of C# code, 30+ classes, 8 protocols. Only 2 items skipped:
 - 2 methods returning Combine `AnyPublisher` (out of scope - reactive framework)
 
 ---
@@ -1043,11 +1047,11 @@ For detailed testing workflows and environment setup, see [Phase 5: Testing & Va
 ### Generator Tests
 | Category | Count | Status |
 |----------|-------|--------|
-| Unit tests | 902 | All passing |
+| Unit tests | 935 | All passing |
 | Integration tests | 691 | 678 passed, 13 skipped, 0 failed |
 | Runtime tests | 94 | 93 passed, 1 skipped |
 
-**Unit tests**: All 902 passing (includes 10 new async+throwing closure tests in Phase 28).
+**Unit tests**: All 935 passing (includes 32 new TypeSpecHelpers tests in Phase 31).
 
 **Integration tests**: Phase 23 restored all tests to a passing or appropriately-skipped state. The 15 skipped tests are due to known limitations:
 - 3 primitive generic tests (primitives don't implement ISwiftObject)
@@ -1838,6 +1842,113 @@ Swift allows properties to have the same name as their containing type or nested
 Updated:
 - `/src/docs/binding-gaps-consolidated.md` - Marked Issues 2 & 3 as FIXED
 - `/BindingTesting/BlinkId/BINDING_GAPS.md` - Updated status and statistics
+
+---
+
+## Phase 31: Generic DllImport, Protocol Proxy & AnyType Fixes
+
+**Status**: COMPLETED (2026-02-01)
+
+Cross-library validation identified three issues affecting BlinkID and Lottie bindings. All three have been fixed.
+
+### Summary
+
+- 31.1 Generic Type DllImport (P3) → COMPLETED (CS7042 warnings fixed via PInvokeHelperContext)
+- 31.2 Protocol Proxy Generation (P4) → COMPLETED (missing imports, invalid syntax, empty return types)
+- 31.3 AnyType in Generic Arguments (P5) → COMPLETED (generic type parameters now handled correctly)
+
+### 31.1 Generic Type DllImport (CS7042)
+
+**Problem**: C# doesn't allow `[DllImport]` inside generic types:
+```csharp
+public class Keyframe<T0>
+{
+    [DllImport(...)]  // CS7042!
+    private static extern void PInvoke_...();
+}
+```
+
+**Solution**: Created `PInvokeHelperContext` system that factors P/Invoke declarations into non-generic helper classes (`{TypeName}_PInvoke`):
+```csharp
+internal static class Keyframe_PInvoke
+{
+    [DllImport("Lottie", EntryPoint = "...")]
+    internal static extern void PInvoke_value_Get(...);
+}
+
+public class Keyframe<T0>
+{
+    public T0 Value => Keyframe_PInvoke.PInvoke_value_Get(...);
+}
+```
+
+**Files created/modified**:
+- **NEW** `src/Swift.Bindings/src/Emitter/StringEmitter/PInvokeHelperEmitter.cs`
+- `src/Swift.Bindings/src/Marshaler/Conductor.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/NonFrozenStructHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/FrozenStructHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/OperatorHandler.cs`
+
+**Impact**: ~18 CS7042 warnings in BlinkID eliminated
+
+### 31.2 Protocol Proxy Generation (P4)
+
+**Problem**: Generated Swift code for EveryProtocol had multiple issues:
+- Missing imports (CoreGraphics, CoreText, QuartzCore)
+- Invalid metatype syntax (`any Any.Type` vs `Any.Type`)
+- Empty return types from unresolved generics
+- Unresolved generic parameters (`τ_0_0`) in signatures
+
+**Solution**:
+- Fixed `GetSwiftTypeName()` in `EveryProtocolEmitter.cs` to handle `ProtocolListTypeSpec`
+- Added generic type parameter detection (`τ_0_0`, `T`, `Element` → `Any`)
+- Fixed metatype syntax handling
+- Expanded `AppleFrameworks` set in `ModuleHandler.cs` (40+ frameworks)
+- Added `ScanProtocolsForFrameworkImports()` for recursive type scanning
+
+**Files modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/EveryProtocolEmitter.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs`
+
+**Impact**: ~8 protocols in Lottie now generate valid Swift code
+
+### 31.3 AnyType in Generic Arguments (P5)
+
+**Problem**: Generic type parameters (`τ_0_0`, `T`, `Element`, etc.) were incorrectly classified as existential types, causing properties to be skipped with `AnyType` fallback or crash with "Invalid module-qualified name".
+
+**Solution**: Created shared `TypeSpecHelpers.IsGenericTypeParameter()` utility and updated `TypeDatabaseExtensions` to not misclassify generic parameters:
+```csharp
+public static bool IsGenericTypeParameter(string typeName)
+{
+    if (typeName.StartsWith("τ_")) return true;
+    if (typeName is "T" or "U" or "Element" or "Key" or "Value" ...) return true;
+    // ...
+}
+```
+
+**Files created/modified**:
+- **NEW** `src/Swift.Bindings/src/Model/TypeSpec/TypeSpecHelpers.cs`
+- **NEW** `src/Swift.Bindings/tests/UnitTests/TypeSpecTests/TypeSpecHelpersTests.cs` (32 tests)
+- `src/Swift.Bindings/src/TypeDatabase/TypeDatabaseExtensions.cs`
+- `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/EveryProtocolEmitter.cs`
+
+**Impact**: ~20 skipped properties in BlinkID now handled gracefully
+
+### Verification
+
+- All 935 unit tests pass
+- All 678 integration tests pass (13 skipped - known limitations)
+- All 93 runtime tests pass (1 skipped)
+
+**Cross-Library Compilation Status**:
+| Library | Before Phase 31 | After Phase 31 |
+|---------|-----------------|----------------|
+| BlinkID | 18 CS7042 warnings | **0 warnings** |
+| Lottie | Protocol proxy errors | **0 errors** |
+| Nuke | 0 errors | **0 errors** |
 
 ---
 

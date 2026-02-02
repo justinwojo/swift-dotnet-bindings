@@ -122,7 +122,8 @@ namespace BindingsGeneration
         /// <param name="csWriter">The C# code writer.</param>
         /// <param name="operatorDecl">The operator declaration.</param>
         /// <param name="typeDatabase">The type database.</param>
-        public void EmitOperator(CSharpWriter csWriter, OperatorDecl operatorDecl, ITypeDatabase typeDatabase)
+        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
+        public void EmitOperator(CSharpWriter csWriter, OperatorDecl operatorDecl, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext = null)
         {
             var symbol = operatorDecl.OperatorSymbol;
             if (!IsSupportedOperator(symbol))
@@ -146,8 +147,8 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Create a MethodEnvironment for signature handling
-            var methodEnv = new MethodEnvironment(methodDecl, typeDatabase);
+            // Create a MethodEnvironment for signature handling, passing the P/Invoke helper context
+            var methodEnv = new MethodEnvironment(methodDecl, typeDatabase, pinvokeHelperContext: pinvokeHelperContext);
             var signatureHandler = new SignatureHandler(methodEnv);
 
             // Check if signature is supported
@@ -161,8 +162,8 @@ namespace BindingsGeneration
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(parentDecl);
 
             // Emit the operator wrapper and PInvoke
-            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics);
-            EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase);
+            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics, pinvokeHelperContext);
+            EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext);
             csWriter.WriteLine();
         }
 
@@ -174,7 +175,8 @@ namespace BindingsGeneration
         /// <param name="signatureHandler">The signature handler.</param>
         /// <param name="typeName">The base type name (without generics).</param>
         /// <param name="typeNameWithGenerics">The type name with generic parameters (e.g., "DateResult&lt;T0&gt;").</param>
-        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics)
+        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
+        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext)
         {
             var symbol = operatorDecl.OperatorSymbol;
             var csOperator = GetCSharpOperator(symbol)!;
@@ -207,16 +209,26 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
-                // Call the PInvoke method
+                // Call the PInvoke method (via helper class for generic types)
                 var pinvokeName = GetPInvokeMethodName(symbol);
                 var callArgs = pInvokeSignature.CallArgumentsString();
-                if (returnType == "void")
+
+                if (pinvokeHelperContext != null)
                 {
-                    csWriter.WriteLine($"{pinvokeName}({callArgs});");
+                    // For generic types, call through the helper class with metadata arguments
+                    var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
+                    var fullArgs = string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
+                    if (returnType == "void")
+                        csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
+                    else
+                        csWriter.WriteLine($"return {pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
                 }
                 else
                 {
-                    csWriter.WriteLine($"return {pinvokeName}({callArgs});");
+                    if (returnType == "void")
+                        csWriter.WriteLine($"{pinvokeName}({callArgs});");
+                    else
+                        csWriter.WriteLine($"return {pinvokeName}({callArgs});");
                 }
 
                 csWriter.Indent--;
@@ -242,13 +254,23 @@ namespace BindingsGeneration
 
                 var pinvokeName = GetPInvokeMethodName(symbol);
                 var callArgs = pInvokeSignature.CallArgumentsString();
-                if (returnType == "void")
+
+                if (pinvokeHelperContext != null)
                 {
-                    csWriter.WriteLine($"{pinvokeName}({callArgs});");
+                    // For generic types, call through the helper class with metadata arguments
+                    var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
+                    var fullArgs = string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
+                    if (returnType == "void")
+                        csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
+                    else
+                        csWriter.WriteLine($"return {pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
                 }
                 else
                 {
-                    csWriter.WriteLine($"return {pinvokeName}({callArgs});");
+                    if (returnType == "void")
+                        csWriter.WriteLine($"{pinvokeName}({callArgs});");
+                    else
+                        csWriter.WriteLine($"return {pinvokeName}({callArgs});");
                 }
 
                 csWriter.Indent--;
@@ -259,7 +281,8 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits the PInvoke declaration for an operator.
         /// </summary>
-        private void EmitOperatorPInvoke(CSharpWriter csWriter, OperatorDecl operatorDecl, MethodEnvironment methodEnv, SignatureHandler signatureHandler, ITypeDatabase typeDatabase)
+        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
+        private void EmitOperatorPInvoke(CSharpWriter csWriter, OperatorDecl operatorDecl, MethodEnvironment methodEnv, SignatureHandler signatureHandler, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext)
         {
             var methodDecl = operatorDecl.UnderlyingMethod;
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
@@ -268,9 +291,28 @@ namespace BindingsGeneration
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
-            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{methodDecl.MangledName}\")]");
-            csWriter.WriteLine($"private static extern {pInvokeSignature.ReturnType} {pinvokeName}({pInvokeSignature.ParametersString()});");
+            if (pinvokeHelperContext != null)
+            {
+                // Collect to helper context for generic types
+                var declaration = new PInvokeDeclaration
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = methodDecl.MangledName,
+                    MethodName = pinvokeName,
+                    ReturnType = pInvokeSignature.ReturnType,
+                    ParametersString = pInvokeSignature.ParametersString(),
+                    IsAsync = false,
+                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                };
+                pinvokeHelperContext.AddDeclaration(declaration);
+            }
+            else
+            {
+                // Emit directly for non-generic types
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{methodDecl.MangledName}\")]");
+                csWriter.WriteLine($"private static extern {pInvokeSignature.ReturnType} {pinvokeName}({pInvokeSignature.ParametersString()});");
+            }
         }
 
         /// <summary>

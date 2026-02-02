@@ -45,12 +45,22 @@ public class ModuleHandlerTests
     }
 
     [Fact]
-    public void EmitSwiftImports_DoesNotImportOtherDependencies()
+    public void EmitSwiftImports_ImportsAppleFrameworksWhenInDependencies()
     {
         var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string> { "CoreGraphics", "AVFoundation" });
 
-        Assert.DoesNotContain("import CoreGraphics", swiftOutput);
-        Assert.DoesNotContain("import AVFoundation", swiftOutput);
+        Assert.Contains("import CoreGraphics", swiftOutput);
+        Assert.Contains("import AVFoundation", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftImports_DoesNotImportUnknownDependencies()
+    {
+        // Dependencies not in the known Apple frameworks list should not be imported
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string> { "SomePrivateFramework", "ThirdPartyLib" });
+
+        Assert.DoesNotContain("import SomePrivateFramework", swiftOutput);
+        Assert.DoesNotContain("import ThirdPartyLib", swiftOutput);
     }
 
     [Fact]

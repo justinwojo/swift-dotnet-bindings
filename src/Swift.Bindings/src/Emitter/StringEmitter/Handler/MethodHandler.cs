@@ -76,6 +76,14 @@ namespace BindingsGeneration
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var methodEnv = (MethodEnvironment)env;
+
+            // If the conductor has a P/Invoke helper context and the environment doesn't,
+            // create a new environment with the context (for generic type support)
+            if (conductor.CurrentPInvokeHelperContext != null && methodEnv.PInvokeHelperContext == null)
+            {
+                methodEnv = new MethodEnvironment(methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -150,6 +158,13 @@ namespace BindingsGeneration
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor)
         {
             var methodEnv = (MethodEnvironment)env;
+
+            // If the conductor has a P/Invoke helper context and the environment doesn't,
+            // create a new environment with the context (for generic type support)
+            if (conductor.CurrentPInvokeHelperContext != null && methodEnv.PInvokeHelperContext == null)
+            {
+                methodEnv = new MethodEnvironment(methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
+            }
 
             // Skip methods with constraints on protocols with associated types
             // (these protocols generate generic C# interfaces which can't be used as constraints without type arguments)
@@ -1074,10 +1089,11 @@ namespace BindingsGeneration
     internal static class PInvokeEmitter
     {
         /// <summary>
-        /// Emits the PInvoke signature.
+        /// Emits the PInvoke signature or collects it to a helper context for generic types.
         /// </summary>
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
         /// <param name="methodEnv">The method environment.</param>
+        /// <param name="signatureHandler">The signature handler.</param>
         public static void EmitPInvoke(CSharpWriter csWriter, MethodEnvironment methodEnv, SignatureHandler signatureHandler)
         {
             var methodDecl = (MethodDecl)methodEnv.MethodDecl;
@@ -1093,9 +1109,29 @@ namespace BindingsGeneration
 
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
-            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{NameProvider.GetMangledName(methodDecl)}\")]");
-            csWriter.WriteLine($"private static extern {(methodDecl.IsAsync ? "void" : pInvokeSignature.ReturnType)} {pInvokeName}({pInvokeSignature.ParametersString()});");
+            // If we're inside a generic type, collect the P/Invoke to the helper context
+            // instead of emitting it inline (to avoid CS7042: DllImport in generic type)
+            if (methodEnv.PInvokeHelperContext != null)
+            {
+                var declaration = new PInvokeDeclaration
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = NameProvider.GetMangledName(methodDecl),
+                    MethodName = pInvokeName,
+                    ReturnType = pInvokeSignature.ReturnType,
+                    ParametersString = pInvokeSignature.ParametersString(),
+                    IsAsync = methodDecl.IsAsync,
+                    MetadataParameters = methodEnv.PInvokeHelperContext.GetMetadataParameterDeclarations()
+                };
+                methodEnv.PInvokeHelperContext.AddDeclaration(declaration);
+            }
+            else
+            {
+                // Emit directly (non-generic type)
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{NameProvider.GetMangledName(methodDecl)}\")]");
+                csWriter.WriteLine($"private static extern {(methodDecl.IsAsync ? "void" : pInvokeSignature.ReturnType)} {pInvokeName}({pInvokeSignature.ParametersString()});");
+            }
         }
     }
 

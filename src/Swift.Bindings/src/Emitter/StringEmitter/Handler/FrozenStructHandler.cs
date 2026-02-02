@@ -89,130 +89,148 @@ namespace BindingsGeneration
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
-            var interfaces = new List<string> {
-                typeof(ISwiftObject).Name,
-            };
-            if (implementsEquatable)
-            {
-                interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
-            }
+            // Create P/Invoke helper context for generic types (to avoid CS7042)
+            // Set it on the conductor so nested method handlers can access it
+            var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
+            var previousContext = conductor.CurrentPInvokeHelperContext;
+            conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
 
-            if (isProjectedAsClass)
+            try
             {
-                // Use unsafe class since methods may use function pointers for closure parameters
-                var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
-                if (!string.IsNullOrEmpty(whereClause))
-                    classDeclaration += $" {whereClause}";
-                csWriter.WriteLine(classDeclaration);
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-
-                // Payload used for reference counting
-                csWriter.WriteLine($"private SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
-                csWriter.WriteLine();
-                csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
-            }
-
-            if (swiftTypeInfo.HasValue)
-            {
-                unsafe
+                var interfaces = new List<string> {
+                    typeof(ISwiftObject).Name,
+                };
+                if (implementsEquatable)
                 {
-                    // Apply struct layout attributes
-                    // TODO: refactor to use type metadata
-                    csWriter.WriteLine($"[StructLayout(LayoutKind.Sequential, Size = {swiftTypeInfo.Value.ValueWitnessTable->Size})]");
+                    interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
                 }
-            }
-            if (isProjectedAsClass)
-            {
-                csWriter.WriteLine($"public struct Buffer {{");
-            }
-            else
-            {
-                var structDeclaration = $"public unsafe struct {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
-                if (!string.IsNullOrEmpty(whereClause))
-                    structDeclaration += $" {whereClause}";
-                csWriter.WriteLine(structDeclaration);
-                csWriter.WriteLine("{");
-            }
-            csWriter.Indent++;
 
-            csWriter.WriteLine(@"
-            // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
-            // These backing fields are required for proper memory layout and marshalling, even though they
-            // are never directly accessed from C# code. The actual value access happens through Swift's
-            // accessor methods.
-            //
-            // Important: Direct access to these fields from C# will not provide the correct value - always
-            // use the generated property accessors which call into Swift.");
-
-            foreach (PropertyDecl propertyDecl in structDecl.Properties)
-            {
-                if (propertyDecl.HasStorage)
+                if (isProjectedAsClass)
                 {
-                    var fieldRecord = env.TypeDatabase.GetTypeRecordOrThrow(propertyDecl.SwiftTypeSpec);
-                    if ((fieldRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
+                    // Use unsafe class since methods may use function pointers for closure parameters
+                    var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                    if (!string.IsNullOrEmpty(whereClause))
+                        classDeclaration += $" {whereClause}";
+                    csWriter.WriteLine(classDeclaration);
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+
+                    // Payload used for reference counting
+                    csWriter.WriteLine($"private SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
+                    csWriter.WriteLine();
+                    csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+                }
+
+                if (swiftTypeInfo.HasValue)
+                {
+                    unsafe
                     {
-                        csWriter.WriteLine($"private IntPtr {propertyDecl.Name}_;  // Note: Do not access this field directly - use the property accessors");
-                    }
-                    else
-                    {
-                        csWriter.WriteLine($"private {fieldRecord.CSharpTypeName.FullyQualifiedName} {propertyDecl.Name}_;  // Note: Do not access this field directly - use the property accessors");
+                        // Apply struct layout attributes
+                        // TODO: refactor to use type metadata
+                        csWriter.WriteLine($"[StructLayout(LayoutKind.Sequential, Size = {swiftTypeInfo.Value.ValueWitnessTable->Size})]");
                     }
                 }
-            }
-
-            if (isProjectedAsClass)
-            {
-                // Payload used for lowering at PInvoke boundary
-                csWriter.Indent -= 2;
-                csWriter.WriteLine("}");
-                csWriter.WriteLine();
-                csWriter.WriteLine($"public unsafe PayloadBuffer<{structDecl.Name}.Buffer> PayloadBuffer => new PayloadBuffer<{structDecl.Name}.Buffer>(_payload);");
-                csWriter.WriteLine();
-            }
-
-            foreach (PropertyDecl propertyDecl in structDecl.Properties)
-            {
-                if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                if (isProjectedAsClass)
                 {
-                    var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
-                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                    csWriter.WriteLine($"public struct Buffer {{");
                 }
                 else
                 {
-                    _logger.LogWarning($"No handler found for property {propertyDecl.Name}");
+                    var structDeclaration = $"public unsafe struct {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                    if (!string.IsNullOrEmpty(whereClause))
+                        structDeclaration += $" {whereClause}";
+                    csWriter.WriteLine(structDeclaration);
+                    csWriter.WriteLine("{");
                 }
-            }
-            csWriter.WriteLine();
+                csWriter.Indent++;
 
-            // Emit operators
-            var operatorHandler = new OperatorHandler(_logger);
-            foreach (var operatorDecl in structDecl.Operators)
-            {
-                if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
+                csWriter.WriteLine(@"
+                // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
+                // These backing fields are required for proper memory layout and marshalling, even though they
+                // are never directly accessed from C# code. The actual value access happens through Swift's
+                // accessor methods.
+                //
+                // Important: Direct access to these fields from C# will not provide the correct value - always
+                // use the generated property accessors which call into Swift.");
+
+                foreach (PropertyDecl propertyDecl in structDecl.Properties)
                 {
-                    operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase);
+                    if (propertyDecl.HasStorage)
+                    {
+                        var fieldRecord = env.TypeDatabase.GetTypeRecordOrThrow(propertyDecl.SwiftTypeSpec);
+                        if ((fieldRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
+                        {
+                            csWriter.WriteLine($"private IntPtr {propertyDecl.Name}_;  // Note: Do not access this field directly - use the property accessors");
+                        }
+                        else
+                        {
+                            csWriter.WriteLine($"private {fieldRecord.CSharpTypeName.FullyQualifiedName} {propertyDecl.Name}_;  // Note: Do not access this field directly - use the property accessors");
+                        }
+                    }
                 }
+
+                if (isProjectedAsClass)
+                {
+                    // Payload used for lowering at PInvoke boundary
+                    csWriter.Indent -= 2;
+                    csWriter.WriteLine("}");
+                    csWriter.WriteLine();
+                    csWriter.WriteLine($"public unsafe PayloadBuffer<{structDecl.Name}.Buffer> PayloadBuffer => new PayloadBuffer<{structDecl.Name}.Buffer>(_payload);");
+                    csWriter.WriteLine();
+                }
+
+                foreach (PropertyDecl propertyDecl in structDecl.Properties)
+                {
+                    if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                    {
+                        var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                        propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"No handler found for property {propertyDecl.Name}");
+                    }
+                }
+                csWriter.WriteLine();
+
+                // Emit operators
+                var operatorHandler = new OperatorHandler(_logger);
+                foreach (var operatorDecl in structDecl.Operators)
+                {
+                    if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
+                    {
+                        operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext);
+                    }
+                }
+                // Handle paired operators (e.g., if == is defined but != is not)
+                // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
+                operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, typeNameWithGenerics);
+
+                // Add Equatable support if the struct conforms to Equatable
+                SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
+                ISwiftObjectMethodWriter.WriteFrozenStructImplementation(pinvokeHelperContext);
+
+                // Collect property names for method/property collision detection
+                // Include nested type names and containing type name for consistent naming with PropertyHandler
+                var nestedTypeNames = new HashSet<string>(structDecl.Types.Select(t => t.Name));
+                var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
+                    NameProvider.GetPropertyName(p.Name, nestedTypeNames, structDecl.Name)));
+
+                base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
+                base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, propertyNames, pinvokeHelperContext);
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Emit the P/Invoke helper class after the main struct
+                pinvokeHelperContext?.EmitHelperClass(csWriter);
             }
-            // Handle paired operators (e.g., if == is defined but != is not)
-            // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
-            operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, typeNameWithGenerics);
-
-            // Add Equatable support if the struct conforms to Equatable
-            SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
-            ISwiftObjectMethodWriter.WriteFrozenStructImplementation();
-
-            // Collect property names for method/property collision detection
-            // Include nested type names and containing type name for consistent naming with PropertyHandler
-            var nestedTypeNames = new HashSet<string>(structDecl.Types.Select(t => t.Name));
-            var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
-                NameProvider.GetPropertyName(p.Name, nestedTypeNames, structDecl.Name)));
-
-            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, propertyNames);
-
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
+            finally
+            {
+                // Restore the previous context
+                conductor.CurrentPInvokeHelperContext = previousContext;
+            }
         }
     }
 }

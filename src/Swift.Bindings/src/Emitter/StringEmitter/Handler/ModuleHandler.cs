@@ -164,6 +164,23 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Known Apple frameworks that may need to be imported.
+        /// </summary>
+        private static readonly HashSet<string> AppleFrameworks = new()
+        {
+            "UIKit", "AppKit", "CoreGraphics", "CoreText", "QuartzCore",
+            "CoreFoundation", "CoreImage", "CoreAnimation", "CoreMedia",
+            "AVFoundation", "SceneKit", "SpriteKit", "Metal", "MetalKit",
+            "GameplayKit", "MapKit", "CoreLocation", "CloudKit", "StoreKit",
+            "HealthKit", "HomeKit", "WatchKit", "ARKit", "RealityKit",
+            "PDFKit", "WebKit", "SafariServices", "AuthenticationServices",
+            "LocalAuthentication", "Security", "CryptoKit", "Combine",
+            "SwiftUI", "UniformTypeIdentifiers", "CoreData", "CoreML",
+            "Vision", "NaturalLanguage", "Speech", "SoundAnalysis",
+            "Accelerate", "simd", "Compression", "OSLog", "os"
+        };
+
+        /// <summary>
         /// Emits Swift import statements to the wrapper file.
         /// </summary>
         private void EmitSwiftImports(SwiftWriter swiftWriter, ModuleDecl moduleDecl)
@@ -178,15 +195,20 @@ namespace BindingsGeneration
             // Add platform UI frameworks if present in dependencies
             foreach (var dep in moduleDecl.Dependencies)
             {
-                if (dep == "UIKit" || dep == "AppKit")
+                if (AppleFrameworks.Contains(dep))
                 {
                     neededImports.Add(dep);
                 }
             }
 
-            // Scan for UIKit/AppKit types used in async method return types
-            // These types appear in Swift callback signatures and need corresponding imports
+            // Scan for types used in methods that need corresponding imports
             ScanTypesForFrameworkImports(moduleDecl.Types, neededImports);
+
+            // Scan protocols for types used in method/property signatures
+            if (moduleDecl.Protocols != null)
+            {
+                ScanProtocolsForFrameworkImports(moduleDecl.Protocols, neededImports);
+            }
 
             foreach (var import in neededImports.OrderBy(s => s))
             {
@@ -197,7 +219,7 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Recursively scans types for async methods that return UIKit/AppKit types.
+        /// Recursively scans types for async methods that return framework types.
         /// </summary>
         private void ScanTypesForFrameworkImports(IEnumerable<TypeDecl> types, HashSet<string> neededImports)
         {
@@ -217,7 +239,7 @@ namespace BindingsGeneration
                     if (method.IsAsync && method.CSSignature.Count > 0)
                     {
                         var returnType = method.CSSignature.First();
-                        CheckTypeForFrameworkImport(returnType.SwiftTypeSpec?.ToString(), neededImports);
+                        ScanTypeSpecForImports(returnType.SwiftTypeSpec, neededImports);
                     }
                 }
 
@@ -230,17 +252,105 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Checks if a type name requires UIKit/AppKit import.
+        /// Scans protocols for types used in method parameters, return types, and properties.
+        /// These types appear in EveryProtocol conformance code and need corresponding imports.
         /// </summary>
-        private void CheckTypeForFrameworkImport(string? typeName, HashSet<string> neededImports)
+        private void ScanProtocolsForFrameworkImports(IEnumerable<ProtocolDecl> protocols, HashSet<string> neededImports)
+        {
+            foreach (var protocol in protocols)
+            {
+                // Scan properties
+                foreach (var property in protocol.Properties)
+                {
+                    ScanTypeSpecForImports(property.SwiftTypeSpec, neededImports);
+                }
+
+                // Scan methods
+                foreach (var method in protocol.Methods)
+                {
+                    // Scan return type
+                    if (method.CSSignature.Count > 0)
+                    {
+                        ScanTypeSpecForImports(method.CSSignature[0].SwiftTypeSpec, neededImports);
+                    }
+
+                    // Scan parameter types
+                    for (int i = 1; i < method.CSSignature.Count; i++)
+                    {
+                        ScanTypeSpecForImports(method.CSSignature[i].SwiftTypeSpec, neededImports);
+                    }
+                }
+
+                // Scan subscripts
+                foreach (var subscript in protocol.Subscripts)
+                {
+                    ScanTypeSpecForImports(subscript.ReturnTypeSpec, neededImports);
+                    foreach (var param in subscript.IndexParameters)
+                    {
+                        ScanTypeSpecForImports(param.SwiftTypeSpec, neededImports);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Recursively scans a TypeSpec for framework types and adds needed imports.
+        /// </summary>
+        private void ScanTypeSpecForImports(TypeSpec? typeSpec, HashSet<string> neededImports)
+        {
+            if (typeSpec == null)
+                return;
+
+            if (typeSpec is NamedTypeSpec namedType)
+            {
+                // Check if the type name starts with a known framework
+                CheckTypeNameForFrameworkImport(namedType.Name, neededImports);
+
+                // Recursively check generic parameters
+                foreach (var genericParam in namedType.GenericParameters)
+                {
+                    ScanTypeSpecForImports(genericParam, neededImports);
+                }
+            }
+            else if (typeSpec is TupleTypeSpec tupleType)
+            {
+                foreach (var element in tupleType.Elements)
+                {
+                    ScanTypeSpecForImports(element, neededImports);
+                }
+            }
+            else if (typeSpec is ClosureTypeSpec closureType)
+            {
+                ScanTypeSpecForImports(closureType.Arguments, neededImports);
+                ScanTypeSpecForImports(closureType.ReturnType, neededImports);
+            }
+            else if (typeSpec is ProtocolListTypeSpec protocolList)
+            {
+                foreach (var proto in protocolList.Protocols.Keys)
+                {
+                    CheckTypeNameForFrameworkImport(proto.Name, neededImports);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Checks if a type name requires a framework import.
+        /// </summary>
+        private void CheckTypeNameForFrameworkImport(string? typeName, HashSet<string> neededImports)
         {
             if (string.IsNullOrEmpty(typeName))
                 return;
 
-            if (typeName.StartsWith("UIKit."))
-                neededImports.Add("UIKit");
-            else if (typeName.StartsWith("AppKit."))
-                neededImports.Add("AppKit");
+            // Extract the module/framework name from the type name
+            var dotIndex = typeName.IndexOf('.');
+            if (dotIndex > 0)
+            {
+                var moduleName = typeName.Substring(0, dotIndex);
+                if (AppleFrameworks.Contains(moduleName))
+                {
+                    neededImports.Add(moduleName);
+                }
+            }
         }
 
         /// <summary>

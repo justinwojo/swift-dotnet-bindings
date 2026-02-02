@@ -85,12 +85,14 @@ namespace BindingsGeneration
         /// <summary>
         /// Handles a base declaration.
         /// </summary>
-        /// <param name="writer">The IndentedTextWriter instance.</param>
+        /// <param name="csWriter">The CSharpWriter instance.</param>
+        /// <param name="swiftWriter">The SwiftWriter instance.</param>
         /// <param name="decl">The list of base declarations.</param>
         /// <param name="conductor">The conductor instance.</param>
         /// <param name="typeDatabase">The type database instance.</param>
         /// <param name="siblingPropertyNames">Optional set of property names for detecting method/property collisions.</param>
-        protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null)
+        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types (to avoid CS7042).</param>
+        protected virtual void HandleBaseDecl(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnumerable<BaseDecl> decl, Conductor conductor, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null, PInvokeHelperContext? pinvokeHelperContext = null)
         {
             // Track emitted method signatures to avoid duplicates
             var emittedMethodSignatures = new HashSet<string>();
@@ -158,8 +160,8 @@ namespace BindingsGeneration
 
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
-                        // Pass property names to detect method/property name collisions
-                        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames);
+                        // Pass property names and P/Invoke helper context to the method environment
+                        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, pinvokeHelperContext);
                         handler.Emit(csWriter, swiftWriter, env, conductor);
                     }
                     else

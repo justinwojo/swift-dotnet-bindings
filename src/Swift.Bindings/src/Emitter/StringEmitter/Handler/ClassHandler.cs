@@ -74,71 +74,88 @@ namespace BindingsGeneration
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(classDecl, env.TypeDatabase);
 
-            var interfaces = new List<string> {
-                typeof(ISwiftObject).Name,
-            };
-            if (implementsEquatable)
+            // Create P/Invoke helper context for generic types (to avoid CS7042)
+            // Set it on the conductor so nested method handlers can access it
+            var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(classDecl);
+            var previousContext = conductor.CurrentPInvokeHelperContext;
+            conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
+
+            try
             {
-                interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
+                var interfaces = new List<string> {
+                    typeof(ISwiftObject).Name,
+                };
+                if (implementsEquatable)
+                {
+                    interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
+                }
+
+                var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                if (!string.IsNullOrEmpty(whereClause))
+                    classDeclaration += $" {whereClause}";
+                csWriter.WriteLine(classDeclaration);
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                // Emit properties
+                foreach (PropertyDecl propertyDecl in classDecl.Properties)
+                {
+                    if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
+                    {
+                        var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
+                        propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"No handler found for property {propertyDecl.Name}");
+                    }
+                }
+
+                // Emit private fields and payload
+                WriteClassPrivateFields(csWriter, classDecl);
+                WriteClassPayload(csWriter, classDecl);
+
+                // Emit operators
+                var operatorHandler = new OperatorHandler(_logger);
+                foreach (var operatorDecl in classDecl.Operators)
+                {
+                    if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
+                    {
+                        operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext);
+                    }
+                }
+                // Handle paired operators (e.g., if == is defined but != is not)
+                // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
+                operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, typeNameWithGenerics);
+
+                // Emit ISwiftObject implementation
+                var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, pinvokeHelperContext);
+                var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, hasEquality, hasInequality);
+
+                equatableWriter.WriteSwiftEquatableImplementation();
+                iSwiftObjectWriter.WriteClassImplementation();
+
+                // Collect property names for method/property collision detection
+                // Include nested type names and containing type name for consistent naming with PropertyHandler
+                var nestedTypeNames = new HashSet<string>(classDecl.Types.Select(t => t.Name));
+                var propertyNames = new HashSet<string>(classDecl.Properties.Select(p =>
+                    NameProvider.GetPropertyName(p.Name, nestedTypeNames, classDecl.Name)));
+
+                base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase);
+                base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, propertyNames, pinvokeHelperContext);
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+
+                // Emit the P/Invoke helper class after the main class
+                pinvokeHelperContext?.EmitHelperClass(csWriter);
             }
-
-            var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
-            if (!string.IsNullOrEmpty(whereClause))
-                classDeclaration += $" {whereClause}";
-            csWriter.WriteLine(classDeclaration);
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-
-            // Emit properties
-            foreach (PropertyDecl propertyDecl in classDecl.Properties)
+            finally
             {
-                if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
-                {
-                    var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
-                    propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor);
-                }
-                else
-                {
-                    _logger.LogWarning($"No handler found for property {propertyDecl.Name}");
-                }
+                // Restore the previous context
+                conductor.CurrentPInvokeHelperContext = previousContext;
             }
-
-            // Emit private fields and payload
-            WriteClassPrivateFields(csWriter, classDecl);
-            WriteClassPayload(csWriter, classDecl);
-
-            // Emit operators
-            var operatorHandler = new OperatorHandler(_logger);
-            foreach (var operatorDecl in classDecl.Operators)
-            {
-                if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
-                {
-                    operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase);
-                }
-            }
-            // Handle paired operators (e.g., if == is defined but != is not)
-            // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
-            operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, typeNameWithGenerics);
-
-            // Emit ISwiftObject implementation
-            var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl);
-            var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, hasEquality, hasInequality);
-
-            equatableWriter.WriteSwiftEquatableImplementation();
-            iSwiftObjectWriter.WriteClassImplementation();
-
-            // Collect property names for method/property collision detection
-            // Include nested type names and containing type name for consistent naming with PropertyHandler
-            var nestedTypeNames = new HashSet<string>(classDecl.Types.Select(t => t.Name));
-            var propertyNames = new HashSet<string>(classDecl.Properties.Select(p =>
-                NameProvider.GetPropertyName(p.Name, nestedTypeNames, classDecl.Name)));
-
-            base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, propertyNames);
-
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
         }
 
         /// <summary>
@@ -170,13 +187,15 @@ namespace BindingsGeneration
         private readonly ITypeDatabase _typeDatabase;
         private readonly ModuleDecl _moduleDecl;
         private readonly ClassDecl _classDecl;
+        private readonly PInvokeHelperContext? _pinvokeHelperContext;
 
-        public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl)
+        public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, PInvokeHelperContext? pinvokeHelperContext = null)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
             _moduleDecl = moduleDecl;
             _classDecl = classDecl;
+            _pinvokeHelperContext = pinvokeHelperContext;
         }
 
         /// <summary>
@@ -195,21 +214,44 @@ namespace BindingsGeneration
         /// </summary>
         private void WriteGetTypeMetadata()
         {
-            _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
-            _writer.WriteLine();
-
             string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
             // For classes, the metadata accessor is the mangled name + "Ma"
             string metadataAccessor = $"{_classDecl.MangledName}Ma";
 
-            var pinvokeText = $$"""
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("{{libPath}}", EntryPoint = "{{metadataAccessor}}")]
-            internal static extern TypeMetadata PInvoke_getMetadata();
-            """;
+            if (_pinvokeHelperContext != null)
+            {
+                // For generic types, call the helper class with type metadata arguments
+                var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetMetadataArgumentList());
+                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({metadataArgs});");
+                _writer.WriteLine();
 
-            _writer.WriteLines(pinvokeText);
-            _writer.WriteLine();
+                // Add the P/Invoke declaration to the helper context
+                var declaration = new PInvokeDeclaration
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = metadataAccessor,
+                    MethodName = "PInvoke_getMetadata",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "",
+                    IsAsync = false,
+                    MetadataParameters = _pinvokeHelperContext.GetMetadataParameterDeclarations()
+                };
+                _pinvokeHelperContext.AddDeclaration(declaration);
+            }
+            else
+            {
+                _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+                _writer.WriteLine();
+
+                var pinvokeText = $$"""
+                [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+                [DllImport("{{libPath}}", EntryPoint = "{{metadataAccessor}}")]
+                internal static extern TypeMetadata PInvoke_getMetadata();
+                """;
+
+                _writer.WriteLines(pinvokeText);
+                _writer.WriteLine();
+            }
         }
 
         /// <summary>
