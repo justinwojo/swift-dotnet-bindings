@@ -65,9 +65,6 @@ namespace BindingsGeneration
             var classDecl = (ClassDecl)classEnv.TypeDecl;
             var moduleDecl = classDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(classDecl.ModuleDecl));
 
-            // Check for equality/inequality operators (explicit or synthesized)
-            bool hasEquality = OperatorHandler.WillHaveEqualityOperator(classDecl.Operators);
-            bool hasInequality = OperatorHandler.WillHaveInequalityOperator(classDecl.Operators);
             bool implementsEquatable = classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
             // Get generic type parts if this is a generic type
@@ -117,16 +114,23 @@ namespace BindingsGeneration
 
                 // Emit operators
                 var operatorHandler = new OperatorHandler(_logger);
+                var emittedOperatorSymbols = new HashSet<string>();
                 foreach (var operatorDecl in classDecl.Operators)
                 {
                     if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
                     {
-                        operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext);
+                        if (operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext))
+                        {
+                            emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
+                        }
                     }
                 }
                 // Handle paired operators (e.g., if == is defined but != is not)
                 // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
-                operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, typeNameWithGenerics);
+                operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, typeNameWithGenerics, emittedOperatorSymbols);
+
+                bool hasEquality = emittedOperatorSymbols.Contains("==");
+                bool hasInequality = emittedOperatorSymbols.Contains("!=");
 
                 // Emit ISwiftObject implementation
                 var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext);

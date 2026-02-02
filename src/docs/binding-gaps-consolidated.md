@@ -3,7 +3,7 @@
 This document consolidates binding issues discovered across multiple real-world Swift libraries (Lottie, BlinkID) and cross-references them with the Nuke binding roadmap to create a prioritized fix list.
 
 **Date**: February 2026
-**Last Updated**: February 2026 (Phase 33 - Generic Type Internal References & P/Invoke Call Site Fixes)
+**Last Updated**: February 2026 (Phase 34 - Operator Pair Synthesis & Enum Member Deduplication)
 **Libraries Analyzed**: Lottie, BlinkID, Nuke
 **Source Documents**:
 - `BindingTesting/Lottie/BINDING_GAPS.md`
@@ -14,7 +14,7 @@ This document consolidates binding issues discovered across multiple real-world 
 
 ## Executive Summary
 
-After 33 phases of development, the binding generator handles most common Swift patterns. **Seven critical issues have been fixed in Phases 30-33:**
+After 34 phases of development, the binding generator handles most common Swift patterns. **Nine critical issues have been fixed in Phases 30-34:**
 
 | Issue | Status | Errors/Warnings Fixed |
 |-------|--------|----------------------|
@@ -25,15 +25,17 @@ After 33 phases of development, the binding generator handles most common Swift 
 | AnyType in generic arguments | ✅ **FIXED** (Phase 31) | ~20 properties in BlinkID |
 | Optional-wrapped existentials | ✅ **FIXED** (Phase 32) | Properties with `(any Protocol)?` |
 | Generic type internal references (CS0305) | ✅ **FIXED** (Phase 33) | ~6 in BlinkID |
+| Paired operator synthesis (CS0216) | ✅ **FIXED** (Phase 34) | Lottie operators |
+| Duplicate enum members (CS0102) | ✅ **FIXED** (Phase 34) | Lottie enums |
 
 **Current Compilation Status:**
 - BlinkID: **0 errors** ✅
-- Lottie: **21 errors** (unrelated issues: SwiftUI types, duplicate enums, unsupported operators)
+- Lottie: **19 errors** (SwiftUI constraints, generic enum types, existential constraints)
 - Nuke: **0 errors** (maintained)
 
-**Phase 33 Fixes:**
-1. **Generic Type Internal References**: Fixed `SwiftObjectHelper<>`, `SwiftSafeHandle<>`, `_payloadSize`, `_payload` to use `typeNameWithGenerics` in NonFrozenStructHandler, ClassHandler, and TypeHandlerHelpers
-2. **P/Invoke Call Site**: Fixed `EmitPInvokeCall` in MethodHandler to use helper class prefix and pass metadata parameters when inside generic types
+**Phase 34 Fixes:**
+1. **Paired Operator Synthesis Validation (CS0216)**: `EmitOperator()` returns success/failure, `ValidateAndEmitPairs()` only synthesizes pairs from actually emitted operators
+2. **Duplicate Enum Member Deduplication (CS0102)**: `EnumHandler` tracks emitted case constructor names and skips static properties that would collide
 
 ---
 
@@ -507,12 +509,20 @@ Below are concrete findings from the generated Lottie bindings (`BindingTesting/
 
 7. ✅ **P7: Generic Type Internal References** - Fixed internal type references (`SwiftObjectHelper<>`, `SwiftSafeHandle<>`, `_payloadSize`, `_payload`) to use `typeNameWithGenerics`. Fixed P/Invoke call sites to use helper class prefix and metadata parameters.
 
+### Completed (Phase 34)
+
+8. ✅ **P8: Paired Operator Synthesis Validation (CS0216)** - `EmitOperator()` now returns success/failure, `ValidateAndEmitPairs()` only synthesizes pairs from actually emitted operators. Prevents CS0216 errors when primary operator has unsupported signature.
+
+9. ✅ **P9: Duplicate Enum Member Deduplication (CS0102)** - `EnumHandler` now tracks emitted case constructor names and skips static properties that would collide.
+
 ### Remaining Known Issues
 
-- **SwiftUI types** - `View` protocol and related types not yet supported
+- **SwiftUI types** - `View` protocol and related types not yet supported (CS0246, CS0314)
+- **Generic enum types** - `ValueProviderStorage<T>` emitted non-generic (CS0308)
+- **Existential in generic constraints** - `ExistentialContainer0` vs `ISwiftObject` (CS0315)
 - **Async properties** - Properties with async getters/setters not yet supported
 - **Actors** - Swift actors not yet supported
-- **Lottie-specific issues** - See Issue 10 for details (21 errors remaining)
+- **Lottie-specific issues** - See Issue 10 for details (19 errors remaining, down from 21)
 
 ---
 

@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.IO;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -239,6 +241,40 @@ public class OperatorHandlerTests
     {
         var opDecl = CreateOperatorDecl("+", OperatorKind.Binary);
         Assert.Equal(MethodType.Static, opDecl.UnderlyingMethod.MethodType);
+    }
+
+    #endregion
+
+    #region Pair Synthesis Emission Tracking Tests
+
+    [Fact]
+    public void ValidateAndEmitPairs_WhenPrimaryOperatorWasNotEmitted_DoesNotSynthesizePair()
+    {
+        var opDecl = CreateOperatorDecl("==", OperatorKind.Binary);
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        using var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var emittedSymbols = new HashSet<string>();
+
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { opDecl }, "Point", emittedSymbols);
+
+        Assert.DoesNotContain("operator !=", output.ToString());
+        Assert.DoesNotContain("!=", emittedSymbols);
+    }
+
+    [Fact]
+    public void ValidateAndEmitPairs_WhenPrimaryOperatorWasEmitted_SynthesizesPair()
+    {
+        var opDecl = CreateOperatorDecl("==", OperatorKind.Binary);
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        using var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var emittedSymbols = new HashSet<string> { "==" };
+
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { opDecl }, "Point", emittedSymbols);
+
+        Assert.Contains("public static bool operator !=(Point left, Point right)", output.ToString());
+        Assert.Contains("!=", emittedSymbols);
     }
 
     #endregion

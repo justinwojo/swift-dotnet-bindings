@@ -123,13 +123,13 @@ namespace BindingsGeneration
         /// <param name="operatorDecl">The operator declaration.</param>
         /// <param name="typeDatabase">The type database.</param>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
-        public void EmitOperator(CSharpWriter csWriter, OperatorDecl operatorDecl, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext = null)
+        public bool EmitOperator(CSharpWriter csWriter, OperatorDecl operatorDecl, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext = null)
         {
             var symbol = operatorDecl.OperatorSymbol;
             if (!IsSupportedOperator(symbol))
             {
                 _logger.LogWarning($"Operator '{symbol}' is not supported for C# emission.");
-                return;
+                return false;
             }
 
             var methodDecl = operatorDecl.UnderlyingMethod;
@@ -137,14 +137,14 @@ namespace BindingsGeneration
             if (parentDecl == null)
             {
                 _logger.LogWarning($"Operator '{symbol}' has no valid parent type declaration.");
-                return;
+                return false;
             }
 
             var moduleDecl = operatorDecl.ModuleDecl;
             if (moduleDecl == null)
             {
                 _logger.LogWarning($"Operator '{symbol}' has no module declaration.");
-                return;
+                return false;
             }
 
             // Create a MethodEnvironment for signature handling, passing the P/Invoke helper context
@@ -155,7 +155,7 @@ namespace BindingsGeneration
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
             {
                 _logger.LogWarning($"Operator {symbol} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
-                return;
+                return false;
             }
 
             // Get type name with generics for proper operator parameter types (fixes CS0563, CS0305)
@@ -165,6 +165,7 @@ namespace BindingsGeneration
             EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics, pinvokeHelperContext);
             EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext);
             csWriter.WriteLine();
+            return true;
         }
 
         /// <summary>
@@ -409,17 +410,15 @@ namespace BindingsGeneration
         /// <param name="csWriter">The C# code writer.</param>
         /// <param name="operators">The list of operator declarations.</param>
         /// <param name="typeName">The name of the containing type.</param>
-        public void ValidateAndEmitPairs(CSharpWriter csWriter, List<OperatorDecl> operators, string typeName)
+        public void ValidateAndEmitPairs(CSharpWriter csWriter, List<OperatorDecl> operators, string typeName, ISet<string> emittedSymbols)
         {
-            var definedSymbols = operators
-                .Where(o => IsSupportedOperator(o.OperatorSymbol))
-                .Select(o => o.OperatorSymbol)
-                .ToHashSet();
+            var definedSymbols = new HashSet<string>(emittedSymbols);
 
             foreach (var op in operators)
             {
                 var symbol = op.OperatorSymbol;
-                if (!IsSupportedOperator(symbol)) continue;
+                // Only synthesize from operators that were actually emitted.
+                if (!definedSymbols.Contains(symbol)) continue;
 
                 var pairedSymbol = GetRequiredPairedOperator(symbol);
                 if (pairedSymbol != null && !definedSymbols.Contains(pairedSymbol))
@@ -429,6 +428,7 @@ namespace BindingsGeneration
                     EmitSynthesizedPairedOperator(csWriter, op, pairedSymbol, typeName);
                     // Mark as defined to avoid duplicate synthesis
                     definedSymbols.Add(pairedSymbol);
+                    emittedSymbols.Add(pairedSymbol);
                     csWriter.WriteLine();
                 }
             }

@@ -71,6 +71,27 @@ public class EnumHandlerOutputTests
         Assert.Contains("None = 1,", csOutput);
     }
 
+    [Fact]
+    public void Emit_EnumWithAssociatedValueCaseAndMatchingStaticProperty_SkipsDuplicateStaticProperty()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("PlaybackMode", moduleDecl, isFrozen: true);
+
+        var pausedCase = CreateCase("paused");
+        pausedCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(pausedCase);
+
+        enumDecl.Properties.Add(CreateStaticIntProperty("paused", enumDecl, moduleDecl));
+        enumDecl.Properties.Add(CreateStaticIntProperty("active", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public static PlaybackMode Paused(", csOutput);
+        Assert.Contains("public static System.Int64 Active", csOutput);
+        Assert.DoesNotContain("public static System.Int64 Paused", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();
@@ -186,6 +207,51 @@ public class EnumHandlerOutputTests
             Throws = false,
             IsAsync = false,
             Visibility = Visibility.Public
+        };
+    }
+
+    private static PropertyDecl CreateStaticIntProperty(string name, EnumDecl enumDecl, ModuleDecl moduleDecl)
+    {
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = true,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = $"{name}_Get",
+                        MangledName = $"$s10TestModule12PlaybackModeO{name}Sivg",
+                        MethodType = MethodType.Static,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl>
+                        {
+                            new()
+                            {
+                                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                                Name = string.Empty,
+                                PrivateName = string.Empty,
+                                IsInOut = false,
+                                IsGeneric = false,
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl
+                            }
+                        },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = enumDecl,
+                        ModuleDecl = moduleDecl,
+                        Throws = false,
+                        IsAsync = false,
+                        Visibility = Visibility.Public
+                    }
+                }
+            },
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
         };
     }
 

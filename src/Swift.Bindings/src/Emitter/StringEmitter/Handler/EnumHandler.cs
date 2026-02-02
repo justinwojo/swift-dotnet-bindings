@@ -87,17 +87,24 @@ namespace BindingsGeneration
             // Cases with associated values become static methods with P/Invoke constructors
             // Simple cases (no associated values) use RawRepresentable if available
             var simpleCases = new List<EnumCaseDecl>();
+            var emittedCaseConstructorNames = new HashSet<string>();
             foreach (var caseDecl in enumDecl.Cases)
             {
                 if (caseDecl.HasAssociatedValues)
                 {
-                    EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase);
+                    if (EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase))
+                    {
+                        emittedCaseConstructorNames.Add(NameProvider.ToPascalCase(caseDecl.Name));
+                    }
                 }
                 else
                 {
                     simpleCases.Add(caseDecl);
                 }
             }
+
+            // Precompute naming-collision context for enum properties.
+            var nestedTypeNames = new HashSet<string>(enumDecl.Types.Select(t => t.Name));
 
             // Handle simple cases via RawRepresentable if available, otherwise via direct P/Invoke
             if (simpleCases.Count > 0)
@@ -138,6 +145,13 @@ namespace BindingsGeneration
             // Emit properties using the same pattern as other handlers
             foreach (var propertyDecl in enumDecl.Properties)
             {
+                var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, nestedTypeNames, enumDecl.Name);
+                if (propertyDecl.IsStatic && emittedCaseConstructorNames.Contains(propertyName))
+                {
+                    _logger.LogInformation($"Skipping enum static property '{enumDecl.Name}.{propertyName}' because a case constructor with the same C# name is already emitted.");
+                    continue;
+                }
+
                 if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                 {
                     var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
@@ -155,7 +169,6 @@ namespace BindingsGeneration
 
             // Collect property names for method/property collision detection
             // Include nested type names and containing type name for consistent naming with PropertyHandler
-            var nestedTypeNames = new HashSet<string>(enumDecl.Types.Select(t => t.Name));
             var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p =>
                 NameProvider.GetPropertyName(p.Name, nestedTypeNames, enumDecl.Name)));
 
@@ -253,7 +266,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a static method for an enum case with associated values.
         /// </summary>
-        private void EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
         {
             var caseName = caseDecl.Name;
             var enumTypeName = enumDecl.Name;
@@ -273,7 +286,7 @@ namespace BindingsGeneration
                 if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping case.");
-                    return;
+                    return false;
                 }
 
                 // Use type label if available, otherwise generate a name
@@ -327,6 +340,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
             csWriter.WriteLine($"private static extern void {pInvokeName}({string.Join(", ", pInvokeParams)});");
             csWriter.WriteLine();
+            return true;
         }
 
         /// <summary>

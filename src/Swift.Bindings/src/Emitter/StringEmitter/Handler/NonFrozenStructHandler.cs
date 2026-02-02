@@ -70,10 +70,6 @@ namespace BindingsGeneration
             var structDecl = (StructDecl)structEnv.TypeDecl;
             var moduleDecl = structDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(structDecl.ModuleDecl));
 
-            // Check for equality/inequality operators (explicit or synthesized)
-            bool hasEquality = OperatorHandler.WillHaveEqualityOperator(structDecl.Operators);
-            bool hasInequality = OperatorHandler.WillHaveInequalityOperator(structDecl.Operators);
-
             bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
             // Get generic type parts if this is a generic type
@@ -81,8 +77,6 @@ namespace BindingsGeneration
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics);
-            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, hasEquality, hasInequality);
-
             // Create P/Invoke helper context for generic types (to avoid CS7042)
             // Set it on the conductor so nested method handlers can access it
             var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
@@ -122,18 +116,26 @@ namespace BindingsGeneration
 
                 // Emit operators (operators also have P/Invoke - need to handle for generic types)
                 var operatorHandler = new OperatorHandler(_logger);
+                var emittedOperatorSymbols = new HashSet<string>();
                 foreach (var operatorDecl in structDecl.Operators)
                 {
                     if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
                     {
-                        operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext);
+                        if (operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext))
+                        {
+                            emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
+                        }
                     }
                 }
                 // Handle paired operators (e.g., if == is defined but != is not)
                 // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
-                operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, typeNameWithGenerics);
+                operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, typeNameWithGenerics, emittedOperatorSymbols);
+
+                bool hasEquality = emittedOperatorSymbols.Contains("==");
+                bool hasInequality = emittedOperatorSymbols.Contains("!=");
 
                 // Add Equatable support if the struct conforms to Equatable
+                var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, hasEquality, hasInequality);
                 SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
                 ISwiftObjectMethodWriter.WriteNonFrozenStructImplementation(pinvokeHelperContext);
 

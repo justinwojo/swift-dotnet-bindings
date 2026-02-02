@@ -92,6 +92,12 @@ The following phases have been completed. See individual documents for details:
 
 3. **SwiftArray<ExistentialContainer> Metadata** - Creating `SwiftArray<ExistentialContainer1>` crashes due to Mono JIT bug. **Workaround available**: Use `ImageRequestFactory` (see Phase 29). Full direct API access blocked until Mono fixes the underlying JIT issue. See `/src/docs/known-issues-workarounds.md` for details.
 
+**Future diagnostic improvements** (from Codex review - see `/src/docs/codex-review-notes.md`):
+
+- **Binding completeness report**: The generator will emit a structured summary (JSON + console) of skipped members/types with reason codes. This will automate the manual gap tracking currently done in this document. See `/north-star.md` Phase 1 for roadmap.
+
+- **UnsupportedType placeholder**: Silent `AnyType`/`object` fallbacks will be replaced with explicit `UnsupportedType` markers, making gaps visible at compile time rather than silently degrading.
+
 ---
 
 ## Baseline Analysis

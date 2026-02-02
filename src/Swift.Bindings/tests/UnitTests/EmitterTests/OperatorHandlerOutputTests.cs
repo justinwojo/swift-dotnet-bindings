@@ -39,7 +39,7 @@ public class OperatorHandlerOutputTests
 
         var writer = new StringWriter();
         var csWriter = new CSharpWriter(writer);
-        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "Point");
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "Point", new HashSet<string> { "==" });
 
         var output = writer.ToString();
         Assert.Contains("public static bool operator !=(Point left, Point right)", output);

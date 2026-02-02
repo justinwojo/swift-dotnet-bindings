@@ -90,6 +90,17 @@ dotnet add package Nuke.Bindings
 | Enum case constructors | **Done** | P1 |
 | Foundation type coverage (URL, Data, etc.) | **Done** | P1 |
 | Cross-platform generation (iOS bindings on macOS) | **Done** | - |
+| **Lock namespace mapping scheme** | Not Started | P1 |
+| **Binding completeness report** | Not Started | P1 |
+| **UnsupportedType placeholder** | Not Started | P2 |
+
+#### New Items (from Codex Review)
+
+- **Lock namespace mapping scheme**: The current `Swift.{Module}` pattern is temporary. Before shipping stable packages, define a final mapping scheme (config-driven with defaults + per-module overrides). This prevents breaking changes for early adopters. Ref: `ModuleProcessor.cs` registration methods.
+
+- **Binding completeness report**: Emit a structured summary (JSON + console) of skipped members/types with reason codes (UnsupportedType, AnyTypeFallback, AsyncProperty, etc.). Critical for users evaluating binding coverage.
+
+- **UnsupportedType placeholder**: Replace silent `AnyType`/`object` fallbacks with explicit `UnsupportedType` markers in generated code. Makes gaps visible rather than compiling but silently degrading.
 
 **Success Criteria**: Nuke library async image loading works end-to-end. ✅ ACHIEVED
 
@@ -103,6 +114,14 @@ dotnet add package Nuke.Bindings
 | Protocol witness tables | Not Started | P1 |
 | Unbound generic types | Not Started | P1 |
 | Protocols with Associated Types (PATs) | Partial | P2 |
+| **TypeGraph layer for structural types** | Not Started | P2 |
+| **Formalize cross-module resolution** | Not Started | P2 |
+
+#### New Items (from Codex Review)
+
+- **TypeGraph layer**: The TypeDatabase currently mixes nominal types (classes, structs, enums) with structural types (tuples, closures). Extract a `TypeGraph`/`CompositeTypeFactory` layer that builds complex types from nominal types, keeping TypeDatabase nominal-only. Aligns with emitter redesign proposal.
+
+- **Formalize cross-module resolution**: The `_outOfModuleTypes` and `_moduleAliases` in TypeDatabase are ad-hoc. As more libraries are bound, formalize a "type origin + resolution policy" with explicit config and diagnostics. Defer until more real-world patterns emerge.
 
 **Success Criteria**: Methods with existential parameters and generic methods bind successfully.
 
@@ -116,6 +135,11 @@ dotnet add package Nuke.Bindings
 | Project templates | `dotnet new swift-binding` |
 | NuGet packaging | Automatic xcframework bundling |
 | Error diagnostics | Clear messages for unsupported features |
+| **Configuration versioning** | Versioned config schema with hash in output |
+
+#### New Item (from Codex Review)
+
+- **Configuration versioning**: As namespace mapping and resolution policies solidify, add a versioned config schema and include the config hash in generated output for traceability. Enables reproducible builds and debugging.
 
 **Success Criteria**: Single `dotnet build` from xcframework to NuGet package.
 
@@ -233,7 +257,7 @@ Swift Framework (.xcframework)
 - `/docs/binding-overview.md` - Binding philosophy
 - `/src/docs/emitter-redesign-proposal.md` - Architecture improvements
 - `/src/docs/nuke-binding-roadmap.md` - Real-world testing and gap tracking
-- `/src/docs/nuke-binding-roadmap.md` - Incremental progress tracking
+- `/src/docs/codex-review-notes.md` - Architectural feedback and open questions
 
 ### External
 - [Swift ABI Stability Manifesto](https://github.com/apple/swift/blob/main/docs/ABIStabilityManifesto.md)

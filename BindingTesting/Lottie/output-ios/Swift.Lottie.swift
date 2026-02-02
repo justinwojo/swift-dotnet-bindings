@@ -670,7 +670,7 @@ public func getEveryProtocolAnyInterpolatableWitnessTable() -> UnsafeRawPointer 
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom4data8filename13dispatchQueueAC10Foundation4DataV_SSSo03OS_H6_queueCtYaKFZ_async")
-    public static func PInvoke_loadedFrom_6562CC92(callback: @escaping @convention(c) (Lottie.DotLottieFile, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_6E5912CB(callback: @escaping @convention(c) (Lottie.DotLottieFile, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let dispatchQueueValue = dispatchQueue.assumingMemoryBound(to: Dispatch.DispatchQueue.self).pointee
