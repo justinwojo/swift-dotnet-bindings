@@ -360,6 +360,182 @@ public class ProtocolProxyEmitterTests
         Assert.DoesNotContain("TestProtocolProxy", output);
     }
 
+    [Fact]
+    public void EmitProxyClass_SkipsProtocolsWithNoImplementableMembers()
+    {
+        var protocolDecl = CreateSimpleProtocol("EmptyProtocol");
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.DoesNotContain("public unsafe class EmptyProtocolProxy", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_WithSubscript_EmitsSubscriptReceiversAndIndexer()
+    {
+        var protocolDecl = CreateSimpleProtocol("IndexedProtocol");
+        protocolDecl.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s7IndexedP9subscriptS2icig",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "index",
+                    PrivateName = "index",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("subscript_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("private static IntPtr Receive_subscript_0_get(", output);
+        Assert.Contains("private static void Receive_subscript_0_set(", output);
+        Assert.Contains("public Swift.AnyType this[Swift.AnyType index]", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_WithDuplicateMethodSignatures_EmitsSingleReceiver()
+    {
+        var protocolDecl = CreateSimpleProtocol("DuplicateProtocol");
+        protocolDecl.Methods.Add(CreateMethodDecl("refresh"));
+        protocolDecl.Methods.Add(CreateMethodDecl("refresh"));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "private static void Receive_refresh_0("));
+    }
+
+    [Fact]
+    public void EmitProxyClass_WithTupleReturnMethod_UsesValueTupleSignature()
+    {
+        var protocolDecl = CreateSimpleProtocol("TupleProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "decompose",
+            MangledName = "$s12TupleProtocol9decomposeSi_SbtF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new TupleTypeSpec(new List<TypeSpec>
+                    {
+                        new NamedTypeSpec("Swift.Int"),
+                        new NamedTypeSpec("Swift.Bool")
+                    }),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("public (Swift.AnyType, Swift.AnyType) decompose()", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_WithClosureParameter_UsesActionSignature()
+    {
+        var protocolDecl = CreateSimpleProtocol("ClosureProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "apply",
+            MangledName = "$s14ClosureProtocol5applyyyySiXEF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "callback",
+                    PrivateName = "callback",
+                    SwiftTypeSpec = new ClosureTypeSpec(
+                        arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+                        returnType: TupleTypeSpec.Empty),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("public void apply(Action<Swift.AnyType> callback)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_WithProtocolCompositionProperty_UsesExistentialContainerType()
+    {
+        var protocolDecl = CreateSimpleProtocol("ExistentialProtocol");
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "delegate",
+            SwiftTypeSpec = new ProtocolListTypeSpec(new[]
+            {
+                new NamedTypeSpec("TestModule.P1"),
+                new NamedTypeSpec("TestModule.P2")
+            }),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("delegate_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("public Swift.Runtime.ExistentialContainer2 delegate", output);
+    }
+
     #endregion
 
     #region Witness Table Lookup Tests

@@ -237,6 +237,116 @@ public class EveryProtocolEmitterTests
         Assert.DoesNotContain("extension EveryProtocol:", output);
     }
 
+    [Fact]
+    public void EmitProtocolConformance_WithGlobalSignatureConflict_SkipsSecondMethodImplementation()
+    {
+        var firstProtocol = CreateProtocolWithMethod("FirstProtocol", "conflict");
+        var secondProtocol = CreateProtocolWithMethod("SecondProtocol", "conflict");
+        var globalSignatures = new HashSet<string>();
+
+        var firstOutput = EmitFullConformance(firstProtocol, globalSignatures);
+        var secondOutput = EmitFullConformance(secondProtocol, globalSignatures);
+
+        Assert.Contains("public func conflict()", firstOutput);
+        Assert.DoesNotContain("public func conflict()", secondOutput);
+        Assert.Contains("extension EveryProtocol: TestModule.SecondProtocol", secondOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_SkipsStaticAndConstructorMethods()
+    {
+        var protocolDecl = CreateSimpleProtocol("MixedProtocol");
+        protocolDecl.Methods.Add(CreateMethodDecl("instanceMethod"));
+        protocolDecl.Methods.Add(CreateMethodDecl("utility", methodType: MethodType.Static));
+        protocolDecl.Methods.Add(CreateMethodDecl("init", isConstructor: true));
+
+        var output = EmitFullConformance(protocolDecl);
+
+        Assert.Contains("public func instanceMethod()", output);
+        Assert.DoesNotContain("public func utility", output);
+        Assert.DoesNotContain("public func init(", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_WithProtocolCompositionProperty_UsesAnyCompositionSyntax()
+    {
+        var protocolDecl = CreateSimpleProtocol("Composable");
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "delegate",
+            SwiftTypeSpec = new ProtocolListTypeSpec(new[]
+            {
+                new NamedTypeSpec("TestModule.P1"),
+                new NamedTypeSpec("TestModule.P2")
+            }),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("delegate_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.Contains("public var delegate: any TestModule.P1 & TestModule.P2", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_WithGenericTypeParameter_UsesAnyTypeErasure()
+    {
+        var protocolDecl = CreateSimpleProtocol("GenericLike");
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "item",
+            SwiftTypeSpec = new NamedTypeSpec("T"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("item_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.Contains("public var item: Any", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_WithEscapingAsyncThrowingClosure_FormatsClosureType()
+    {
+        var protocolDecl = CreateSimpleProtocol("ClosureLike");
+        var closure = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: new NamedTypeSpec("Swift.String"));
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        closure.IsAsync = true;
+        closure.Throws = true;
+
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "callback",
+            SwiftTypeSpec = closure,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("callback_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.Contains("public var callback: @escaping (Swift.Int) async throws -> Swift.String", output);
+    }
+
     #endregion
 
     #region Witness Table Getter Tests
@@ -334,6 +444,14 @@ public class EveryProtocolEmitterTests
         return stringWriter.ToString();
     }
 
+    private string EmitFullConformance(ProtocolDecl protocolDecl, HashSet<string> globalSignatures)
+    {
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocolDecl, globalSignatures);
+        return stringWriter.ToString();
+    }
+
     private string EmitWitnessTableGetter(ProtocolDecl protocolDecl)
     {
         var stringWriter = new StringWriter();
@@ -399,14 +517,14 @@ public class EveryProtocolEmitterTests
         return protocol;
     }
 
-    private static MethodDecl CreateMethodDecl(string name)
+    private static MethodDecl CreateMethodDecl(string name, MethodType methodType = MethodType.Instance, bool isConstructor = false)
     {
         return new MethodDecl
         {
             Name = name,
             MangledName = $"$s{name}",
-            MethodType = MethodType.Instance,
-            IsConstructor = false,
+            MethodType = methodType,
+            IsConstructor = isConstructor,
             CSSignature = new List<ArgumentDecl>
             {
                 new ArgumentDecl

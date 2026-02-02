@@ -1,0 +1,372 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+#nullable enable
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace BindingsGeneration.Tests;
+
+public class MethodHandlerOutputTests
+{
+    [Fact]
+    public void Emit_AsyncMethod_UsesAsyncLibraryAndReturnsTask()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "fetch",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: true,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("[DllImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
+        Assert.Contains("public unsafe Task<System.Int64> Fetch()", csOutput);
+        Assert.Contains("return task.Task;", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ThrowingMethod_EmitsSwiftErrorHandling()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "load",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: true,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("out SwiftError error", csOutput);
+        Assert.Contains("if (error.Value != null)", csOutput);
+        Assert.Contains("throw new SwiftRuntimeException(\"Call to Swift method load failed.\")", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodNameCollidesWithProperty_AppendsMethodSuffix()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "fetch",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var siblingProperties = new HashSet<string> { "Fetch" };
+        var (csOutput, _) = EmitMethod(method, typeDatabase, siblingProperties);
+
+        Assert.Contains("public unsafe System.Int64 FetchMethod()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StaticMethod_DoesNotRequireUnsafe()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "count",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("public static System.Int64 Count()", csOutput);
+        var signatureLine = Array.Find(csOutput.Split('\n'), line => line.Contains("public static System.Int64 Count()", StringComparison.Ordinal));
+        Assert.NotNull(signatureLine);
+        Assert.DoesNotContain("unsafe", signatureLine!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_GenericMethod_WithProtocolConstraint_EmitsWhereClause()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.Loadable", TypeRecordFlags.None);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "decode",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance,
+            genericParameters: new List<GenericArgumentDecl>
+            {
+                CreateGenericArgumentWithProtocolConformance("T", "TestModule.Loadable")
+            });
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("public unsafe System.Int64 Decode<T0>()", csOutput);
+        Assert.Contains("where T0 : ISwiftObject, ISwiftLoadable", csOutput);
+    }
+
+    [Fact]
+    public void Emit_GenericMethod_WithAssociatedTypeProtocolConstraint_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.SequenceLike", TypeRecordFlags.HasAssociatedTypes);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "decode",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance,
+            genericParameters: new List<GenericArgumentDecl>
+            {
+                CreateGenericArgumentWithProtocolConformance("T", "TestModule.SequenceLike")
+            });
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_ModuleLevelMethod_IsAlwaysStatic()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var method = new MethodDecl
+        {
+            Name = "version",
+            MangledName = "$s10TestModule7versionSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("public static System.Int64 Version()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithUnknownParameterType_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "decode",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        method.CSSignature.Add(CreateArgument("unknown", new NamedTypeSpec("Missing.Type"), moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabase()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+                MetadataAccessor = "$s10TestModule6LoaderCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
+    }
+
+    private static ModuleDecl CreateModuleDecl(string name)
+    {
+        return new ModuleDecl
+        {
+            Name = name,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static ClassDecl CreateClassDecl(string name, ModuleDecl moduleDecl)
+    {
+        var classDecl = new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(classDecl);
+        return classDecl;
+    }
+
+    private static MethodDecl CreateMethodDecl(
+        string name,
+        ClassDecl parentDecl,
+        ModuleDecl moduleDecl,
+        TypeSpec returnType,
+        bool isAsync,
+        bool throws,
+        MethodType methodType,
+        List<GenericArgumentDecl>? genericParameters = null)
+    {
+        var method = new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule6LoaderC{name}SiyF",
+            MethodType = methodType,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnType, moduleDecl)
+            },
+            GenericParameters = genericParameters ?? new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = throws,
+            IsAsync = isAsync,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+        return method;
+    }
+
+    private static GenericArgumentDecl CreateGenericArgumentWithProtocolConformance(string typeName, string protocolName)
+    {
+        return new GenericArgumentDecl(
+            TypeName: typeName,
+            SugaredTypeName: typeName,
+            GenericConformances: new List<GenericParameterConformance>
+            {
+                new GenericParameterConformance(
+                    Path: new[] { typeName },
+                    ConformanceTarget: SwiftTypeName.FromModuleQualifiedName(protocolName),
+                    Kind: ConformanceKind.Protocol)
+            },
+            AssosiatedTypeConformances: new List<GenericParameterConformance>());
+    }
+
+    private static void RegisterProtocol(TypeDatabase typeDatabase, string protocolName, TypeRecordFlags flags)
+    {
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName(protocolName), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", protocolName.Split('.')[1]),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
+                MetadataAccessor = "$s10TestModule8ProtocolPAAWP",
+                Flags = flags,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+    }
+
+    private static ArgumentDecl CreateArgument(string name, TypeSpec typeSpec, ModuleDecl moduleDecl)
+    {
+        return new ArgumentDecl
+        {
+            SwiftTypeSpec = typeSpec,
+            Name = name,
+            PrivateName = string.Empty,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static (string csOutput, string swiftOutput) EmitMethod(
+        MethodDecl methodDecl,
+        TypeDatabase typeDatabase,
+        IReadOnlySet<string>? siblingPropertyNames = null)
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames);
+        var conductor = new Conductor(new NullLoggerFactory());
+        handler.Emit(csWriter, swiftWriter, env, conductor);
+
+        return (csOutput.ToString(), swiftOutput.ToString());
+    }
+}

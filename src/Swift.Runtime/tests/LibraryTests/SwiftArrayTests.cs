@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Swift;
@@ -126,6 +128,41 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
     }
 
     [Fact]
+    public void FromEnumerable_Null_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => SwiftArray<int>.FromEnumerable(null!));
+    }
+
+    [Fact]
+    public void FromEnumerable_CopiesItemsInOrder()
+    {
+        var source = new List<int> { 3, 1, 4 };
+        var array = SwiftArray<int>.FromEnumerable(source);
+
+        Assert.Equal(3, array.Count);
+        Assert.Equal(3, array[0]);
+        Assert.Equal(1, array[1]);
+        Assert.Equal(4, array[2]);
+    }
+
+    [Fact]
+    public void Enumerator_IteratesInOrder()
+    {
+        var array = new SwiftArray<int>();
+        array.Append(10);
+        array.Append(20);
+        array.Append(30);
+
+        var results = new List<int>();
+        foreach (var item in array)
+        {
+            results.Add(item);
+        }
+
+        Assert.Equal(new List<int> { 10, 20, 30 }, results);
+    }
+
+    [Fact]
     public unsafe void ArrayDispose()
     {
         var array = new SwiftArray<int>();
@@ -144,6 +181,13 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
         array.Payload.Dispose();
         Assert.Equal(1, Arc.RetainCount(handle));
         Arc.Release(handle);
+    }
+
+    [Fact]
+    public void GetProtocolConformanceDescriptor_UnknownProtocol_Throws()
+    {
+        Assert.Throws<SwiftRuntimeException>(() =>
+            ProtocolConformanceDescriptorHelper<SwiftArray<int>, ITestProtocol>.GetProtocolConformanceDescriptor());
     }
 
     private void PrimitiveArrayTest<T>(T value1, T value2, T overwriteValue)

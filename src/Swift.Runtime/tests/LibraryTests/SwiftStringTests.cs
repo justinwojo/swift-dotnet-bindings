@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Swift;
@@ -56,5 +57,40 @@ public class SwiftStringTests : IClassFixture<SwiftStringTests.TestFixture>
 
         Assert.Equal(text.Length, str.Length);
         Assert.Equal(text, str.ToString());
+    }
+
+    [Fact]
+    public void ImplicitConversion_FromString_Works()
+    {
+        SwiftString swiftString = "Hello";
+        Assert.Equal("Hello", swiftString.ToString());
+    }
+
+    [Fact]
+    public void ImplicitConversion_ToString_Works()
+    {
+        var swiftString = new SwiftString("World");
+        string value = swiftString;
+        Assert.Equal("World", value);
+    }
+
+    [Fact]
+    public void ImplicitConversion_FromNullString_Throws()
+    {
+        string? value = null;
+        Assert.Throws<ArgumentNullException>(() =>
+        {
+            SwiftString _ = (string)value!;
+        });
+    }
+
+    [Fact]
+    public void ImplicitConversion_FromNullSwiftString_Throws()
+    {
+        SwiftString? value = null;
+        Assert.Throws<ArgumentNullException>(() =>
+        {
+            string _ = value!;
+        });
     }
 }

@@ -1,12 +1,33 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.IO;
 using Xunit;
 
 namespace BindingsGeneration.Tests
 {
-    public class TypeDatabaseTests
-    {
+public class TypeDatabaseTests
+{
+    // Keep these fixtures aligned with TypeDatabase.ValidateXmlSchema:
+    // - root node: <swifttypedatabase version="1.0" moduleName modulePath>
+    // - child node: <entities> with at least one <entity>
+    // - each entity must include a <typedeclaration> element
+    private const string ValidXmlDatabase = """
+        <swifttypedatabase version="1.0" moduleName="TestModule" modulePath="/tmp/TestModule.dylib">
+          <entities>
+            <entity managedTypeName="Widget" managedNameSpace="BindingsGeneration.Tests">
+              <typedeclaration module="TestModule" name="Widget" mangledName="$s4Test6WidgetV" frozen="true" requiresMemoryManagement="false" />
+            </entity>
+          </entities>
+        </swifttypedatabase>
+        """;
+
+    private const string InvalidXmlDatabase = """
+        <swifttypedatabase version="1.0" moduleName="Broken" modulePath="/tmp/Broken.dylib">
+          <entities />
+        </swifttypedatabase>
+        """;
+
         [Fact]
         public void AddModuleDatabase_ModuleExists_Throws()
         {
@@ -163,6 +184,127 @@ namespace BindingsGeneration.Tests
 
             var ex = Assert.Throws<Exception>(() => typeDatabase.GetLibraryPath("NonExistentModule"));
             Assert.Contains("Module NonExistentModule does not exist in the database.", ex.Message);
+        }
+
+        [Fact]
+        public void TryGetTypeRecord_UsesModuleAlias_WhenAliasModuleProvided()
+        {
+            var typeDatabase = new TypeDatabase();
+            var module = new ModuleTypeDatabase("CoreGraphics", "/fake/path");
+            var canonicalTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGSize");
+            var aliasTypeName = SwiftTypeName.FromModuleQualifiedName("CoreFoundation.CGSize");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreGraphics", "CGSize"),
+                SwiftTypeName = canonicalTypeName,
+                MetadataAccessor = "mangledAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            };
+            module.RegisterType(canonicalTypeName, record);
+            typeDatabase.AddModuleDatabase(module);
+
+            var found = typeDatabase.TryGetTypeRecord(aliasTypeName, out var aliasedRecord);
+
+            Assert.True(found);
+            Assert.NotNull(aliasedRecord);
+            Assert.Equal("CGSize", aliasedRecord!.CSharpTypeName.Name);
+        }
+
+        [Fact]
+        public void IsTypeProcessed_UsesModuleAlias_WhenAliasModuleProvided()
+        {
+            var typeDatabase = new TypeDatabase();
+            var module = new ModuleTypeDatabase("CoreGraphics", "/fake/path");
+            var canonicalTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGSize");
+            var aliasTypeName = SwiftTypeName.FromModuleQualifiedName("CoreFoundation.CGSize");
+            module.RegisterType(canonicalTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreGraphics", "CGSize"),
+                SwiftTypeName = canonicalTypeName,
+                MetadataAccessor = "mangledAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+            typeDatabase.AddModuleDatabase(module);
+
+            var result = typeDatabase.IsTypeProcessed(aliasTypeName);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void AddOutOfModuleTypes_DuplicateType_DoesNotOverrideExistingRecord()
+        {
+            var typeDatabase = new TypeDatabase();
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("AnotherModule.SharedType");
+            var firstRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BindingsGeneration.Tests", "First"),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = "first",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            };
+            var secondRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BindingsGeneration.Tests", "Second"),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = "second",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            };
+
+            typeDatabase.AddOutOfModuleTypes(new[] { (swiftTypeName, firstRecord) });
+            typeDatabase.AddOutOfModuleTypes(new[] { (swiftTypeName, secondRecord) });
+
+            var found = typeDatabase.TryGetTypeRecord(swiftTypeName, out var record);
+            Assert.True(found);
+            Assert.NotNull(record);
+            Assert.Equal("First", record!.CSharpTypeName.Name);
+            Assert.Equal("first", record.MetadataAccessor);
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabaseFromFile_ValidXml_LoadsModuleAndType()
+        {
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, ValidXmlDatabase);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(filePath);
+
+                Assert.True(typeDatabase.IsModuleProcessed("TestModule"));
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Widget");
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+                Assert.NotNull(record);
+                Assert.Equal("Widget", record!.CSharpTypeName.Name);
+                Assert.Equal("/tmp/TestModule.dylib", typeDatabase.GetLibraryPath("TestModule"));
+            }
+            finally
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabaseFromFile_InvalidXmlSchema_Throws()
+        {
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, InvalidXmlDatabase);
+
+                var typeDatabase = new TypeDatabase();
+                var ex = await Assert.ThrowsAsync<Exception>(() => typeDatabase.LoadModuleDatabaseFromFile(filePath));
+                Assert.Contains("Invalid XML schema", ex.Message);
+            }
+            finally
+            {
+                File.Delete(filePath);
+            }
         }
     }
 }

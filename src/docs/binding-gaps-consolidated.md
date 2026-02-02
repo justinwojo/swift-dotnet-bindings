@@ -421,6 +421,59 @@ These require deeper investigation into:
 - Generic type detection for bound generics
 - Operator signature validation before synthesis
 
+#### Investigation Notes + Potential Fixes
+
+Below are concrete findings from the generated Lottie bindings (`BindingTesting/Lottie/output-ios/Swift.Lottie.cs`) and the likely changes needed to address the remaining 21 errors.
+
+1) **SwiftUI constraint (`ISwiftView`)**
+   - **Observed**: `LottieView<T0>` uses `where T0 : ISwiftObject, ISwiftView`, but `ISwiftView` is not generated.
+   - **Likely root**: SwiftUI protocols (e.g., `SwiftUI.View`) are not emitted as C# interfaces; many are PATs / opaque result types.
+   - **Potential fixes**:
+     - **Short-term**: Skip type emission when a generic constraint references SwiftUI protocols (or any protocol marked unsupported). Emit a warning and prune the type to keep compilation green.
+     - **Medium-term**: Emit *stub* interfaces for SwiftUI protocols (e.g., `ISwiftView`) in a dedicated SwiftUI namespace so constraints compile. Keep members skipped to avoid false capability.
+     - **Long-term**: Add SwiftUI support (opaque result types + PAT strategy). This is a larger design effort.
+   - **Likely code touch points**: `GenericTypeEmitter.GetWhereClause`, `ModuleProcessor` pruning rules.
+
+2) **Duplicate enum case symbol (`Paused`)**
+   - **Observed**: `LottiePlaybackMode` has both `public static LottiePlaybackMode Paused(...)` (case ctor) and `public static LottiePlaybackMode Paused { get; }` (static property), causing CS0102.
+   - **Likely root**: EnumHandler emits both case constructors (associated values) and static case properties when a getter symbol exists, without deduping names.
+   - **Potential fixes**:
+     - Suppress static property emission when a case constructor with the same name already exists.
+     - Or rename the property (e.g., `PausedCase` / `PausedValue`) via `NameProvider` collision logic.
+   - **Likely code touch points**: `EnumHandler.cs` (case emission + static property emission).
+
+3) **`ValueProviderStorage` generic type missing**
+   - **Observed**: `ValueProviderStorage` is emitted non-generic, but is referenced as `ValueProviderStorage<T>` in multiple places (CS0308).
+   - **Likely root**: Generic parameters on the enum type are not being propagated to the type declaration. The ABI signatures contain generic params (`x`) but the type is emitted non-generic.
+   - **Potential fixes**:
+     - Propagate generic parameters from the ABI type declaration into `TypeDecl.GenericParameters` for enums (and/or infer generics from member signatures when missing).
+     - As a fallback, when a bound generic usage is detected for a non-generic type, force the type declaration to be generic in the emitter.
+     - Optional: map `ValueProviderStorage<T>` to a type-erased `AnyValueProviderStorage` when `T` is existential (more correct when used with protocol values).
+   - **Likely code touch points**: `SwiftABIParser.cs` (generic param parsing), `ModuleProcessor` or `TypeDecl` construction, `EnumHandler`/`GenericTypeEmitter`.
+
+4) **Paired operator synthesis when primary operator is skipped**
+   - **Observed**: `Keyframe<T0>.operator !=` emitted even though `==` is not (CS0216).
+   - **Likely root**: Pair synthesis runs even if the source operator didn’t emit due to unsupported signature.
+   - **Potential fixes**:
+     - Track per-operator emission success; only synthesize pairs if the primary operator was successfully emitted.
+   - **Likely code touch points**: `OperatorHandler.cs`, `TypeHandlerHelpers.cs`.
+
+5) **Generic constraint mismatch with existentials (`ExistentialContainer0`)**
+   - **Observed**: `Keyframe<ExistentialContainer0>` fails because `Keyframe<T0>` is constrained to `ISwiftObject`, and existential containers don’t implement it (CS0315).
+   - **Likely root**: `GenericTypeEmitter` unconditionally adds `ISwiftObject` constraint to all generic params, even when Swift constraints are protocol-only and are represented as existentials on the C# side.
+   - **Potential fixes**:
+     - **Structural fix**: Add a metadata path for existentials so generic types can accept `IExistentialContainer` (or similar) instead of `ISwiftObject`, and adjust emitted metadata lookups accordingly.
+     - **Pragmatic fix**: When a generic argument resolves to an existential container, route to a type-erased companion (e.g., `AnyValueProviderStorage`) rather than instantiating `Keyframe<ExistentialContainer0>`.
+     - **Fallback**: Relax the `ISwiftObject` constraint for specific generic parameters that are only constrained to unsupported protocols, but only if the generated code path does not require `SwiftObjectHelper<T0>`.
+   - **Likely code touch points**: `GenericTypeEmitter.GetWhereClause`, `TypeMetadata` helper usage in generic emission paths, `BoundGenericsHandler`.
+
+6) **Associated-value case treated as no-arg property (related to #3)**
+   - **Observed**: `ValueProviderStorage.Closure` is emitted as a no-arg property even though the Swift case expects an associated closure.
+   - **Likely root**: Generic parameter / associated value typing was lost, so the emitter treated the case as payload-less.
+   - **Potential fixes**:
+     - Same fix as #3 (correctly carrying generic parameters into the enum declaration) should allow the associated-value case to emit the proper signature.
+   - **Likely code touch points**: `EnumHandler.cs` (case signature generation), `SwiftABIParser.cs`.
+
 ---
 
 ## Prioritized Implementation Roadmap

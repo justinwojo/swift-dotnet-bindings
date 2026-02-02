@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.IO;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -152,6 +154,81 @@ public class PropertyHandlerTests
         Assert.IsType<NamedTypeSpec>(valueParam.SwiftTypeSpec);
         // NameWithoutModule returns just the type name, not the full qualified name
         Assert.Equal("Int", ((NamedTypeSpec)valueParam.SwiftTypeSpec).NameWithoutModule);
+    }
+
+    #endregion
+
+    #region Property Emission Tests
+
+    [Fact]
+    public void Emit_WithGetterAndSetter_EmitsAccessorMethodsAndProperty()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Counter", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("public System.Int64 Count", csOutput);
+        Assert.Contains("get => Count_Get();", csOutput);
+        Assert.Contains("set => Count_Set(value);", csOutput);
+        Assert.Contains("public unsafe System.Int64 Count_Get()", csOutput);
+        Assert.Contains("public unsafe void Count_Set(", csOutput);
+    }
+
+    [Fact]
+    public void Emit_WithNoAccessors_EmitsNothing()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Counter", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: false, hasSetter: false);
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_WhenPropertyNameMatchesContainingType_AppendsValueSuffix()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Animation", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "animation", "Swift.Int", hasGetter: true, hasSetter: false);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("public System.Int64 AnimationValue", csOutput);
+        Assert.DoesNotContain("public System.Int64 Animation\n", csOutput);
+    }
+
+    [Fact]
+    public void Emit_AsyncStreamProperty_EmitsAsyncEnumerableAndSwiftWrapper()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Feed", moduleDecl);
+        var property = new PropertyDecl
+        {
+            Name = "updates",
+            SwiftTypeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", new NamedTypeSpec("Swift.Int")),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("public IAsyncEnumerable<System.Int64> Updates", csOutput);
+        Assert.Contains("private static unsafe byte updates_AsyncStream_OnElement", csOutput);
+        Assert.Contains("PInvoke_Feed_updates_AsyncStream", csOutput);
+        Assert.Contains("public func Feed_updates_AsyncStream", swiftOutput);
+        Assert.Contains("for await element in self.updates", swiftOutput);
     }
 
     #endregion
@@ -376,6 +453,176 @@ public class PropertyHandlerTests
             ParentDecl = null,
             ModuleDecl = null
         };
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithInt()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        return typeDatabase;
+    }
+
+    private static ModuleDecl CreateModuleDeclForEmission(string moduleName)
+    {
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static ClassDecl CreateClassDeclForEmission(string className, ModuleDecl moduleDecl)
+    {
+        var classDecl = new ClassDecl
+        {
+            Name = className,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{className}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{className.Length}{className}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(classDecl);
+        return classDecl;
+    }
+
+    private static PropertyDecl CreateEmittablePropertyDecl(
+        ClassDecl classDecl,
+        ModuleDecl moduleDecl,
+        string name,
+        string propertyType,
+        bool hasGetter,
+        bool hasSetter)
+    {
+        var accessors = new List<AccessorDecl>();
+        var property = new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec(propertyType),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = accessors,
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        if (hasGetter)
+        {
+            accessors.Add(new GetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Get",
+                    MangledName = $"$s{name}g",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        new ArgumentDecl
+                        {
+                            SwiftTypeSpec = new NamedTypeSpec(propertyType),
+                            Name = string.Empty,
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = classDecl,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+
+        if (hasSetter)
+        {
+            accessors.Add(new SetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Set",
+                    MangledName = $"$s{name}s",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        new ArgumentDecl
+                        {
+                            SwiftTypeSpec = TupleTypeSpec.Empty,
+                            Name = string.Empty,
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        },
+                        new ArgumentDecl
+                        {
+                            SwiftTypeSpec = new NamedTypeSpec(propertyType),
+                            Name = "value",
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = classDecl,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+
+        classDecl.Properties.Add(property);
+        return property;
+    }
+
+    private static (string csOutput, string swiftOutput) EmitProperty(PropertyDecl property, TypeDatabase typeDatabase)
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var handler = new PropertyHandler(new NullLogger<PropertyHandler>());
+        var env = handler.Marshal(property, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
+        handler.Emit(csWriter, swiftWriter, env, conductor);
+
+        return (csOutput.ToString(), swiftOutput.ToString());
     }
 
     #endregion

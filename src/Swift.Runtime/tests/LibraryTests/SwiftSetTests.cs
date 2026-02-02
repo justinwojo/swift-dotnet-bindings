@@ -49,4 +49,11 @@ public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
         // https://github.com/swiftlang/swift/blob/50a98d3055e5a636d80c376a99b4eea35387cd0d/stdlib/public/SwiftShims/swift/shims/GlobalObjects.h#L44
         Assert.True(Arc.RetainCount(*(IntPtr*)set.Payload.DangerousGetHandle()) > 1);
     }
+
+    [Fact]
+    public void GetProtocolConformanceDescriptor_UnknownProtocol_Throws()
+    {
+        Assert.Throws<SwiftRuntimeException>(() =>
+            ProtocolConformanceDescriptorHelper<SwiftSet<SwiftIntMock>, ITestProtocol>.GetProtocolConformanceDescriptor());
+    }
 }
