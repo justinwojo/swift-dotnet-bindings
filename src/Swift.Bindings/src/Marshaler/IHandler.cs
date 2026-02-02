@@ -109,6 +109,7 @@ namespace BindingsGeneration
                     else
                     {
                         _logger.LogWarning($"No handler found for method {structDecl.Name}");
+                        ReportCollector.RecordTypeSkipped(structDecl, SkipReason.MissingHandler, "No type handler found for struct.");
                     }
                 }
                 else if (baseDecl is ClassDecl classDecl)
@@ -121,6 +122,7 @@ namespace BindingsGeneration
                     else
                     {
                         _logger.LogWarning($"No handler found for method {classDecl.Name}");
+                        ReportCollector.RecordTypeSkipped(classDecl, SkipReason.MissingHandler, "No type handler found for class.");
                     }
                 }
                 else if (baseDecl is ProtocolDecl protocolDecl)
@@ -133,6 +135,7 @@ namespace BindingsGeneration
                     else
                     {
                         _logger.LogWarning($"No handler found for method {protocolDecl.Name}");
+                        ReportCollector.RecordTypeSkipped(protocolDecl, SkipReason.MissingHandler, "No type handler found for protocol.");
                     }
                 }
                 else if (baseDecl is EnumDecl enumDecl)
@@ -145,6 +148,7 @@ namespace BindingsGeneration
                     else
                     {
                         _logger.LogWarning($"No handler found for enum {enumDecl.Name}");
+                        ReportCollector.RecordTypeSkipped(enumDecl, SkipReason.MissingHandler, "No type handler found for enum.");
                     }
                 }
                 else if (baseDecl is MethodDecl methodDecl)
@@ -154,6 +158,10 @@ namespace BindingsGeneration
                     if (emittedMethodSignatures.Contains(signatureKey))
                     {
                         _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' with signature: {signatureKey}");
+                        if (!methodDecl.IsAccessor)
+                        {
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.DuplicateSignature, signatureKey);
+                        }
                         continue;
                     }
                     emittedMethodSignatures.Add(signatureKey);
@@ -167,6 +175,10 @@ namespace BindingsGeneration
                     else
                     {
                         _logger.LogWarning($"No handler found for method {methodDecl.Name}");
+                        if (!methodDecl.IsAccessor)
+                        {
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.MissingHandler, "No method handler found.");
+                        }
                     }
                 }
                 else

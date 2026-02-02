@@ -143,6 +143,7 @@ namespace BindingsGeneration
             {
                 // Parse the Swift ABI file and generate declarations
                 var (decl, moduleTypes) = swiftParser.ParseModule();
+                ReportCollector.Start(decl);
 
                 // dylibPath is used for metadata extraction, runtimeLibraryName is used in generated DllImport
                 var moduleProcessor = new ModuleProcessor(moduleName, dylibPath, runtimeLibraryName, moduleTypes, typeDatabase, loggerFactory.CreateLogger<ModuleProcessor>());
@@ -154,6 +155,13 @@ namespace BindingsGeneration
                 // Emit the C# bindings
                 var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory);
                 stringEmitter.EmitModule(decl);
+
+                var report = ReportCollector.Complete();
+                if (report != null)
+                {
+                    ReportEmitter.Emit(report, outputDirectory, logger);
+                }
+                ReportCollector.Reset();
 
                 logger.LogInformation("Bindings generation completed for {SwiftAbiPath}.", swiftAbiPath);
 

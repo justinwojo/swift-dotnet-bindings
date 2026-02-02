@@ -129,6 +129,7 @@ namespace BindingsGeneration
             if (!IsSupportedOperator(symbol))
             {
                 _logger.LogWarning($"Operator '{symbol}' is not supported for C# emission.");
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedType, "Operator symbol is not supported for C# emission.");
                 return false;
             }
 
@@ -137,6 +138,7 @@ namespace BindingsGeneration
             if (parentDecl == null)
             {
                 _logger.LogWarning($"Operator '{symbol}' has no valid parent type declaration.");
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedType, "Operator has no valid containing type.");
                 return false;
             }
 
@@ -144,6 +146,7 @@ namespace BindingsGeneration
             if (moduleDecl == null)
             {
                 _logger.LogWarning($"Operator '{symbol}' has no module declaration.");
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedType, "Operator has no module declaration.");
                 return false;
             }
 
@@ -155,6 +158,7 @@ namespace BindingsGeneration
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
             {
                 _logger.LogWarning($"Operator {symbol} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedSignature, "Operator signature contains unsupported placeholder type.");
                 return false;
             }
 
@@ -164,6 +168,7 @@ namespace BindingsGeneration
             // Emit the operator wrapper and PInvoke
             EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics, pinvokeHelperContext);
             EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext);
+            ReportCollector.RecordMemberEmitted(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl);
             csWriter.WriteLine();
             return true;
         }
@@ -426,6 +431,7 @@ namespace BindingsGeneration
                     // Need to synthesize the paired operator
                     _logger.LogInformation($"Synthesizing paired operator '{pairedSymbol}' from '{symbol}' for type '{typeName}'.");
                     EmitSynthesizedPairedOperator(csWriter, op, pairedSymbol, typeName);
+                    ReportCollector.RecordMemberSynthesized(BindingItemKind.Operator, pairedSymbol, op.ParentDecl);
                     // Mark as defined to avoid duplicate synthesis
                     definedSymbols.Add(pairedSymbol);
                     emittedSymbols.Add(pairedSymbol);

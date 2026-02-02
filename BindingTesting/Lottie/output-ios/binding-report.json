@@ -1,0 +1,321 @@
+{
+  "ModuleName": "Lottie",
+  "GeneratedAt": "2026-02-02T21:45:36.7407+00:00",
+  "TotalTypes": 93,
+  "EmittedTypes": 79,
+  "SkippedTypes": 1,
+  "TotalMembers": 609,
+  "EmittedMembers": 385,
+  "SkippedMembers": 43,
+  "SynthesizedMembers": 273,
+  "SkippedItems": [
+    {
+      "Kind": "Property",
+      "Name": "animationLayerDidLoad",
+      "ContainingType": "Lottie.LottieAnimationLayer",
+      "Reason": "UnsupportedClosure",
+      "Details": "Closure parameters are not invokable from C#."
+    },
+    {
+      "Kind": "Property",
+      "Name": "animationLayer",
+      "ContainingType": "Lottie.LottieAnimationLayer",
+      "Reason": "AnyTypeFallback",
+      "Details": "Property type resolved to AnyType (Swift.SwiftOptional<Swift.AnyType>)."
+    },
+    {
+      "Kind": "Property",
+      "Name": "animationLoaded",
+      "ContainingType": "Lottie.LottieAnimationLayer",
+      "Reason": "UnsupportedClosure",
+      "Details": "Closure parameters are not invokable from C#."
+    },
+    {
+      "Kind": "Property",
+      "Name": "body",
+      "ContainingType": "Lottie.LottieButton",
+      "Reason": "AnyTypeFallback",
+      "Details": "Property type resolved to AnyType (Swift.AnyType)."
+    },
+    {
+      "Kind": "Method",
+      "Name": "animate",
+      "ContainingType": "Lottie.LottieButton",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "fontFor",
+      "ContainingType": "Lottie.DefaultFontProvider",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.FilepathImageProvider",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "imageForAsset",
+      "ContainingType": "Lottie.FilepathImageProvider",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "contentsGravity",
+      "ContainingType": "Lottie.FilepathImageProvider",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "named",
+      "ContainingType": "Lottie.LottieAnimation",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "asset",
+      "ContainingType": "Lottie.LottieAnimation",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Property",
+      "Name": "body",
+      "ContainingType": "Lottie.LottieSwitch",
+      "Reason": "AnyTypeFallback",
+      "Details": "Property type resolved to AnyType (Swift.AnyType)."
+    },
+    {
+      "Kind": "Method",
+      "Name": "isOn",
+      "ContainingType": "Lottie.LottieSwitch",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Type",
+      "Name": "LottieView",
+      "ContainingType": null,
+      "Reason": "SwiftUIConstraint",
+      "Details": "Unsupported generic constraint: SwiftUI.View"
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.CompatibleAnimation",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Property",
+      "Name": "contentMode",
+      "ContainingType": "Lottie.CompatibleAnimationView",
+      "Reason": "UnsupportedType",
+      "Details": "Type resolution failed for property type 'UIKit.UIView.ContentMode'."
+    },
+    {
+      "Kind": "Property",
+      "Name": "colorSpace",
+      "ContainingType": "Lottie.LottieConfiguration",
+      "Reason": "UnsupportedType",
+      "Details": "Type resolution failed for property type 'CoreGraphics.CGColorSpace'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.LottieConfiguration",
+      "Reason": "UnsupportedSignature",
+      "Details": "Constructor signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "beginTracking",
+      "ContainingType": "Lottie.AnimatedControl",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "continueTracking",
+      "ContainingType": "Lottie.AnimatedControl",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "endTracking",
+      "ContainingType": "Lottie.AnimatedControl",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "cancelTracking",
+      "ContainingType": "Lottie.AnimatedControl",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "setLayer",
+      "ContainingType": "Lottie.AnimatedControl",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Property",
+      "Name": "accessibilityTraits",
+      "ContainingType": "Lottie.AnimatedButton",
+      "Reason": "UnsupportedType",
+      "Details": "Type resolution failed for property type 'UIKit.UIAccessibilityTraits'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "beginTracking",
+      "ContainingType": "Lottie.AnimatedButton",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "endTracking",
+      "ContainingType": "Lottie.AnimatedButton",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "setPlayRange",
+      "ContainingType": "Lottie.AnimatedButton",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Property",
+      "Name": "accessibilityTraits",
+      "ContainingType": "Lottie.AnimatedSwitch",
+      "Reason": "UnsupportedType",
+      "Details": "Type resolution failed for property type 'UIKit.UIAccessibilityTraits'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "endTracking",
+      "ContainingType": "Lottie.AnimatedSwitch",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Property",
+      "Name": "animationLoaded",
+      "ContainingType": "Lottie.LottieAnimationView",
+      "Reason": "UnsupportedClosure",
+      "Details": "Closure parameters are not invokable from C#."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.BundleImageProvider",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "imageForAsset",
+      "ContainingType": "Lottie.BundleImageProvider",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "contentsGravity",
+      "ContainingType": "Lottie.BundleImageProvider",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Property",
+      "Name": "contentMode",
+      "ContainingType": "Lottie.LottieAnimationViewBase",
+      "Reason": "UnsupportedType",
+      "Details": "Type resolution failed for property type 'UIKit.UIView.ContentMode'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "named",
+      "ContainingType": "Lottie.DotLottieFile.SynchronouslyBlockingCurrentThread",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "named",
+      "ContainingType": "Lottie.DotLottieFile",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "asset",
+      "ContainingType": "Lottie.DotLottieFile",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.LottieLogger",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "assert",
+      "ContainingType": "Lottie.LottieLogger",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "assertionFailure",
+      "ContainingType": "Lottie.LottieLogger",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "warn",
+      "ContainingType": "Lottie.LottieLogger",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Property",
+      "Name": "value",
+      "ContainingType": "Lottie.Keyframe",
+      "Reason": "AnyTypeFallback",
+      "Details": "Property type resolved to AnyType (Swift.AnyType)."
+    },
+    {
+      "Kind": "Operator",
+      "Name": "==",
+      "ContainingType": "Lottie.Keyframe",
+      "Reason": "UnsupportedSignature",
+      "Details": "Operator signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.Keyframe",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    }
+  ]
+}

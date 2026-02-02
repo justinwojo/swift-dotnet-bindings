@@ -84,17 +84,21 @@ namespace BindingsGeneration
                 methodEnv = new MethodEnvironment(methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
             }
 
+            var isAccessor = methodEnv.MethodDecl.IsAccessor;
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
             {
                 _logger.LogWarning($"Constructor {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Constructor signature contains unsupported placeholder type.");
                 return;
             }
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
             wrapperEmitter.EmitConstructor(csWriter);
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
+            ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
             csWriter.WriteLine();
         }
     }
@@ -166,11 +170,17 @@ namespace BindingsGeneration
                 methodEnv = new MethodEnvironment(methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
             }
 
+            var isAccessor = methodEnv.MethodDecl.IsAccessor;
+
             // Skip methods with constraints on protocols with associated types
             // (these protocols generate generic C# interfaces which can't be used as constraints without type arguments)
             if (HasUnsupportedProtocolConstraints(methodEnv))
             {
                 _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: has constraints on protocols with associated types");
+                if (!isAccessor)
+                {
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.GenericProtocolConstraint, "Method has constraints on protocols with associated types.");
+                }
                 return;
             }
 
@@ -179,12 +189,24 @@ namespace BindingsGeneration
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
             {
                 _logger.LogWarning($"Method {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
+                if (!isAccessor)
+                {
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Method signature contains unsupported placeholder type.");
+                }
                 return;
             }
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
             wrapperEmitter.EmitMethod(csWriter, swiftWriter);
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
+            if (isAccessor)
+            {
+                ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
+            }
+            else
+            {
+                ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
+            }
             csWriter.WriteLine();
         }
 

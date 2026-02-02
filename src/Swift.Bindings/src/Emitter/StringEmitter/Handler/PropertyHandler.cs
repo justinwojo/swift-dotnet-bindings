@@ -69,6 +69,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         var propertyEnv = (PropertyEnvironment)env;
         var propertyDecl = propertyEnv.PropertyDecl;
+        void SkipProperty(SkipReason reason, string details)
+        {
+            ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl, reason, details);
+        }
 
         // Handle AsyncStream properties - emit as IAsyncEnumerable<T>
         bool isAsyncStream = propertyEnv.AsyncStreamHandler.IsAsyncStream(propertyDecl.SwiftTypeSpec);
@@ -77,9 +81,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             if (!propertyEnv.AsyncStreamHandler.IsSupportedAsyncStream(propertyDecl.SwiftTypeSpec))
             {
                 _logger.LogWarning($"PropertyHandler: Skipping AsyncStream property {propertyDecl.Name} - element type not supported.");
+                SkipProperty(SkipReason.UnsupportedAsyncStream, "AsyncStream element type is not supported.");
                 return;
             }
             EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl);
+            ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
             return;
         }
 
@@ -91,6 +97,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             if (protocolList == null || !propertyEnv.ExistentialHandler.IsSupportedExistential(protocolList))
             {
                 _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported existential (9+ protocols).");
+                SkipProperty(SkipReason.UnsupportedExistential, "Existential contains unsupported protocol count.");
                 return;
             }
         }
@@ -103,6 +110,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             if (innerProtocolList == null || !propertyEnv.ExistentialHandler.IsSupportedExistential(innerProtocolList))
             {
                 _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported Optional-wrapped existential.");
+                SkipProperty(SkipReason.UnsupportedExistential, "Optional existential contains unsupported protocol count.");
                 return;
             }
         }
@@ -115,12 +123,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             if (closureTypeSpec == null || !propertyEnv.ClosureHandler.IsSupportedClosure(closureTypeSpec))
             {
                 _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} with unsupported closure type.");
+                SkipProperty(SkipReason.UnsupportedClosure, "Closure type is not supported.");
                 return;
             }
             // Check if we can invoke this closure from C# (requires primitive parameters)
             if (!propertyEnv.ClosureHandler.CanInvokeFromCSharp(closureTypeSpec))
             {
                 _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} - closure has non-primitive parameters that cannot be marshalled.");
+                SkipProperty(SkipReason.UnsupportedClosure, "Closure parameters are not invokable from C#.");
                 return;
             }
         }
@@ -131,12 +141,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (!processed && !isExistential && !isOptionalExistential && !isClosure)
         {
             _logger.LogWarning($"PropertyHandler: Couldn't process property {propertyDecl.Name} of type {propertyDecl.SwiftTypeSpec}. Skipping.");
+            SkipProperty(SkipReason.UnsupportedType, $"Type resolution failed for property type '{propertyDecl.SwiftTypeSpec}'.");
             return;
         }
 
         if (propertyDecl.Accessors.Count == 0)
         {
             // No public accessors, so we don't need to emit anything
+            SkipProperty(SkipReason.UnsupportedType, "Property has no public accessors to emit.");
             return;
         }
 
@@ -173,6 +185,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (csTypeName.Contains("AnyType"))
         {
             _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported AnyType in type {csTypeName}.");
+            SkipProperty(SkipReason.AnyTypeFallback, $"Property type resolved to AnyType ({csTypeName}).");
             return;
         }
 
@@ -205,12 +218,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
                 {
                     _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} has unsupported signature.");
+                    SkipProperty(SkipReason.UnsupportedSignature, $"Accessor '{accessor.Method.Name}' has unsupported signature.");
                     return;
                 }
             }
             else
             {
                 _logger.LogWarning($"No handler found for property accessor {accessor.Method.Name}. Skipping property {propertyDecl.Name}.");
+                SkipProperty(SkipReason.MissingHandler, $"No method handler for accessor '{accessor.Method.Name}'.");
                 return;
             }
         }
@@ -248,6 +263,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();
+        ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
     }
 
     /// <summary>
@@ -329,4 +345,3 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, parentTypeName);
     }
 }
-

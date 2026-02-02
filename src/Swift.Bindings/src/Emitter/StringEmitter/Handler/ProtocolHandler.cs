@@ -67,6 +67,7 @@ namespace BindingsGeneration
         {
             var protocolEnv = (TypeEnvironment)env;
             var protocolDecl = (ProtocolDecl)protocolEnv.TypeDecl;
+            ReportCollector.RecordTypeEmitted(protocolDecl);
 
             var interfaceName = GetInterfaceNameWithGenerics(protocolDecl);
             var inheritedInterfaces = GetInheritedInterfaceList(protocolDecl);
@@ -96,10 +97,12 @@ namespace BindingsGeneration
                 if (emittedProperties.Contains(propertyKey))
                 {
                     _logger.LogDebug($"Skipping duplicate property '{propertyDecl.Name}' in interface {protocolDecl.Name}");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol property signature.");
                     continue;
                 }
                 emittedProperties.Add(propertyKey);
                 EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase, protocolDecl);
+                ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
             }
 
             // Emit subscripts as interface indexers
@@ -110,10 +113,12 @@ namespace BindingsGeneration
                 if (emittedSubscripts.Contains(subscriptKey))
                 {
                     _logger.LogDebug($"Skipping duplicate subscript in interface {protocolDecl.Name}");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol subscript signature.");
                     continue;
                 }
                 emittedSubscripts.Add(subscriptKey);
                 EmitInterfaceSubscript(csWriter, subscriptDecl, env.TypeDatabase, protocolDecl);
+                ReportCollector.RecordMemberEmitted(BindingItemKind.Subscript, "subscript", protocolDecl);
             }
 
             // Emit methods as interface members
@@ -124,10 +129,12 @@ namespace BindingsGeneration
                 if (emittedMethods.Contains(methodKey))
                 {
                     _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' in interface {protocolDecl.Name}");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol method signature.");
                     continue;
                 }
                 emittedMethods.Add(methodKey);
                 EmitInterfaceMethod(csWriter, methodDecl, env.TypeDatabase, protocolDecl);
+                ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
             }
 
             csWriter.Indent--;

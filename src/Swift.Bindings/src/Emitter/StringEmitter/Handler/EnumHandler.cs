@@ -73,6 +73,12 @@ namespace BindingsGeneration
 
             if (GenericTypeEmitter.TryGetUnsupportedConstraint(enumDecl, out var unsupportedConstraint))
             {
+                var reason = unsupportedConstraint.Module == "SwiftUI"
+                    ? SkipReason.SwiftUIConstraint
+                    : unsupportedConstraint.Module == "Combine"
+                        ? SkipReason.CombineFramework
+                        : SkipReason.UnsupportedType;
+                ReportCollector.RecordTypeSkipped(enumDecl, reason, $"Unsupported generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
                 _logger.LogWarning(
                     "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
                     enumDecl.Name,
@@ -80,6 +86,8 @@ namespace BindingsGeneration
                     unsupportedConstraint.Module);
                 return;
             }
+
+            ReportCollector.RecordTypeEmitted(enumDecl);
 
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);

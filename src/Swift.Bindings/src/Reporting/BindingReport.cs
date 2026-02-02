@@ -1,0 +1,68 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+namespace BindingsGeneration;
+
+/// <summary>
+/// Binding generation coverage and skip report.
+/// </summary>
+public sealed class BindingReport
+{
+    public required string ModuleName { get; init; }
+    public DateTimeOffset GeneratedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    public int TotalTypes { get; set; }
+    public int EmittedTypes { get; set; }
+    public int SkippedTypes { get; set; }
+
+    public int TotalMembers { get; set; }
+    public int EmittedMembers { get; set; }
+    public int SkippedMembers { get; set; }
+    public int SynthesizedMembers { get; set; }
+
+    public List<SkippedItem> SkippedItems { get; } = new();
+}
+
+/// <summary>
+/// Category of declaration being tracked in the report.
+/// </summary>
+public enum BindingItemKind
+{
+    Type,
+    Method,
+    Property,
+    Operator,
+    Subscript,
+}
+
+/// <summary>
+/// Reason why an item was skipped.
+/// </summary>
+public enum SkipReason
+{
+    UnsupportedType,
+    AnyTypeFallback,
+    AsyncProperty,
+    SwiftUIConstraint,
+    CombineFramework,
+    GenericProtocolConstraint,
+    UnsupportedSignature,
+    UnsupportedExistential,
+    UnsupportedClosure,
+    UnsupportedAsyncStream,
+    DuplicateSignature,
+    MissingHandler,
+    Unknown,
+}
+
+/// <summary>
+/// A single skipped type/member entry.
+/// </summary>
+public sealed class SkippedItem
+{
+    public required BindingItemKind Kind { get; init; }
+    public required string Name { get; init; }
+    public string? ContainingType { get; init; }
+    public required SkipReason Reason { get; init; }
+    public string? Details { get; init; }
+}

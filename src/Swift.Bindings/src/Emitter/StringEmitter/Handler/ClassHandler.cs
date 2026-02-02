@@ -67,6 +67,12 @@ namespace BindingsGeneration
 
             if (GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl, out var unsupportedConstraint))
             {
+                var reason = unsupportedConstraint.Module == "SwiftUI"
+                    ? SkipReason.SwiftUIConstraint
+                    : unsupportedConstraint.Module == "Combine"
+                        ? SkipReason.CombineFramework
+                        : SkipReason.UnsupportedType;
+                ReportCollector.RecordTypeSkipped(classDecl, reason, $"Unsupported generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
                 _logger.LogWarning(
                     "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
                     classDecl.Name,
@@ -74,6 +80,8 @@ namespace BindingsGeneration
                     unsupportedConstraint.Module);
                 return;
             }
+
+            ReportCollector.RecordTypeEmitted(classDecl);
 
             bool implementsEquatable = classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 

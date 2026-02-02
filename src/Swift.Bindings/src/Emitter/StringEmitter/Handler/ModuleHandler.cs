@@ -146,6 +146,7 @@ namespace BindingsGeneration
                     else
                     {
                         _logger.LogWarning($"No handler found for method {methodDecl.Name}");
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.MissingHandler, "No method handler found for top-level method.");
                     }
                     // EmitMethod(csWriter, swiftWriter, moduleDecl, moduleDecl, methodDecl);
                     csWriter.WriteLine();

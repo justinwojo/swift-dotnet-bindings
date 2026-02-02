@@ -3,7 +3,7 @@
 This document consolidates binding issues discovered across multiple real-world Swift libraries (Lottie, BlinkID) and cross-references them with the Nuke binding roadmap to create a prioritized fix list.
 
 **Date**: February 2026
-**Last Updated**: February 2026 (Phase 36 - SwiftUI Constraint Handling)
+**Last Updated**: February 2026 (Phase 37 - Binding Completeness Report)
 **Libraries Analyzed**: Lottie, BlinkID, Nuke
 **Source Documents**:
 - `BindingTesting/Lottie/BINDING_GAPS.md`
@@ -14,7 +14,7 @@ This document consolidates binding issues discovered across multiple real-world 
 
 ## Executive Summary
 
-After 36 phases of development, the binding generator handles most common Swift patterns. **Eleven critical issues have been fixed in Phases 30-36:**
+After 37 phases of development, the binding generator handles most common Swift patterns. **Twelve improvements have been made in Phases 30-37:**
 
 | Issue | Status | Errors/Warnings Fixed |
 |-------|--------|----------------------|
@@ -29,14 +29,19 @@ After 36 phases of development, the binding generator handles most common Swift 
 | Duplicate enum members (CS0102) | ✅ **FIXED** (Phase 34) | Lottie enums |
 | Generic enum type parameters (CS0308) | ✅ **FIXED** (Phase 35) | 10 errors in Lottie |
 | SwiftUI constraint handling (CS0246, CS0314) | ✅ **FIXED** (Phase 36) | 14 errors in Lottie |
+| Binding completeness report | ✅ **ADDED** (Phase 37) | DX improvement |
 
 **Current Compilation Status:**
 - BlinkID: **0 errors** ✅
-- Lottie: **24 errors** (down from 38 - SwiftUI constraint errors eliminated)
+- Lottie: **24 errors** (unchanged)
 - Nuke: **0 errors** (maintained)
 
-**Phase 36 Fixes:**
-1. **SwiftUI Constraint Handling (CS0246, CS0314)**: `GenericTypeEmitter.TryGetUnsupportedConstraint()` detects types with generic constraints referencing unsupported modules (SwiftUI, Combine). Type handlers skip these types with informative warning logs instead of emitting code that references non-existent interfaces like `ISwiftView`.
+**Phase 37 Improvements:**
+1. **Binding Completeness Report**: New reporting infrastructure emits `binding-report.json` with coverage statistics and skip reasons. Console summary shows type/member coverage percentages and synthesized member counts. Skip reasons include: UnsupportedSignature, UnsupportedType, AnyTypeFallback, UnsupportedClosure, SwiftUIConstraint.
+
+**Lottie Coverage (Phase 37)**:
+- Types: 79 emitted, 1 skipped (84.9% coverage)
+- Members: 385 emitted, 43 skipped, 273 synthesized (63.2% coverage)
 
 **Remaining Lottie Errors (24 total):**
 - CS0311 (20): Generic constraint not satisfied - types like `LottieVector3D` don't implement `ISwiftAnyInterpolatable`
