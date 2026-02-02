@@ -3,7 +3,7 @@
 This document consolidates binding issues discovered across multiple real-world Swift libraries (Lottie, BlinkID) and cross-references them with the Nuke binding roadmap to create a prioritized fix list.
 
 **Date**: February 2026
-**Last Updated**: February 2026 (Phase 34 - Operator Pair Synthesis & Enum Member Deduplication)
+**Last Updated**: February 2026 (Phase 35 - Generic Enum Type Parameters)
 **Libraries Analyzed**: Lottie, BlinkID, Nuke
 **Source Documents**:
 - `BindingTesting/Lottie/BINDING_GAPS.md`
@@ -14,7 +14,7 @@ This document consolidates binding issues discovered across multiple real-world 
 
 ## Executive Summary
 
-After 34 phases of development, the binding generator handles most common Swift patterns. **Nine critical issues have been fixed in Phases 30-34:**
+After 35 phases of development, the binding generator handles most common Swift patterns. **Ten critical issues have been fixed in Phases 30-35:**
 
 | Issue | Status | Errors/Warnings Fixed |
 |-------|--------|----------------------|
@@ -27,15 +27,17 @@ After 34 phases of development, the binding generator handles most common Swift 
 | Generic type internal references (CS0305) | ✅ **FIXED** (Phase 33) | ~6 in BlinkID |
 | Paired operator synthesis (CS0216) | ✅ **FIXED** (Phase 34) | Lottie operators |
 | Duplicate enum members (CS0102) | ✅ **FIXED** (Phase 34) | Lottie enums |
+| Generic enum type parameters (CS0308) | ✅ **FIXED** (Phase 35) | 10 errors in Lottie |
 
 **Current Compilation Status:**
 - BlinkID: **0 errors** ✅
-- Lottie: **19 errors** (SwiftUI constraints, generic enum types, existential constraints)
+- Lottie: **38 errors** (CS0308 fixed, revealed CS0311 constraint violations + SwiftUI constraints)
 - Nuke: **0 errors** (maintained)
 
-**Phase 34 Fixes:**
-1. **Paired Operator Synthesis Validation (CS0216)**: `EmitOperator()` returns success/failure, `ValidateAndEmitPairs()` only synthesizes pairs from actually emitted operators
-2. **Duplicate Enum Member Deduplication (CS0102)**: `EnumHandler` tracks emitted case constructor names and skips static properties that would collide
+**Phase 35 Fixes:**
+1. **Generic Enum Type Parameter Propagation (CS0308)**: `EnumHandler` now emits generic enums with proper type parameters and constraints (e.g., `ValueProviderStorage<T0> where T0 : ISwiftObject, ISwiftAnyInterpolatable`). Uses `PInvokeHelperContext` pattern to avoid CS7042.
+
+**Note on Lottie Error Count**: The error count increased from 19 to 38 because Task 3/Phase 35 correctly emits generic constraints, which now reveals call-site violations (CS0311) where types like `LottieVector3D` don't implement required interfaces like `ISwiftAnyInterpolatable`. This is expected progress - the constraints are now correct.
 
 ---
 

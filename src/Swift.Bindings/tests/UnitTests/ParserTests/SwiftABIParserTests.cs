@@ -144,6 +144,17 @@ public class SwiftABIParserTests
         Assert.Equal(4, enumDecl.Cases.Count);
     }
 
+    [Fact]
+    public void CreateEnumDecl_WithGenericParameters_SetsGenericParameters()
+    {
+        var enumDecl = CreateEnumDecl("ValueProviderStorage");
+        enumDecl.GenericParameters.Add(CreateGenericArgumentDecl("τ_0_0"));
+
+        Assert.Single(enumDecl.GenericParameters);
+        Assert.Equal("τ_0_0", enumDecl.GenericParameters[0].TypeName);
+        Assert.True(enumDecl.IsGeneric);
+    }
+
     #endregion
 
     #region EnumCaseDecl Creation Tests

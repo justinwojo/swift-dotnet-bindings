@@ -92,6 +92,30 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("public static System.Int64 Paused", csOutput);
     }
 
+    [Fact]
+    public void Emit_GenericEnum_EmitsGenericTypeAndPInvokeHelper()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ValueProviderStorage", moduleDecl, isFrozen: true);
+        enumDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "T",
+            new List<GenericParameterConformance>(),
+            new List<GenericParameterConformance>()));
+
+        var boxedCase = CreateCase("boxed");
+        boxedCase.AssociatedValues.Add(new NamedTypeSpec("τ_0_0"));
+        enumDecl.Cases.Add(boxedCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public unsafe class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject", csOutput);
+        Assert.Contains("public static ValueProviderStorage<T0> Boxed(T0 value0)", csOutput);
+        Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, value0.Payload.DangerousGetHandle()", csOutput);
+        Assert.Contains("internal static class ValueProviderStorage_PInvoke", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();

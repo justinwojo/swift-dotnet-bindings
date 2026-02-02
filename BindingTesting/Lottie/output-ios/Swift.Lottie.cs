@@ -57,7 +57,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_name_Get_2C1A16AA(self);
+                var result = PInvoke_name_Get_57260917(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -74,7 +74,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie10ImageAssetC4nameSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_name_Get_2C1A16AA( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_name_Get_57260917( SwiftSelf self);
         
         public Swift.SwiftString Name
         {
@@ -91,7 +91,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_directory_Get_46D26283(self);
+                var result = PInvoke_directory_Get_578FECE3(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -108,7 +108,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie10ImageAssetC9directorySSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_directory_Get_46D26283( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_directory_Get_578FECE3( SwiftSelf self);
         
         public Swift.SwiftString Directory
         {
@@ -125,7 +125,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_width_Get_0F61BD8F(self);
+                var result = PInvoke_width_Get_197CC8A6(self);
                 
                 return result;
             }
@@ -140,7 +140,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie10ImageAssetC5widthSdvg")]
-        private static extern System.Double PInvoke_width_Get_0F61BD8F( SwiftSelf self);
+        private static extern System.Double PInvoke_width_Get_197CC8A6( SwiftSelf self);
         
         public System.Double Width
         {
@@ -157,7 +157,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_height_Get_181A8A80(self);
+                var result = PInvoke_height_Get_04A590C4(self);
                 
                 return result;
             }
@@ -172,7 +172,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie10ImageAssetC6heightSdvg")]
-        private static extern System.Double PInvoke_height_Get_181A8A80( SwiftSelf self);
+        private static extern System.Double PInvoke_height_Get_04A590C4( SwiftSelf self);
         
         public System.Double Height
         {
@@ -276,7 +276,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_encode_42F14ECE(to, self, out var error);
+                PInvoke_encode_6FB6AB94(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -296,7 +296,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie10ImageAssetC6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_42F14ECE( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_6FB6AB94( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -314,7 +314,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentPlaybackMode_Get_7920A22F(self);
+                var result = PInvoke_currentPlaybackMode_Get_2EF08FE5(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottiePlaybackMode>>(new IntPtr(&result));
             }
@@ -329,7 +329,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC19currentPlaybackModeAA0aeF0OSgvg")]
-        private static extern IntPtr PInvoke_currentPlaybackMode_Get_7920A22F( SwiftSelf self);
+        private static extern IntPtr PInvoke_currentPlaybackMode_Get_2EF08FE5( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.Lottie.LottiePlaybackMode> CurrentPlaybackMode
         {
@@ -346,7 +346,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_valueProviders_Get_04DBFAD1(self);
+                var result = PInvoke_valueProviders_Get_0F290511(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftDictionary<Swift.Lottie.AnimationKeypath, Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
             }
@@ -361,7 +361,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC14valueProvidersSDyAA0B7KeypathVAA16AnyValueProvider_pGvg")]
-        private static extern IntPtr PInvoke_valueProviders_Get_04DBFAD1( SwiftSelf self);
+        private static extern IntPtr PInvoke_valueProviders_Get_0F290511( SwiftSelf self);
         
         public Swift.SwiftDictionary<Swift.Lottie.AnimationKeypath, Swift.Runtime.ExistentialContainer1> ValueProviders
         {
@@ -382,7 +382,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_configuration_Get_49A9A27F(swiftIndirectResult, self);
+                PInvoke_configuration_Get_2677B523(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieConfiguration>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -397,7 +397,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC13configurationAA0A13ConfigurationVvg")]
-        private static extern void PInvoke_configuration_Get_49A9A27F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_configuration_Get_2677B523( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Configuration_Set( Swift.Lottie.LottieConfiguration value)
         {
@@ -409,7 +409,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_configuration_Set_54AF396E(value.Payload, self);
+                PInvoke_configuration_Set_76B22078(value.Payload, self);
                 
                 return;
             }
@@ -424,7 +424,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC13configurationAA0A13ConfigurationVvs")]
-        private static extern void PInvoke_configuration_Set_54AF396E( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_configuration_Set_76B22078( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.LottieConfiguration Configuration
         {
@@ -442,7 +442,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_screenScale_Get_06619A56(self);
+                var result = PInvoke_screenScale_Get_395741DC(self);
                 
                 return result;
             }
@@ -457,7 +457,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC11screenScale12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_screenScale_Get_06619A56( SwiftSelf self);
+        private static extern System.Double PInvoke_screenScale_Get_395741DC( SwiftSelf self);
         
         private unsafe void ScreenScale_Set( System.Double value)
         {
@@ -469,7 +469,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_screenScale_Set_76F082BA(value, self);
+                PInvoke_screenScale_Set_670DF8EB(value, self);
                 
                 return;
             }
@@ -484,7 +484,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC11screenScale12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_screenScale_Set_76F082BA( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_screenScale_Set_670DF8EB( System.Double value,  SwiftSelf self);
         
         public System.Double ScreenScale
         {
@@ -506,7 +506,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_backgroundBehavior_Get_7E41E928(swiftIndirectResult, self);
+                PInvoke_backgroundBehavior_Get_22EEE266(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieBackgroundBehavior>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -521,7 +521,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC18backgroundBehaviorAA0a10BackgroundE0Ovg")]
-        private static extern void PInvoke_backgroundBehavior_Get_7E41E928( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_backgroundBehavior_Get_22EEE266( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void BackgroundBehavior_Set( Swift.Lottie.LottieBackgroundBehavior value)
         {
@@ -533,7 +533,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_backgroundBehavior_Set_23F5FAF9(value.Payload, self);
+                PInvoke_backgroundBehavior_Set_74575284(value.Payload, self);
                 
                 return;
             }
@@ -548,7 +548,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC18backgroundBehaviorAA0a10BackgroundE0Ovs")]
-        private static extern void PInvoke_backgroundBehavior_Set_23F5FAF9( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_backgroundBehavior_Set_74575284( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.LottieBackgroundBehavior BackgroundBehavior
         {
@@ -566,7 +566,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animation_Get_166959DD(self);
+                var result = PInvoke_animation_Get_6767EC4A(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieAnimation>>(new IntPtr(&result));
             }
@@ -581,7 +581,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC9animationAA0aB0CSgvg")]
-        private static extern IntPtr PInvoke_animation_Get_166959DD( SwiftSelf self);
+        private static extern IntPtr PInvoke_animation_Get_6767EC4A( SwiftSelf self);
         
         private unsafe void Animation_Set( Swift.SwiftOptional<Swift.Lottie.LottieAnimation> value)
         {
@@ -595,7 +595,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_animation_Set_62172E5C(valueBuffer, self);
+                PInvoke_animation_Set_7E072E80(valueBuffer, self);
                 
                 return;
             }
@@ -610,7 +610,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC9animationAA0aB0CSgvs")]
-        private static extern void PInvoke_animation_Set_62172E5C( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_animation_Set_7E072E80( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.Lottie.LottieAnimation> Animation
         {
@@ -632,7 +632,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_imageProvider_Get_2E23FDCD(self);
+                PInvoke_imageProvider_Get_160B7129(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -647,7 +647,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC13imageProviderAA0b5ImageE0_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_imageProvider_Get_2E23FDCD( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_imageProvider_Get_160B7129( SwiftSelf self);
         
         private unsafe void ImageProvider_Set( Swift.Runtime.ExistentialContainer1 value)
         {
@@ -659,7 +659,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_imageProvider_Set_587C6196(value, self);
+                PInvoke_imageProvider_Set_2D742B9F(value, self);
                 
                 return;
             }
@@ -674,7 +674,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC13imageProviderAA0b5ImageE0_pvs")]
-        private static extern void PInvoke_imageProvider_Set_587C6196( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+        private static extern void PInvoke_imageProvider_Set_2D742B9F( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 ImageProvider
         {
@@ -696,7 +696,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_textProvider_Get_7AA9091C(self);
+                PInvoke_textProvider_Get_530EFE14(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -711,7 +711,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC12textProviderAA0b11KeypathTextE0_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_textProvider_Get_7AA9091C( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_textProvider_Get_530EFE14( SwiftSelf self);
         
         private unsafe void TextProvider_Set( Swift.Runtime.ExistentialContainer1 value)
         {
@@ -723,7 +723,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_textProvider_Set_45325B36(value, self);
+                PInvoke_textProvider_Set_73E76CDE(value, self);
                 
                 return;
             }
@@ -738,7 +738,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC12textProviderAA0b11KeypathTextE0_pvs")]
-        private static extern void PInvoke_textProvider_Set_45325B36( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+        private static extern void PInvoke_textProvider_Set_73E76CDE( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 TextProvider
         {
@@ -760,7 +760,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_fontProvider_Get_2E16D49B(self);
+                PInvoke_fontProvider_Get_7AB003E0(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -775,7 +775,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC12fontProviderAA0b4FontE0_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_fontProvider_Get_2E16D49B( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_fontProvider_Get_7AB003E0( SwiftSelf self);
         
         private unsafe void FontProvider_Set( Swift.Runtime.ExistentialContainer1 value)
         {
@@ -787,7 +787,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_fontProvider_Set_5B1F2929(value, self);
+                PInvoke_fontProvider_Set_4F01060B(value, self);
                 
                 return;
             }
@@ -802,7 +802,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC12fontProviderAA0b4FontE0_pvs")]
-        private static extern void PInvoke_fontProvider_Set_5B1F2929( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+        private static extern void PInvoke_fontProvider_Set_4F01060B( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 FontProvider
         {
@@ -820,7 +820,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_maskAnimationToBounds_Get_3D82A93F(self);
+                var result = PInvoke_maskAnimationToBounds_Get_4DF8312A(self);
                 
                 return result;
             }
@@ -835,7 +835,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC04maskB8ToBoundsSbvg")]
-        private static extern System.Boolean PInvoke_maskAnimationToBounds_Get_3D82A93F( SwiftSelf self);
+        private static extern System.Boolean PInvoke_maskAnimationToBounds_Get_4DF8312A( SwiftSelf self);
         
         private unsafe void MaskAnimationToBounds_Set( System.Boolean value)
         {
@@ -847,7 +847,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_maskAnimationToBounds_Set_6284B994(value, self);
+                PInvoke_maskAnimationToBounds_Set_473A90D3(value, self);
                 
                 return;
             }
@@ -862,7 +862,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC04maskB8ToBoundsSbvs")]
-        private static extern void PInvoke_maskAnimationToBounds_Set_6284B994( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_maskAnimationToBounds_Set_473A90D3( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean MaskAnimationToBounds
         {
@@ -880,7 +880,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_isAnimationPlaying_Get_19EA01BE(self);
+                var result = PInvoke_isAnimationPlaying_Get_1920FF07(self);
                 
                 return result;
             }
@@ -895,7 +895,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC02isB7PlayingSbvg")]
-        private static extern System.Boolean PInvoke_isAnimationPlaying_Get_19EA01BE( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isAnimationPlaying_Get_1920FF07( SwiftSelf self);
         
         public System.Boolean IsAnimationPlaying
         {
@@ -916,7 +916,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loopMode_Get_4CF086CF(swiftIndirectResult, self);
+                PInvoke_loopMode_Get_5F54D0B9(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieLoopMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -931,7 +931,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC8loopModeAA0a4LoopE0Ovg")]
-        private static extern void PInvoke_loopMode_Get_4CF086CF( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_loopMode_Get_5F54D0B9( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void LoopMode_Set( Swift.Lottie.LottieLoopMode value)
         {
@@ -943,7 +943,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loopMode_Set_5C7ADA53(value.Payload, self);
+                PInvoke_loopMode_Set_68932A20(value.Payload, self);
                 
                 return;
             }
@@ -958,7 +958,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC8loopModeAA0a4LoopE0Ovs")]
-        private static extern void PInvoke_loopMode_Set_5C7ADA53( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_loopMode_Set_68932A20( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.LottieLoopMode LoopMode
         {
@@ -976,7 +976,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_shouldRasterizeWhenIdle_Get_0C94ED65(self);
+                var result = PInvoke_shouldRasterizeWhenIdle_Get_1FEF3485(self);
                 
                 return result;
             }
@@ -991,7 +991,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC23shouldRasterizeWhenIdleSbvg")]
-        private static extern System.Boolean PInvoke_shouldRasterizeWhenIdle_Get_0C94ED65( SwiftSelf self);
+        private static extern System.Boolean PInvoke_shouldRasterizeWhenIdle_Get_1FEF3485( SwiftSelf self);
         
         private unsafe void ShouldRasterizeWhenIdle_Set( System.Boolean value)
         {
@@ -1003,7 +1003,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_shouldRasterizeWhenIdle_Set_71E2625A(value, self);
+                PInvoke_shouldRasterizeWhenIdle_Set_4C101B39(value, self);
                 
                 return;
             }
@@ -1018,7 +1018,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC23shouldRasterizeWhenIdleSbvs")]
-        private static extern void PInvoke_shouldRasterizeWhenIdle_Set_71E2625A( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_shouldRasterizeWhenIdle_Set_4C101B39( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ShouldRasterizeWhenIdle
         {
@@ -1036,7 +1036,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentProgress_Get_452A362F(self);
+                var result = PInvoke_currentProgress_Get_4369AF5A(self);
                 
                 return result;
             }
@@ -1051,7 +1051,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC15currentProgress12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_currentProgress_Get_452A362F( SwiftSelf self);
+        private static extern System.Double PInvoke_currentProgress_Get_4369AF5A( SwiftSelf self);
         
         private unsafe void CurrentProgress_Set( System.Double value)
         {
@@ -1063,7 +1063,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentProgress_Set_53A6273E(value, self);
+                PInvoke_currentProgress_Set_318AC275(value, self);
                 
                 return;
             }
@@ -1078,7 +1078,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC15currentProgress12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_currentProgress_Set_53A6273E( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_currentProgress_Set_318AC275( System.Double value,  SwiftSelf self);
         
         public System.Double CurrentProgress
         {
@@ -1096,7 +1096,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentTime_Get_027439A2(self);
+                var result = PInvoke_currentTime_Get_34814FB1(self);
                 
                 return result;
             }
@@ -1111,7 +1111,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC11currentTimeSdvg")]
-        private static extern System.Double PInvoke_currentTime_Get_027439A2( SwiftSelf self);
+        private static extern System.Double PInvoke_currentTime_Get_34814FB1( SwiftSelf self);
         
         private unsafe void CurrentTime_Set( System.Double value)
         {
@@ -1123,7 +1123,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentTime_Set_08ABD885(value, self);
+                PInvoke_currentTime_Set_255109A8(value, self);
                 
                 return;
             }
@@ -1138,7 +1138,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC11currentTimeSdvs")]
-        private static extern void PInvoke_currentTime_Set_08ABD885( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_currentTime_Set_255109A8( System.Double value,  SwiftSelf self);
         
         public System.Double CurrentTime
         {
@@ -1156,7 +1156,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentFrame_Get_7C566964(self);
+                var result = PInvoke_currentFrame_Get_22740E4E(self);
                 
                 return result;
             }
@@ -1171,7 +1171,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC12currentFrame12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_currentFrame_Get_7C566964( SwiftSelf self);
+        private static extern System.Double PInvoke_currentFrame_Get_22740E4E( SwiftSelf self);
         
         private unsafe void CurrentFrame_Set( System.Double value)
         {
@@ -1183,7 +1183,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentFrame_Set_58DAB29D(value, self);
+                PInvoke_currentFrame_Set_6CD64BD1(value, self);
                 
                 return;
             }
@@ -1198,7 +1198,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC12currentFrame12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_currentFrame_Set_58DAB29D( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_currentFrame_Set_6CD64BD1( System.Double value,  SwiftSelf self);
         
         public System.Double CurrentFrame
         {
@@ -1216,7 +1216,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_realtimeAnimationFrame_Get_5531FF23(self);
+                var result = PInvoke_realtimeAnimationFrame_Get_1819956E(self);
                 
                 return result;
             }
@@ -1231,7 +1231,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC08realtimeB5Frame12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_realtimeAnimationFrame_Get_5531FF23( SwiftSelf self);
+        private static extern System.Double PInvoke_realtimeAnimationFrame_Get_1819956E( SwiftSelf self);
         
         public System.Double RealtimeAnimationFrame
         {
@@ -1248,7 +1248,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_realtimeAnimationProgress_Get_65FD3F6F(self);
+                var result = PInvoke_realtimeAnimationProgress_Get_4ED3143B(self);
                 
                 return result;
             }
@@ -1263,7 +1263,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC08realtimeB8Progress12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_realtimeAnimationProgress_Get_65FD3F6F( SwiftSelf self);
+        private static extern System.Double PInvoke_realtimeAnimationProgress_Get_4ED3143B( SwiftSelf self);
         
         public System.Double RealtimeAnimationProgress
         {
@@ -1280,7 +1280,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animationSpeed_Get_1AEF0A4E(self);
+                var result = PInvoke_animationSpeed_Get_0B73460C(self);
                 
                 return result;
             }
@@ -1295,7 +1295,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC14animationSpeed12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_animationSpeed_Get_1AEF0A4E( SwiftSelf self);
+        private static extern System.Double PInvoke_animationSpeed_Get_0B73460C( SwiftSelf self);
         
         private unsafe void AnimationSpeed_Set( System.Double value)
         {
@@ -1307,7 +1307,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationSpeed_Set_257FAE93(value, self);
+                PInvoke_animationSpeed_Set_7446F3E5(value, self);
                 
                 return;
             }
@@ -1322,7 +1322,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC14animationSpeed12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_animationSpeed_Set_257FAE93( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_animationSpeed_Set_7446F3E5( System.Double value,  SwiftSelf self);
         
         public System.Double AnimationSpeed
         {
@@ -1340,7 +1340,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_respectAnimationFrameRate_Get_7E9C1DF5(self);
+                var result = PInvoke_respectAnimationFrameRate_Get_5C145258(self);
                 
                 return result;
             }
@@ -1355,7 +1355,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC07respectB9FrameRateSbvg")]
-        private static extern System.Boolean PInvoke_respectAnimationFrameRate_Get_7E9C1DF5( SwiftSelf self);
+        private static extern System.Boolean PInvoke_respectAnimationFrameRate_Get_5C145258( SwiftSelf self);
         
         private unsafe void RespectAnimationFrameRate_Set( System.Boolean value)
         {
@@ -1367,7 +1367,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_respectAnimationFrameRate_Set_2D375272(value, self);
+                PInvoke_respectAnimationFrameRate_Set_12021933(value, self);
                 
                 return;
             }
@@ -1382,7 +1382,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC07respectB9FrameRateSbvs")]
-        private static extern void PInvoke_respectAnimationFrameRate_Set_2D375272( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_respectAnimationFrameRate_Set_12021933( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean RespectAnimationFrameRate
         {
@@ -1400,7 +1400,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentRenderingEngine_Get_1A9EC36E(self);
+                var result = PInvoke_currentRenderingEngine_Get_7DE15016(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.RenderingEngine>>(new IntPtr(&result));
             }
@@ -1415,7 +1415,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC22currentRenderingEngineAA0eF0OSgvg")]
-        private static extern IntPtr PInvoke_currentRenderingEngine_Get_1A9EC36E( SwiftSelf self);
+        private static extern IntPtr PInvoke_currentRenderingEngine_Get_7DE15016( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.Lottie.RenderingEngine> CurrentRenderingEngine
         {
@@ -1432,7 +1432,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Get_55A758EE(self);
+                var result = PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Get_2D36AAD3(self);
                 
                 return result;
             }
@@ -1447,7 +1447,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC60mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrameSbvg")]
-        private static extern System.Boolean PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Get_55A758EE( SwiftSelf self);
+        private static extern System.Boolean PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Get_2D36AAD3( SwiftSelf self);
         
         private unsafe void MainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set( System.Boolean value)
         {
@@ -1459,7 +1459,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set_0D8B080B(value, self);
+                PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set_7533C3BD(value, self);
                 
                 return;
             }
@@ -1474,7 +1474,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC60mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrameSbvs")]
-        private static extern void PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set_0D8B080B( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set_7533C3BD( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean MainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame
         {
@@ -1587,7 +1587,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> imageProviderDisposable = imageProviderSwift.PayloadBuffer;
                 IntPtr imageProviderBuffer = imageProviderDisposable.Buffer;
                 
-                PInvoke_init_61EEA987(swiftIndirectResult, animationBuffer, imageProviderBuffer, textProvider, fontProvider, configuration.Payload, logger.Payload);
+                PInvoke_init_454F6F86(swiftIndirectResult, animationBuffer, imageProviderBuffer, textProvider, fontProvider, configuration.Payload, logger.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationLayer>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -1600,7 +1600,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC9animation13imageProvider04textF004fontF013configuration6loggerAcA0aB0CSg_AA0b5ImageF0_pSgAA0b11KeypathTextF0_pAA0b4FontF0_pAA0A13ConfigurationVAA0A6LoggerCtcfC")]
-        private static extern void PInvoke_init_61EEA987( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  IntPtr imageProviderBuffer,  Swift.Runtime.ExistentialContainer1 textProvider,  Swift.Runtime.ExistentialContainer1 fontProvider,  SafeHandle configuration,  SafeHandle logger);
+        private static extern void PInvoke_init_454F6F86( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  IntPtr imageProviderBuffer,  Swift.Runtime.ExistentialContainer1 textProvider,  Swift.Runtime.ExistentialContainer1 fontProvider,  SafeHandle configuration,  SafeHandle logger);
         
         
         public unsafe Swift.Lottie.LottieAnimationLayer Init( Swift.Lottie.LottieConfiguration configuration,  Swift.Lottie.LottieLogger logger)
@@ -1613,7 +1613,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_53E62DDD(swiftIndirectResult, configuration.Payload, logger.Payload);
+                PInvoke_init_15799E08(swiftIndirectResult, configuration.Payload, logger.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationLayer>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -1626,12 +1626,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC13configuration6loggerAcA0A13ConfigurationV_AA0A6LoggerCtcfC")]
-        private static extern void PInvoke_init_53E62DDD( SwiftIndirectResult swiftIndirectResult,  SafeHandle configuration,  SafeHandle logger);
+        private static extern void PInvoke_init_15799E08( SwiftIndirectResult swiftIndirectResult,  SafeHandle configuration,  SafeHandle logger);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_38167249_Callback = &play_completion_38167249_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_067F577D_Callback = &play_completion_067F577D_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_38167249_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_067F577D_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -1651,14 +1651,14 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_38167249_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_067F577D_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
                     completionClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_play_38167249(completionClosure, self);
+                PInvoke_play_067F577D(completionClosure, self);
                 
                 return;
             }
@@ -1674,12 +1674,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC4play10completionyySbcSg_tF")]
-        private static extern void PInvoke_play_38167249( SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_067F577D( SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_15E0E91B_Callback = &play_completion_15E0E91B_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_24F9E955_Callback = &play_completion_24F9E955_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_15E0E91B_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_24F9E955_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -1699,7 +1699,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_15E0E91B_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_24F9E955_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -1712,7 +1712,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> loopModeDisposable = loopModeSwift.PayloadBuffer;
                 IntPtr loopModeBuffer = loopModeDisposable.Buffer;
                 
-                PInvoke_play_15E0E91B(fromProgressBuffer, toProgress, loopModeBuffer, completionClosure, self);
+                PInvoke_play_24F9E955(fromProgressBuffer, toProgress, loopModeBuffer, completionClosure, self);
                 
                 return;
             }
@@ -1728,12 +1728,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC4play12fromProgress02toF08loopMode10completiony12CoreGraphics7CGFloatVSg_AkA0a4LoopI0OSgySbcSgtF")]
-        private static extern void PInvoke_play_15E0E91B( IntPtr fromProgressBuffer,  System.Double toProgress,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_24F9E955( IntPtr fromProgressBuffer,  System.Double toProgress,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_04A4C7BF_Callback = &play_completion_04A4C7BF_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_31C95A66_Callback = &play_completion_31C95A66_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_04A4C7BF_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_31C95A66_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -1753,7 +1753,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_04A4C7BF_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_31C95A66_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -1768,7 +1768,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> loopModeDisposable = loopModeSwift.PayloadBuffer;
                 IntPtr loopModeBuffer = loopModeDisposable.Buffer;
                 
-                PInvoke_play_04A4C7BF(fromMarkerBuffer, toMarkerDisposable.Buffer, playEndMarkerFrame, loopModeBuffer, completionClosure, self);
+                PInvoke_play_31C95A66(fromMarkerBuffer, toMarkerDisposable.Buffer, playEndMarkerFrame, loopModeBuffer, completionClosure, self);
                 
                 return;
             }
@@ -1784,12 +1784,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC4play10fromMarker02toF00d3EndF5Frame8loopMode10completionySSSg_SSSbAA0a4LoopK0OSgySbcSgtF")]
-        private static extern void PInvoke_play_04A4C7BF( IntPtr fromMarkerBuffer,  Swift.SwiftString.Buffer toMarker,  System.Boolean playEndMarkerFrame,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_31C95A66( IntPtr fromMarkerBuffer,  Swift.SwiftString.Buffer toMarker,  System.Boolean playEndMarkerFrame,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_2F75B7FA_Callback = &play_completion_2F75B7FA_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_20BE8D4D_Callback = &play_completion_20BE8D4D_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_2F75B7FA_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_20BE8D4D_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -1809,7 +1809,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_2F75B7FA_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_20BE8D4D_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -1821,7 +1821,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> loopModeDisposable = loopModeSwift.PayloadBuffer;
                 IntPtr loopModeBuffer = loopModeDisposable.Buffer;
                 
-                PInvoke_play_2F75B7FA(markerDisposable.Buffer, loopModeBuffer, completionClosure, self);
+                PInvoke_play_20BE8D4D(markerDisposable.Buffer, loopModeBuffer, completionClosure, self);
                 
                 return;
             }
@@ -1837,12 +1837,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC4play6marker8loopMode10completionySS_AA0a4LoopG0OSgySbcSgtF")]
-        private static extern void PInvoke_play_2F75B7FA( Swift.SwiftString.Buffer marker,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_20BE8D4D( Swift.SwiftString.Buffer marker,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_4DBE9FF0_Callback = &play_completion_4DBE9FF0_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_5173B0C3_Callback = &play_completion_5173B0C3_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_4DBE9FF0_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_5173B0C3_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -1862,7 +1862,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_4DBE9FF0_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_5173B0C3_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -1872,7 +1872,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> markersDisposable = markersSwift.PayloadBuffer;
                 IntPtr markersBuffer = markersDisposable.Buffer;
                 
-                PInvoke_play_4DBE9FF0(markersBuffer, completionClosure, self);
+                PInvoke_play_5173B0C3(markersBuffer, completionClosure, self);
                 
                 return;
             }
@@ -1888,7 +1888,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC4play7markers10completionySaySSG_ySbcSgtF")]
-        private static extern void PInvoke_play_4DBE9FF0( IntPtr markersBuffer,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_5173B0C3( IntPtr markersBuffer,  SwiftClosureData completion,  SwiftSelf self);
         
         
         public unsafe void Stop()
@@ -1901,7 +1901,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_stop_6349CC6E(self);
+                PInvoke_stop_63588AF8(self);
                 
                 return;
             }
@@ -1916,7 +1916,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC4stopyyF")]
-        private static extern void PInvoke_stop_6349CC6E( SwiftSelf self);
+        private static extern void PInvoke_stop_63588AF8( SwiftSelf self);
         
         
         public unsafe void Pause()
@@ -1929,7 +1929,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_pause_36DC392A(self);
+                PInvoke_pause_17EE9FC5(self);
                 
                 return;
             }
@@ -1944,7 +1944,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC5pauseyyF")]
-        private static extern void PInvoke_pause_36DC392A( SwiftSelf self);
+        private static extern void PInvoke_pause_17EE9FC5( SwiftSelf self);
         
         
         public unsafe void Pause( Swift.Lottie.LottiePlaybackMode.PausedState at)
@@ -1957,7 +1957,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_pause_5F22815B(at.Payload, self);
+                PInvoke_pause_1795C488(at.Payload, self);
                 
                 return;
             }
@@ -1972,12 +1972,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC5pause2atyAA0A12PlaybackModeO11PausedStateO_tF")]
-        private static extern void PInvoke_pause_5F22815B( SafeHandle at,  SwiftSelf self);
+        private static extern void PInvoke_pause_1795C488( SafeHandle at,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_animationCompletionHandler_1034B6F5_Callback = &play_animationCompletionHandler_1034B6F5_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_animationCompletionHandler_6FD74E0B_Callback = &play_animationCompletionHandler_6FD74E0B_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_animationCompletionHandler_1034B6F5_Callback(byte arg0, SwiftSelf context)
+        private static void play_animationCompletionHandler_6FD74E0B_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -1997,14 +1997,14 @@ namespace Swift.Lottie
                 if (animationCompletionHandler != null)
                 {
                     animationCompletionHandlerHandle = GCHandle.Alloc(animationCompletionHandler);
-                    animationCompletionHandlerClosure = new SwiftClosureData((IntPtr)s_play_animationCompletionHandler_1034B6F5_Callback, GCHandle.ToIntPtr(animationCompletionHandlerHandle));
+                    animationCompletionHandlerClosure = new SwiftClosureData((IntPtr)s_play_animationCompletionHandler_6FD74E0B_Callback, GCHandle.ToIntPtr(animationCompletionHandlerHandle));
                 }
                 else
                 {
                     animationCompletionHandlerClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_play_1034B6F5(arg0.Payload, animationCompletionHandlerClosure, self);
+                PInvoke_play_6FD74E0B(arg0.Payload, animationCompletionHandlerClosure, self);
                 
                 return;
             }
@@ -2020,12 +2020,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC4play_26animationCompletionHandleryAA0A12PlaybackModeO_ySbcSgtF")]
-        private static extern void PInvoke_play_1034B6F5( SafeHandle arg0,  SwiftClosureData animationCompletionHandler,  SwiftSelf self);
+        private static extern void PInvoke_play_6FD74E0B( SafeHandle arg0,  SwiftClosureData animationCompletionHandler,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_setPlaybackMode_completion_2336B605_Callback = &setPlaybackMode_completion_2336B605_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_setPlaybackMode_completion_3DB521A6_Callback = &setPlaybackMode_completion_3DB521A6_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void setPlaybackMode_completion_2336B605_Callback(byte arg0, SwiftSelf context)
+        private static void setPlaybackMode_completion_3DB521A6_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -2045,14 +2045,14 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_setPlaybackMode_completion_2336B605_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_setPlaybackMode_completion_3DB521A6_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
                     completionClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_setPlaybackMode_2336B605(arg0.Payload, completionClosure, self);
+                PInvoke_setPlaybackMode_3DB521A6(arg0.Payload, completionClosure, self);
                 
                 return;
             }
@@ -2068,12 +2068,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC15setPlaybackMode_10completionyAA0aeF0O_ySbcSgtF")]
-        private static extern void PInvoke_setPlaybackMode_2336B605( SafeHandle arg0,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_setPlaybackMode_3DB521A6( SafeHandle arg0,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_04133196_Callback = &play_completion_04133196_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_54999B8E_Callback = &play_completion_54999B8E_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_04133196_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_54999B8E_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -2093,14 +2093,14 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_04133196_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_54999B8E_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
                     completionClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_play_04133196(arg0.Payload, completionClosure, self);
+                PInvoke_play_54999B8E(arg0.Payload, completionClosure, self);
                 
                 return;
             }
@@ -2116,7 +2116,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC4play_10completionyAA0A12PlaybackModeO0fG0O_ySbcSgtF")]
-        private static extern void PInvoke_play_04133196( SafeHandle arg0,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_54999B8E( SafeHandle arg0,  SwiftClosureData completion,  SwiftSelf self);
         
         
         public unsafe void LoadAnimation( Swift.SwiftString? arg0,  Swift.Lottie.DotLottieFile from)
@@ -2132,7 +2132,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
                 IntPtr arg0Buffer = arg0Disposable.Buffer;
                 
-                PInvoke_loadAnimation_3A8FD8E4(arg0Buffer, from.Payload, self);
+                PInvoke_loadAnimation_3F69CEC6(arg0Buffer, from.Payload, self);
                 
                 return;
             }
@@ -2147,7 +2147,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC04loadB0_4fromySSSg_AA03DotA4FileCtF")]
-        private static extern void PInvoke_loadAnimation_3A8FD8E4( IntPtr arg0Buffer,  SafeHandle from,  SwiftSelf self);
+        private static extern void PInvoke_loadAnimation_3F69CEC6( IntPtr arg0Buffer,  SafeHandle from,  SwiftSelf self);
         
         
         public unsafe void LoadAnimation( System.IntPtr atIndex,  Swift.Lottie.DotLottieFile from)
@@ -2160,7 +2160,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loadAnimation_01A460A5(atIndex, from.Payload, self);
+                PInvoke_loadAnimation_00CA18A4(atIndex, from.Payload, self);
                 
                 return;
             }
@@ -2175,7 +2175,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC04loadB07atIndex4fromySi_AA03DotA4FileCtF")]
-        private static extern void PInvoke_loadAnimation_01A460A5( System.IntPtr atIndex,  SafeHandle from,  SwiftSelf self);
+        private static extern void PInvoke_loadAnimation_00CA18A4( System.IntPtr atIndex,  SafeHandle from,  SwiftSelf self);
         
         
         public unsafe void ReloadImages()
@@ -2188,7 +2188,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_reloadImages_1B596231(self);
+                PInvoke_reloadImages_66EB1154(self);
                 
                 return;
             }
@@ -2203,7 +2203,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC12reloadImagesyyF")]
-        private static extern void PInvoke_reloadImages_1B596231( SwiftSelf self);
+        private static extern void PInvoke_reloadImages_66EB1154( SwiftSelf self);
         
         
         public unsafe void ForceDisplayUpdate()
@@ -2216,7 +2216,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_forceDisplayUpdate_10A85BBD(self);
+                PInvoke_forceDisplayUpdate_46DBA5F8(self);
                 
                 return;
             }
@@ -2231,7 +2231,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC18forceDisplayUpdateyyF")]
-        private static extern void PInvoke_forceDisplayUpdate_10A85BBD( SwiftSelf self);
+        private static extern void PInvoke_forceDisplayUpdate_46DBA5F8( SwiftSelf self);
         
         
         public unsafe void SetValueProvider( Swift.Runtime.ExistentialContainer1 arg0,  Swift.Lottie.AnimationKeypath keypath)
@@ -2244,7 +2244,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_setValueProvider_505B5F3D(arg0, keypath.Payload, self);
+                PInvoke_setValueProvider_1C8A49D3(arg0, keypath.Payload, self);
                 
                 return;
             }
@@ -2259,7 +2259,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC16setValueProvider_7keypathyAA03AnyeF0_p_AA0B7KeypathVtF")]
-        private static extern void PInvoke_setValueProvider_505B5F3D( Swift.Runtime.ExistentialContainer1 arg0,  SafeHandle keypath,  SwiftSelf self);
+        private static extern void PInvoke_setValueProvider_1C8A49D3( Swift.Runtime.ExistentialContainer1 arg0,  SafeHandle keypath,  SwiftSelf self);
         
         
         public unsafe void RemoveValueProvider( Swift.Lottie.AnimationKeypath _for)
@@ -2272,7 +2272,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_removeValueProvider_78460D3C(_for.Payload, self);
+                PInvoke_removeValueProvider_2223FBA0(_for.Payload, self);
                 
                 return;
             }
@@ -2287,7 +2287,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC19removeValueProvider3foryAA0B7KeypathV_tF")]
-        private static extern void PInvoke_removeValueProvider_78460D3C( SafeHandle _for,  SwiftSelf self);
+        private static extern void PInvoke_removeValueProvider_2223FBA0( SafeHandle _for,  SwiftSelf self);
         
         
         public unsafe Swift.Runtime.ExistentialContainer0? GetValue( Swift.Lottie.AnimationKeypath _for,  System.Double? atFrame)
@@ -2303,7 +2303,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> atFrameDisposable = atFrameSwift.PayloadBuffer;
                 IntPtr atFrameBuffer = atFrameDisposable.Buffer;
                 
-                var result = PInvoke_getValue_1CDABBFC(_for.Payload, atFrameBuffer, self);
+                var result = PInvoke_getValue_00531AB1(_for.Payload, atFrameBuffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer0>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -2319,7 +2319,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC8getValue3for7atFrameypSgAA0B7KeypathV_12CoreGraphics7CGFloatVSgtF")]
-        private static extern IntPtr PInvoke_getValue_1CDABBFC( SafeHandle _for,  IntPtr atFrameBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_getValue_00531AB1( SafeHandle _for,  IntPtr atFrameBuffer,  SwiftSelf self);
         
         
         public unsafe Swift.Runtime.ExistentialContainer0? GetOriginalValue( Swift.Lottie.AnimationKeypath _for,  System.Double? atFrame)
@@ -2335,7 +2335,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> atFrameDisposable = atFrameSwift.PayloadBuffer;
                 IntPtr atFrameBuffer = atFrameDisposable.Buffer;
                 
-                var result = PInvoke_getOriginalValue_785807EA(_for.Payload, atFrameBuffer, self);
+                var result = PInvoke_getOriginalValue_71FB12F5(_for.Payload, atFrameBuffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer0>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -2351,7 +2351,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC16getOriginalValue3for7atFrameypSgAA0B7KeypathV_12CoreGraphics7CGFloatVSgtF")]
-        private static extern IntPtr PInvoke_getOriginalValue_785807EA( SafeHandle _for,  IntPtr atFrameBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_getOriginalValue_71FB12F5( SafeHandle _for,  IntPtr atFrameBuffer,  SwiftSelf self);
         
         
         public unsafe void LogHierarchyKeypaths()
@@ -2364,7 +2364,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_logHierarchyKeypaths_3A05723F(self);
+                PInvoke_logHierarchyKeypaths_10D2EDB9(self);
                 
                 return;
             }
@@ -2379,7 +2379,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC20logHierarchyKeypathsyyF")]
-        private static extern void PInvoke_logHierarchyKeypaths_3A05723F( SwiftSelf self);
+        private static extern void PInvoke_logHierarchyKeypaths_10D2EDB9( SwiftSelf self);
         
         
         public unsafe IReadOnlyList<Swift.SwiftString> AllHierarchyKeypaths()
@@ -2392,7 +2392,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_allHierarchyKeypaths_210D32B2(self);
+                var result = PInvoke_allHierarchyKeypaths_3B6C1904(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -2407,7 +2407,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC20allHierarchyKeypathsSaySSGyF")]
-        private static extern IntPtr PInvoke_allHierarchyKeypaths_210D32B2( SwiftSelf self);
+        private static extern IntPtr PInvoke_allHierarchyKeypaths_3B6C1904( SwiftSelf self);
         
         
         public unsafe Swift.CGRect? Convert( Swift.CGRect arg0,  Swift.Lottie.AnimationKeypath? toLayerAt)
@@ -2423,7 +2423,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> toLayerAtDisposable = toLayerAtSwift.PayloadBuffer;
                 IntPtr toLayerAtBuffer = toLayerAtDisposable.Buffer;
                 
-                var result = PInvoke_convert_29F7D242(arg0, toLayerAtBuffer, self);
+                var result = PInvoke_convert_0D6BF5C2(arg0, toLayerAtBuffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.CGRect>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -2439,7 +2439,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC7convert_02toC2AtSo6CGRectVSgAG_AA0B7KeypathVSgtF")]
-        private static extern IntPtr PInvoke_convert_29F7D242( Swift.CGRect arg0,  IntPtr toLayerAtBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_convert_0D6BF5C2( Swift.CGRect arg0,  IntPtr toLayerAtBuffer,  SwiftSelf self);
         
         
         public unsafe Swift.CGPoint? Convert( Swift.CGPoint arg0,  Swift.Lottie.AnimationKeypath? toLayerAt)
@@ -2455,7 +2455,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> toLayerAtDisposable = toLayerAtSwift.PayloadBuffer;
                 IntPtr toLayerAtBuffer = toLayerAtDisposable.Buffer;
                 
-                var result = PInvoke_convert_3BA10382(arg0, toLayerAtBuffer, self);
+                var result = PInvoke_convert_78F68E6A(arg0, toLayerAtBuffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.CGPoint>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -2471,7 +2471,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC7convert_02toC2AtSo7CGPointVSgAG_AA0B7KeypathVSgtF")]
-        private static extern IntPtr PInvoke_convert_3BA10382( Swift.CGPoint arg0,  IntPtr toLayerAtBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_convert_78F68E6A( Swift.CGPoint arg0,  IntPtr toLayerAtBuffer,  SwiftSelf self);
         
         
         public unsafe void SetNodeIsEnabled( System.Boolean isEnabled,  Swift.Lottie.AnimationKeypath keypath)
@@ -2484,7 +2484,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_setNodeIsEnabled_5FBC59C1(isEnabled, keypath.Payload, self);
+                PInvoke_setNodeIsEnabled_47DD8160(isEnabled, keypath.Payload, self);
                 
                 return;
             }
@@ -2499,7 +2499,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC16setNodeIsEnabled02isG07keypathySb_AA0B7KeypathVtF")]
-        private static extern void PInvoke_setNodeIsEnabled_5FBC59C1( System.Boolean isEnabled,  SafeHandle keypath,  SwiftSelf self);
+        private static extern void PInvoke_setNodeIsEnabled_47DD8160( System.Boolean isEnabled,  SafeHandle keypath,  SwiftSelf self);
         
         
         public unsafe System.Double? ProgressTime( string forMarker)
@@ -2514,7 +2514,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_progressTime_2BC4B5F9(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_progressTime_02732029(forMarkerDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -2530,7 +2530,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC12progressTime9forMarker12CoreGraphics7CGFloatVSgSS_tF")]
-        private static extern IntPtr PInvoke_progressTime_2BC4B5F9( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern IntPtr PInvoke_progressTime_02732029( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe System.Double? FrameTime( string forMarker)
@@ -2545,7 +2545,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_frameTime_6EF191CC(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_frameTime_0338EC21(forMarkerDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -2561,7 +2561,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC9frameTime9forMarker12CoreGraphics7CGFloatVSgSS_tF")]
-        private static extern IntPtr PInvoke_frameTime_6EF191CC( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern IntPtr PInvoke_frameTime_0338EC21( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe System.Double? DurationFrameTime( string forMarker)
@@ -2576,7 +2576,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_durationFrameTime_2DB13ED8(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_durationFrameTime_47426982(forMarkerDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -2592,7 +2592,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC17durationFrameTime9forMarker12CoreGraphics7CGFloatVSgSS_tF")]
-        private static extern IntPtr PInvoke_durationFrameTime_2DB13ED8( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern IntPtr PInvoke_durationFrameTime_47426982( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe void UpdateAnimationForBackgroundState()
@@ -2605,7 +2605,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_updateAnimationForBackgroundState_692D1D50(self);
+                PInvoke_updateAnimationForBackgroundState_5A77259B(self);
                 
                 return;
             }
@@ -2620,7 +2620,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC06updateB18ForBackgroundStateyyF")]
-        private static extern void PInvoke_updateAnimationForBackgroundState_692D1D50( SwiftSelf self);
+        private static extern void PInvoke_updateAnimationForBackgroundState_5A77259B( SwiftSelf self);
         
         
         public unsafe void UpdateAnimationForForegroundState( System.Boolean wasWaitingToPlayAnimation)
@@ -2633,7 +2633,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_updateAnimationForForegroundState_4100F8A4(wasWaitingToPlayAnimation, self);
+                PInvoke_updateAnimationForForegroundState_265B5A8F(wasWaitingToPlayAnimation, self);
                 
                 return;
             }
@@ -2648,7 +2648,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerC06updateB18ForForegroundState016wasWaitingToPlayB0ySb_tF")]
-        private static extern void PInvoke_updateAnimationForForegroundState_4100F8A4( System.Boolean wasWaitingToPlayAnimation,  SwiftSelf self);
+        private static extern void PInvoke_updateAnimationForForegroundState_265B5A8F( System.Boolean wasWaitingToPlayAnimation,  SwiftSelf self);
         
         
         public unsafe Swift.Lottie.LottieAnimationLayer Init()
@@ -2661,7 +2661,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_2F147D9D(swiftIndirectResult);
+                PInvoke_init_7BA659E3(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationLayer>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -2674,7 +2674,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationLayerCACycfC")]
-        private static extern void PInvoke_init_2F147D9D( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_7BA659E3( SwiftIndirectResult swiftIndirectResult);
         
         
     }
@@ -2770,9 +2770,9 @@ namespace Swift.Lottie
         }
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<SwiftSelf, void> s_init_action_13783051_Callback = &init_action_13783051_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<SwiftSelf, void> s_init_action_47082368_Callback = &init_action_47082368_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void init_action_13783051_Callback(SwiftSelf context)
+        private static void init_action_47082368_Callback(SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action>(new IntPtr(context.Value));
             del();
@@ -2787,11 +2787,11 @@ namespace Swift.Lottie
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
                 actionHandle = GCHandle.Alloc(action);
-                var actionClosure = new SwiftClosureData((IntPtr)s_init_action_13783051_Callback, GCHandle.ToIntPtr(actionHandle));
+                var actionClosure = new SwiftClosureData((IntPtr)s_init_action_47082368_Callback, GCHandle.ToIntPtr(actionHandle));
                 using var animationSwift = animation is {} animationValue ? SwiftOptional<Swift.Lottie.LottieAnimation>.NewSome(animationValue) : SwiftOptional<Swift.Lottie.LottieAnimation>.NewNone();
                 using PayloadBuffer<IntPtr> animationDisposable = animationSwift.PayloadBuffer;
                 IntPtr animationBuffer = animationDisposable.Buffer;
-                PInvoke_init_13783051(swiftIndirectResult, animationBuffer, actionClosure);
+                PInvoke_init_47082368(swiftIndirectResult, animationBuffer, actionClosure);
                 
             }
             
@@ -2804,12 +2804,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6ButtonV9animation6actionAcA0A9AnimationCSg_yyctcfC")]
-        private static extern void PInvoke_init_13783051( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  SwiftClosureData action);
+        private static extern void PInvoke_init_47082368( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  SwiftClosureData action);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_configure_arg0_7647B947_Callback = &configure_arg0_7647B947_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_configure_arg0_260BFCF1_Callback = &configure_arg0_260BFCF1_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void configure_arg0_7647B947_Callback(void* arg0, SwiftSelf context)
+        private static void configure_arg0_260BFCF1_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.Lottie.AnimatedButton>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedButton>(new IntPtr(arg0)));
@@ -2830,9 +2830,9 @@ namespace Swift.Lottie
                 
                 
                 arg0Handle = GCHandle.Alloc(arg0);
-                var arg0Closure = new SwiftClosureData((IntPtr)s_configure_arg0_7647B947_Callback, GCHandle.ToIntPtr(arg0Handle));
+                var arg0Closure = new SwiftClosureData((IntPtr)s_configure_arg0_260BFCF1_Callback, GCHandle.ToIntPtr(arg0Handle));
                 
-                PInvoke_configure_7647B947(swiftIndirectResult, arg0Closure, self);
+                PInvoke_configure_260BFCF1(swiftIndirectResult, arg0Closure, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieButton>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -2848,7 +2848,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6ButtonV9configureyACyAA08AnimatedB0CcF")]
-        private static extern void PInvoke_configure_7647B947( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData arg0,  SwiftSelf self);
+        private static extern void PInvoke_configure_260BFCF1( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData arg0,  SwiftSelf self);
         
         
         public unsafe Swift.Lottie.LottieButton Configuration( Swift.Lottie.LottieConfiguration arg0)
@@ -2865,7 +2865,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_configuration_15DEA0AB(swiftIndirectResult, arg0.Payload, self);
+                PInvoke_configuration_577981EB(swiftIndirectResult, arg0.Payload, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieButton>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -2880,7 +2880,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6ButtonV13configurationyAcA0A13ConfigurationVF")]
-        private static extern void PInvoke_configuration_15DEA0AB( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SwiftSelf self);
+        private static extern void PInvoke_configuration_577981EB( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SwiftSelf self);
         
         
         
@@ -2906,7 +2906,7 @@ namespace Swift.Lottie
                 
                 var T0AnyValueProviderPWT = ProtocolWitnessTable.GetOrThrow<T0, ISwiftAnyValueProvider>();
                 
-                PInvoke_valueProvider_07CF4AC8(swiftIndirectResult, arg0Payload, _for.Payload, T0Metadata, T0AnyValueProviderPWT, self);
+                PInvoke_valueProvider_069A29F9(swiftIndirectResult, arg0Payload, _for.Payload, T0Metadata, T0AnyValueProviderPWT, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieButton>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -2922,7 +2922,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6ButtonV13valueProvider_3forACx_AA16AnimationKeypathVtAA08AnyValueD0RzSQRzlF")]
-        private static extern void PInvoke_valueProvider_07CF4AC8( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Payload,  SafeHandle _for,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0AnyValueProviderPWT,  SwiftSelf self);
+        private static extern void PInvoke_valueProvider_069A29F9( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Payload,  SafeHandle _for,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0AnyValueProviderPWT,  SwiftSelf self);
         
         
     }
@@ -3237,7 +3237,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_228FAD1B(swiftIndirectResult);
+                PInvoke_init_49FF1C31(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DefaultFontProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -3250,7 +3250,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19DefaultFontProviderCACycfC")]
-        private static extern void PInvoke_init_228FAD1B( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_49FF1C31( SwiftIndirectResult swiftIndirectResult);
         
         
         
@@ -3269,7 +3269,7 @@ namespace Swift.Lottie
             {
                 
                 
-                var result = PInvoke_shared_Get_3A45B278();
+                var result = PInvoke_shared_Get_4E56A0D8();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
             }
@@ -3282,7 +3282,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationCacheO6sharedAA0bC8Provider_pSgvgZ")]
-        private static extern IntPtr PInvoke_shared_Get_3A45B278();
+        private static extern IntPtr PInvoke_shared_Get_4E56A0D8();
         
         private static unsafe void Shared_Set( Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1> value)
         {
@@ -3292,7 +3292,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_shared_Set_60E0CD61(valueBuffer);
+                PInvoke_shared_Set_1E5A5C9E(valueBuffer);
                 
                 return;
             }
@@ -3305,7 +3305,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14AnimationCacheO6sharedAA0bC8Provider_pSgvsZ")]
-        private static extern void PInvoke_shared_Set_60E0CD61( IntPtr valueBuffer);
+        private static extern void PInvoke_shared_Set_1E5A5C9E( IntPtr valueBuffer);
         
         public static Swift.Runtime.ExistentialContainer1? Shared
         {
@@ -3388,7 +3388,7 @@ namespace Swift.Lottie
             {
                 
                 
-                var result = PInvoke_sharedCache_Get_719BC94F();
+                var result = PInvoke_sharedCache_Get_299BF865();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -3403,7 +3403,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21DefaultAnimationCacheC06sharedD0ACvgZ")]
-        private static extern IntPtr PInvoke_sharedCache_Get_719BC94F();
+        private static extern IntPtr PInvoke_sharedCache_Get_299BF865();
         
         public static Swift.Lottie.DefaultAnimationCache SharedCache
         {
@@ -3420,7 +3420,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_cacheSize_Get_07678291(self);
+                var result = PInvoke_cacheSize_Get_0D73A462(self);
                 
                 return result;
             }
@@ -3435,7 +3435,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21DefaultAnimationCacheC9cacheSizeSivg")]
-        private static extern System.IntPtr PInvoke_cacheSize_Get_07678291( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_cacheSize_Get_0D73A462( SwiftSelf self);
         
         private unsafe void CacheSize_Set( System.IntPtr value)
         {
@@ -3447,7 +3447,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_cacheSize_Set_5D69730E(value, self);
+                PInvoke_cacheSize_Set_25FA77CC(value, self);
                 
                 return;
             }
@@ -3462,7 +3462,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21DefaultAnimationCacheC9cacheSizeSivs")]
-        private static extern void PInvoke_cacheSize_Set_5D69730E( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_cacheSize_Set_25FA77CC( System.IntPtr value,  SwiftSelf self);
         
         public System.IntPtr CacheSize
         {
@@ -3567,7 +3567,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_77C668CA(swiftIndirectResult);
+                PInvoke_init_41B9DBC4(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DefaultAnimationCache>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -3580,7 +3580,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21DefaultAnimationCacheCACycfC")]
-        private static extern void PInvoke_init_77C668CA( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_41B9DBC4( SwiftIndirectResult swiftIndirectResult);
         
         
         public unsafe void ClearCache()
@@ -3593,7 +3593,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_clearCache_1BED7187(self);
+                PInvoke_clearCache_7597BBEB(self);
                 
                 return;
             }
@@ -3608,7 +3608,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21DefaultAnimationCacheC05clearD0yyF")]
-        private static extern void PInvoke_clearCache_1BED7187( SwiftSelf self);
+        private static extern void PInvoke_clearCache_7597BBEB( SwiftSelf self);
         
         
         public unsafe Swift.Lottie.LottieAnimation? Animation( string forKey)
@@ -3623,7 +3623,7 @@ namespace Swift.Lottie
                 using var forKeySwift = new SwiftString(forKey);
                 using PayloadBuffer<SwiftString.Buffer> forKeyDisposable = forKeySwift.PayloadBuffer;
                 
-                var result = PInvoke_animation_1B1163A4(forKeyDisposable.Buffer, self);
+                var result = PInvoke_animation_45E947C5(forKeyDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieAnimation>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -3639,7 +3639,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21DefaultAnimationCacheC9animation6forKeyAA0aC0CSgSS_tF")]
-        private static extern IntPtr PInvoke_animation_1B1163A4( Swift.SwiftString.Buffer forKey,  SwiftSelf self);
+        private static extern IntPtr PInvoke_animation_45E947C5( Swift.SwiftString.Buffer forKey,  SwiftSelf self);
         
         
         public unsafe void SetAnimation( Swift.Lottie.LottieAnimation arg0,  string forKey)
@@ -3654,7 +3654,7 @@ namespace Swift.Lottie
                 using var forKeySwift = new SwiftString(forKey);
                 using PayloadBuffer<SwiftString.Buffer> forKeyDisposable = forKeySwift.PayloadBuffer;
                 
-                PInvoke_setAnimation_2BA11BB5(arg0.Payload, forKeyDisposable.Buffer, self);
+                PInvoke_setAnimation_5581ADFE(arg0.Payload, forKeyDisposable.Buffer, self);
                 
                 return;
             }
@@ -3669,7 +3669,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21DefaultAnimationCacheC03setC0_6forKeyyAA0aC0C_SStF")]
-        private static extern void PInvoke_setAnimation_2BA11BB5( SafeHandle arg0,  Swift.SwiftString.Buffer forKey,  SwiftSelf self);
+        private static extern void PInvoke_setAnimation_5581ADFE( SafeHandle arg0,  Swift.SwiftString.Buffer forKey,  SwiftSelf self);
         
         
     }
@@ -3741,7 +3741,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<RenderingEngineOption>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -3766,7 +3766,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<RenderingEngineOption>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -3801,7 +3801,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_mainThread_Get_7A83DEF2(swiftIndirectResult);
+                PInvoke_mainThread_Get_2287A3E3(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.RenderingEngineOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -3814,7 +3814,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21RenderingEngineOptionO10mainThreadACvgZ")]
-        private static extern void PInvoke_mainThread_Get_7A83DEF2( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_mainThread_Get_2287A3E3( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.RenderingEngineOption MainThread
         {
@@ -3831,7 +3831,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_coreAnimation_Get_107888C0(swiftIndirectResult);
+                PInvoke_coreAnimation_Get_3B02CDF3(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.RenderingEngineOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -3844,7 +3844,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21RenderingEngineOptionO13coreAnimationACvgZ")]
-        private static extern void PInvoke_coreAnimation_Get_107888C0( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_coreAnimation_Get_3B02CDF3( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.RenderingEngineOption CoreAnimation
         {
@@ -3859,7 +3859,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_rawValue_Get_6230AAFA(self);
+                var result = PInvoke_rawValue_Get_42820A7E(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -3874,7 +3874,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21RenderingEngineOptionO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_6230AAFA( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_42820A7E( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -3889,7 +3889,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_description_Get_04A14A4E(self);
+                var result = PInvoke_description_Get_02B84189(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -3904,7 +3904,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21RenderingEngineOptionO11descriptionSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_04A14A4E( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_02B84189( SwiftSelf self);
         
         public Swift.SwiftString Description
         {
@@ -4047,7 +4047,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<RenderingEngine>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -4068,7 +4068,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_rawValue_Get_64560E8D(self);
+                var result = PInvoke_rawValue_Get_37DC1ADE(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -4083,7 +4083,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15RenderingEngineO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_64560E8D( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_37DC1ADE( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -4098,7 +4098,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_description_Get_4FC2658F(self);
+                var result = PInvoke_description_Get_7854361F(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -4113,7 +4113,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15RenderingEngineO11descriptionSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_4FC2658F( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_7854361F( SwiftSelf self);
         
         public Swift.SwiftString Description
         {
@@ -5032,7 +5032,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> arg0Disposable = arg0.PayloadBuffer;
                 IntPtr arg0Buffer = arg0Disposable.Buffer;
                 
-                PInvoke_init_58630CF6(swiftIndirectResult, arg0Buffer);
+                PInvoke_init_459893F8(swiftIndirectResult, arg0Buffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DictionaryTextProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -5045,7 +5045,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie22DictionaryTextProviderCyACSDyS2SGcfC")]
-        private static extern void PInvoke_init_58630CF6( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Buffer);
+        private static extern void PInvoke_init_459893F8( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Buffer);
         
         
         public unsafe Swift.SwiftString? Text( Swift.Lottie.AnimationKeypath _for,  string sourceText)
@@ -5060,7 +5060,7 @@ namespace Swift.Lottie
                 using var sourceTextSwift = new SwiftString(sourceText);
                 using PayloadBuffer<SwiftString.Buffer> sourceTextDisposable = sourceTextSwift.PayloadBuffer;
                 
-                var result = PInvoke_text_66754626(_for.Payload, sourceTextDisposable.Buffer, self);
+                var result = PInvoke_text_0149EC7F(_for.Payload, sourceTextDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -5076,7 +5076,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie22DictionaryTextProviderC4text3for06sourceC0SSSgAA16AnimationKeypathV_SStF")]
-        private static extern IntPtr PInvoke_text_66754626( SafeHandle _for,  Swift.SwiftString.Buffer sourceText,  SwiftSelf self);
+        private static extern IntPtr PInvoke_text_0149EC7F( SafeHandle _for,  Swift.SwiftString.Buffer sourceText,  SwiftSelf self);
         
         
         public unsafe string TextFor( string keypathName,  string sourceText)
@@ -5093,7 +5093,7 @@ namespace Swift.Lottie
                 using var sourceTextSwift = new SwiftString(sourceText);
                 using PayloadBuffer<SwiftString.Buffer> sourceTextDisposable = sourceTextSwift.PayloadBuffer;
                 
-                var result = PInvoke_textFor_43359604(keypathNameDisposable.Buffer, sourceTextDisposable.Buffer, self);
+                var result = PInvoke_textFor_78E48D2B(keypathNameDisposable.Buffer, sourceTextDisposable.Buffer, self);
                 
                 unsafe {
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
@@ -5111,7 +5111,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie22DictionaryTextProviderC7textFor11keypathName06sourceC0S2S_SStF")]
-        private static extern Swift.SwiftString.Buffer PInvoke_textFor_43359604( Swift.SwiftString.Buffer keypathName,  Swift.SwiftString.Buffer sourceText,  SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_textFor_78E48D2B( Swift.SwiftString.Buffer keypathName,  Swift.SwiftString.Buffer sourceText,  SwiftSelf self);
         
         
     }
@@ -5223,7 +5223,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_6C05568D(swiftIndirectResult);
+                PInvoke_init_14FB24A2(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DefaultTextProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -5236,7 +5236,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19DefaultTextProviderCACycfC")]
-        private static extern void PInvoke_init_6C05568D( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_14FB24A2( SwiftIndirectResult swiftIndirectResult);
         
         
         public unsafe string TextFor( string keypathName,  string sourceText)
@@ -5253,7 +5253,7 @@ namespace Swift.Lottie
                 using var sourceTextSwift = new SwiftString(sourceText);
                 using PayloadBuffer<SwiftString.Buffer> sourceTextDisposable = sourceTextSwift.PayloadBuffer;
                 
-                var result = PInvoke_textFor_266A9DA3(keypathNameDisposable.Buffer, sourceTextDisposable.Buffer, self);
+                var result = PInvoke_textFor_0E05DBBD(keypathNameDisposable.Buffer, sourceTextDisposable.Buffer, self);
                 
                 unsafe {
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
@@ -5271,7 +5271,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19DefaultTextProviderC7textFor11keypathName06sourceC0S2S_SStF")]
-        private static extern Swift.SwiftString.Buffer PInvoke_textFor_266A9DA3( Swift.SwiftString.Buffer keypathName,  Swift.SwiftString.Buffer sourceText,  SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_textFor_0E05DBBD( Swift.SwiftString.Buffer keypathName,  Swift.SwiftString.Buffer sourceText,  SwiftSelf self);
         
         
         public unsafe string Text( Swift.Lottie.AnimationKeypath _for,  string sourceText)
@@ -5286,7 +5286,7 @@ namespace Swift.Lottie
                 using var sourceTextSwift = new SwiftString(sourceText);
                 using PayloadBuffer<SwiftString.Buffer> sourceTextDisposable = sourceTextSwift.PayloadBuffer;
                 
-                var result = PInvoke_text_2CECFAD2(_for.Payload, sourceTextDisposable.Buffer, self);
+                var result = PInvoke_text_417D9830(_for.Payload, sourceTextDisposable.Buffer, self);
                 
                 unsafe {
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
@@ -5304,7 +5304,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19DefaultTextProviderC4text3for06sourceC0SSAA16AnimationKeypathV_SStF")]
-        private static extern Swift.SwiftString.Buffer PInvoke_text_2CECFAD2( SafeHandle _for,  Swift.SwiftString.Buffer sourceText,  SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_text_417D9830( SafeHandle _for,  Swift.SwiftString.Buffer sourceText,  SwiftSelf self);
         
         
     }
@@ -5424,7 +5424,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<CoordinateSpace>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -5445,7 +5445,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_rawValue_Get_4F1A8E65(self);
+                var result = PInvoke_rawValue_Get_0C779E49(self);
                 
                 return result;
             }
@@ -5458,7 +5458,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15CoordinateSpaceO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_4F1A8E65( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_0C779E49( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -5544,7 +5544,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_startFrame_Get_17E71BD8(self);
+                var result = PInvoke_startFrame_Get_6FA0A6A8(self);
                 
                 return result;
             }
@@ -5559,7 +5559,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC10startFrame12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_startFrame_Get_17E71BD8( SwiftSelf self);
+        private static extern System.Double PInvoke_startFrame_Get_6FA0A6A8( SwiftSelf self);
         
         public System.Double StartFrame
         {
@@ -5576,7 +5576,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_endFrame_Get_61A2E46F(self);
+                var result = PInvoke_endFrame_Get_3886937B(self);
                 
                 return result;
             }
@@ -5591,7 +5591,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC8endFrame12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_endFrame_Get_61A2E46F( SwiftSelf self);
+        private static extern System.Double PInvoke_endFrame_Get_3886937B( SwiftSelf self);
         
         public System.Double EndFrame
         {
@@ -5608,7 +5608,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_framerate_Get_52B56C07(self);
+                var result = PInvoke_framerate_Get_461E8FE1(self);
                 
                 return result;
             }
@@ -5623,7 +5623,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC9framerateSdvg")]
-        private static extern System.Double PInvoke_framerate_Get_52B56C07( SwiftSelf self);
+        private static extern System.Double PInvoke_framerate_Get_461E8FE1( SwiftSelf self);
         
         public System.Double Framerate
         {
@@ -5640,7 +5640,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_markerNames_Get_609CF94B(self);
+                var result = PInvoke_markerNames_Get_72BEFE85(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -5655,7 +5655,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC11markerNamesSaySSGvg")]
-        private static extern IntPtr PInvoke_markerNames_Get_609CF94B( SwiftSelf self);
+        private static extern IntPtr PInvoke_markerNames_Get_72BEFE85( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.SwiftString> MarkerNames
         {
@@ -5676,7 +5676,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationSource_Get_3C9419B7(swiftIndirectResult, self);
+                PInvoke_animationSource_Get_5FD2CC9C(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationSource>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -5691,7 +5691,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC15animationSourceAA0abD0Ovg")]
-        private static extern void PInvoke_animationSource_Get_3C9419B7( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_animationSource_Get_5FD2CC9C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Lottie.LottieAnimationSource AnimationSource
         {
@@ -5708,7 +5708,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_duration_Get_650D0CE7(self);
+                var result = PInvoke_duration_Get_58426EE1(self);
                 
                 return result;
             }
@@ -5723,7 +5723,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC8durationSdvg")]
-        private static extern System.Double PInvoke_duration_Get_650D0CE7( SwiftSelf self);
+        private static extern System.Double PInvoke_duration_Get_58426EE1( SwiftSelf self);
         
         public System.Double Duration
         {
@@ -5740,7 +5740,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_bounds_Get_7808AA59(self);
+                var result = PInvoke_bounds_Get_558C0AE0(self);
                 
                 return result;
             }
@@ -5755,7 +5755,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC6boundsSo6CGRectVvg")]
-        private static extern Swift.CGRect PInvoke_bounds_Get_7808AA59( SwiftSelf self);
+        private static extern Swift.CGRect PInvoke_bounds_Get_558C0AE0( SwiftSelf self);
         
         public Swift.CGRect Bounds
         {
@@ -5772,7 +5772,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_size_Get_7CC0BBE8(self);
+                var result = PInvoke_size_Get_19B9FC44(self);
                 
                 return result;
             }
@@ -5787,7 +5787,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC4sizeSo6CGSizeVvg")]
-        private static extern Swift.CGSize PInvoke_size_Get_7CC0BBE8( SwiftSelf self);
+        private static extern Swift.CGSize PInvoke_size_Get_19B9FC44( SwiftSelf self);
         
         public Swift.CGSize Size
         {
@@ -5891,7 +5891,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_10FE79F5(swiftIndirectResult, from, out var error);
+                PInvoke_init_7B9D67DD(swiftIndirectResult, from, out var error);
                 
                 if (error.Value != null)
                 {
@@ -5909,7 +5909,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_10FE79F5( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_7B9D67DD( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         public unsafe Swift.Lottie.LottieAnimation Init( Swift.SwiftDictionary<Swift.SwiftString, Swift.Runtime.ExistentialContainer0> dictionary)
@@ -5924,7 +5924,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> dictionaryDisposable = dictionary.PayloadBuffer;
                 IntPtr dictionaryBuffer = dictionaryDisposable.Buffer;
                 
-                PInvoke_init_2AE7264B(swiftIndirectResult, dictionaryBuffer, out var error);
+                PInvoke_init_12080770(swiftIndirectResult, dictionaryBuffer, out var error);
                 
                 if (error.Value != null)
                 {
@@ -5942,7 +5942,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC10dictionaryACSDySSypG_tKcfC")]
-        private static extern void PInvoke_init_2AE7264B( SwiftIndirectResult swiftIndirectResult,  IntPtr dictionaryBuffer, out SwiftError error);
+        private static extern void PInvoke_init_12080770( SwiftIndirectResult swiftIndirectResult,  IntPtr dictionaryBuffer, out SwiftError error);
         
         
         public unsafe void Encode( Swift.Runtime.ExistentialContainer1 to)
@@ -5955,7 +5955,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_encode_5C8DFD64(to, self, out var error);
+                PInvoke_encode_3F587550(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -5975,7 +5975,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_5C8DFD64( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_3F587550( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
         
@@ -5990,7 +5990,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> animationCacheDisposable = animationCacheSwift.PayloadBuffer;
                 IntPtr animationCacheBuffer = animationCacheDisposable.Buffer;
                 
-                var result = PInvoke_filepath_6C651106(arg0Disposable.Buffer, animationCacheBuffer);
+                var result = PInvoke_filepath_769E1563(arg0Disposable.Buffer, animationCacheBuffer);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieAnimation>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -6004,7 +6004,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC8filepath_14animationCacheACSgSS_AA0bE8Provider_pSgtFZ")]
-        private static extern IntPtr PInvoke_filepath_6C651106( Swift.SwiftString.Buffer arg0,  IntPtr animationCacheBuffer);
+        private static extern IntPtr PInvoke_filepath_769E1563( Swift.SwiftString.Buffer arg0,  IntPtr animationCacheBuffer);
         
         
         
@@ -6015,7 +6015,7 @@ namespace Swift.Lottie
                 
                 var dataSwift = Swift.Data.FromNSData(data);
                 
-                var result = PInvoke_from_737E8F93(dataSwift, strategy.Payload, out var error);
+                var result = PInvoke_from_3C59C8C2(dataSwift, strategy.Payload, out var error);
                 
                 if (error.Value != null)
                 {
@@ -6035,7 +6035,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC4from4data8strategyAC10Foundation4DataV_AA16DecodingStrategyOtKFZ")]
-        private static extern IntPtr PInvoke_from_737E8F93( Swift.Data data,  SafeHandle strategy, out SwiftError error);
+        private static extern IntPtr PInvoke_from_3C59C8C2( Swift.Data data,  SafeHandle strategy, out SwiftError error);
         
         
         public static unsafe Swift.Lottie.LottieAnimation? LoadedFrom( Foundation.NSUrl url,  Swift.Runtime.ExistentialContainer1 session,  Swift.Runtime.ExistentialContainer1? animationCache)
@@ -6048,7 +6048,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> animationCacheDisposable = animationCacheSwift.PayloadBuffer;
                 IntPtr animationCacheBuffer = animationCacheDisposable.Buffer;
                 
-                var result = PInvoke_loadedFrom_04F80C66(urlSwift.Payload, session, animationCacheBuffer);
+                var result = PInvoke_loadedFrom_68481A56(urlSwift.Payload, session, animationCacheBuffer);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieAnimation>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -6062,7 +6062,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC10loadedFrom3url7session14animationCacheACSg10Foundation3URLV_AA0A10URLSession_pAA0bH8Provider_pSgtYaFZ")]
-        private static extern IntPtr PInvoke_loadedFrom_04F80C66( SafeHandle url,  Swift.Runtime.ExistentialContainer1 session,  IntPtr animationCacheBuffer);
+        private static extern IntPtr PInvoke_loadedFrom_68481A56( SafeHandle url,  Swift.Runtime.ExistentialContainer1 session,  IntPtr animationCacheBuffer);
         
         
         
@@ -6078,7 +6078,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_progressTime_0A95B072(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_progressTime_50AEBDDD(forMarkerDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -6094,7 +6094,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC12progressTime9forMarker12CoreGraphics7CGFloatVSgSS_tF")]
-        private static extern IntPtr PInvoke_progressTime_0A95B072( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern IntPtr PInvoke_progressTime_50AEBDDD( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe System.Double? FrameTime( string forMarker)
@@ -6109,7 +6109,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_frameTime_4DD3C4D9(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_frameTime_57E07CD1(forMarkerDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -6125,7 +6125,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC9frameTime9forMarker12CoreGraphics7CGFloatVSgSS_tF")]
-        private static extern IntPtr PInvoke_frameTime_4DD3C4D9( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern IntPtr PInvoke_frameTime_57E07CD1( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe System.Double? DurationFrameTime( string forMarker)
@@ -6140,7 +6140,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_durationFrameTime_5CE02BF6(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_durationFrameTime_7D2415B0(forMarkerDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -6156,7 +6156,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC17durationFrameTime9forMarker12CoreGraphics7CGFloatVSgSS_tF")]
-        private static extern IntPtr PInvoke_durationFrameTime_5CE02BF6( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern IntPtr PInvoke_durationFrameTime_7D2415B0( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe System.Double ProgressTime( System.Double forFrame,  System.Boolean clamped)
@@ -6169,7 +6169,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_progressTime_05F681EC(forFrame, clamped, self);
+                var result = PInvoke_progressTime_0D61E854(forFrame, clamped, self);
                 
                 return result;
             }
@@ -6184,7 +6184,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC12progressTime8forFrame7clamped12CoreGraphics7CGFloatVAI_SbtF")]
-        private static extern System.Double PInvoke_progressTime_05F681EC( System.Double forFrame,  System.Boolean clamped,  SwiftSelf self);
+        private static extern System.Double PInvoke_progressTime_0D61E854( System.Double forFrame,  System.Boolean clamped,  SwiftSelf self);
         
         
         public unsafe System.Double FrameTime( System.Double forProgress)
@@ -6197,7 +6197,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_frameTime_452587A2(forProgress, self);
+                var result = PInvoke_frameTime_5F808A05(forProgress, self);
                 
                 return result;
             }
@@ -6212,7 +6212,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC9frameTime11forProgress12CoreGraphics7CGFloatVAH_tF")]
-        private static extern System.Double PInvoke_frameTime_452587A2( System.Double forProgress,  SwiftSelf self);
+        private static extern System.Double PInvoke_frameTime_5F808A05( System.Double forProgress,  SwiftSelf self);
         
         
         public unsafe System.Double Time( System.Double forFrame)
@@ -6225,7 +6225,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_time_5DAD46F2(forFrame, self);
+                var result = PInvoke_time_544784F3(forFrame, self);
                 
                 return result;
             }
@@ -6240,7 +6240,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A9AnimationC4time8forFrameSd12CoreGraphics7CGFloatV_tF")]
-        private static extern System.Double PInvoke_time_5DAD46F2( System.Double forFrame,  SwiftSelf self);
+        private static extern System.Double PInvoke_time_544784F3( System.Double forFrame,  SwiftSelf self);
         
         
     }
@@ -6344,18 +6344,18 @@ namespace Swift.Lottie
             using var animationSwift = animation is {} animationValue ? SwiftOptional<Swift.Lottie.LottieAnimation>.NewSome(animationValue) : SwiftOptional<Swift.Lottie.LottieAnimation>.NewNone();
             using PayloadBuffer<IntPtr> animationDisposable = animationSwift.PayloadBuffer;
             IntPtr animationBuffer = animationDisposable.Buffer;
-            PInvoke_init_42FA61CF(swiftIndirectResult, animationBuffer);
+            PInvoke_init_0947C277(swiftIndirectResult, animationBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6SwitchV9animationAcA0A9AnimationCSg_tcfC")]
-        private static extern void PInvoke_init_42FA61CF( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer);
+        private static extern void PInvoke_init_0947C277( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_configure_arg0_6D2533AB_Callback = &configure_arg0_6D2533AB_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_configure_arg0_61B0CC2C_Callback = &configure_arg0_61B0CC2C_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void configure_arg0_6D2533AB_Callback(void* arg0, SwiftSelf context)
+        private static void configure_arg0_61B0CC2C_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.Lottie.AnimatedSwitch>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedSwitch>(new IntPtr(arg0)));
@@ -6376,9 +6376,9 @@ namespace Swift.Lottie
                 
                 
                 arg0Handle = GCHandle.Alloc(arg0);
-                var arg0Closure = new SwiftClosureData((IntPtr)s_configure_arg0_6D2533AB_Callback, GCHandle.ToIntPtr(arg0Handle));
+                var arg0Closure = new SwiftClosureData((IntPtr)s_configure_arg0_61B0CC2C_Callback, GCHandle.ToIntPtr(arg0Handle));
                 
-                PInvoke_configure_6D2533AB(swiftIndirectResult, arg0Closure, self);
+                PInvoke_configure_61B0CC2C(swiftIndirectResult, arg0Closure, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieSwitch>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -6394,7 +6394,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6SwitchV9configureyACyAA08AnimatedB0CcF")]
-        private static extern void PInvoke_configure_6D2533AB( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData arg0,  SwiftSelf self);
+        private static extern void PInvoke_configure_61B0CC2C( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData arg0,  SwiftSelf self);
         
         
         public unsafe Swift.Lottie.LottieSwitch Configuration( Swift.Lottie.LottieConfiguration arg0)
@@ -6411,7 +6411,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_configuration_6EE0ABE7(swiftIndirectResult, arg0.Payload, self);
+                PInvoke_configuration_2766CD79(swiftIndirectResult, arg0.Payload, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieSwitch>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -6426,7 +6426,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6SwitchV13configurationyAcA0A13ConfigurationVF")]
-        private static extern void PInvoke_configuration_6EE0ABE7( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SwiftSelf self);
+        private static extern void PInvoke_configuration_2766CD79( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SwiftSelf self);
         
         
         
@@ -6444,7 +6444,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_onAnimation_6B623FE3(swiftIndirectResult, fromProgress, toProgress, self);
+                PInvoke_onAnimation_103C637F(swiftIndirectResult, fromProgress, toProgress, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieSwitch>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -6459,7 +6459,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6SwitchV11onAnimation12fromProgress02toF0AC12CoreGraphics7CGFloatV_AItF")]
-        private static extern void PInvoke_onAnimation_6B623FE3( SwiftIndirectResult swiftIndirectResult,  System.Double fromProgress,  System.Double toProgress,  SwiftSelf self);
+        private static extern void PInvoke_onAnimation_103C637F( SwiftIndirectResult swiftIndirectResult,  System.Double fromProgress,  System.Double toProgress,  SwiftSelf self);
         
         
         public unsafe Swift.Lottie.LottieSwitch OffAnimation( System.Double fromProgress,  System.Double toProgress)
@@ -6476,7 +6476,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_offAnimation_36252849(swiftIndirectResult, fromProgress, toProgress, self);
+                PInvoke_offAnimation_198C284B(swiftIndirectResult, fromProgress, toProgress, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieSwitch>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -6491,7 +6491,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6SwitchV12offAnimation12fromProgress02toF0AC12CoreGraphics7CGFloatV_AItF")]
-        private static extern void PInvoke_offAnimation_36252849( SwiftIndirectResult swiftIndirectResult,  System.Double fromProgress,  System.Double toProgress,  SwiftSelf self);
+        private static extern void PInvoke_offAnimation_198C284B( SwiftIndirectResult swiftIndirectResult,  System.Double fromProgress,  System.Double toProgress,  SwiftSelf self);
         
         
         public unsafe Swift.Lottie.LottieSwitch ValueProvider<T0>( T0 arg0,  Swift.Lottie.AnimationKeypath _for)
@@ -6515,7 +6515,7 @@ namespace Swift.Lottie
                 
                 var T0AnyValueProviderPWT = ProtocolWitnessTable.GetOrThrow<T0, ISwiftAnyValueProvider>();
                 
-                PInvoke_valueProvider_263C5C3E(swiftIndirectResult, arg0Payload, _for.Payload, T0Metadata, T0AnyValueProviderPWT, self);
+                PInvoke_valueProvider_4A2D0969(swiftIndirectResult, arg0Payload, _for.Payload, T0Metadata, T0AnyValueProviderPWT, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieSwitch>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -6531,7 +6531,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6SwitchV13valueProvider_3forACx_AA16AnimationKeypathVtAA08AnyValueD0RzSQRzlF")]
-        private static extern void PInvoke_valueProvider_263C5C3E( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Payload,  SafeHandle _for,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0AnyValueProviderPWT,  SwiftSelf self);
+        private static extern void PInvoke_valueProvider_4A2D0969( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Payload,  SafeHandle _for,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0AnyValueProviderPWT,  SwiftSelf self);
         
         
     }
@@ -6853,7 +6853,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<LottieAnimationSource>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -6878,7 +6878,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottieAnimationSource>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -6915,7 +6915,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottieAnimationSource>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -7149,7 +7149,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_id_Get_473873DC(self);
+                var result = PInvoke_id_Get_0F1D6B7E(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -7166,7 +7166,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie5AssetC2idSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_id_Get_473873DC( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_id_Get_0F1D6B7E( SwiftSelf self);
         
         public Swift.SwiftString Id
         {
@@ -7270,7 +7270,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_24DFAAFD(swiftIndirectResult, from, out var error);
+                PInvoke_init_2714329D(swiftIndirectResult, from, out var error);
                 
                 if (error.Value != null)
                 {
@@ -7288,7 +7288,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie5AssetC4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_24DFAAFD( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_2714329D( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         public unsafe void Encode( Swift.Runtime.ExistentialContainer1 to)
@@ -7301,7 +7301,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_encode_57499354(to, self, out var error);
+                PInvoke_encode_488178AD(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -7321,7 +7321,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie5AssetC6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_57499354( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_488178AD( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -7390,7 +7390,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<ReducedMotionOption>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -7415,7 +7415,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<ReducedMotionOption>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -7450,7 +7450,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_standardMotion_Get_7FE3E573(swiftIndirectResult);
+                PInvoke_standardMotion_Get_1123162C(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ReducedMotionOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -7463,7 +7463,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19ReducedMotionOptionO08standardC0ACvgZ")]
-        private static extern void PInvoke_standardMotion_Get_7FE3E573( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_standardMotion_Get_1123162C( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.ReducedMotionOption StandardMotion
         {
@@ -7480,7 +7480,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_reducedMotion_Get_592ED1E0(swiftIndirectResult);
+                PInvoke_reducedMotion_Get_1188F888(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ReducedMotionOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -7493,7 +7493,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19ReducedMotionOptionO07reducedC0ACvgZ")]
-        private static extern void PInvoke_reducedMotion_Get_592ED1E0( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_reducedMotion_Get_1188F888( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.ReducedMotionOption ReducedMotion
         {
@@ -7510,7 +7510,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_systemReducedMotionToggle_Get_6590292B(swiftIndirectResult);
+                PInvoke_systemReducedMotionToggle_Get_2A5FE587(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ReducedMotionOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -7523,7 +7523,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19ReducedMotionOptionO06systembC6ToggleACvgZ")]
-        private static extern void PInvoke_systemReducedMotionToggle_Get_6590292B( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_systemReducedMotionToggle_Get_2A5FE587( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.ReducedMotionOption SystemReducedMotionToggle
         {
@@ -7542,7 +7542,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentReducedMotionMode_Get_1ECC9AA8(swiftIndirectResult, self);
+                PInvoke_currentReducedMotionMode_Get_560F4F4F(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ReducedMotionMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -7555,7 +7555,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19ReducedMotionOptionO07currentbC4ModeAA0bcF0Ovg")]
-        private static extern void PInvoke_currentReducedMotionMode_Get_1ECC9AA8( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_currentReducedMotionMode_Get_560F4F4F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Lottie.ReducedMotionMode CurrentReducedMotionMode
         {
@@ -7570,7 +7570,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_4CCE94FA(self);
+                var result = PInvoke_hashValue_Get_7C05E261(self);
                 
                 return result;
             }
@@ -7583,7 +7583,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19ReducedMotionOptionO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_4CCE94FA( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_7C05E261( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -7662,7 +7662,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_4E4C6F54(into.Payload, self);
+                PInvoke_hash_5A25143D(into.Payload, self);
                 
                 return;
             }
@@ -7675,7 +7675,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19ReducedMotionOptionO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_4E4C6F54( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_5A25143D( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -7750,7 +7750,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<ReducedMotionMode>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -7771,7 +7771,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_0E485AF2(self);
+                var result = PInvoke_hashValue_Get_337028A0(self);
                 
                 return result;
             }
@@ -7784,7 +7784,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie17ReducedMotionModeO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_0E485AF2( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_337028A0( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -7863,7 +7863,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_51BE4D23(into.Payload, self);
+                PInvoke_hash_524E5E10(into.Payload, self);
                 
                 return;
             }
@@ -7876,7 +7876,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie17ReducedMotionModeO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_51BE4D23( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_524E5E10( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -8102,7 +8102,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentReducedMotionMode_Get_0D2BF865(swiftIndirectResult, self);
+                PInvoke_currentReducedMotionMode_Get_0C1B61C3(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ReducedMotionMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -8117,7 +8117,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie33SystemReducedMotionOptionProviderV07currentcD4ModeAA0cdH0Ovg")]
-        private static extern void PInvoke_currentReducedMotionMode_Get_0D2BF865( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_currentReducedMotionMode_Get_0C1B61C3( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Lottie.ReducedMotionMode CurrentReducedMotionMode
         {
@@ -8217,13 +8217,13 @@ namespace Swift.Lottie
             _payload = new SwiftSafeHandle<SystemReducedMotionOptionProvider>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_264FF730(swiftIndirectResult);
+            PInvoke_init_59BFFB81(swiftIndirectResult);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie33SystemReducedMotionOptionProviderVACycfC")]
-        private static extern void PInvoke_init_264FF730( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_59BFFB81( SwiftIndirectResult swiftIndirectResult);
         
         
     }
@@ -8445,7 +8445,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_size_Get_581BEDF7(self);
+                var result = PInvoke_size_Get_2099DFA6(self);
                 
                 return result;
             }
@@ -8460,7 +8460,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie17SizeValueProviderC4sizeSo6CGSizeVvg")]
-        private static extern Swift.CGSize PInvoke_size_Get_581BEDF7( SwiftSelf self);
+        private static extern Swift.CGSize PInvoke_size_Get_2099DFA6( SwiftSelf self);
         
         private unsafe void Size_Set( Swift.CGSize value)
         {
@@ -8472,7 +8472,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_size_Set_1665B977(value, self);
+                PInvoke_size_Set_7791CA01(value, self);
                 
                 return;
             }
@@ -8487,7 +8487,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie17SizeValueProviderC4sizeSo6CGSizeVvs")]
-        private static extern void PInvoke_size_Set_1665B977( Swift.CGSize value,  SwiftSelf self);
+        private static extern void PInvoke_size_Set_7791CA01( Swift.CGSize value,  SwiftSelf self);
         
         public Swift.CGSize Size
         {
@@ -8509,7 +8509,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_valueType_Get_54540453(self);
+                PInvoke_valueType_Get_2068CDA2(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -8524,7 +8524,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie17SizeValueProviderC9valueTypeypXpvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_54540453( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_2068CDA2( SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 ValueType
         {
@@ -8541,7 +8541,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_storage_Get_28237ABA(self);
+                var result = PInvoke_storage_Get_0D30CB94(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ValueProviderStorage<Swift.Lottie.LottieVector3D>>(new IntPtr(&result));
             }
@@ -8556,7 +8556,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie17SizeValueProviderC7storageAA0cD7StorageOyAA0A8Vector3DVGvg")]
-        private static extern Swift.AnyType PInvoke_storage_Get_28237ABA( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_storage_Get_0D30CB94( SwiftSelf self);
         
         public Swift.Lottie.ValueProviderStorage<Swift.Lottie.LottieVector3D> Storage
         {
@@ -8656,9 +8656,9 @@ namespace Swift.Lottie
             return ProtocolConformanceDescriptor.LoadFromSymbol("Lottie", symbolName);
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void*> s_init_block_3EDD16B1_Callback = &init_block_3EDD16B1_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void*> s_init_block_60DD6D18_Callback = &init_block_60DD6D18_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void* init_block_3EDD16B1_Callback(void* arg0, SwiftSelf context)
+        private static void* init_block_60DD6D18_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<System.Double, Swift.CGSize>>(new IntPtr(context.Value));
             return del(SwiftMarshal.MarshalFromSwift<System.Double>(new IntPtr(arg0)));
@@ -8675,9 +8675,9 @@ namespace Swift.Lottie
                 
                 
                 blockHandle = GCHandle.Alloc(block);
-                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_3EDD16B1_Callback, GCHandle.ToIntPtr(blockHandle));
+                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_60DD6D18_Callback, GCHandle.ToIntPtr(blockHandle));
                 
-                PInvoke_init_3EDD16B1(swiftIndirectResult, blockClosure);
+                PInvoke_init_60DD6D18(swiftIndirectResult, blockClosure);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.SizeValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -8691,7 +8691,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie17SizeValueProviderC5blockACSo6CGSizeV12CoreGraphics7CGFloatVc_tcfC")]
-        private static extern void PInvoke_init_3EDD16B1( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block);
+        private static extern void PInvoke_init_60DD6D18( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block);
         
         
         public unsafe Swift.Lottie.SizeValueProvider Init( Swift.CGSize arg0)
@@ -8704,7 +8704,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_788183DE(swiftIndirectResult, arg0);
+                PInvoke_init_54178D41(swiftIndirectResult, arg0);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.SizeValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -8717,7 +8717,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie17SizeValueProviderCyACSo6CGSizeVcfC")]
-        private static extern void PInvoke_init_788183DE( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize arg0);
+        private static extern void PInvoke_init_54178D41( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize arg0);
         
         
         public unsafe System.Boolean HasUpdate( System.Double frame)
@@ -8730,7 +8730,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hasUpdate_1380215F(frame, self);
+                var result = PInvoke_hasUpdate_5C0053A9(frame, self);
                 
                 return result;
             }
@@ -8745,7 +8745,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie17SizeValueProviderC9hasUpdate5frameSb12CoreGraphics7CGFloatV_tF")]
-        private static extern System.Boolean PInvoke_hasUpdate_1380215F( System.Double frame,  SwiftSelf self);
+        private static extern System.Boolean PInvoke_hasUpdate_5C0053A9( System.Double frame,  SwiftSelf self);
         
         
     }
@@ -8853,7 +8853,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_52828C20(swiftIndirectResult);
+                PInvoke_init_144DD80B(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimation>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -8866,7 +8866,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie19CompatibleAnimationCACycfC")]
-        private static extern void PInvoke_init_52828C20( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_144DD80B( SwiftIndirectResult swiftIndirectResult);
         
         
     }
@@ -9037,7 +9037,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<CompatibleRenderingEngineOption>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -9058,7 +9058,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_rawValue_Get_43CD40FE(self);
+                var result = PInvoke_rawValue_Get_45093E48(self);
                 
                 return result;
             }
@@ -9071,7 +9071,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie31CompatibleRenderingEngineOptionO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_43CD40FE( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_45093E48( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -9152,7 +9152,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_generateLottieConfiguration_7700AF83(swiftIndirectResult, arg0.Payload);
+                PInvoke_generateLottieConfiguration_3C3141E4(swiftIndirectResult, arg0.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieConfiguration>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -9165,7 +9165,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie31CompatibleRenderingEngineOptionO08generateA13ConfigurationyAA0aG0VACFZ")]
-        private static extern void PInvoke_generateLottieConfiguration_7700AF83( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0);
+        private static extern void PInvoke_generateLottieConfiguration_3C3141E4( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0);
         
         
     }
@@ -9336,7 +9336,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<CompatibleBackgroundBehavior>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -9357,7 +9357,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_rawValue_Get_0FF5470F(self);
+                var result = PInvoke_rawValue_Get_3330F06D(self);
                 
                 return result;
             }
@@ -9370,7 +9370,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie28CompatibleBackgroundBehaviorO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_0FF5470F( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_3330F06D( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -9456,7 +9456,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_compatibleAnimation_Get_280326AD(self);
+                var result = PInvoke_compatibleAnimation_Get_3D3DA7DF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.CompatibleAnimation>>(new IntPtr(&result));
             }
@@ -9471,7 +9471,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC010compatibleC0AA0bC0CSgvg")]
-        private static extern IntPtr PInvoke_compatibleAnimation_Get_280326AD( SwiftSelf self);
+        private static extern IntPtr PInvoke_compatibleAnimation_Get_3D3DA7DF( SwiftSelf self);
         
         private unsafe void CompatibleAnimation_Set( Swift.SwiftOptional<Swift.Lottie.CompatibleAnimation> value)
         {
@@ -9485,7 +9485,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_compatibleAnimation_Set_24B08DEA(valueBuffer, self);
+                PInvoke_compatibleAnimation_Set_0B50A9D8(valueBuffer, self);
                 
                 return;
             }
@@ -9500,7 +9500,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC010compatibleC0AA0bC0CSgvs")]
-        private static extern void PInvoke_compatibleAnimation_Set_24B08DEA( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_compatibleAnimation_Set_0B50A9D8( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.Lottie.CompatibleAnimation> CompatibleAnimation
         {
@@ -9518,7 +9518,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_loopAnimationCount_Get_4C97542C(self);
+                var result = PInvoke_loopAnimationCount_Get_5D8EF9F6(self);
                 
                 return result;
             }
@@ -9533,7 +9533,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC04loopC5Count12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_loopAnimationCount_Get_4C97542C( SwiftSelf self);
+        private static extern System.Double PInvoke_loopAnimationCount_Get_5D8EF9F6( SwiftSelf self);
         
         private unsafe void LoopAnimationCount_Set( System.Double value)
         {
@@ -9545,7 +9545,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loopAnimationCount_Set_341C94D7(value, self);
+                PInvoke_loopAnimationCount_Set_1C2A8466(value, self);
                 
                 return;
             }
@@ -9560,7 +9560,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC04loopC5Count12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_loopAnimationCount_Set_341C94D7( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_loopAnimationCount_Set_1C2A8466( System.Double value,  SwiftSelf self);
         
         public System.Double LoopAnimationCount
         {
@@ -9578,7 +9578,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_compatibleDictionaryTextProvider_Get_6B36AA54(self);
+                var result = PInvoke_compatibleDictionaryTextProvider_Get_33C0E626(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.CompatibleDictionaryTextProvider>>(new IntPtr(&result));
             }
@@ -9593,7 +9593,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC32compatibleDictionaryTextProviderAA0bfgH0CSgvg")]
-        private static extern IntPtr PInvoke_compatibleDictionaryTextProvider_Get_6B36AA54( SwiftSelf self);
+        private static extern IntPtr PInvoke_compatibleDictionaryTextProvider_Get_33C0E626( SwiftSelf self);
         
         private unsafe void CompatibleDictionaryTextProvider_Set( Swift.SwiftOptional<Swift.Lottie.CompatibleDictionaryTextProvider> value)
         {
@@ -9607,7 +9607,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_compatibleDictionaryTextProvider_Set_5807F54A(valueBuffer, self);
+                PInvoke_compatibleDictionaryTextProvider_Set_4D18A059(valueBuffer, self);
                 
                 return;
             }
@@ -9622,7 +9622,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC32compatibleDictionaryTextProviderAA0bfgH0CSgvs")]
-        private static extern void PInvoke_compatibleDictionaryTextProvider_Set_5807F54A( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_compatibleDictionaryTextProvider_Set_4D18A059( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.Lottie.CompatibleDictionaryTextProvider> CompatibleDictionaryTextProvider
         {
@@ -9640,7 +9640,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_shouldRasterizeWhenIdle_Get_07C2F7A2(self);
+                var result = PInvoke_shouldRasterizeWhenIdle_Get_1988F37C(self);
                 
                 return result;
             }
@@ -9655,7 +9655,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC23shouldRasterizeWhenIdleSbvg")]
-        private static extern System.Boolean PInvoke_shouldRasterizeWhenIdle_Get_07C2F7A2( SwiftSelf self);
+        private static extern System.Boolean PInvoke_shouldRasterizeWhenIdle_Get_1988F37C( SwiftSelf self);
         
         private unsafe void ShouldRasterizeWhenIdle_Set( System.Boolean value)
         {
@@ -9667,7 +9667,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_shouldRasterizeWhenIdle_Set_13839E39(value, self);
+                PInvoke_shouldRasterizeWhenIdle_Set_480D00A9(value, self);
                 
                 return;
             }
@@ -9682,7 +9682,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC23shouldRasterizeWhenIdleSbvs")]
-        private static extern void PInvoke_shouldRasterizeWhenIdle_Set_13839E39( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_shouldRasterizeWhenIdle_Set_480D00A9( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ShouldRasterizeWhenIdle
         {
@@ -9700,7 +9700,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentProgress_Get_25612403(self);
+                var result = PInvoke_currentProgress_Get_444F4BEC(self);
                 
                 return result;
             }
@@ -9715,7 +9715,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC15currentProgress12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_currentProgress_Get_25612403( SwiftSelf self);
+        private static extern System.Double PInvoke_currentProgress_Get_444F4BEC( SwiftSelf self);
         
         private unsafe void CurrentProgress_Set( System.Double value)
         {
@@ -9727,7 +9727,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentProgress_Set_6C1CCBD4(value, self);
+                PInvoke_currentProgress_Set_7BC5510B(value, self);
                 
                 return;
             }
@@ -9742,7 +9742,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC15currentProgress12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_currentProgress_Set_6C1CCBD4( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_currentProgress_Set_7BC5510B( System.Double value,  SwiftSelf self);
         
         public System.Double CurrentProgress
         {
@@ -9760,7 +9760,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_duration_Get_76E570C1(self);
+                var result = PInvoke_duration_Get_0DEDEA64(self);
                 
                 return result;
             }
@@ -9775,7 +9775,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC8duration12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_duration_Get_76E570C1( SwiftSelf self);
+        private static extern System.Double PInvoke_duration_Get_0DEDEA64( SwiftSelf self);
         
         public System.Double Duration
         {
@@ -9792,7 +9792,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentTime_Get_66819047(self);
+                var result = PInvoke_currentTime_Get_1362C9CB(self);
                 
                 return result;
             }
@@ -9807,7 +9807,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC11currentTimeSdvg")]
-        private static extern System.Double PInvoke_currentTime_Get_66819047( SwiftSelf self);
+        private static extern System.Double PInvoke_currentTime_Get_1362C9CB( SwiftSelf self);
         
         private unsafe void CurrentTime_Set( System.Double value)
         {
@@ -9819,7 +9819,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentTime_Set_1410C150(value, self);
+                PInvoke_currentTime_Set_628488E2(value, self);
                 
                 return;
             }
@@ -9834,7 +9834,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC11currentTimeSdvs")]
-        private static extern void PInvoke_currentTime_Set_1410C150( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_currentTime_Set_628488E2( System.Double value,  SwiftSelf self);
         
         public System.Double CurrentTime
         {
@@ -9852,7 +9852,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentFrame_Get_2B72D954(self);
+                var result = PInvoke_currentFrame_Get_383ABBBD(self);
                 
                 return result;
             }
@@ -9867,7 +9867,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC12currentFrame12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_currentFrame_Get_2B72D954( SwiftSelf self);
+        private static extern System.Double PInvoke_currentFrame_Get_383ABBBD( SwiftSelf self);
         
         private unsafe void CurrentFrame_Set( System.Double value)
         {
@@ -9879,7 +9879,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentFrame_Set_4F516115(value, self);
+                PInvoke_currentFrame_Set_3F5414AB(value, self);
                 
                 return;
             }
@@ -9894,7 +9894,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC12currentFrame12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_currentFrame_Set_4F516115( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_currentFrame_Set_3F5414AB( System.Double value,  SwiftSelf self);
         
         public System.Double CurrentFrame
         {
@@ -9912,7 +9912,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_realtimeAnimationFrame_Get_6BF734AD(self);
+                var result = PInvoke_realtimeAnimationFrame_Get_7A4F1509(self);
                 
                 return result;
             }
@@ -9927,7 +9927,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC08realtimeC5Frame12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_realtimeAnimationFrame_Get_6BF734AD( SwiftSelf self);
+        private static extern System.Double PInvoke_realtimeAnimationFrame_Get_7A4F1509( SwiftSelf self);
         
         public System.Double RealtimeAnimationFrame
         {
@@ -9944,7 +9944,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_realtimeAnimationProgress_Get_088F2811(self);
+                var result = PInvoke_realtimeAnimationProgress_Get_5D34E8E3(self);
                 
                 return result;
             }
@@ -9959,7 +9959,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC08realtimeC8Progress12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_realtimeAnimationProgress_Get_088F2811( SwiftSelf self);
+        private static extern System.Double PInvoke_realtimeAnimationProgress_Get_5D34E8E3( SwiftSelf self);
         
         public System.Double RealtimeAnimationProgress
         {
@@ -9976,7 +9976,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animationSpeed_Get_5DF285D5(self);
+                var result = PInvoke_animationSpeed_Get_5D01D2B2(self);
                 
                 return result;
             }
@@ -9991,7 +9991,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC14animationSpeed12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_animationSpeed_Get_5DF285D5( SwiftSelf self);
+        private static extern System.Double PInvoke_animationSpeed_Get_5D01D2B2( SwiftSelf self);
         
         private unsafe void AnimationSpeed_Set( System.Double value)
         {
@@ -10003,7 +10003,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationSpeed_Set_26418D8A(value, self);
+                PInvoke_animationSpeed_Set_0E4D8C3B(value, self);
                 
                 return;
             }
@@ -10018,7 +10018,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC14animationSpeed12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_animationSpeed_Set_26418D8A( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_animationSpeed_Set_0E4D8C3B( System.Double value,  SwiftSelf self);
         
         public System.Double AnimationSpeed
         {
@@ -10036,7 +10036,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_respectAnimationFrameRate_Get_416A890A(self);
+                var result = PInvoke_respectAnimationFrameRate_Get_1F2E4747(self);
                 
                 return result;
             }
@@ -10051,7 +10051,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC07respectC9FrameRateSbvg")]
-        private static extern System.Boolean PInvoke_respectAnimationFrameRate_Get_416A890A( SwiftSelf self);
+        private static extern System.Boolean PInvoke_respectAnimationFrameRate_Get_1F2E4747( SwiftSelf self);
         
         private unsafe void RespectAnimationFrameRate_Set( System.Boolean value)
         {
@@ -10063,7 +10063,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_respectAnimationFrameRate_Set_29398DA6(value, self);
+                PInvoke_respectAnimationFrameRate_Set_60C400FA(value, self);
                 
                 return;
             }
@@ -10078,7 +10078,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC07respectC9FrameRateSbvs")]
-        private static extern void PInvoke_respectAnimationFrameRate_Set_29398DA6( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_respectAnimationFrameRate_Set_60C400FA( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean RespectAnimationFrameRate
         {
@@ -10096,7 +10096,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_isAnimationPlaying_Get_31E274EE(self);
+                var result = PInvoke_isAnimationPlaying_Get_348E4CB1(self);
                 
                 return result;
             }
@@ -10111,7 +10111,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC02isC7PlayingSbvg")]
-        private static extern System.Boolean PInvoke_isAnimationPlaying_Get_31E274EE( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isAnimationPlaying_Get_348E4CB1( SwiftSelf self);
         
         public System.Boolean IsAnimationPlaying
         {
@@ -10132,7 +10132,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_backgroundMode_Get_150C600D(swiftIndirectResult, self);
+                PInvoke_backgroundMode_Get_061BA537(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleBackgroundBehavior>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10147,7 +10147,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC14backgroundModeAA0B18BackgroundBehaviorOvg")]
-        private static extern void PInvoke_backgroundMode_Get_150C600D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_backgroundMode_Get_061BA537( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void BackgroundMode_Set( Swift.Lottie.CompatibleBackgroundBehavior value)
         {
@@ -10159,7 +10159,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_backgroundMode_Set_030BF7E9(value.Payload, self);
+                PInvoke_backgroundMode_Set_65C5F152(value.Payload, self);
                 
                 return;
             }
@@ -10174,7 +10174,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC14backgroundModeAA0B18BackgroundBehaviorOvs")]
-        private static extern void PInvoke_backgroundMode_Set_030BF7E9( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_backgroundMode_Set_65C5F152( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.CompatibleBackgroundBehavior BackgroundMode
         {
@@ -10281,7 +10281,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_0D702AAC(swiftIndirectResult, compatibleAnimation.Payload);
+                PInvoke_init_29F17063(swiftIndirectResult, compatibleAnimation.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10294,7 +10294,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC010compatibleC0AcA0bC0C_tcfC")]
-        private static extern void PInvoke_init_0D702AAC( SwiftIndirectResult swiftIndirectResult,  SafeHandle compatibleAnimation);
+        private static extern void PInvoke_init_29F17063( SwiftIndirectResult swiftIndirectResult,  SafeHandle compatibleAnimation);
         
         
         public unsafe Swift.Lottie.CompatibleAnimationView Init( Swift.Lottie.CompatibleAnimation compatibleAnimation,  Swift.Lottie.CompatibleRenderingEngineOption compatibleRenderingEngineOption)
@@ -10307,7 +10307,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_3D0F331C(swiftIndirectResult, compatibleAnimation.Payload, compatibleRenderingEngineOption.Payload);
+                PInvoke_init_0FEF16F7(swiftIndirectResult, compatibleAnimation.Payload, compatibleRenderingEngineOption.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10320,7 +10320,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC010compatibleC00E21RenderingEngineOptionAcA0bC0C_AA0bfgH0OtcfC")]
-        private static extern void PInvoke_init_3D0F331C( SwiftIndirectResult swiftIndirectResult,  SafeHandle compatibleAnimation,  SafeHandle compatibleRenderingEngineOption);
+        private static extern void PInvoke_init_0FEF16F7( SwiftIndirectResult swiftIndirectResult,  SafeHandle compatibleAnimation,  SafeHandle compatibleRenderingEngineOption);
         
         
         public unsafe Swift.Lottie.CompatibleAnimationView Init( Foundation.NSUrl url)
@@ -10334,7 +10334,7 @@ namespace Swift.Lottie
                 
                 using var urlSwift = Swift.URL.FromNSUrl(url);
                 
-                PInvoke_init_4B469E00(swiftIndirectResult, urlSwift.Payload);
+                PInvoke_init_06B0CF4A(swiftIndirectResult, urlSwift.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10347,7 +10347,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC3urlAC10Foundation3URLV_tcfC")]
-        private static extern void PInvoke_init_4B469E00( SwiftIndirectResult swiftIndirectResult,  SafeHandle url);
+        private static extern void PInvoke_init_06B0CF4A( SwiftIndirectResult swiftIndirectResult,  SafeHandle url);
         
         
         public unsafe Swift.Lottie.CompatibleAnimationView Init( Foundation.NSUrl url,  Swift.Lottie.CompatibleRenderingEngineOption compatibleRenderingEngineOption)
@@ -10361,7 +10361,7 @@ namespace Swift.Lottie
                 
                 using var urlSwift = Swift.URL.FromNSUrl(url);
                 
-                PInvoke_init_2DD34572(swiftIndirectResult, urlSwift.Payload, compatibleRenderingEngineOption.Payload);
+                PInvoke_init_1EA165FD(swiftIndirectResult, urlSwift.Payload, compatibleRenderingEngineOption.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10374,7 +10374,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC3url31compatibleRenderingEngineOptionAC10Foundation3URLV_AA0bghI0OtcfC")]
-        private static extern void PInvoke_init_2DD34572( SwiftIndirectResult swiftIndirectResult,  SafeHandle url,  SafeHandle compatibleRenderingEngineOption);
+        private static extern void PInvoke_init_1EA165FD( SwiftIndirectResult swiftIndirectResult,  SafeHandle url,  SafeHandle compatibleRenderingEngineOption);
         
         
         public unsafe Swift.Lottie.CompatibleAnimationView Init( Foundation.NSData data)
@@ -10388,7 +10388,7 @@ namespace Swift.Lottie
                 
                 var dataSwift = Swift.Data.FromNSData(data);
                 
-                PInvoke_init_2FD90C04(swiftIndirectResult, dataSwift);
+                PInvoke_init_28062679(swiftIndirectResult, dataSwift);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10401,7 +10401,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC4dataAC10Foundation4DataV_tcfC")]
-        private static extern void PInvoke_init_2FD90C04( SwiftIndirectResult swiftIndirectResult,  Swift.Data data);
+        private static extern void PInvoke_init_28062679( SwiftIndirectResult swiftIndirectResult,  Swift.Data data);
         
         
         public unsafe Swift.Lottie.CompatibleAnimationView Init( Foundation.NSData data,  Swift.Lottie.CompatibleRenderingEngineOption compatibleRenderingEngineOption)
@@ -10415,7 +10415,7 @@ namespace Swift.Lottie
                 
                 var dataSwift = Swift.Data.FromNSData(data);
                 
-                PInvoke_init_30DDCA06(swiftIndirectResult, dataSwift, compatibleRenderingEngineOption.Payload);
+                PInvoke_init_3AF67A1E(swiftIndirectResult, dataSwift, compatibleRenderingEngineOption.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10428,7 +10428,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC4data31compatibleRenderingEngineOptionAC10Foundation4DataV_AA0bghI0OtcfC")]
-        private static extern void PInvoke_init_30DDCA06( SwiftIndirectResult swiftIndirectResult,  Swift.Data data,  SafeHandle compatibleRenderingEngineOption);
+        private static extern void PInvoke_init_3AF67A1E( SwiftIndirectResult swiftIndirectResult,  Swift.Data data,  SafeHandle compatibleRenderingEngineOption);
         
         
         public unsafe Swift.Lottie.CompatibleAnimationView Init( Swift.CGRect frame)
@@ -10441,7 +10441,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_5A08EC61(swiftIndirectResult, frame);
+                PInvoke_init_257AFE1D(swiftIndirectResult, frame);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10454,7 +10454,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC5frameACSo6CGRectV_tcfC")]
-        private static extern void PInvoke_init_5A08EC61( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
+        private static extern void PInvoke_init_257AFE1D( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
         
         
         public unsafe void Play()
@@ -10467,7 +10467,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_play_68BA36E1(self);
+                PInvoke_play_18D8813E(self);
                 
                 return;
             }
@@ -10482,12 +10482,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC4playyyF")]
-        private static extern void PInvoke_play_68BA36E1( SwiftSelf self);
+        private static extern void PInvoke_play_18D8813E( SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_18EE334F_Callback = &play_completion_18EE334F_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_40EECA88_Callback = &play_completion_40EECA88_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_18EE334F_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_40EECA88_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -10507,14 +10507,14 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_18EE334F_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_40EECA88_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
                     completionClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_play_18EE334F(completionClosure, self);
+                PInvoke_play_40EECA88(completionClosure, self);
                 
                 return;
             }
@@ -10530,12 +10530,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC4play10completionyySbcSg_tF")]
-        private static extern void PInvoke_play_18EE334F( SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_40EECA88( SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_361E854E_Callback = &play_completion_361E854E_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_283B2971_Callback = &play_completion_283B2971_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_361E854E_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_283B2971_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -10555,14 +10555,14 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_361E854E_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_283B2971_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
                     completionClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_play_361E854E(fromProgress, toProgress, completionClosure, self);
+                PInvoke_play_283B2971(fromProgress, toProgress, completionClosure, self);
                 
                 return;
             }
@@ -10578,12 +10578,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC4play12fromProgress02toG010completiony12CoreGraphics7CGFloatV_AJySbcSgtF")]
-        private static extern void PInvoke_play_361E854E( System.Double fromProgress,  System.Double toProgress,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_283B2971( System.Double fromProgress,  System.Double toProgress,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_300FF1BB_Callback = &play_completion_300FF1BB_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_709149F8_Callback = &play_completion_709149F8_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_300FF1BB_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_709149F8_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -10603,7 +10603,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_300FF1BB_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_709149F8_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -10614,7 +10614,7 @@ namespace Swift.Lottie
                 using var toMarkerSwift = new SwiftString(toMarker);
                 using PayloadBuffer<SwiftString.Buffer> toMarkerDisposable = toMarkerSwift.PayloadBuffer;
                 
-                PInvoke_play_300FF1BB(fromMarkerDisposable.Buffer, toMarkerDisposable.Buffer, completionClosure, self);
+                PInvoke_play_709149F8(fromMarkerDisposable.Buffer, toMarkerDisposable.Buffer, completionClosure, self);
                 
                 return;
             }
@@ -10630,12 +10630,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC4play10fromMarker02toG010completionySS_SSySbcSgtF")]
-        private static extern void PInvoke_play_300FF1BB( Swift.SwiftString.Buffer fromMarker,  Swift.SwiftString.Buffer toMarker,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_709149F8( Swift.SwiftString.Buffer fromMarker,  Swift.SwiftString.Buffer toMarker,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_7E4485EB_Callback = &play_completion_7E4485EB_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_48660345_Callback = &play_completion_48660345_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_7E4485EB_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_48660345_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -10655,7 +10655,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_7E4485EB_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_48660345_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -10664,7 +10664,7 @@ namespace Swift.Lottie
                 using var markerSwift = new SwiftString(marker);
                 using PayloadBuffer<SwiftString.Buffer> markerDisposable = markerSwift.PayloadBuffer;
                 
-                PInvoke_play_7E4485EB(markerDisposable.Buffer, completionClosure, self);
+                PInvoke_play_48660345(markerDisposable.Buffer, completionClosure, self);
                 
                 return;
             }
@@ -10680,7 +10680,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC4play6marker10completionySS_ySbcSgtF")]
-        private static extern void PInvoke_play_7E4485EB( Swift.SwiftString.Buffer marker,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_48660345( Swift.SwiftString.Buffer marker,  SwiftClosureData completion,  SwiftSelf self);
         
         
         public unsafe void Stop()
@@ -10693,7 +10693,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_stop_58DDC21C(self);
+                PInvoke_stop_027CE2CA(self);
                 
                 return;
             }
@@ -10708,7 +10708,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC4stopyyF")]
-        private static extern void PInvoke_stop_58DDC21C( SwiftSelf self);
+        private static extern void PInvoke_stop_027CE2CA( SwiftSelf self);
         
         
         public unsafe void Pause()
@@ -10721,7 +10721,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_pause_0579A256(self);
+                PInvoke_pause_311470B1(self);
                 
                 return;
             }
@@ -10736,7 +10736,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC5pauseyyF")]
-        private static extern void PInvoke_pause_0579A256( SwiftSelf self);
+        private static extern void PInvoke_pause_311470B1( SwiftSelf self);
         
         
         public unsafe void ReloadImages()
@@ -10749,7 +10749,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_reloadImages_50A6CAC3(self);
+                PInvoke_reloadImages_0AF9242D(self);
                 
                 return;
             }
@@ -10764,7 +10764,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC12reloadImagesyyF")]
-        private static extern void PInvoke_reloadImages_50A6CAC3( SwiftSelf self);
+        private static extern void PInvoke_reloadImages_0AF9242D( SwiftSelf self);
         
         
         public unsafe void ForceDisplayUpdate()
@@ -10777,7 +10777,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_forceDisplayUpdate_6839F2F6(self);
+                PInvoke_forceDisplayUpdate_4E0FABC6(self);
                 
                 return;
             }
@@ -10792,7 +10792,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC18forceDisplayUpdateyyF")]
-        private static extern void PInvoke_forceDisplayUpdate_6839F2F6( SwiftSelf self);
+        private static extern void PInvoke_forceDisplayUpdate_4E0FABC6( SwiftSelf self);
         
         
         public unsafe Swift.Runtime.ExistentialContainer0? GetValue( Swift.Lottie.CompatibleAnimationKeypath _for,  System.Double atFrame)
@@ -10805,7 +10805,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_getValue_231B9F75(_for.Payload, atFrame, self);
+                var result = PInvoke_getValue_168BC4B5(_for.Payload, atFrame, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer0>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -10821,7 +10821,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC8getValue3for7atFrameypSgAA0bC7KeypathC_12CoreGraphics7CGFloatVtF")]
-        private static extern IntPtr PInvoke_getValue_231B9F75( SafeHandle _for,  System.Double atFrame,  SwiftSelf self);
+        private static extern IntPtr PInvoke_getValue_168BC4B5( SafeHandle _for,  System.Double atFrame,  SwiftSelf self);
         
         
         public unsafe void LogHierarchyKeypaths()
@@ -10834,7 +10834,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_logHierarchyKeypaths_486C466B(self);
+                PInvoke_logHierarchyKeypaths_23696EB2(self);
                 
                 return;
             }
@@ -10849,7 +10849,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC20logHierarchyKeypathsyyF")]
-        private static extern void PInvoke_logHierarchyKeypaths_486C466B( SwiftSelf self);
+        private static extern void PInvoke_logHierarchyKeypaths_23696EB2( SwiftSelf self);
         
         
         public unsafe void SetColorValue( UIKit.UIColor arg0,  Swift.Lottie.CompatibleAnimationKeypath forKeypath)
@@ -10863,7 +10863,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_setColorValue_32CE831D(arg0Handle, forKeypath.Payload, self);
+                PInvoke_setColorValue_6380F00E(arg0Handle, forKeypath.Payload, self);
                 
                 return;
             }
@@ -10878,7 +10878,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC13setColorValue_10forKeypathySo7UIColorC_AA0bcI0CtF")]
-        private static extern void PInvoke_setColorValue_32CE831D( IntPtr arg0,  SafeHandle forKeypath,  SwiftSelf self);
+        private static extern void PInvoke_setColorValue_6380F00E( IntPtr arg0,  SafeHandle forKeypath,  SwiftSelf self);
         
         
         public unsafe UIKit.UIColor? GetColorValue( Swift.Lottie.CompatibleAnimationKeypath _for,  System.Double atFrame)
@@ -10891,7 +10891,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_getColorValue_367F5B75(_for.Payload, atFrame, self);
+                var result = PInvoke_getColorValue_1DB9C245(_for.Payload, atFrame, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIColor>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -10907,7 +10907,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC13getColorValue3for7atFrameSo7UIColorCSgAA0bC7KeypathC_12CoreGraphics7CGFloatVtF")]
-        private static extern IntPtr PInvoke_getColorValue_367F5B75( SafeHandle _for,  System.Double atFrame,  SwiftSelf self);
+        private static extern IntPtr PInvoke_getColorValue_1DB9C245( SafeHandle _for,  System.Double atFrame,  SwiftSelf self);
         
         
         public unsafe void AddSubview( Swift.Lottie.AnimationSubview arg0,  Swift.Lottie.CompatibleAnimationKeypath forLayerAt)
@@ -10920,7 +10920,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_addSubview_40448AFF(arg0.Payload, forLayerAt.Payload, self);
+                PInvoke_addSubview_0EE8C385(arg0.Payload, forLayerAt.Payload, self);
                 
                 return;
             }
@@ -10935,7 +10935,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC10addSubview_10forLayerAtyAA0cF0C_AA0bC7KeypathCtF")]
-        private static extern void PInvoke_addSubview_40448AFF( SafeHandle arg0,  SafeHandle forLayerAt,  SwiftSelf self);
+        private static extern void PInvoke_addSubview_0EE8C385( SafeHandle arg0,  SafeHandle forLayerAt,  SwiftSelf self);
         
         
         public unsafe Swift.CGRect Convert( Swift.CGRect rect,  Swift.Lottie.CompatibleAnimationKeypath? toLayerAt)
@@ -10951,7 +10951,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> toLayerAtDisposable = toLayerAtSwift.PayloadBuffer;
                 IntPtr toLayerAtBuffer = toLayerAtDisposable.Buffer;
                 
-                var result = PInvoke_convert_4990AE13(rect, toLayerAtBuffer, self);
+                var result = PInvoke_convert_1266107D(rect, toLayerAtBuffer, self);
                 
                 return result;
             }
@@ -10966,7 +10966,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC7convert4rect9toLayerAtSo6CGRectVAH_AA0bC7KeypathCSgtF")]
-        private static extern Swift.CGRect PInvoke_convert_4990AE13( Swift.CGRect rect,  IntPtr toLayerAtBuffer,  SwiftSelf self);
+        private static extern Swift.CGRect PInvoke_convert_1266107D( Swift.CGRect rect,  IntPtr toLayerAtBuffer,  SwiftSelf self);
         
         
         public unsafe Swift.CGPoint Convert( Swift.CGPoint point,  Swift.Lottie.CompatibleAnimationKeypath? toLayerAt)
@@ -10982,7 +10982,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> toLayerAtDisposable = toLayerAtSwift.PayloadBuffer;
                 IntPtr toLayerAtBuffer = toLayerAtDisposable.Buffer;
                 
-                var result = PInvoke_convert_38C3AB91(point, toLayerAtBuffer, self);
+                var result = PInvoke_convert_772699A1(point, toLayerAtBuffer, self);
                 
                 return result;
             }
@@ -10997,7 +10997,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC7convert5point9toLayerAtSo7CGPointVAH_AA0bC7KeypathCSgtF")]
-        private static extern Swift.CGPoint PInvoke_convert_38C3AB91( Swift.CGPoint point,  IntPtr toLayerAtBuffer,  SwiftSelf self);
+        private static extern Swift.CGPoint PInvoke_convert_772699A1( Swift.CGPoint point,  IntPtr toLayerAtBuffer,  SwiftSelf self);
         
         
         public unsafe System.Double ProgressTime( string forMarker)
@@ -11012,7 +11012,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_progressTime_4C197661(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_progressTime_7FC0D0ED(forMarkerDisposable.Buffer, self);
                 
                 return result;
             }
@@ -11027,7 +11027,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC12progressTime9forMarker12CoreGraphics7CGFloatVSS_tF")]
-        private static extern System.Double PInvoke_progressTime_4C197661( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern System.Double PInvoke_progressTime_7FC0D0ED( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe System.Double FrameTime( string forMarker)
@@ -11042,7 +11042,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_frameTime_28F735E5(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_frameTime_24653071(forMarkerDisposable.Buffer, self);
                 
                 return result;
             }
@@ -11057,7 +11057,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC9frameTime9forMarker12CoreGraphics7CGFloatVSS_tF")]
-        private static extern System.Double PInvoke_frameTime_28F735E5( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern System.Double PInvoke_frameTime_24653071( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe System.Double DurationFrameTime( string forMarker)
@@ -11072,7 +11072,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_durationFrameTime_4D49633B(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_durationFrameTime_588BE556(forMarkerDisposable.Buffer, self);
                 
                 return result;
             }
@@ -11087,7 +11087,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie23CompatibleAnimationViewC17durationFrameTime9forMarker12CoreGraphics7CGFloatVSS_tF")]
-        private static extern System.Double PInvoke_durationFrameTime_4D49633B( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern System.Double PInvoke_durationFrameTime_588BE556( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
     }
@@ -11196,7 +11196,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valuesDisposable = values.PayloadBuffer;
                 IntPtr valuesBuffer = valuesDisposable.Buffer;
                 
-                PInvoke_init_5D915ED5(swiftIndirectResult, valuesBuffer);
+                PInvoke_init_39AE7625(swiftIndirectResult, valuesBuffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleDictionaryTextProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -11209,7 +11209,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie32CompatibleDictionaryTextProviderC6valuesACSDyS2SG_tcfC")]
-        private static extern void PInvoke_init_5D915ED5( SwiftIndirectResult swiftIndirectResult,  IntPtr valuesBuffer);
+        private static extern void PInvoke_init_39AE7625( SwiftIndirectResult swiftIndirectResult,  IntPtr valuesBuffer);
         
         
         public unsafe Swift.Lottie.CompatibleDictionaryTextProvider Init()
@@ -11222,7 +11222,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_5B91B801(swiftIndirectResult);
+                PInvoke_init_5FB4E0ED(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleDictionaryTextProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -11235,7 +11235,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie32CompatibleDictionaryTextProviderCACycfC")]
-        private static extern void PInvoke_init_5B91B801( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_5FB4E0ED( SwiftIndirectResult swiftIndirectResult);
         
         
     }
@@ -11332,7 +11332,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<ColorFormatDenominator>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -11353,7 +11353,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_1ECEFF62(self);
+                var result = PInvoke_hashValue_Get_607B0160(self);
                 
                 return result;
             }
@@ -11366,7 +11366,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie22ColorFormatDenominatorO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_1ECEFF62( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_607B0160( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -11445,7 +11445,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_04ABA292(into.Payload, self);
+                PInvoke_hash_63146636(into.Payload, self);
                 
                 return;
             }
@@ -11458,7 +11458,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie22ColorFormatDenominatorO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_04ABA292( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_63146636( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -11476,7 +11476,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_r_Get_7106D691(self);
+                var result = PInvoke_r_Get_63FD3F5B(self);
                 
                 return result;
             }
@@ -11491,7 +11491,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV1rSdvg")]
-        private static extern System.Double PInvoke_r_Get_7106D691( SwiftSelf self);
+        private static extern System.Double PInvoke_r_Get_63FD3F5B( SwiftSelf self);
         
         private unsafe void R_Set( System.Double value)
         {
@@ -11503,7 +11503,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_r_Set_5903507B(value, self);
+                PInvoke_r_Set_01D9F1EB(value, self);
                 
                 return;
             }
@@ -11518,7 +11518,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV1rSdvs")]
-        private static extern void PInvoke_r_Set_5903507B( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_r_Set_01D9F1EB( System.Double value,  SwiftSelf self);
         
         public System.Double R
         {
@@ -11536,7 +11536,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_g_Get_497307D5(self);
+                var result = PInvoke_g_Get_241EE4BD(self);
                 
                 return result;
             }
@@ -11551,7 +11551,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV1gSdvg")]
-        private static extern System.Double PInvoke_g_Get_497307D5( SwiftSelf self);
+        private static extern System.Double PInvoke_g_Get_241EE4BD( SwiftSelf self);
         
         private unsafe void G_Set( System.Double value)
         {
@@ -11563,7 +11563,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_g_Set_07EF56CF(value, self);
+                PInvoke_g_Set_58594DC3(value, self);
                 
                 return;
             }
@@ -11578,7 +11578,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV1gSdvs")]
-        private static extern void PInvoke_g_Set_07EF56CF( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_g_Set_58594DC3( System.Double value,  SwiftSelf self);
         
         public System.Double G
         {
@@ -11596,7 +11596,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_b_Get_4B6FAC0A(self);
+                var result = PInvoke_b_Get_7F19AA5C(self);
                 
                 return result;
             }
@@ -11611,7 +11611,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV1bSdvg")]
-        private static extern System.Double PInvoke_b_Get_4B6FAC0A( SwiftSelf self);
+        private static extern System.Double PInvoke_b_Get_7F19AA5C( SwiftSelf self);
         
         private unsafe void B_Set( System.Double value)
         {
@@ -11623,7 +11623,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_b_Set_16D7AF05(value, self);
+                PInvoke_b_Set_453AE0CC(value, self);
                 
                 return;
             }
@@ -11638,7 +11638,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV1bSdvs")]
-        private static extern void PInvoke_b_Set_16D7AF05( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_b_Set_453AE0CC( System.Double value,  SwiftSelf self);
         
         public System.Double B
         {
@@ -11656,7 +11656,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_a_Get_5A71E83D(self);
+                var result = PInvoke_a_Get_49626562(self);
                 
                 return result;
             }
@@ -11671,7 +11671,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV1aSdvg")]
-        private static extern System.Double PInvoke_a_Get_5A71E83D( SwiftSelf self);
+        private static extern System.Double PInvoke_a_Get_49626562( SwiftSelf self);
         
         private unsafe void A_Set( System.Double value)
         {
@@ -11683,7 +11683,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_a_Set_587F1418(value, self);
+                PInvoke_a_Set_68C2D0A1(value, self);
                 
                 return;
             }
@@ -11698,7 +11698,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV1aSdvs")]
-        private static extern void PInvoke_a_Set_587F1418( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_a_Set_68C2D0A1( System.Double value,  SwiftSelf self);
         
         public System.Double A
         {
@@ -11716,7 +11716,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_5918A276(self);
+                var result = PInvoke_hashValue_Get_1D32D1DD(self);
                 
                 return result;
             }
@@ -11731,7 +11731,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_5918A276( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_1D32D1DD( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -11838,13 +11838,13 @@ namespace Swift.Lottie
             _payload = new SwiftSafeHandle<LottieColor>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_198E26EA(swiftIndirectResult, r, g, b, a, denominator.Payload);
+            PInvoke_init_1DA02259(swiftIndirectResult, r, g, b, a, denominator.Payload);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV1r1g1b1a11denominatorACSd_S3dAA0B17FormatDenominatorOtcfC")]
-        private static extern void PInvoke_init_198E26EA( SwiftIndirectResult swiftIndirectResult,  System.Double r,  System.Double g,  System.Double b,  System.Double a,  SafeHandle denominator);
+        private static extern void PInvoke_init_1DA02259( SwiftIndirectResult swiftIndirectResult,  System.Double r,  System.Double g,  System.Double b,  System.Double a,  SafeHandle denominator);
         
         
         public unsafe void Hash( Swift.Hasher into)
@@ -11857,7 +11857,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_320A4199(into.Payload, self);
+                PInvoke_hash_1F23DF46(into.Payload, self);
                 
                 return;
             }
@@ -11872,7 +11872,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_320A4199( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_1F23DF46( SafeHandle into,  SwiftSelf self);
         
         
         public unsafe LottieColor( Swift.Runtime.ExistentialContainer1 from)
@@ -11880,7 +11880,7 @@ namespace Swift.Lottie
             _payload = new SwiftSafeHandle<LottieColor>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_0A9CFDBF(swiftIndirectResult, from, out var error);
+            PInvoke_init_0A19C55F(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -11891,7 +11891,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_0A9CFDBF( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_0A19C55F( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         public unsafe void Encode( Swift.Runtime.ExistentialContainer1 to)
@@ -11904,7 +11904,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_encode_1A8FE851(to, self, out var error);
+                PInvoke_encode_5047373A(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -11924,7 +11924,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_1A8FE851( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_5047373A( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
         public unsafe Swift.Lottie.LottieColor Interpolate( Swift.Lottie.LottieColor to,  System.Double amount)
@@ -11941,7 +11941,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_interpolate_2E672076(swiftIndirectResult, to.Payload, amount, self);
+                PInvoke_interpolate_01EF7591(swiftIndirectResult, to.Payload, amount, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieColor>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -11956,7 +11956,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A5ColorV11interpolate2to6amountA2C_12CoreGraphics7CGFloatVtF")]
-        private static extern void PInvoke_interpolate_2E672076( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  System.Double amount,  SwiftSelf self);
+        private static extern void PInvoke_interpolate_01EF7591( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  System.Double amount,  SwiftSelf self);
         
         
     }
@@ -11978,7 +11978,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_color_Get_6829D5E5(swiftIndirectResult, self);
+                PInvoke_color_Get_14417B0D(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieColor>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -11993,7 +11993,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18ColorValueProviderC5colorAA0aB0Vvg")]
-        private static extern void PInvoke_color_Get_6829D5E5( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_color_Get_14417B0D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Color_Set( Swift.Lottie.LottieColor value)
         {
@@ -12005,7 +12005,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_color_Set_627EE8C1(value.Payload, self);
+                PInvoke_color_Set_16E27BEE(value.Payload, self);
                 
                 return;
             }
@@ -12020,7 +12020,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18ColorValueProviderC5colorAA0aB0Vvs")]
-        private static extern void PInvoke_color_Set_627EE8C1( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_color_Set_16E27BEE( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.LottieColor Color
         {
@@ -12042,7 +12042,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_valueType_Get_6C22F982(self);
+                PInvoke_valueType_Get_4299669A(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12057,7 +12057,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18ColorValueProviderC9valueTypeypXpvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_6C22F982( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_4299669A( SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 ValueType
         {
@@ -12074,7 +12074,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_storage_Get_10816BD9(self);
+                var result = PInvoke_storage_Get_787679CC(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ValueProviderStorage<Swift.Lottie.LottieColor>>(new IntPtr(&result));
             }
@@ -12089,7 +12089,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18ColorValueProviderC7storageAA0cD7StorageOyAA0aB0VGvg")]
-        private static extern Swift.AnyType PInvoke_storage_Get_10816BD9( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_storage_Get_787679CC( SwiftSelf self);
         
         public Swift.Lottie.ValueProviderStorage<Swift.Lottie.LottieColor> Storage
         {
@@ -12189,9 +12189,9 @@ namespace Swift.Lottie
             return ProtocolConformanceDescriptor.LoadFromSymbol("Lottie", symbolName);
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void*> s_init_block_5F15D5EB_Callback = &init_block_5F15D5EB_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void*> s_init_block_1E380420_Callback = &init_block_1E380420_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void* init_block_5F15D5EB_Callback(void* arg0, SwiftSelf context)
+        private static void* init_block_1E380420_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<System.Double, Swift.Lottie.LottieColor>>(new IntPtr(context.Value));
             return del(SwiftMarshal.MarshalFromSwift<System.Double>(new IntPtr(arg0)));
@@ -12208,9 +12208,9 @@ namespace Swift.Lottie
                 
                 
                 blockHandle = GCHandle.Alloc(block);
-                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_5F15D5EB_Callback, GCHandle.ToIntPtr(blockHandle));
+                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_1E380420_Callback, GCHandle.ToIntPtr(blockHandle));
                 
-                PInvoke_init_5F15D5EB(swiftIndirectResult, blockClosure);
+                PInvoke_init_1E380420(swiftIndirectResult, blockClosure);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ColorValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12224,7 +12224,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18ColorValueProviderC5blockAcA0aB0V12CoreGraphics7CGFloatVc_tcfC")]
-        private static extern void PInvoke_init_5F15D5EB( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block);
+        private static extern void PInvoke_init_1E380420( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block);
         
         
         public unsafe Swift.Lottie.ColorValueProvider Init( Swift.Lottie.LottieColor arg0)
@@ -12237,7 +12237,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_4D1A9A65(swiftIndirectResult, arg0.Payload);
+                PInvoke_init_70514F57(swiftIndirectResult, arg0.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ColorValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12250,7 +12250,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18ColorValueProviderCyAcA0aB0VcfC")]
-        private static extern void PInvoke_init_4D1A9A65( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0);
+        private static extern void PInvoke_init_70514F57( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0);
         
         
         public unsafe Swift.Lottie.ColorValueProvider Init( IEnumerable<Swift.Lottie.Keyframe<Swift.Lottie.LottieColor>> arg0)
@@ -12266,7 +12266,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
                 IntPtr arg0Buffer = arg0Disposable.Buffer;
                 
-                PInvoke_init_3B3E3858(swiftIndirectResult, arg0Buffer);
+                PInvoke_init_6AB66C34(swiftIndirectResult, arg0Buffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ColorValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12279,7 +12279,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18ColorValueProviderCyACSayAA8KeyframeCyAA0aB0VGGcfC")]
-        private static extern void PInvoke_init_3B3E3858( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Buffer);
+        private static extern void PInvoke_init_6AB66C34( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Buffer);
         
         
         public unsafe System.Boolean HasUpdate( System.Double frame)
@@ -12292,7 +12292,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hasUpdate_7908E059(frame, self);
+                var result = PInvoke_hasUpdate_028D7161(frame, self);
                 
                 return result;
             }
@@ -12307,7 +12307,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18ColorValueProviderC9hasUpdate5frameSb12CoreGraphics7CGFloatV_tF")]
-        private static extern System.Boolean PInvoke_hasUpdate_7908E059( System.Double frame,  SwiftSelf self);
+        private static extern System.Boolean PInvoke_hasUpdate_028D7161( System.Double frame,  SwiftSelf self);
         
         
     }
@@ -12325,7 +12325,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_keys_Get_5C3906FE(self);
+                var result = PInvoke_keys_Get_60047CAF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -12340,7 +12340,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie16AnimationKeypathV4keysSaySSGvg")]
-        private static extern IntPtr PInvoke_keys_Get_5C3906FE( SwiftSelf self);
+        private static extern IntPtr PInvoke_keys_Get_60047CAF( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.SwiftString> Keys
         {
@@ -12357,7 +12357,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_string_Get_4169BFC2(self);
+                var result = PInvoke_string_Get_4CDF1E3D(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12374,7 +12374,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie16AnimationKeypathV6stringSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_string_Get_4169BFC2( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_string_Get_4CDF1E3D( SwiftSelf self);
         
         public Swift.SwiftString String
         {
@@ -12391,7 +12391,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_29C0E6CE(self);
+                var result = PInvoke_hashValue_Get_7050B308(self);
                 
                 return result;
             }
@@ -12406,7 +12406,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie16AnimationKeypathV9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_29C0E6CE( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_7050B308( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -12513,13 +12513,13 @@ namespace Swift.Lottie
             
             using var keypathSwift = new SwiftString(keypath);
             using PayloadBuffer<SwiftString.Buffer> keypathDisposable = keypathSwift.PayloadBuffer;
-            PInvoke_init_09C9813C(swiftIndirectResult, keypathDisposable.Buffer);
+            PInvoke_init_1F98D8C2(swiftIndirectResult, keypathDisposable.Buffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie16AnimationKeypathV7keypathACSS_tcfC")]
-        private static extern void PInvoke_init_09C9813C( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer keypath);
+        private static extern void PInvoke_init_1F98D8C2( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer keypath);
         
         
         public unsafe AnimationKeypath( IEnumerable<Swift.SwiftString> keys)
@@ -12530,13 +12530,13 @@ namespace Swift.Lottie
             using var keysSwift = SwiftArray<Swift.SwiftString>.FromEnumerable(keys);
             using PayloadBuffer<IntPtr> keysDisposable = keysSwift.PayloadBuffer;
             IntPtr keysBuffer = keysDisposable.Buffer;
-            PInvoke_init_660B5F40(swiftIndirectResult, keysBuffer);
+            PInvoke_init_5C2B0DFB(swiftIndirectResult, keysBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie16AnimationKeypathV4keysACSaySSG_tcfC")]
-        private static extern void PInvoke_init_660B5F40( SwiftIndirectResult swiftIndirectResult,  IntPtr keysBuffer);
+        private static extern void PInvoke_init_5C2B0DFB( SwiftIndirectResult swiftIndirectResult,  IntPtr keysBuffer);
         
         
         public unsafe void Hash( Swift.Hasher into)
@@ -12549,7 +12549,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_208715F0(into.Payload, self);
+                PInvoke_hash_58A3F4BC(into.Payload, self);
                 
                 return;
             }
@@ -12564,7 +12564,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie16AnimationKeypathV4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_208715F0( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_58A3F4BC( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -12582,7 +12582,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_shared_Get_1CFA8B4F(swiftIndirectResult);
+                PInvoke_shared_Get_1BA27E10(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieConfiguration>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12595,7 +12595,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV6sharedACvgZ")]
-        private static extern void PInvoke_shared_Get_1CFA8B4F( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_shared_Get_1BA27E10( SwiftIndirectResult swiftIndirectResult);
         
         private static void Shared_Set( Swift.Lottie.LottieConfiguration value)
         {
@@ -12603,7 +12603,7 @@ namespace Swift.Lottie
             {
                 
                 
-                PInvoke_shared_Set_469CD792(value.Payload);
+                PInvoke_shared_Set_194CC1F5(value.Payload);
                 
                 return;
             }
@@ -12616,7 +12616,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV6sharedACvsZ")]
-        private static extern void PInvoke_shared_Set_469CD792( SafeHandle value);
+        private static extern void PInvoke_shared_Set_194CC1F5( SafeHandle value);
         
         public static Swift.Lottie.LottieConfiguration Shared
         {
@@ -12634,7 +12634,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_defaultURLSession_Get_16B3A348();
+                PInvoke_defaultURLSession_Get_4FE0A452();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12647,7 +12647,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV17defaultURLSessionAA0aD0_pvgZ")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_defaultURLSession_Get_16B3A348();
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_defaultURLSession_Get_4FE0A452();
         
         private static void DefaultURLSession_Set( Swift.Runtime.ExistentialContainer1 value)
         {
@@ -12655,7 +12655,7 @@ namespace Swift.Lottie
             {
                 
                 
-                PInvoke_defaultURLSession_Set_0AE23626(value);
+                PInvoke_defaultURLSession_Set_15D8475A(value);
                 
                 return;
             }
@@ -12668,7 +12668,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV17defaultURLSessionAA0aD0_pvsZ")]
-        private static extern void PInvoke_defaultURLSession_Set_0AE23626( Swift.Runtime.ExistentialContainer1 value);
+        private static extern void PInvoke_defaultURLSession_Set_15D8475A( Swift.Runtime.ExistentialContainer1 value);
         
         public static Swift.Runtime.ExistentialContainer1 DefaultURLSession
         {
@@ -12690,7 +12690,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_renderingEngine_Get_49516393(swiftIndirectResult, self);
+                PInvoke_renderingEngine_Get_307FBC1B(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.RenderingEngineOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12705,7 +12705,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV15renderingEngineAA09RenderingD6OptionOvg")]
-        private static extern void PInvoke_renderingEngine_Get_49516393( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_renderingEngine_Get_307FBC1B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void RenderingEngine_Set( Swift.Lottie.RenderingEngineOption value)
         {
@@ -12717,7 +12717,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_renderingEngine_Set_21EA3EA1(value.Payload, self);
+                PInvoke_renderingEngine_Set_140A84A1(value.Payload, self);
                 
                 return;
             }
@@ -12732,7 +12732,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV15renderingEngineAA09RenderingD6OptionOvs")]
-        private static extern void PInvoke_renderingEngine_Set_21EA3EA1( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_renderingEngine_Set_140A84A1( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.RenderingEngineOption RenderingEngine
         {
@@ -12754,7 +12754,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_decodingStrategy_Get_7431D317(swiftIndirectResult, self);
+                PInvoke_decodingStrategy_Get_40DCD358(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DecodingStrategy>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12769,7 +12769,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV16decodingStrategyAA08DecodingD0Ovg")]
-        private static extern void PInvoke_decodingStrategy_Get_7431D317( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_decodingStrategy_Get_40DCD358( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void DecodingStrategy_Set( Swift.Lottie.DecodingStrategy value)
         {
@@ -12781,7 +12781,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_decodingStrategy_Set_48B4FC27(value.Payload, self);
+                PInvoke_decodingStrategy_Set_123C9B7B(value.Payload, self);
                 
                 return;
             }
@@ -12796,7 +12796,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV16decodingStrategyAA08DecodingD0Ovs")]
-        private static extern void PInvoke_decodingStrategy_Set_48B4FC27( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_decodingStrategy_Set_123C9B7B( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.DecodingStrategy DecodingStrategy
         {
@@ -12818,7 +12818,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_reducedMotionOption_Get_61FA0E7B(swiftIndirectResult, self);
+                PInvoke_reducedMotionOption_Get_1C7655E4(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ReducedMotionOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12833,7 +12833,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV19reducedMotionOptionAA07ReduceddE0Ovg")]
-        private static extern void PInvoke_reducedMotionOption_Get_61FA0E7B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_reducedMotionOption_Get_1C7655E4( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void ReducedMotionOption_Set( Swift.Lottie.ReducedMotionOption value)
         {
@@ -12845,7 +12845,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_reducedMotionOption_Set_3AC8C236(value.Payload, self);
+                PInvoke_reducedMotionOption_Set_39384F47(value.Payload, self);
                 
                 return;
             }
@@ -12860,7 +12860,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV19reducedMotionOptionAA07ReduceddE0Ovs")]
-        private static extern void PInvoke_reducedMotionOption_Set_3AC8C236( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_reducedMotionOption_Set_39384F47( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.ReducedMotionOption ReducedMotionOption
         {
@@ -12878,7 +12878,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_2FB3DF3B(self);
+                var result = PInvoke_hashValue_Get_26B6B4E2(self);
                 
                 return result;
             }
@@ -12893,7 +12893,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_2FB3DF3B( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_26B6B4E2( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -13004,7 +13004,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_0ABB4452(into.Payload, self);
+                PInvoke_hash_0364F8FD(into.Payload, self);
                 
                 return;
             }
@@ -13019,7 +13019,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13ConfigurationV4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_0ABB4452( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_0364F8FD( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -13262,7 +13262,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -13287,7 +13287,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13324,7 +13324,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13361,7 +13361,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13398,7 +13398,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13435,7 +13435,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13476,7 +13476,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13546,7 +13546,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13618,7 +13618,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13689,7 +13689,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13752,7 +13752,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottiePlaybackMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -13785,7 +13785,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_190E7D54(self);
+                var result = PInvoke_hashValue_Get_00E216F7(self);
                 
                 return result;
             }
@@ -13798,7 +13798,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_190E7D54( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_00E216F7( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -13992,7 +13992,7 @@ namespace Swift.Lottie
                     _payload.DangerousAddRef(ref success);
                     try
                     {
-                        var metadata = PInvoke_getMetadata();
+                        var metadata = SwiftObjectHelper<PausedState>.GetTypeMetadata();
                         byte* payload = (byte*)_payload.DangerousGetHandle();
                         return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                     }
@@ -14017,7 +14017,7 @@ namespace Swift.Lottie
                     return false;
                 }
                 
-                var metadata = PInvoke_getMetadata();
+                var metadata = SwiftObjectHelper<PausedState>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -14054,7 +14054,7 @@ namespace Swift.Lottie
                     return false;
                 }
                 
-                var metadata = PInvoke_getMetadata();
+                var metadata = SwiftObjectHelper<PausedState>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -14091,7 +14091,7 @@ namespace Swift.Lottie
                     return false;
                 }
                 
-                var metadata = PInvoke_getMetadata();
+                var metadata = SwiftObjectHelper<PausedState>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -14130,7 +14130,7 @@ namespace Swift.Lottie
                     return false;
                 }
                 
-                var metadata = PInvoke_getMetadata();
+                var metadata = SwiftObjectHelper<PausedState>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -14189,7 +14189,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_70A44624(self);
+                    var result = PInvoke_hashValue_Get_098257CD(self);
                     
                     return result;
                 }
@@ -14202,7 +14202,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO11PausedStateO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_70A44624( SwiftSelf self);
+            private static extern System.IntPtr PInvoke_hashValue_Get_098257CD( SwiftSelf self);
             
             public System.IntPtr HashValue
             {
@@ -14281,7 +14281,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    PInvoke_hash_171E5685(into.Payload, self);
+                    PInvoke_hash_3F8549B3(into.Payload, self);
                     
                     return;
                 }
@@ -14294,7 +14294,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO11PausedStateO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_171E5685( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_3F8549B3( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -14420,7 +14420,7 @@ namespace Swift.Lottie
                     _payload.DangerousAddRef(ref success);
                     try
                     {
-                        var metadata = PInvoke_getMetadata();
+                        var metadata = SwiftObjectHelper<PlaybackMode>.GetTypeMetadata();
                         byte* payload = (byte*)_payload.DangerousGetHandle();
                         return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                     }
@@ -14449,7 +14449,7 @@ namespace Swift.Lottie
                     return false;
                 }
                 
-                var metadata = PInvoke_getMetadata();
+                var metadata = SwiftObjectHelper<PlaybackMode>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -14519,7 +14519,7 @@ namespace Swift.Lottie
                     return false;
                 }
                 
-                var metadata = PInvoke_getMetadata();
+                var metadata = SwiftObjectHelper<PlaybackMode>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -14591,7 +14591,7 @@ namespace Swift.Lottie
                     return false;
                 }
                 
-                var metadata = PInvoke_getMetadata();
+                var metadata = SwiftObjectHelper<PlaybackMode>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -14662,7 +14662,7 @@ namespace Swift.Lottie
                     return false;
                 }
                 
-                var metadata = PInvoke_getMetadata();
+                var metadata = SwiftObjectHelper<PlaybackMode>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -14725,7 +14725,7 @@ namespace Swift.Lottie
                     return false;
                 }
                 
-                var metadata = PInvoke_getMetadata();
+                var metadata = SwiftObjectHelper<PlaybackMode>.GetTypeMetadata();
                 
                 // Create a non-destructive copy of the enum
                 byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -14758,7 +14758,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_0E1BABAE(self);
+                    var result = PInvoke_hashValue_Get_77C88FB7(self);
                     
                     return result;
                 }
@@ -14771,7 +14771,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO0bC0O9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_0E1BABAE( SwiftSelf self);
+            private static extern System.IntPtr PInvoke_hashValue_Get_77C88FB7( SwiftSelf self);
             
             public System.IntPtr HashValue
             {
@@ -14850,7 +14850,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    PInvoke_hash_17F3FEAE(into.Payload, self);
+                    PInvoke_hash_734C4E7C(into.Payload, self);
                     
                     return;
                 }
@@ -14863,7 +14863,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO0bC0O4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_17F3FEAE( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_734C4E7C( SafeHandle into,  SwiftSelf self);
             
             
             public static unsafe Swift.Lottie.LottiePlaybackMode.PlaybackMode ToProgress( System.Double arg0,  Swift.Lottie.LottieLoopMode loopMode)
@@ -14876,7 +14876,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    PInvoke_toProgress_0C3A3BA7(swiftIndirectResult, arg0, loopMode.Payload);
+                    PInvoke_toProgress_112880E6(swiftIndirectResult, arg0, loopMode.Payload);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottiePlaybackMode.PlaybackMode>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -14889,7 +14889,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO0bC0O10toProgress_04loopC0AE12CoreGraphics7CGFloatV_AA0a4LoopC0OtFZ")]
-            private static extern void PInvoke_toProgress_0C3A3BA7( SwiftIndirectResult swiftIndirectResult,  System.Double arg0,  SafeHandle loopMode);
+            private static extern void PInvoke_toProgress_112880E6( SwiftIndirectResult swiftIndirectResult,  System.Double arg0,  SafeHandle loopMode);
             
             
             public static unsafe Swift.Lottie.LottiePlaybackMode.PlaybackMode ToFrame( System.Double arg0,  Swift.Lottie.LottieLoopMode loopMode)
@@ -14902,7 +14902,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    PInvoke_toFrame_2BF5A167(swiftIndirectResult, arg0, loopMode.Payload);
+                    PInvoke_toFrame_759A9BC6(swiftIndirectResult, arg0, loopMode.Payload);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottiePlaybackMode.PlaybackMode>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -14915,7 +14915,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO0bC0O7toFrame_04loopC0AE12CoreGraphics7CGFloatV_AA0a4LoopC0OtFZ")]
-            private static extern void PInvoke_toFrame_2BF5A167( SwiftIndirectResult swiftIndirectResult,  System.Double arg0,  SafeHandle loopMode);
+            private static extern void PInvoke_toFrame_759A9BC6( SwiftIndirectResult swiftIndirectResult,  System.Double arg0,  SafeHandle loopMode);
             
             
             public static unsafe Swift.Lottie.LottiePlaybackMode.PlaybackMode ToMarker( string arg0,  System.Boolean playEndMarkerFrame,  Swift.Lottie.LottieLoopMode loopMode)
@@ -14930,7 +14930,7 @@ namespace Swift.Lottie
                     using var arg0Swift = new SwiftString(arg0);
                     using PayloadBuffer<SwiftString.Buffer> arg0Disposable = arg0Swift.PayloadBuffer;
                     
-                    PInvoke_toMarker_1A6EC7E7(swiftIndirectResult, arg0Disposable.Buffer, playEndMarkerFrame, loopMode.Payload);
+                    PInvoke_toMarker_26EEC8D4(swiftIndirectResult, arg0Disposable.Buffer, playEndMarkerFrame, loopMode.Payload);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottiePlaybackMode.PlaybackMode>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -14943,7 +14943,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO0bC0O8toMarker_07playEndE5Frame04loopC0AESS_SbAA0a4LoopC0OtFZ")]
-            private static extern void PInvoke_toMarker_1A6EC7E7( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer arg0,  System.Boolean playEndMarkerFrame,  SafeHandle loopMode);
+            private static extern void PInvoke_toMarker_26EEC8D4( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer arg0,  System.Boolean playEndMarkerFrame,  SafeHandle loopMode);
             
             
         }
@@ -14957,7 +14957,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_494AFA11(into.Payload, self);
+                PInvoke_hash_034D13AB(into.Payload, self);
                 
                 return;
             }
@@ -14970,7 +14970,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_494AFA11( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_034D13AB( SafeHandle into,  SwiftSelf self);
         
         
         public static unsafe Swift.Lottie.LottiePlaybackMode ToProgress( System.Double arg0,  Swift.Lottie.LottieLoopMode loopMode)
@@ -14983,7 +14983,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_toProgress_06E62C0B(swiftIndirectResult, arg0, loopMode.Payload);
+                PInvoke_toProgress_092685A4(swiftIndirectResult, arg0, loopMode.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottiePlaybackMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -14996,7 +14996,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO10toProgress_04loopC0AC12CoreGraphics7CGFloatV_AA0a4LoopC0OtFZ")]
-        private static extern void PInvoke_toProgress_06E62C0B( SwiftIndirectResult swiftIndirectResult,  System.Double arg0,  SafeHandle loopMode);
+        private static extern void PInvoke_toProgress_092685A4( SwiftIndirectResult swiftIndirectResult,  System.Double arg0,  SafeHandle loopMode);
         
         
         public static unsafe Swift.Lottie.LottiePlaybackMode ToFrame( System.Double arg0,  Swift.Lottie.LottieLoopMode loopMode)
@@ -15009,7 +15009,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_toFrame_1A01ADA9(swiftIndirectResult, arg0, loopMode.Payload);
+                PInvoke_toFrame_05DD0D7A(swiftIndirectResult, arg0, loopMode.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottiePlaybackMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -15022,7 +15022,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO7toFrame_04loopC0AC12CoreGraphics7CGFloatV_AA0a4LoopC0OtFZ")]
-        private static extern void PInvoke_toFrame_1A01ADA9( SwiftIndirectResult swiftIndirectResult,  System.Double arg0,  SafeHandle loopMode);
+        private static extern void PInvoke_toFrame_05DD0D7A( SwiftIndirectResult swiftIndirectResult,  System.Double arg0,  SafeHandle loopMode);
         
         
         public static unsafe Swift.Lottie.LottiePlaybackMode ToMarker( string arg0,  System.Boolean playEndMarkerFrame,  Swift.Lottie.LottieLoopMode loopMode)
@@ -15037,7 +15037,7 @@ namespace Swift.Lottie
                 using var arg0Swift = new SwiftString(arg0);
                 using PayloadBuffer<SwiftString.Buffer> arg0Disposable = arg0Swift.PayloadBuffer;
                 
-                PInvoke_toMarker_16B12F87(swiftIndirectResult, arg0Disposable.Buffer, playEndMarkerFrame, loopMode.Payload);
+                PInvoke_toMarker_7B419ADE(swiftIndirectResult, arg0Disposable.Buffer, playEndMarkerFrame, loopMode.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottiePlaybackMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -15050,7 +15050,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A12PlaybackModeO8toMarker_07playEndE5Frame04loopC0ACSS_SbAA0a4LoopC0OtFZ")]
-        private static extern void PInvoke_toMarker_16B12F87( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer arg0,  System.Boolean playEndMarkerFrame,  SafeHandle loopMode);
+        private static extern void PInvoke_toMarker_7B419ADE( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer arg0,  System.Boolean playEndMarkerFrame,  SafeHandle loopMode);
         
         
     }
@@ -15125,7 +15125,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<LottieMarkerPosition>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -15146,7 +15146,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_4876A996(self);
+                var result = PInvoke_hashValue_Get_5BE5165D(self);
                 
                 return result;
             }
@@ -15159,7 +15159,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14MarkerPositionO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_4876A996( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_5BE5165D( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -15238,7 +15238,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_55221639(into.Payload, self);
+                PInvoke_hash_705C8AC7(into.Payload, self);
                 
                 return;
             }
@@ -15251,7 +15251,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A14MarkerPositionO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_55221639( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_705C8AC7( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -15269,7 +15269,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_2B2AE499(self);
+                var result = PInvoke_hashValue_Get_04F66CD3(self);
                 
                 return result;
             }
@@ -15284,7 +15284,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector2DV9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_2B2AE499( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_04F66CD3( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -15391,7 +15391,7 @@ namespace Swift.Lottie
             _payload = new SwiftSafeHandle<LottieVector2D>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_471B211A(swiftIndirectResult, from, out var error);
+            PInvoke_init_26CB11D8(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -15402,7 +15402,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector2DV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_471B211A( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_26CB11D8( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         public unsafe void Encode( Swift.Runtime.ExistentialContainer1 to)
@@ -15415,7 +15415,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_encode_73FE7610(to, self, out var error);
+                PInvoke_encode_03871093(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -15435,7 +15435,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector2DV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_73FE7610( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_03871093( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
         public unsafe void Hash( Swift.Hasher into)
@@ -15448,7 +15448,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_6DCFD481(into.Payload, self);
+                PInvoke_hash_3E4B75AA(into.Payload, self);
                 
                 return;
             }
@@ -15463,7 +15463,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector2DV4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_6DCFD481( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_3E4B75AA( SafeHandle into,  SwiftSelf self);
         
         
         public unsafe Swift.Lottie.LottieVector2D Interpolate( Swift.Lottie.LottieVector2D to,  System.Double amount,  Swift.CGPoint? spatialOutTangent,  Swift.CGPoint? spatialInTangent)
@@ -15486,7 +15486,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> spatialInTangentDisposable = spatialInTangentSwift.PayloadBuffer;
                 IntPtr spatialInTangentBuffer = spatialInTangentDisposable.Buffer;
                 
-                PInvoke_interpolate_48367B75(swiftIndirectResult, to.Payload, amount, spatialOutTangentBuffer, spatialInTangentBuffer, self);
+                PInvoke_interpolate_1FDA1B81(swiftIndirectResult, to.Payload, amount, spatialOutTangentBuffer, spatialInTangentBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieVector2D>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -15501,7 +15501,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector2DV11interpolate2to6amount17spatialOutTangent0f2InH0A2C_12CoreGraphics7CGFloatVSo7CGPointVSgANtF")]
-        private static extern void PInvoke_interpolate_48367B75( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  System.Double amount,  IntPtr spatialOutTangentBuffer,  IntPtr spatialInTangentBuffer,  SwiftSelf self);
+        private static extern void PInvoke_interpolate_1FDA1B81( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  System.Double amount,  IntPtr spatialOutTangentBuffer,  IntPtr spatialInTangentBuffer,  SwiftSelf self);
         
         
     }
@@ -15576,7 +15576,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<DecodingStrategy>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -15597,7 +15597,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_33AFCFD8(self);
+                var result = PInvoke_hashValue_Get_4DB31458(self);
                 
                 return result;
             }
@@ -15610,7 +15610,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie16DecodingStrategyO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_33AFCFD8( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_4DB31458( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -15689,7 +15689,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_343342E5(into.Payload, self);
+                PInvoke_hash_4899C1C3(into.Payload, self);
                 
                 return;
             }
@@ -15702,7 +15702,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie16DecodingStrategyO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_343342E5( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_4899C1C3( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -15720,7 +15720,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_isEnabled_Get_7D50D91E(self);
+                var result = PInvoke_isEnabled_Get_3BE5A133(self);
                 
                 return result;
             }
@@ -15735,7 +15735,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC9isEnabledSbvg")]
-        private static extern System.Boolean PInvoke_isEnabled_Get_7D50D91E( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isEnabled_Get_3BE5A133( SwiftSelf self);
         
         private unsafe void IsEnabled_Set( System.Boolean value)
         {
@@ -15747,7 +15747,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_isEnabled_Set_1932FF7E(value, self);
+                PInvoke_isEnabled_Set_24C50BF6(value, self);
                 
                 return;
             }
@@ -15762,7 +15762,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC9isEnabledSbvs")]
-        private static extern void PInvoke_isEnabled_Set_1932FF7E( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_isEnabled_Set_24C50BF6( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean IsEnabled
         {
@@ -15780,7 +15780,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_isSelected_Get_4E4B85F9(self);
+                var result = PInvoke_isSelected_Get_572E7894(self);
                 
                 return result;
             }
@@ -15795,7 +15795,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC10isSelectedSbvg")]
-        private static extern System.Boolean PInvoke_isSelected_Get_4E4B85F9( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isSelected_Get_572E7894( SwiftSelf self);
         
         private unsafe void IsSelected_Set( System.Boolean value)
         {
@@ -15807,7 +15807,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_isSelected_Set_7D88F20E(value, self);
+                PInvoke_isSelected_Set_7CE78C52(value, self);
                 
                 return;
             }
@@ -15822,7 +15822,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC10isSelectedSbvs")]
-        private static extern void PInvoke_isSelected_Set_7D88F20E( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_isSelected_Set_7CE78C52( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean IsSelected
         {
@@ -15840,7 +15840,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_isHighlighted_Get_14922611(self);
+                var result = PInvoke_isHighlighted_Get_0BF44730(self);
                 
                 return result;
             }
@@ -15855,7 +15855,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC13isHighlightedSbvg")]
-        private static extern System.Boolean PInvoke_isHighlighted_Get_14922611( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isHighlighted_Get_0BF44730( SwiftSelf self);
         
         private unsafe void IsHighlighted_Set( System.Boolean value)
         {
@@ -15867,7 +15867,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_isHighlighted_Set_17B4F961(value, self);
+                PInvoke_isHighlighted_Set_1B9A7A7F(value, self);
                 
                 return;
             }
@@ -15882,7 +15882,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC13isHighlightedSbvs")]
-        private static extern void PInvoke_isHighlighted_Set_17B4F961( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_isHighlighted_Set_1B9A7A7F( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean IsHighlighted
         {
@@ -15900,7 +15900,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_intrinsicContentSize_Get_323F8678(self);
+                var result = PInvoke_intrinsicContentSize_Get_4E991E98(self);
                 
                 return result;
             }
@@ -15915,7 +15915,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC20intrinsicContentSizeSo6CGSizeVvg")]
-        private static extern Swift.CGSize PInvoke_intrinsicContentSize_Get_323F8678( SwiftSelf self);
+        private static extern Swift.CGSize PInvoke_intrinsicContentSize_Get_4E991E98( SwiftSelf self);
         
         public Swift.CGSize IntrinsicContentSize
         {
@@ -15932,7 +15932,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animationView_Get_45C36937(self);
+                var result = PInvoke_animationView_Get_6225C134(self);
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -15949,7 +15949,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC13animationViewAA0a9AnimationE0Cvg")]
-        private static extern IntPtr PInvoke_animationView_Get_45C36937( SwiftSelf self);
+        private static extern IntPtr PInvoke_animationView_Get_6225C134( SwiftSelf self);
         
         public Swift.Lottie.LottieAnimationView AnimationView
         {
@@ -15966,7 +15966,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animation_Get_1969DE05(self);
+                var result = PInvoke_animation_Get_661029D3(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieAnimation>>(new IntPtr(&result));
             }
@@ -15981,7 +15981,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC9animationAA0A9AnimationCSgvg")]
-        private static extern IntPtr PInvoke_animation_Get_1969DE05( SwiftSelf self);
+        private static extern IntPtr PInvoke_animation_Get_661029D3( SwiftSelf self);
         
         private unsafe void Animation_Set( Swift.SwiftOptional<Swift.Lottie.LottieAnimation> value)
         {
@@ -15995,7 +15995,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_animation_Set_71E55B13(valueBuffer, self);
+                PInvoke_animation_Set_2E87CFAD(valueBuffer, self);
                 
                 return;
             }
@@ -16010,7 +16010,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC9animationAA0A9AnimationCSgvs")]
-        private static extern void PInvoke_animation_Set_71E55B13( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_animation_Set_2E87CFAD( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.Lottie.LottieAnimation> Animation
         {
@@ -16028,7 +16028,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animationSpeed_Get_424C07C9(self);
+                var result = PInvoke_animationSpeed_Get_12F323BC(self);
                 
                 return result;
             }
@@ -16043,7 +16043,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC14animationSpeed12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_animationSpeed_Get_424C07C9( SwiftSelf self);
+        private static extern System.Double PInvoke_animationSpeed_Get_12F323BC( SwiftSelf self);
         
         private unsafe void AnimationSpeed_Set( System.Double value)
         {
@@ -16055,7 +16055,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationSpeed_Set_0E21CC55(value, self);
+                PInvoke_animationSpeed_Set_2732DE63(value, self);
                 
                 return;
             }
@@ -16070,7 +16070,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC14animationSpeed12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_animationSpeed_Set_0E21CC55( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_animationSpeed_Set_2732DE63( System.Double value,  SwiftSelf self);
         
         public System.Double AnimationSpeed
         {
@@ -16180,7 +16180,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> animationDisposable = animationSwift.PayloadBuffer;
                 IntPtr animationBuffer = animationDisposable.Buffer;
                 
-                PInvoke_init_3C405C3D(swiftIndirectResult, animationBuffer, configuration.Payload);
+                PInvoke_init_5AA26B45(swiftIndirectResult, animationBuffer, configuration.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedControl>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16193,7 +16193,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC9animation13configurationAcA0A9AnimationCSg_AA0A13ConfigurationVtcfC")]
-        private static extern void PInvoke_init_3C405C3D( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  SafeHandle configuration);
+        private static extern void PInvoke_init_5AA26B45( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  SafeHandle configuration);
         
         
         public unsafe Swift.Lottie.AnimatedControl Init()
@@ -16206,7 +16206,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_3204A7C6(swiftIndirectResult);
+                PInvoke_init_0E9291FF(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedControl>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16219,7 +16219,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlCACycfC")]
-        private static extern void PInvoke_init_3204A7C6( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_0E9291FF( SwiftIndirectResult swiftIndirectResult);
         
         
         
@@ -16237,7 +16237,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationDidSet_566F9C30(self);
+                PInvoke_animationDidSet_111806C4(self);
                 
                 return;
             }
@@ -16252,7 +16252,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC15animationDidSetyyF")]
-        private static extern void PInvoke_animationDidSet_566F9C30( SwiftSelf self);
+        private static extern void PInvoke_animationDidSet_111806C4( SwiftSelf self);
         
         
         
@@ -16266,7 +16266,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_setValueProvider_41179D92(arg0, keypath.Payload, self);
+                PInvoke_setValueProvider_7BF773A6(arg0, keypath.Payload, self);
                 
                 return;
             }
@@ -16281,7 +16281,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC16setValueProvider_7keypathyAA03AnyeF0_p_AA16AnimationKeypathVtF")]
-        private static extern void PInvoke_setValueProvider_41179D92( Swift.Runtime.ExistentialContainer1 arg0,  SafeHandle keypath,  SwiftSelf self);
+        private static extern void PInvoke_setValueProvider_7BF773A6( Swift.Runtime.ExistentialContainer1 arg0,  SafeHandle keypath,  SwiftSelf self);
         
         
         public unsafe void RemoveValueProvider( Swift.Lottie.AnimationKeypath _for)
@@ -16294,7 +16294,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_removeValueProvider_421F1492(_for.Payload, self);
+                PInvoke_removeValueProvider_546C2574(_for.Payload, self);
                 
                 return;
             }
@@ -16309,7 +16309,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC19removeValueProvider3foryAA16AnimationKeypathV_tF")]
-        private static extern void PInvoke_removeValueProvider_421F1492( SafeHandle _for,  SwiftSelf self);
+        private static extern void PInvoke_removeValueProvider_546C2574( SafeHandle _for,  SwiftSelf self);
         
         
         public unsafe Swift.Lottie.AnimatedControl Init( Swift.CGRect frame)
@@ -16322,7 +16322,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_0205B7F5(swiftIndirectResult, frame);
+                PInvoke_init_3339B271(swiftIndirectResult, frame);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedControl>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16335,7 +16335,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie15AnimatedControlC5frameACSo6CGRectV_tcfC")]
-        private static extern void PInvoke_init_0205B7F5( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
+        private static extern void PInvoke_init_3339B271( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
         
         
     }
@@ -16353,7 +16353,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_performAction_Get_092A4019(self);
+                var result = PInvoke_performAction_Get_6757C368(self);
                 
                 // Wrap Swift closure in SwiftEscapingClosure for ARC management
                 var _closureWrapper = SwiftEscapingClosure<Action>.FromSwift(result.FunctionPointer, result.Context);
@@ -16380,11 +16380,11 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedButtonC13performActionyycSgvg")]
-        private static extern SwiftClosureData PInvoke_performAction_Get_092A4019( SwiftSelf self);
+        private static extern SwiftClosureData PInvoke_performAction_Get_6757C368( SwiftSelf self);
         
-        private static unsafe readonly delegate* unmanaged[Swift]<SwiftSelf, void> s_performAction_Set_value_126259F5_Callback = &performAction_Set_value_126259F5_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<SwiftSelf, void> s_performAction_Set_value_2685AAF5_Callback = &performAction_Set_value_2685AAF5_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void performAction_Set_value_126259F5_Callback(SwiftSelf context)
+        private static void performAction_Set_value_2685AAF5_Callback(SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action>(new IntPtr(context.Value));
             del();
@@ -16404,14 +16404,14 @@ namespace Swift.Lottie
                 if (value != null)
                 {
                     valueHandle = GCHandle.Alloc(value);
-                    valueClosure = new SwiftClosureData((IntPtr)s_performAction_Set_value_126259F5_Callback, GCHandle.ToIntPtr(valueHandle));
+                    valueClosure = new SwiftClosureData((IntPtr)s_performAction_Set_value_2685AAF5_Callback, GCHandle.ToIntPtr(valueHandle));
                 }
                 else
                 {
                     valueClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_performAction_Set_126259F5(valueClosure, self);
+                PInvoke_performAction_Set_2685AAF5(valueClosure, self);
                 
                 return;
             }
@@ -16427,7 +16427,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedButtonC13performActionyycSgvs")]
-        private static extern void PInvoke_performAction_Set_126259F5( SwiftClosureData value,  SwiftSelf self);
+        private static extern void PInvoke_performAction_Set_2685AAF5( SwiftClosureData value,  SwiftSelf self);
         
         public Action? PerformAction
         {
@@ -16537,7 +16537,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> animationDisposable = animationSwift.PayloadBuffer;
                 IntPtr animationBuffer = animationDisposable.Buffer;
                 
-                PInvoke_init_4BE6F7B4(swiftIndirectResult, animationBuffer, configuration.Payload);
+                PInvoke_init_749D7CF9(swiftIndirectResult, animationBuffer, configuration.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedButton>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16550,7 +16550,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedButtonC9animation13configurationAcA0A9AnimationCSg_AA0A13ConfigurationVtcfC")]
-        private static extern void PInvoke_init_4BE6F7B4( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  SafeHandle configuration);
+        private static extern void PInvoke_init_749D7CF9( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  SafeHandle configuration);
         
         
         public unsafe Swift.Lottie.AnimatedButton Init()
@@ -16563,7 +16563,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_1E8FA8B0(swiftIndirectResult);
+                PInvoke_init_6A04C10F(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedButton>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16576,7 +16576,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedButtonCACycfC")]
-        private static extern void PInvoke_init_1E8FA8B0( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_6A04C10F( SwiftIndirectResult swiftIndirectResult);
         
         
         
@@ -16861,50 +16861,56 @@ namespace Swift.Lottie
     }
     
     
-    public unsafe class ValueProviderStorage : ISwiftObject
+    public unsafe class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject, ISwiftAnyInterpolatable
     {
-        static nuint _payloadSize = SwiftObjectHelper<ValueProviderStorage>.GetTypeMetadata().Size;
-        SwiftSafeHandle<ValueProviderStorage> _payload = SwiftSafeHandle<ValueProviderStorage>.Zero;
-        public SwiftSafeHandle<ValueProviderStorage> Payload => _payload;
+        static nuint _payloadSize = SwiftObjectHelper<ValueProviderStorage<T0>>.GetTypeMetadata().Size;
+        SwiftSafeHandle<ValueProviderStorage<T0>> _payload = SwiftSafeHandle<ValueProviderStorage<T0>>.Zero;
+        public SwiftSafeHandle<ValueProviderStorage<T0>> Payload => _payload;
         
         /// <summary>
-        /// Creates the 'keyframes' case of ValueProviderStorage.
+        /// Creates the 'singleValue' case of ValueProviderStorage<T0>.
         /// </summary>
-        public static ValueProviderStorage Keyframes(Swift.SwiftArray<Swift.Lottie.Keyframe<Swift.AnyType>> value0)
+        public static ValueProviderStorage<T0> SingleValue(T0 value0)
         {
-            var result = new ValueProviderStorage();
-            var metadata = PInvoke_getMetadata();
+            var result = new ValueProviderStorage<T0>();
+            var metadata = ValueProviderStorage_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
             IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
             var indirectResult = new SwiftIndirectResult((void*)buffer);
-            PInvoke_Keyframes(indirectResult, value0.Payload.DangerousGetHandle());
-            result._payload = new SwiftSafeHandle<ValueProviderStorage>(buffer);
+            ValueProviderStorage_PInvoke.PInvoke_SingleValue(indirectResult, value0.Payload.DangerousGetHandle(), SwiftObjectHelper<T0>.GetTypeMetadata());
+            result._payload = new SwiftSafeHandle<ValueProviderStorage<T0>>(buffer);
             return result;
         }
         
-        [DllImport("Lottie", EntryPoint = "$s6Lottie20ValueProviderStorageO9keyframesyACyxGSayAA8KeyframeCyxGGcAEmAA17AnyInterpolatableRzlF")]
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        private static extern void PInvoke_Keyframes(SwiftIndirectResult result, IntPtr value0);
+        /// <summary>
+        /// Creates the 'keyframes' case of ValueProviderStorage<T0>.
+        /// </summary>
+        public static ValueProviderStorage<T0> Keyframes(Swift.SwiftArray<Swift.Lottie.Keyframe<Swift.AnyType>> value0)
+        {
+            var result = new ValueProviderStorage<T0>();
+            var metadata = ValueProviderStorage_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
+            IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+            var indirectResult = new SwiftIndirectResult((void*)buffer);
+            ValueProviderStorage_PInvoke.PInvoke_Keyframes(indirectResult, value0.Payload.DangerousGetHandle(), SwiftObjectHelper<T0>.GetTypeMetadata());
+            result._payload = new SwiftSafeHandle<ValueProviderStorage<T0>>(buffer);
+            return result;
+        }
         
         /// <summary>
-        /// Gets the 'closure' case of ValueProviderStorage.
+        /// Gets the 'closure' case of ValueProviderStorage<T0>.
         /// </summary>
-        public static ValueProviderStorage Closure
+        public static ValueProviderStorage<T0> Closure
         {
             get
             {
-                var result = new ValueProviderStorage();
-                var metadata = PInvoke_getMetadata();
+                var result = new ValueProviderStorage<T0>();
+                var metadata = ValueProviderStorage_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
                 IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
                 var indirectResult = new SwiftIndirectResult((void*)buffer);
-                PInvoke_Closure(indirectResult);
-                result._payload = new SwiftSafeHandle<ValueProviderStorage>(buffer);
+                ValueProviderStorage_PInvoke.PInvoke_Closure(indirectResult, SwiftObjectHelper<T0>.GetTypeMetadata());
+                result._payload = new SwiftSafeHandle<ValueProviderStorage<T0>>(buffer);
                 return result;
             }
         }
-        
-        [DllImport("Lottie", EntryPoint = "$s6Lottie20ValueProviderStorageO7closureyACyxGx12CoreGraphics7CGFloatVccAEmAA17AnyInterpolatableRzlF")]
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        private static extern void PInvoke_Closure(SwiftIndirectResult result);
         
         /// <summary>
         /// Enum representing the possible cases of ValueProviderStorage.
@@ -16928,7 +16934,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<ValueProviderStorage<T0>>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -16938,6 +16944,43 @@ namespace Swift.Lottie
                         _payload.DangerousRelease();
                 }
             }
+        }
+        
+        /// <summary>
+        /// Attempts to extract the associated value(s) for the 'singleValue' case.
+        /// </summary>
+        /// <param name="value">When this method returns true, contains the associated value(s).</param>
+        /// <returns>True if this enum is the 'singleValue' case; otherwise, false.</returns>
+        public unsafe bool TryGetSingleValue([MaybeNullWhen(false)] out T0 value)
+        {
+            if (Tag != CaseTag.SingleValue)
+            {
+                value = default;
+                return false;
+            }
+            
+            var metadata = SwiftObjectHelper<ValueProviderStorage<T0>>.GetTypeMetadata();
+            
+            // Create a non-destructive copy of the enum
+            byte* enumCopy = stackalloc byte[(int)metadata.Size];
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+            
+            // Strip the tag to get the raw payload
+            metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);
+            
+            // Marshal the payload to C# type(s)
+            value = SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(enumCopy));
+            return true;
         }
         
         /// <summary>
@@ -16953,7 +16996,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<ValueProviderStorage<T0>>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -16978,15 +17021,11 @@ namespace Swift.Lottie
         }
         
         
-        static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("Lottie", EntryPoint = "$s6Lottie20ValueProviderStorageOMa")]
-        internal static extern TypeMetadata PInvoke_getMetadata();
+        static TypeMetadata ISwiftObject.GetTypeMetadata() => ValueProviderStorage_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
         
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new ValueProviderStorage(handle);
+            return new ValueProviderStorage<T0>(handle);
         }
         
         ValueProviderStorage()
@@ -16995,12 +17034,12 @@ namespace Swift.Lottie
         
         ValueProviderStorage(SwiftHandle handle)
         {
-            _payload = new SwiftSafeHandle<ValueProviderStorage>(handle);
+            _payload = new SwiftSafeHandle<ValueProviderStorage<T0>>(handle);
         }
         
         unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
         {
-            var metadata = SwiftObjectHelper<ValueProviderStorage>.GetTypeMetadata();
+            var metadata = SwiftObjectHelper<ValueProviderStorage<T0>>.GetTypeMetadata();
             if ((int)metadata.Size > swiftDestSpan.Length)
             {
                 throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -17041,6 +17080,26 @@ namespace Swift.Lottie
             }
             return ProtocolConformanceDescriptor.LoadFromSymbol("Lottie", symbolName);
         }
+        
+    }
+    
+    internal static class ValueProviderStorage_PInvoke
+    {
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("Lottie", EntryPoint = "$s6Lottie20ValueProviderStorageO06singleB0yACyxGxcAEmAA17AnyInterpolatableRzlF")]
+        internal static extern void PInvoke_SingleValue(SwiftIndirectResult result, IntPtr value0, TypeMetadata t0Metadata);
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("Lottie", EntryPoint = "$s6Lottie20ValueProviderStorageO9keyframesyACyxGSayAA8KeyframeCyxGGcAEmAA17AnyInterpolatableRzlF")]
+        internal static extern void PInvoke_Keyframes(SwiftIndirectResult result, IntPtr value0, TypeMetadata t0Metadata);
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("Lottie", EntryPoint = "$s6Lottie20ValueProviderStorageO7closureyACyxGx12CoreGraphics7CGFloatVccAEmAA17AnyInterpolatableRzlF")]
+        internal static extern void PInvoke_Closure(SwiftIndirectResult result, TypeMetadata t0Metadata);
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("Lottie", EntryPoint = "$s6Lottie20ValueProviderStorageOMa")]
+        internal static extern TypeMetadata PInvoke_getMetadata(TypeMetadata t0Metadata);
         
     }
     
@@ -17130,7 +17189,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<AnyValueProviderStorage>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -17155,7 +17214,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<AnyValueProviderStorage>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -17263,7 +17322,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_cancelBehavior_Get_01CD818E(swiftIndirectResult, self);
+                PInvoke_cancelBehavior_Get_39CBEEF0(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedSwitch.CancelBehavior>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17278,7 +17337,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC14cancelBehaviorAC06CancelE0Ovg")]
-        private static extern void PInvoke_cancelBehavior_Get_01CD818E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_cancelBehavior_Get_39CBEEF0( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void CancelBehavior_Set( Swift.Lottie.AnimatedSwitch.CancelBehavior value)
         {
@@ -17290,7 +17349,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_cancelBehavior_Set_10BFFB56(value.Payload, self);
+                PInvoke_cancelBehavior_Set_3B8F3F52(value.Payload, self);
                 
                 return;
             }
@@ -17305,7 +17364,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC14cancelBehaviorAC06CancelE0Ovs")]
-        private static extern void PInvoke_cancelBehavior_Set_10BFFB56( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_cancelBehavior_Set_3B8F3F52( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.AnimatedSwitch.CancelBehavior CancelBehaviorValue
         {
@@ -17323,7 +17382,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animateUpdateWhenChangingAnimation_Get_11962567(self);
+                var result = PInvoke_animateUpdateWhenChangingAnimation_Get_77CE9ECC(self);
                 
                 return result;
             }
@@ -17338,7 +17397,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC34animateUpdateWhenChangingAnimationSbvg")]
-        private static extern System.Boolean PInvoke_animateUpdateWhenChangingAnimation_Get_11962567( SwiftSelf self);
+        private static extern System.Boolean PInvoke_animateUpdateWhenChangingAnimation_Get_77CE9ECC( SwiftSelf self);
         
         private unsafe void AnimateUpdateWhenChangingAnimation_Set( System.Boolean value)
         {
@@ -17350,7 +17409,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animateUpdateWhenChangingAnimation_Set_156B51FE(value, self);
+                PInvoke_animateUpdateWhenChangingAnimation_Set_5E3EDC36(value, self);
                 
                 return;
             }
@@ -17365,7 +17424,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC34animateUpdateWhenChangingAnimationSbvs")]
-        private static extern void PInvoke_animateUpdateWhenChangingAnimation_Set_156B51FE( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_animateUpdateWhenChangingAnimation_Set_5E3EDC36( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean AnimateUpdateWhenChangingAnimation
         {
@@ -17383,7 +17442,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_stateUpdated_Get_2E010648(self);
+                var result = PInvoke_stateUpdated_Get_251567D7(self);
                 
                 // Wrap Swift closure in SwiftEscapingClosure for ARC management
                 var _closureWrapper = SwiftEscapingClosure<Action<System.Boolean>>.FromSwift(result.FunctionPointer, result.Context);
@@ -17410,11 +17469,11 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC12stateUpdatedySbcSgvg")]
-        private static extern SwiftClosureData PInvoke_stateUpdated_Get_2E010648( SwiftSelf self);
+        private static extern SwiftClosureData PInvoke_stateUpdated_Get_251567D7( SwiftSelf self);
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_stateUpdated_Set_value_4462DCEF_Callback = &stateUpdated_Set_value_4462DCEF_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_stateUpdated_Set_value_235F37EF_Callback = &stateUpdated_Set_value_235F37EF_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void stateUpdated_Set_value_4462DCEF_Callback(byte arg0, SwiftSelf context)
+        private static void stateUpdated_Set_value_235F37EF_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -17434,14 +17493,14 @@ namespace Swift.Lottie
                 if (value != null)
                 {
                     valueHandle = GCHandle.Alloc(value);
-                    valueClosure = new SwiftClosureData((IntPtr)s_stateUpdated_Set_value_4462DCEF_Callback, GCHandle.ToIntPtr(valueHandle));
+                    valueClosure = new SwiftClosureData((IntPtr)s_stateUpdated_Set_value_235F37EF_Callback, GCHandle.ToIntPtr(valueHandle));
                 }
                 else
                 {
                     valueClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_stateUpdated_Set_4462DCEF(valueClosure, self);
+                PInvoke_stateUpdated_Set_235F37EF(valueClosure, self);
                 
                 return;
             }
@@ -17457,7 +17516,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC12stateUpdatedySbcSgvs")]
-        private static extern void PInvoke_stateUpdated_Set_4462DCEF( SwiftClosureData value,  SwiftSelf self);
+        private static extern void PInvoke_stateUpdated_Set_235F37EF( SwiftClosureData value,  SwiftSelf self);
         
         public Action<System.Boolean>? StateUpdated
         {
@@ -17475,7 +17534,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_isOn_Get_7CC9A4CE(self);
+                var result = PInvoke_isOn_Get_4191A581(self);
                 
                 return result;
             }
@@ -17490,7 +17549,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC4isOnSbvg")]
-        private static extern System.Boolean PInvoke_isOn_Get_7CC9A4CE( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isOn_Get_4191A581( SwiftSelf self);
         
         private unsafe void IsOn_Set( System.Boolean value)
         {
@@ -17502,7 +17561,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_isOn_Set_0C82A557(value, self);
+                PInvoke_isOn_Set_6F5A2DC2(value, self);
                 
                 return;
             }
@@ -17517,7 +17576,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC4isOnSbvs")]
-        private static extern void PInvoke_isOn_Set_0C82A557( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_isOn_Set_6F5A2DC2( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean IsOn
         {
@@ -17683,7 +17742,7 @@ namespace Swift.Lottie
                     _payload.DangerousAddRef(ref success);
                     try
                     {
-                        var metadata = PInvoke_getMetadata();
+                        var metadata = SwiftObjectHelper<CancelBehavior>.GetTypeMetadata();
                         byte* payload = (byte*)_payload.DangerousGetHandle();
                         return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                     }
@@ -17704,7 +17763,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_13A44D86(self);
+                    var result = PInvoke_hashValue_Get_2DAA7002(self);
                     
                     return result;
                 }
@@ -17717,7 +17776,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC14CancelBehaviorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_13A44D86( SwiftSelf self);
+            private static extern System.IntPtr PInvoke_hashValue_Get_2DAA7002( SwiftSelf self);
             
             public System.IntPtr HashValue
             {
@@ -17796,7 +17855,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    PInvoke_hash_173430E8(into.Payload, self);
+                    PInvoke_hash_3F7D0752(into.Payload, self);
                     
                     return;
                 }
@@ -17809,7 +17868,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC14CancelBehaviorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_173430E8( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_3F7D0752( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -17828,7 +17887,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> animationDisposable = animationSwift.PayloadBuffer;
                 IntPtr animationBuffer = animationDisposable.Buffer;
                 
-                PInvoke_init_5413EBE8(swiftIndirectResult, animationBuffer, configuration.Payload);
+                PInvoke_init_63BCE481(swiftIndirectResult, animationBuffer, configuration.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedSwitch>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17841,7 +17900,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC9animation13configurationAcA0A9AnimationCSg_AA0A13ConfigurationVtcfC")]
-        private static extern void PInvoke_init_5413EBE8( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  SafeHandle configuration);
+        private static extern void PInvoke_init_63BCE481( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  SafeHandle configuration);
         
         
         public unsafe Swift.Lottie.AnimatedSwitch Init()
@@ -17854,7 +17913,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_5151DBB2(swiftIndirectResult);
+                PInvoke_init_49A740BA(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimatedSwitch>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17867,7 +17926,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchCACycfC")]
-        private static extern void PInvoke_init_5151DBB2( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_49A740BA( SwiftIndirectResult swiftIndirectResult);
         
         
         
@@ -17881,7 +17940,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationDidSet_2D5B2F96(self);
+                PInvoke_animationDidSet_13E6D730(self);
                 
                 return;
             }
@@ -17896,7 +17955,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC15animationDidSetyyF")]
-        private static extern void PInvoke_animationDidSet_2D5B2F96( SwiftSelf self);
+        private static extern void PInvoke_animationDidSet_13E6D730( SwiftSelf self);
         
         
         
@@ -17910,7 +17969,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_setIsOn_148395D3(arg0, animated, shouldFireHaptics, self);
+                PInvoke_setIsOn_3DAFDF95(arg0, animated, shouldFireHaptics, self);
                 
                 return;
             }
@@ -17925,7 +17984,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC7setIsOn_8animated17shouldFireHapticsySb_S2btF")]
-        private static extern void PInvoke_setIsOn_148395D3( System.Boolean arg0,  System.Boolean animated,  System.Boolean shouldFireHaptics,  SwiftSelf self);
+        private static extern void PInvoke_setIsOn_3DAFDF95( System.Boolean arg0,  System.Boolean animated,  System.Boolean shouldFireHaptics,  SwiftSelf self);
         
         
         public unsafe void SetProgressForState( System.Double fromProgress,  System.Double toProgress,  System.Boolean forOnState)
@@ -17938,7 +17997,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_setProgressForState_31B611D6(fromProgress, toProgress, forOnState, self);
+                PInvoke_setProgressForState_32EE3D2A(fromProgress, toProgress, forOnState, self);
                 
                 return;
             }
@@ -17953,7 +18012,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie14AnimatedSwitchC19setProgressForState04fromE002toE005forOnG0y12CoreGraphics7CGFloatV_AJSbtF")]
-        private static extern void PInvoke_setProgressForState_31B611D6( System.Double fromProgress,  System.Double toProgress,  System.Boolean forOnState,  SwiftSelf self);
+        private static extern void PInvoke_setProgressForState_32EE3D2A( System.Double fromProgress,  System.Double toProgress,  System.Boolean forOnState,  SwiftSelf self);
         
         
     }
@@ -17971,7 +18030,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_value_Get_792392DA(self);
+                var result = PInvoke_value_Get_0E4E8CB9(self);
                 
                 return result;
             }
@@ -17986,7 +18045,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector1DV5valueSdvg")]
-        private static extern System.Double PInvoke_value_Get_792392DA( SwiftSelf self);
+        private static extern System.Double PInvoke_value_Get_0E4E8CB9( SwiftSelf self);
         
         public System.Double Value
         {
@@ -18003,7 +18062,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_25A48251(self);
+                var result = PInvoke_hashValue_Get_6262DB6D(self);
                 
                 return result;
             }
@@ -18018,7 +18077,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector1DV9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_25A48251( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_6262DB6D( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -18125,13 +18184,13 @@ namespace Swift.Lottie
             _payload = new SwiftSafeHandle<LottieVector1D>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_2171FEBE(swiftIndirectResult, arg0);
+            PInvoke_init_5BCE17D7(swiftIndirectResult, arg0);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector1DVyACSdcfC")]
-        private static extern void PInvoke_init_2171FEBE( SwiftIndirectResult swiftIndirectResult,  System.Double arg0);
+        private static extern void PInvoke_init_5BCE17D7( SwiftIndirectResult swiftIndirectResult,  System.Double arg0);
         
         
         public unsafe void Hash( Swift.Hasher into)
@@ -18144,7 +18203,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_697C831F(into.Payload, self);
+                PInvoke_hash_79732353(into.Payload, self);
                 
                 return;
             }
@@ -18159,7 +18218,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector1DV4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_697C831F( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_79732353( SafeHandle into,  SwiftSelf self);
         
         
         public unsafe LottieVector1D( Swift.Runtime.ExistentialContainer1 from)
@@ -18167,7 +18226,7 @@ namespace Swift.Lottie
             _payload = new SwiftSafeHandle<LottieVector1D>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_05E9A9EC(swiftIndirectResult, from, out var error);
+            PInvoke_init_7466209A(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -18178,7 +18237,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector1DV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_05E9A9EC( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_7466209A( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         public unsafe void Encode( Swift.Runtime.ExistentialContainer1 to)
@@ -18191,7 +18250,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_encode_7F51F926(to, self, out var error);
+                PInvoke_encode_0F7BA7C0(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -18211,7 +18270,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector1DV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_7F51F926( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_0F7BA7C0( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
         public unsafe Swift.Lottie.LottieVector1D Interpolate( Swift.Lottie.LottieVector1D to,  System.Double amount)
@@ -18228,7 +18287,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_interpolate_1F2CC288(swiftIndirectResult, to.Payload, amount, self);
+                PInvoke_interpolate_55DB8A6E(swiftIndirectResult, to.Payload, amount, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieVector1D>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -18243,7 +18302,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector1DV11interpolate2to6amountA2C_12CoreGraphics7CGFloatVtF")]
-        private static extern void PInvoke_interpolate_1F2CC288( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  System.Double amount,  SwiftSelf self);
+        private static extern void PInvoke_interpolate_55DB8A6E( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  System.Double amount,  SwiftSelf self);
         
         
     }
@@ -18261,7 +18320,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_x_Get_235BD72D(self);
+                var result = PInvoke_x_Get_413CA520(self);
                 
                 return result;
             }
@@ -18276,7 +18335,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV1xSdvg")]
-        private static extern System.Double PInvoke_x_Get_235BD72D( SwiftSelf self);
+        private static extern System.Double PInvoke_x_Get_413CA520( SwiftSelf self);
         
         public System.Double X
         {
@@ -18293,7 +18352,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_y_Get_0E4591DE(self);
+                var result = PInvoke_y_Get_5C3FCF77(self);
                 
                 return result;
             }
@@ -18308,7 +18367,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV1ySdvg")]
-        private static extern System.Double PInvoke_y_Get_0E4591DE( SwiftSelf self);
+        private static extern System.Double PInvoke_y_Get_5C3FCF77( SwiftSelf self);
         
         public System.Double Y
         {
@@ -18325,7 +18384,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_z_Get_4722457D(self);
+                var result = PInvoke_z_Get_15E2269E(self);
                 
                 return result;
             }
@@ -18340,7 +18399,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV1zSdvg")]
-        private static extern System.Double PInvoke_z_Get_4722457D( SwiftSelf self);
+        private static extern System.Double PInvoke_z_Get_15E2269E( SwiftSelf self);
         
         public System.Double Z
         {
@@ -18357,7 +18416,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_47EC2BF5(self);
+                var result = PInvoke_hashValue_Get_288780E1(self);
                 
                 return result;
             }
@@ -18372,7 +18431,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_47EC2BF5( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_288780E1( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -18389,7 +18448,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_pointValue_Get_1A1FED01(self);
+                var result = PInvoke_pointValue_Get_4AC69E58(self);
                 
                 return result;
             }
@@ -18404,7 +18463,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV10pointValueSo7CGPointVvg")]
-        private static extern Swift.CGPoint PInvoke_pointValue_Get_1A1FED01( SwiftSelf self);
+        private static extern Swift.CGPoint PInvoke_pointValue_Get_4AC69E58( SwiftSelf self);
         
         public Swift.CGPoint PointValue
         {
@@ -18421,7 +18480,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_sizeValue_Get_166376F3(self);
+                var result = PInvoke_sizeValue_Get_69A56330(self);
                 
                 return result;
             }
@@ -18436,7 +18495,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV9sizeValueSo6CGSizeVvg")]
-        private static extern Swift.CGSize PInvoke_sizeValue_Get_166376F3( SwiftSelf self);
+        private static extern Swift.CGSize PInvoke_sizeValue_Get_69A56330( SwiftSelf self);
         
         public Swift.CGSize SizeValue
         {
@@ -18543,13 +18602,13 @@ namespace Swift.Lottie
             _payload = new SwiftSafeHandle<LottieVector3D>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_59627E18(swiftIndirectResult, x, y, z);
+            PInvoke_init_78B71708(swiftIndirectResult, x, y, z);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV1x1y1zACSd_S2dtcfC")]
-        private static extern void PInvoke_init_59627E18( SwiftIndirectResult swiftIndirectResult,  System.Double x,  System.Double y,  System.Double z);
+        private static extern void PInvoke_init_78B71708( SwiftIndirectResult swiftIndirectResult,  System.Double x,  System.Double y,  System.Double z);
         
         
         public unsafe void Hash( Swift.Hasher into)
@@ -18562,7 +18621,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_33DEC924(into.Payload, self);
+                PInvoke_hash_2C44069D(into.Payload, self);
                 
                 return;
             }
@@ -18577,7 +18636,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_33DEC924( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_2C44069D( SafeHandle into,  SwiftSelf self);
         
         
         public unsafe LottieVector3D( Swift.Runtime.ExistentialContainer1 from)
@@ -18585,7 +18644,7 @@ namespace Swift.Lottie
             _payload = new SwiftSafeHandle<LottieVector3D>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_5AC4D735(swiftIndirectResult, from, out var error);
+            PInvoke_init_677A0E0C(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -18596,7 +18655,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_5AC4D735( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_677A0E0C( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         public unsafe void Encode( Swift.Runtime.ExistentialContainer1 to)
@@ -18609,7 +18668,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_encode_4C9DFEA6(to, self, out var error);
+                PInvoke_encode_78B690DD(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -18629,7 +18688,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_4C9DFEA6( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_78B690DD( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
         public unsafe Swift.Lottie.LottieVector3D Interpolate( Swift.Lottie.LottieVector3D to,  System.Double amount,  Swift.CGPoint? spatialOutTangent,  Swift.CGPoint? spatialInTangent)
@@ -18652,7 +18711,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> spatialInTangentDisposable = spatialInTangentSwift.PayloadBuffer;
                 IntPtr spatialInTangentBuffer = spatialInTangentDisposable.Buffer;
                 
-                PInvoke_interpolate_116F4595(swiftIndirectResult, to.Payload, amount, spatialOutTangentBuffer, spatialInTangentBuffer, self);
+                PInvoke_interpolate_5C22CF40(swiftIndirectResult, to.Payload, amount, spatialOutTangentBuffer, spatialInTangentBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieVector3D>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -18667,7 +18726,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8Vector3DV11interpolate2to6amount17spatialOutTangent0f2InH0A2C_12CoreGraphics7CGFloatVSo7CGPointVSgANtF")]
-        private static extern void PInvoke_interpolate_116F4595( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  System.Double amount,  IntPtr spatialOutTangentBuffer,  IntPtr spatialInTangentBuffer,  SwiftSelf self);
+        private static extern void PInvoke_interpolate_5C22CF40( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  System.Double amount,  IntPtr spatialOutTangentBuffer,  IntPtr spatialInTangentBuffer,  SwiftSelf self);
         
         
     }
@@ -18808,7 +18867,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<LottieBackgroundBehavior>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -18829,7 +18888,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_61E2EA0A(self);
+                var result = PInvoke_hashValue_Get_23534C00(self);
                 
                 return result;
             }
@@ -18842,7 +18901,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A18BackgroundBehaviorO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_61E2EA0A( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_23534C00( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -18923,7 +18982,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke__default_71507D63(swiftIndirectResult, _for.Payload);
+                PInvoke__default_329EED74(swiftIndirectResult, _for.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieBackgroundBehavior>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -18936,7 +18995,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A18BackgroundBehaviorO7default3forAcA15RenderingEngineO_tFZ")]
-        private static extern void PInvoke__default_71507D63( SwiftIndirectResult swiftIndirectResult,  SafeHandle _for);
+        private static extern void PInvoke__default_329EED74( SwiftIndirectResult swiftIndirectResult,  SafeHandle _for);
         
         
         public unsafe void Hash( Swift.Hasher into)
@@ -18947,7 +19006,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_0DE7918D(into.Payload, self);
+                PInvoke_hash_3129D982(into.Payload, self);
                 
                 return;
             }
@@ -18960,7 +19019,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A18BackgroundBehaviorO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_0DE7918D( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_3129D982( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -19095,7 +19154,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<LottieLoopMode>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -19120,7 +19179,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottieLoopMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -19157,7 +19216,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<LottieLoopMode>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -19190,7 +19249,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hashValue_Get_0D32CFB6(self);
+                var result = PInvoke_hashValue_Get_6D38ABBE(self);
                 
                 return result;
             }
@@ -19203,7 +19262,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8LoopModeO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_0D32CFB6( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_6D38ABBE( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -19282,7 +19341,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_hash_43F6EF83(into.Payload, self);
+                PInvoke_hash_270B88B9(into.Payload, self);
                 
                 return;
             }
@@ -19295,7 +19354,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A8LoopModeO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_43F6EF83( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_270B88B9( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -19313,7 +19372,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animateLayoutChangesWithCurrentCoreAnimationContext_Get_068D7029(self);
+                var result = PInvoke_animateLayoutChangesWithCurrentCoreAnimationContext_Get_0678EC53(self);
                 
                 return result;
             }
@@ -19328,7 +19387,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC035animateLayoutChangesWithCurrentCoreB7ContextSbvg")]
-        private static extern System.Boolean PInvoke_animateLayoutChangesWithCurrentCoreAnimationContext_Get_068D7029( SwiftSelf self);
+        private static extern System.Boolean PInvoke_animateLayoutChangesWithCurrentCoreAnimationContext_Get_0678EC53( SwiftSelf self);
         
         private unsafe void AnimateLayoutChangesWithCurrentCoreAnimationContext_Set( System.Boolean value)
         {
@@ -19340,7 +19399,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animateLayoutChangesWithCurrentCoreAnimationContext_Set_4049452E(value, self);
+                PInvoke_animateLayoutChangesWithCurrentCoreAnimationContext_Set_181F6366(value, self);
                 
                 return;
             }
@@ -19355,7 +19414,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC035animateLayoutChangesWithCurrentCoreB7ContextSbvs")]
-        private static extern void PInvoke_animateLayoutChangesWithCurrentCoreAnimationContext_Set_4049452E( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_animateLayoutChangesWithCurrentCoreAnimationContext_Set_181F6366( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean AnimateLayoutChangesWithCurrentCoreAnimationContext
         {
@@ -19377,7 +19436,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_configuration_Get_285D455F(swiftIndirectResult, self);
+                PInvoke_configuration_Get_324191DB(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieConfiguration>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -19392,7 +19451,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC13configurationAA0A13ConfigurationVvg")]
-        private static extern void PInvoke_configuration_Get_285D455F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_configuration_Get_324191DB( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Configuration_Set( Swift.Lottie.LottieConfiguration value)
         {
@@ -19404,7 +19463,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_configuration_Set_3841B6B2(value.Payload, self);
+                PInvoke_configuration_Set_615D74AF(value.Payload, self);
                 
                 return;
             }
@@ -19419,7 +19478,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC13configurationAA0A13ConfigurationVvs")]
-        private static extern void PInvoke_configuration_Set_3841B6B2( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_configuration_Set_615D74AF( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.LottieConfiguration Configuration
         {
@@ -19437,7 +19496,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_valueProviders_Get_03101C35(self);
+                var result = PInvoke_valueProviders_Get_4881F1CF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftDictionary<Swift.Lottie.AnimationKeypath, Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
             }
@@ -19452,7 +19511,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC14valueProvidersSDyAA0B7KeypathVAA16AnyValueProvider_pGvg")]
-        private static extern IntPtr PInvoke_valueProviders_Get_03101C35( SwiftSelf self);
+        private static extern IntPtr PInvoke_valueProviders_Get_4881F1CF( SwiftSelf self);
         
         public Swift.SwiftDictionary<Swift.Lottie.AnimationKeypath, Swift.Runtime.ExistentialContainer1> ValueProviders
         {
@@ -19473,7 +19532,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_backgroundBehavior_Get_22D5A0EB(swiftIndirectResult, self);
+                PInvoke_backgroundBehavior_Get_40F1FCD4(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieBackgroundBehavior>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -19488,7 +19547,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC18backgroundBehaviorAA0a10BackgroundE0Ovg")]
-        private static extern void PInvoke_backgroundBehavior_Get_22D5A0EB( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_backgroundBehavior_Get_40F1FCD4( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void BackgroundBehavior_Set( Swift.Lottie.LottieBackgroundBehavior value)
         {
@@ -19500,7 +19559,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_backgroundBehavior_Set_1B887DAE(value.Payload, self);
+                PInvoke_backgroundBehavior_Set_4D3525A7(value.Payload, self);
                 
                 return;
             }
@@ -19515,7 +19574,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC18backgroundBehaviorAA0a10BackgroundE0Ovs")]
-        private static extern void PInvoke_backgroundBehavior_Set_1B887DAE( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_backgroundBehavior_Set_4D3525A7( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.LottieBackgroundBehavior BackgroundBehavior
         {
@@ -19533,7 +19592,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animation_Get_1826DBBB(self);
+                var result = PInvoke_animation_Get_4C3C9ABC(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieAnimation>>(new IntPtr(&result));
             }
@@ -19548,7 +19607,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC9animationAA0aB0CSgvg")]
-        private static extern IntPtr PInvoke_animation_Get_1826DBBB( SwiftSelf self);
+        private static extern IntPtr PInvoke_animation_Get_4C3C9ABC( SwiftSelf self);
         
         private unsafe void Animation_Set( Swift.SwiftOptional<Swift.Lottie.LottieAnimation> value)
         {
@@ -19562,7 +19621,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_animation_Set_02639CC5(valueBuffer, self);
+                PInvoke_animation_Set_67DCC768(valueBuffer, self);
                 
                 return;
             }
@@ -19577,7 +19636,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC9animationAA0aB0CSgvs")]
-        private static extern void PInvoke_animation_Set_02639CC5( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_animation_Set_67DCC768( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.Lottie.LottieAnimation> Animation
         {
@@ -19599,7 +19658,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_imageProvider_Get_525565A8(self);
+                PInvoke_imageProvider_Get_401B7198(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -19614,7 +19673,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC13imageProviderAA0b5ImageE0_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_imageProvider_Get_525565A8( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_imageProvider_Get_401B7198( SwiftSelf self);
         
         private unsafe void ImageProvider_Set( Swift.Runtime.ExistentialContainer1 value)
         {
@@ -19626,7 +19685,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_imageProvider_Set_12E0BD13(value, self);
+                PInvoke_imageProvider_Set_08032B9E(value, self);
                 
                 return;
             }
@@ -19641,7 +19700,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC13imageProviderAA0b5ImageE0_pvs")]
-        private static extern void PInvoke_imageProvider_Set_12E0BD13( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+        private static extern void PInvoke_imageProvider_Set_08032B9E( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 ImageProvider
         {
@@ -19663,7 +19722,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_textProvider_Get_78689A48(self);
+                PInvoke_textProvider_Get_3176434B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -19678,7 +19737,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC12textProviderAA0b11KeypathTextE0_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_textProvider_Get_78689A48( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_textProvider_Get_3176434B( SwiftSelf self);
         
         private unsafe void TextProvider_Set( Swift.Runtime.ExistentialContainer1 value)
         {
@@ -19690,7 +19749,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_textProvider_Set_11040AB3(value, self);
+                PInvoke_textProvider_Set_41F8CB59(value, self);
                 
                 return;
             }
@@ -19705,7 +19764,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC12textProviderAA0b11KeypathTextE0_pvs")]
-        private static extern void PInvoke_textProvider_Set_11040AB3( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+        private static extern void PInvoke_textProvider_Set_41F8CB59( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 TextProvider
         {
@@ -19727,7 +19786,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_fontProvider_Get_1C5C59EC(self);
+                PInvoke_fontProvider_Get_66773DF2(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -19742,7 +19801,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC12fontProviderAA0b4FontE0_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_fontProvider_Get_1C5C59EC( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_fontProvider_Get_66773DF2( SwiftSelf self);
         
         private unsafe void FontProvider_Set( Swift.Runtime.ExistentialContainer1 value)
         {
@@ -19754,7 +19813,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_fontProvider_Set_2C302C6F(value, self);
+                PInvoke_fontProvider_Set_150C6CA2(value, self);
                 
                 return;
             }
@@ -19769,7 +19828,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC12fontProviderAA0b4FontE0_pvs")]
-        private static extern void PInvoke_fontProvider_Set_2C302C6F( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+        private static extern void PInvoke_fontProvider_Set_150C6CA2( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 FontProvider
         {
@@ -19787,7 +19846,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_maskAnimationToBounds_Get_0B3E3F41(self);
+                var result = PInvoke_maskAnimationToBounds_Get_381BD8D9(self);
                 
                 return result;
             }
@@ -19802,7 +19861,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC04maskB8ToBoundsSbvg")]
-        private static extern System.Boolean PInvoke_maskAnimationToBounds_Get_0B3E3F41( SwiftSelf self);
+        private static extern System.Boolean PInvoke_maskAnimationToBounds_Get_381BD8D9( SwiftSelf self);
         
         private unsafe void MaskAnimationToBounds_Set( System.Boolean value)
         {
@@ -19814,7 +19873,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_maskAnimationToBounds_Set_109FBA1D(value, self);
+                PInvoke_maskAnimationToBounds_Set_68ADD803(value, self);
                 
                 return;
             }
@@ -19829,7 +19888,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC04maskB8ToBoundsSbvs")]
-        private static extern void PInvoke_maskAnimationToBounds_Set_109FBA1D( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_maskAnimationToBounds_Set_68ADD803( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean MaskAnimationToBounds
         {
@@ -19847,7 +19906,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_isAnimationPlaying_Get_5D0C8D96(self);
+                var result = PInvoke_isAnimationPlaying_Get_4386F687(self);
                 
                 return result;
             }
@@ -19862,7 +19921,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC02isB7PlayingSbvg")]
-        private static extern System.Boolean PInvoke_isAnimationPlaying_Get_5D0C8D96( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isAnimationPlaying_Get_4386F687( SwiftSelf self);
         
         public System.Boolean IsAnimationPlaying
         {
@@ -19879,7 +19938,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_isAnimationQueued_Get_75A11974(self);
+                var result = PInvoke_isAnimationQueued_Get_7CE13648(self);
                 
                 return result;
             }
@@ -19894,7 +19953,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC02isB6QueuedSbvg")]
-        private static extern System.Boolean PInvoke_isAnimationQueued_Get_75A11974( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isAnimationQueued_Get_7CE13648( SwiftSelf self);
         
         public System.Boolean IsAnimationQueued
         {
@@ -19915,7 +19974,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loopMode_Get_030B38FA(swiftIndirectResult, self);
+                PInvoke_loopMode_Get_11B4E39D(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieLoopMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -19930,7 +19989,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC8loopModeAA0a4LoopE0Ovg")]
-        private static extern void PInvoke_loopMode_Get_030B38FA( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_loopMode_Get_11B4E39D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void LoopMode_Set( Swift.Lottie.LottieLoopMode value)
         {
@@ -19942,7 +20001,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loopMode_Set_6F4F5A35(value.Payload, self);
+                PInvoke_loopMode_Set_0A4E742F(value.Payload, self);
                 
                 return;
             }
@@ -19957,7 +20016,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC8loopModeAA0a4LoopE0Ovs")]
-        private static extern void PInvoke_loopMode_Set_6F4F5A35( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_loopMode_Set_0A4E742F( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.LottieLoopMode LoopMode
         {
@@ -19975,7 +20034,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_shouldRasterizeWhenIdle_Get_05EFB6CB(self);
+                var result = PInvoke_shouldRasterizeWhenIdle_Get_3304AF7B(self);
                 
                 return result;
             }
@@ -19990,7 +20049,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC23shouldRasterizeWhenIdleSbvg")]
-        private static extern System.Boolean PInvoke_shouldRasterizeWhenIdle_Get_05EFB6CB( SwiftSelf self);
+        private static extern System.Boolean PInvoke_shouldRasterizeWhenIdle_Get_3304AF7B( SwiftSelf self);
         
         private unsafe void ShouldRasterizeWhenIdle_Set( System.Boolean value)
         {
@@ -20002,7 +20061,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_shouldRasterizeWhenIdle_Set_0C49E0E5(value, self);
+                PInvoke_shouldRasterizeWhenIdle_Set_5936E08E(value, self);
                 
                 return;
             }
@@ -20017,7 +20076,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC23shouldRasterizeWhenIdleSbvs")]
-        private static extern void PInvoke_shouldRasterizeWhenIdle_Set_0C49E0E5( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_shouldRasterizeWhenIdle_Set_5936E08E( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ShouldRasterizeWhenIdle
         {
@@ -20035,7 +20094,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentProgress_Get_389B9685(self);
+                var result = PInvoke_currentProgress_Get_0F9C5101(self);
                 
                 return result;
             }
@@ -20050,7 +20109,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC15currentProgress12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_currentProgress_Get_389B9685( SwiftSelf self);
+        private static extern System.Double PInvoke_currentProgress_Get_0F9C5101( SwiftSelf self);
         
         private unsafe void CurrentProgress_Set( System.Double value)
         {
@@ -20062,7 +20121,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentProgress_Set_3F6B99E7(value, self);
+                PInvoke_currentProgress_Set_4A149D15(value, self);
                 
                 return;
             }
@@ -20077,7 +20136,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC15currentProgress12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_currentProgress_Set_3F6B99E7( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_currentProgress_Set_4A149D15( System.Double value,  SwiftSelf self);
         
         public System.Double CurrentProgress
         {
@@ -20095,7 +20154,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentTime_Get_1D755E95(self);
+                var result = PInvoke_currentTime_Get_2210E45E(self);
                 
                 return result;
             }
@@ -20110,7 +20169,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC11currentTimeSdvg")]
-        private static extern System.Double PInvoke_currentTime_Get_1D755E95( SwiftSelf self);
+        private static extern System.Double PInvoke_currentTime_Get_2210E45E( SwiftSelf self);
         
         private unsafe void CurrentTime_Set( System.Double value)
         {
@@ -20122,7 +20181,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentTime_Set_1CE1E5F9(value, self);
+                PInvoke_currentTime_Set_72DC8181(value, self);
                 
                 return;
             }
@@ -20137,7 +20196,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC11currentTimeSdvs")]
-        private static extern void PInvoke_currentTime_Set_1CE1E5F9( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_currentTime_Set_72DC8181( System.Double value,  SwiftSelf self);
         
         public System.Double CurrentTime
         {
@@ -20155,7 +20214,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentFrame_Get_35098EAF(self);
+                var result = PInvoke_currentFrame_Get_7FE4FF0B(self);
                 
                 return result;
             }
@@ -20170,7 +20229,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC12currentFrame12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_currentFrame_Get_35098EAF( SwiftSelf self);
+        private static extern System.Double PInvoke_currentFrame_Get_7FE4FF0B( SwiftSelf self);
         
         private unsafe void CurrentFrame_Set( System.Double value)
         {
@@ -20182,7 +20241,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_currentFrame_Set_086D8D4F(value, self);
+                PInvoke_currentFrame_Set_449279C7(value, self);
                 
                 return;
             }
@@ -20197,7 +20256,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC12currentFrame12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_currentFrame_Set_086D8D4F( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_currentFrame_Set_449279C7( System.Double value,  SwiftSelf self);
         
         public System.Double CurrentFrame
         {
@@ -20215,7 +20274,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_realtimeAnimationFrame_Get_5D500B03(self);
+                var result = PInvoke_realtimeAnimationFrame_Get_57A9C673(self);
                 
                 return result;
             }
@@ -20230,7 +20289,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC08realtimeB5Frame12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_realtimeAnimationFrame_Get_5D500B03( SwiftSelf self);
+        private static extern System.Double PInvoke_realtimeAnimationFrame_Get_57A9C673( SwiftSelf self);
         
         public System.Double RealtimeAnimationFrame
         {
@@ -20247,7 +20306,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_realtimeAnimationProgress_Get_6A274510(self);
+                var result = PInvoke_realtimeAnimationProgress_Get_46ED0D7A(self);
                 
                 return result;
             }
@@ -20262,7 +20321,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC08realtimeB8Progress12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_realtimeAnimationProgress_Get_6A274510( SwiftSelf self);
+        private static extern System.Double PInvoke_realtimeAnimationProgress_Get_46ED0D7A( SwiftSelf self);
         
         public System.Double RealtimeAnimationProgress
         {
@@ -20279,7 +20338,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animationSpeed_Get_1C748BDF(self);
+                var result = PInvoke_animationSpeed_Get_6AE77580(self);
                 
                 return result;
             }
@@ -20294,7 +20353,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC14animationSpeed12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_animationSpeed_Get_1C748BDF( SwiftSelf self);
+        private static extern System.Double PInvoke_animationSpeed_Get_6AE77580( SwiftSelf self);
         
         private unsafe void AnimationSpeed_Set( System.Double value)
         {
@@ -20306,7 +20365,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationSpeed_Set_1F177157(value, self);
+                PInvoke_animationSpeed_Set_25E65F5B(value, self);
                 
                 return;
             }
@@ -20321,7 +20380,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC14animationSpeed12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_animationSpeed_Set_1F177157( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_animationSpeed_Set_25E65F5B( System.Double value,  SwiftSelf self);
         
         public System.Double AnimationSpeed
         {
@@ -20339,7 +20398,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_respectAnimationFrameRate_Get_02A40759(self);
+                var result = PInvoke_respectAnimationFrameRate_Get_77562C8F(self);
                 
                 return result;
             }
@@ -20354,7 +20413,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC07respectB9FrameRateSbvg")]
-        private static extern System.Boolean PInvoke_respectAnimationFrameRate_Get_02A40759( SwiftSelf self);
+        private static extern System.Boolean PInvoke_respectAnimationFrameRate_Get_77562C8F( SwiftSelf self);
         
         private unsafe void RespectAnimationFrameRate_Set( System.Boolean value)
         {
@@ -20366,7 +20425,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_respectAnimationFrameRate_Set_74579735(value, self);
+                PInvoke_respectAnimationFrameRate_Set_718A6ECF(value, self);
                 
                 return;
             }
@@ -20381,7 +20440,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC07respectB9FrameRateSbvs")]
-        private static extern void PInvoke_respectAnimationFrameRate_Set_74579735( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_respectAnimationFrameRate_Set_718A6ECF( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean RespectAnimationFrameRate
         {
@@ -20399,7 +20458,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_viewportFrame_Get_363C119E(self);
+                var result = PInvoke_viewportFrame_Get_77A1EE28(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.CGRect>>(new IntPtr(&result));
             }
@@ -20414,7 +20473,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC13viewportFrameSo6CGRectVSgvg")]
-        private static extern IntPtr PInvoke_viewportFrame_Get_363C119E( SwiftSelf self);
+        private static extern IntPtr PInvoke_viewportFrame_Get_77A1EE28( SwiftSelf self);
         
         private unsafe void ViewportFrame_Set( Swift.SwiftOptional<Swift.CGRect> value)
         {
@@ -20428,7 +20487,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_viewportFrame_Set_04E42712(valueBuffer, self);
+                PInvoke_viewportFrame_Set_2EC3C47A(valueBuffer, self);
                 
                 return;
             }
@@ -20443,7 +20502,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC13viewportFrameSo6CGRectVSgvs")]
-        private static extern void PInvoke_viewportFrame_Set_04E42712( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_viewportFrame_Set_2EC3C47A( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.CGRect> ViewportFrame
         {
@@ -20461,7 +20520,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_intrinsicContentSize_Get_6A778B7D(self);
+                var result = PInvoke_intrinsicContentSize_Get_2D3260D6(self);
                 
                 return result;
             }
@@ -20476,7 +20535,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC20intrinsicContentSizeSo6CGSizeVvg")]
-        private static extern Swift.CGSize PInvoke_intrinsicContentSize_Get_6A778B7D( SwiftSelf self);
+        private static extern Swift.CGSize PInvoke_intrinsicContentSize_Get_2D3260D6( SwiftSelf self);
         
         public Swift.CGSize IntrinsicContentSize
         {
@@ -20493,7 +20552,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentRenderingEngine_Get_0D124784(self);
+                var result = PInvoke_currentRenderingEngine_Get_65328997(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.RenderingEngine>>(new IntPtr(&result));
             }
@@ -20508,7 +20567,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC22currentRenderingEngineAA0eF0OSgvg")]
-        private static extern IntPtr PInvoke_currentRenderingEngine_Get_0D124784( SwiftSelf self);
+        private static extern IntPtr PInvoke_currentRenderingEngine_Get_65328997( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.Lottie.RenderingEngine> CurrentRenderingEngine
         {
@@ -20525,7 +20584,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_currentPlaybackMode_Get_7ACD6331(self);
+                var result = PInvoke_currentPlaybackMode_Get_654A1537(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottiePlaybackMode>>(new IntPtr(&result));
             }
@@ -20540,7 +20599,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC19currentPlaybackModeAA0aeF0OSgvg")]
-        private static extern IntPtr PInvoke_currentPlaybackMode_Get_7ACD6331( SwiftSelf self);
+        private static extern IntPtr PInvoke_currentPlaybackMode_Get_654A1537( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.Lottie.LottiePlaybackMode> CurrentPlaybackMode
         {
@@ -20557,7 +20616,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Get_7CA2BF29(self);
+                var result = PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Get_327810B8(self);
                 
                 return result;
             }
@@ -20572,7 +20631,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC60mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrameSbvg")]
-        private static extern System.Boolean PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Get_7CA2BF29( SwiftSelf self);
+        private static extern System.Boolean PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Get_327810B8( SwiftSelf self);
         
         private unsafe void MainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set( System.Boolean value)
         {
@@ -20584,7 +20643,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set_73CC59B8(value, self);
+                PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set_56A6A5C7(value, self);
                 
                 return;
             }
@@ -20599,7 +20658,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC60mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrameSbvs")]
-        private static extern void PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set_73CC59B8( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_mainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame_Set_56A6A5C7( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean MainThreadRenderingEngineShouldForceDisplayUpdateOnEachFrame
         {
@@ -20712,7 +20771,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> imageProviderDisposable = imageProviderSwift.PayloadBuffer;
                 IntPtr imageProviderBuffer = imageProviderDisposable.Buffer;
                 
-                PInvoke_init_13EDFF9F(swiftIndirectResult, animationBuffer, imageProviderBuffer, textProvider, fontProvider, configuration.Payload, logger.Payload);
+                PInvoke_init_5F589223(swiftIndirectResult, animationBuffer, imageProviderBuffer, textProvider, fontProvider, configuration.Payload, logger.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -20725,7 +20784,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC9animation13imageProvider04textF004fontF013configuration6loggerAcA0aB0CSg_AA0b5ImageF0_pSgAA0b11KeypathTextF0_pAA0b4FontF0_pAA0A13ConfigurationVAA0A6LoggerCtcfC")]
-        private static extern void PInvoke_init_13EDFF9F( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  IntPtr imageProviderBuffer,  Swift.Runtime.ExistentialContainer1 textProvider,  Swift.Runtime.ExistentialContainer1 fontProvider,  SafeHandle configuration,  SafeHandle logger);
+        private static extern void PInvoke_init_5F589223( SwiftIndirectResult swiftIndirectResult,  IntPtr animationBuffer,  IntPtr imageProviderBuffer,  Swift.Runtime.ExistentialContainer1 textProvider,  Swift.Runtime.ExistentialContainer1 fontProvider,  SafeHandle configuration,  SafeHandle logger);
         
         
         public unsafe Swift.Lottie.LottieAnimationView Init( Swift.Lottie.LottieConfiguration configuration,  Swift.Lottie.LottieLogger logger)
@@ -20738,7 +20797,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_35BD4D3B(swiftIndirectResult, configuration.Payload, logger.Payload);
+                PInvoke_init_33FAF6C3(swiftIndirectResult, configuration.Payload, logger.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -20751,7 +20810,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC13configuration6loggerAcA0A13ConfigurationV_AA0A6LoggerCtcfC")]
-        private static extern void PInvoke_init_35BD4D3B( SwiftIndirectResult swiftIndirectResult,  SafeHandle configuration,  SafeHandle logger);
+        private static extern void PInvoke_init_33FAF6C3( SwiftIndirectResult swiftIndirectResult,  SafeHandle configuration,  SafeHandle logger);
         
         
         public unsafe Swift.Lottie.LottieAnimationView Init( Swift.CGRect frame)
@@ -20764,7 +20823,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_0FB4B4C1(swiftIndirectResult, frame);
+                PInvoke_init_13BAA70C(swiftIndirectResult, frame);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -20777,13 +20836,13 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC5frameACSo6CGRectV_tcfC")]
-        private static extern void PInvoke_init_0FB4B4C1( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
+        private static extern void PInvoke_init_13BAA70C( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
         
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_1FEE2CB1_Callback = &play_completion_1FEE2CB1_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_714A695D_Callback = &play_completion_714A695D_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_1FEE2CB1_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_714A695D_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -20803,14 +20862,14 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_1FEE2CB1_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_714A695D_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
                     completionClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_play_1FEE2CB1(arg0.Payload, completionClosure, self);
+                PInvoke_play_714A695D(arg0.Payload, completionClosure, self);
                 
                 return;
             }
@@ -20826,12 +20885,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC4play_10completionyAA0A12PlaybackModeO0fG0O_ySbcSgtF")]
-        private static extern void PInvoke_play_1FEE2CB1( SafeHandle arg0,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_714A695D( SafeHandle arg0,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_10EB4825_Callback = &play_completion_10EB4825_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_4434C5EC_Callback = &play_completion_4434C5EC_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_10EB4825_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_4434C5EC_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -20851,14 +20910,14 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_10EB4825_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_4434C5EC_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
                     completionClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_play_10EB4825(completionClosure, self);
+                PInvoke_play_4434C5EC(completionClosure, self);
                 
                 return;
             }
@@ -20874,12 +20933,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC4play10completionyySbcSg_tF")]
-        private static extern void PInvoke_play_10EB4825( SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_4434C5EC( SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_2C8A3935_Callback = &play_completion_2C8A3935_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_64566419_Callback = &play_completion_64566419_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_2C8A3935_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_64566419_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -20899,7 +20958,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_2C8A3935_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_64566419_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -20912,7 +20971,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> loopModeDisposable = loopModeSwift.PayloadBuffer;
                 IntPtr loopModeBuffer = loopModeDisposable.Buffer;
                 
-                PInvoke_play_2C8A3935(fromProgressBuffer, toProgress, loopModeBuffer, completionClosure, self);
+                PInvoke_play_64566419(fromProgressBuffer, toProgress, loopModeBuffer, completionClosure, self);
                 
                 return;
             }
@@ -20928,12 +20987,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC4play12fromProgress02toF08loopMode10completiony12CoreGraphics7CGFloatVSg_AkA0a4LoopI0OSgySbcSgtF")]
-        private static extern void PInvoke_play_2C8A3935( IntPtr fromProgressBuffer,  System.Double toProgress,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_64566419( IntPtr fromProgressBuffer,  System.Double toProgress,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_21FC7E45_Callback = &play_completion_21FC7E45_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_4128E626_Callback = &play_completion_4128E626_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_21FC7E45_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_4128E626_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -20953,7 +21012,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_21FC7E45_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_4128E626_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -20968,7 +21027,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> loopModeDisposable = loopModeSwift.PayloadBuffer;
                 IntPtr loopModeBuffer = loopModeDisposable.Buffer;
                 
-                PInvoke_play_21FC7E45(fromMarkerBuffer, toMarkerDisposable.Buffer, playEndMarkerFrame, loopModeBuffer, completionClosure, self);
+                PInvoke_play_4128E626(fromMarkerBuffer, toMarkerDisposable.Buffer, playEndMarkerFrame, loopModeBuffer, completionClosure, self);
                 
                 return;
             }
@@ -20984,12 +21043,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC4play10fromMarker02toF00d3EndF5Frame8loopMode10completionySSSg_SSSbAA0a4LoopK0OSgySbcSgtF")]
-        private static extern void PInvoke_play_21FC7E45( IntPtr fromMarkerBuffer,  Swift.SwiftString.Buffer toMarker,  System.Boolean playEndMarkerFrame,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_4128E626( IntPtr fromMarkerBuffer,  Swift.SwiftString.Buffer toMarker,  System.Boolean playEndMarkerFrame,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_03859DC2_Callback = &play_completion_03859DC2_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_725618EC_Callback = &play_completion_725618EC_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_03859DC2_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_725618EC_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -21009,7 +21068,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_03859DC2_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_725618EC_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -21021,7 +21080,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> loopModeDisposable = loopModeSwift.PayloadBuffer;
                 IntPtr loopModeBuffer = loopModeDisposable.Buffer;
                 
-                PInvoke_play_03859DC2(markerDisposable.Buffer, loopModeBuffer, completionClosure, self);
+                PInvoke_play_725618EC(markerDisposable.Buffer, loopModeBuffer, completionClosure, self);
                 
                 return;
             }
@@ -21037,12 +21096,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC4play6marker8loopMode10completionySS_AA0a4LoopG0OSgySbcSgtF")]
-        private static extern void PInvoke_play_03859DC2( Swift.SwiftString.Buffer marker,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_725618EC( Swift.SwiftString.Buffer marker,  IntPtr loopModeBuffer,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_65E357D6_Callback = &play_completion_65E357D6_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_completion_514DE6FF_Callback = &play_completion_514DE6FF_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_completion_65E357D6_Callback(byte arg0, SwiftSelf context)
+        private static void play_completion_514DE6FF_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -21062,7 +21121,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_65E357D6_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_play_completion_514DE6FF_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -21072,7 +21131,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> markersDisposable = markersSwift.PayloadBuffer;
                 IntPtr markersBuffer = markersDisposable.Buffer;
                 
-                PInvoke_play_65E357D6(markersBuffer, completionClosure, self);
+                PInvoke_play_514DE6FF(markersBuffer, completionClosure, self);
                 
                 return;
             }
@@ -21088,7 +21147,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC4play7markers10completionySaySSG_ySbcSgtF")]
-        private static extern void PInvoke_play_65E357D6( IntPtr markersBuffer,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_play_514DE6FF( IntPtr markersBuffer,  SwiftClosureData completion,  SwiftSelf self);
         
         
         public unsafe void Stop()
@@ -21101,7 +21160,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_stop_3939D922(self);
+                PInvoke_stop_702AC14B(self);
                 
                 return;
             }
@@ -21116,7 +21175,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC4stopyyF")]
-        private static extern void PInvoke_stop_3939D922( SwiftSelf self);
+        private static extern void PInvoke_stop_702AC14B( SwiftSelf self);
         
         
         public unsafe void Pause()
@@ -21129,7 +21188,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_pause_22BD3551(self);
+                PInvoke_pause_2EF3724F(self);
                 
                 return;
             }
@@ -21144,12 +21203,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC5pauseyyF")]
-        private static extern void PInvoke_pause_22BD3551( SwiftSelf self);
+        private static extern void PInvoke_pause_2EF3724F( SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_animationCompletionHandler_568F9B7E_Callback = &play_animationCompletionHandler_568F9B7E_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_play_animationCompletionHandler_5B081427_Callback = &play_animationCompletionHandler_5B081427_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void play_animationCompletionHandler_568F9B7E_Callback(byte arg0, SwiftSelf context)
+        private static void play_animationCompletionHandler_5B081427_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -21169,14 +21228,14 @@ namespace Swift.Lottie
                 if (animationCompletionHandler != null)
                 {
                     animationCompletionHandlerHandle = GCHandle.Alloc(animationCompletionHandler);
-                    animationCompletionHandlerClosure = new SwiftClosureData((IntPtr)s_play_animationCompletionHandler_568F9B7E_Callback, GCHandle.ToIntPtr(animationCompletionHandlerHandle));
+                    animationCompletionHandlerClosure = new SwiftClosureData((IntPtr)s_play_animationCompletionHandler_5B081427_Callback, GCHandle.ToIntPtr(animationCompletionHandlerHandle));
                 }
                 else
                 {
                     animationCompletionHandlerClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_play_568F9B7E(arg0.Payload, animationCompletionHandlerClosure, self);
+                PInvoke_play_5B081427(arg0.Payload, animationCompletionHandlerClosure, self);
                 
                 return;
             }
@@ -21192,12 +21251,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC4play_26animationCompletionHandleryAA0A12PlaybackModeO_ySbcSgtF")]
-        private static extern void PInvoke_play_568F9B7E( SafeHandle arg0,  SwiftClosureData animationCompletionHandler,  SwiftSelf self);
+        private static extern void PInvoke_play_5B081427( SafeHandle arg0,  SwiftClosureData animationCompletionHandler,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_setPlaybackMode_completion_7E843C27_Callback = &setPlaybackMode_completion_7E843C27_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<byte, SwiftSelf, void> s_setPlaybackMode_completion_0AA53E6E_Callback = &setPlaybackMode_completion_0AA53E6E_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void setPlaybackMode_completion_7E843C27_Callback(byte arg0, SwiftSelf context)
+        private static void setPlaybackMode_completion_0AA53E6E_Callback(byte arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Boolean>>(new IntPtr(context.Value));
             del(arg0 != 0);
@@ -21217,14 +21276,14 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_setPlaybackMode_completion_7E843C27_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_setPlaybackMode_completion_0AA53E6E_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
                     completionClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_setPlaybackMode_7E843C27(arg0.Payload, completionClosure, self);
+                PInvoke_setPlaybackMode_0AA53E6E(arg0.Payload, completionClosure, self);
                 
                 return;
             }
@@ -21240,7 +21299,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC15setPlaybackMode_10completionyAA0aeF0O_ySbcSgtF")]
-        private static extern void PInvoke_setPlaybackMode_7E843C27( SafeHandle arg0,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern void PInvoke_setPlaybackMode_0AA53E6E( SafeHandle arg0,  SwiftClosureData completion,  SwiftSelf self);
         
         
         public unsafe void LoadAnimation( Swift.SwiftString? arg0,  Swift.Lottie.DotLottieFile from)
@@ -21256,7 +21315,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
                 IntPtr arg0Buffer = arg0Disposable.Buffer;
                 
-                PInvoke_loadAnimation_5EFA2A9C(arg0Buffer, from.Payload, self);
+                PInvoke_loadAnimation_39E9BF6A(arg0Buffer, from.Payload, self);
                 
                 return;
             }
@@ -21271,7 +21330,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC04loadB0_4fromySSSg_AA03DotA4FileCtF")]
-        private static extern void PInvoke_loadAnimation_5EFA2A9C( IntPtr arg0Buffer,  SafeHandle from,  SwiftSelf self);
+        private static extern void PInvoke_loadAnimation_39E9BF6A( IntPtr arg0Buffer,  SafeHandle from,  SwiftSelf self);
         
         
         public unsafe void LoadAnimation( System.IntPtr atIndex,  Swift.Lottie.DotLottieFile from)
@@ -21284,7 +21343,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loadAnimation_3165AF7D(atIndex, from.Payload, self);
+                PInvoke_loadAnimation_3EF09F7C(atIndex, from.Payload, self);
                 
                 return;
             }
@@ -21299,7 +21358,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC04loadB07atIndex4fromySi_AA03DotA4FileCtF")]
-        private static extern void PInvoke_loadAnimation_3165AF7D( System.IntPtr atIndex,  SafeHandle from,  SwiftSelf self);
+        private static extern void PInvoke_loadAnimation_3EF09F7C( System.IntPtr atIndex,  SafeHandle from,  SwiftSelf self);
         
         
         public unsafe void ReloadImages()
@@ -21312,7 +21371,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_reloadImages_7BD62981(self);
+                PInvoke_reloadImages_19A3F7EC(self);
                 
                 return;
             }
@@ -21327,7 +21386,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC12reloadImagesyyF")]
-        private static extern void PInvoke_reloadImages_7BD62981( SwiftSelf self);
+        private static extern void PInvoke_reloadImages_19A3F7EC( SwiftSelf self);
         
         
         public unsafe void ForceDisplayUpdate()
@@ -21340,7 +21399,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_forceDisplayUpdate_327C3BBB(self);
+                PInvoke_forceDisplayUpdate_4B801279(self);
                 
                 return;
             }
@@ -21355,7 +21414,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC18forceDisplayUpdateyyF")]
-        private static extern void PInvoke_forceDisplayUpdate_327C3BBB( SwiftSelf self);
+        private static extern void PInvoke_forceDisplayUpdate_4B801279( SwiftSelf self);
         
         
         public unsafe void SetValueProvider( Swift.Runtime.ExistentialContainer1 arg0,  Swift.Lottie.AnimationKeypath keypath)
@@ -21368,7 +21427,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_setValueProvider_7E7571A8(arg0, keypath.Payload, self);
+                PInvoke_setValueProvider_148687C2(arg0, keypath.Payload, self);
                 
                 return;
             }
@@ -21383,7 +21442,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC16setValueProvider_7keypathyAA03AnyeF0_p_AA0B7KeypathVtF")]
-        private static extern void PInvoke_setValueProvider_7E7571A8( Swift.Runtime.ExistentialContainer1 arg0,  SafeHandle keypath,  SwiftSelf self);
+        private static extern void PInvoke_setValueProvider_148687C2( Swift.Runtime.ExistentialContainer1 arg0,  SafeHandle keypath,  SwiftSelf self);
         
         
         public unsafe void RemoveValueProvider( Swift.Lottie.AnimationKeypath _for)
@@ -21396,7 +21455,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_removeValueProvider_4E74C960(_for.Payload, self);
+                PInvoke_removeValueProvider_3A7C0ED6(_for.Payload, self);
                 
                 return;
             }
@@ -21411,7 +21470,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC19removeValueProvider3foryAA0B7KeypathV_tF")]
-        private static extern void PInvoke_removeValueProvider_4E74C960( SafeHandle _for,  SwiftSelf self);
+        private static extern void PInvoke_removeValueProvider_3A7C0ED6( SafeHandle _for,  SwiftSelf self);
         
         
         public unsafe Swift.Runtime.ExistentialContainer0? GetValue( Swift.Lottie.AnimationKeypath _for,  System.Double? atFrame)
@@ -21427,7 +21486,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> atFrameDisposable = atFrameSwift.PayloadBuffer;
                 IntPtr atFrameBuffer = atFrameDisposable.Buffer;
                 
-                var result = PInvoke_getValue_03D40A73(_for.Payload, atFrameBuffer, self);
+                var result = PInvoke_getValue_381D1292(_for.Payload, atFrameBuffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer0>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -21443,7 +21502,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC8getValue3for7atFrameypSgAA0B7KeypathV_12CoreGraphics7CGFloatVSgtF")]
-        private static extern IntPtr PInvoke_getValue_03D40A73( SafeHandle _for,  IntPtr atFrameBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_getValue_381D1292( SafeHandle _for,  IntPtr atFrameBuffer,  SwiftSelf self);
         
         
         public unsafe Swift.Runtime.ExistentialContainer0? GetOriginalValue( Swift.Lottie.AnimationKeypath _for,  System.Double? atFrame)
@@ -21459,7 +21518,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> atFrameDisposable = atFrameSwift.PayloadBuffer;
                 IntPtr atFrameBuffer = atFrameDisposable.Buffer;
                 
-                var result = PInvoke_getOriginalValue_53E61D9B(_for.Payload, atFrameBuffer, self);
+                var result = PInvoke_getOriginalValue_49502DFC(_for.Payload, atFrameBuffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer0>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -21475,7 +21534,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC16getOriginalValue3for7atFrameypSgAA0B7KeypathV_12CoreGraphics7CGFloatVSgtF")]
-        private static extern IntPtr PInvoke_getOriginalValue_53E61D9B( SafeHandle _for,  IntPtr atFrameBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_getOriginalValue_49502DFC( SafeHandle _for,  IntPtr atFrameBuffer,  SwiftSelf self);
         
         
         public unsafe void LogHierarchyKeypaths()
@@ -21488,7 +21547,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_logHierarchyKeypaths_18168172(self);
+                PInvoke_logHierarchyKeypaths_5844DB64(self);
                 
                 return;
             }
@@ -21503,7 +21562,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC20logHierarchyKeypathsyyF")]
-        private static extern void PInvoke_logHierarchyKeypaths_18168172( SwiftSelf self);
+        private static extern void PInvoke_logHierarchyKeypaths_5844DB64( SwiftSelf self);
         
         
         public unsafe IReadOnlyList<Swift.SwiftString> AllHierarchyKeypaths()
@@ -21516,7 +21575,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_allHierarchyKeypaths_0C761E79(self);
+                var result = PInvoke_allHierarchyKeypaths_328014EC(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -21531,7 +21590,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC20allHierarchyKeypathsSaySSGyF")]
-        private static extern IntPtr PInvoke_allHierarchyKeypaths_0C761E79( SwiftSelf self);
+        private static extern IntPtr PInvoke_allHierarchyKeypaths_328014EC( SwiftSelf self);
         
         
         public unsafe void AddSubview( Swift.Lottie.AnimationSubview arg0,  Swift.Lottie.AnimationKeypath forLayerAt)
@@ -21544,7 +21603,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_addSubview_23D1C23C(arg0.Payload, forLayerAt.Payload, self);
+                PInvoke_addSubview_08F89ABE(arg0.Payload, forLayerAt.Payload, self);
                 
                 return;
             }
@@ -21559,7 +21618,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC10addSubview_10forLayerAtyAA0bE0C_AA0B7KeypathVtF")]
-        private static extern void PInvoke_addSubview_23D1C23C( SafeHandle arg0,  SafeHandle forLayerAt,  SwiftSelf self);
+        private static extern void PInvoke_addSubview_08F89ABE( SafeHandle arg0,  SafeHandle forLayerAt,  SwiftSelf self);
         
         
         public unsafe Swift.CGRect? Convert( Swift.CGRect arg0,  Swift.Lottie.AnimationKeypath? toLayerAt)
@@ -21575,7 +21634,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> toLayerAtDisposable = toLayerAtSwift.PayloadBuffer;
                 IntPtr toLayerAtBuffer = toLayerAtDisposable.Buffer;
                 
-                var result = PInvoke_convert_56DDC01E(arg0, toLayerAtBuffer, self);
+                var result = PInvoke_convert_1450C385(arg0, toLayerAtBuffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.CGRect>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -21591,7 +21650,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC7convert_9toLayerAtSo6CGRectVSgAG_AA0B7KeypathVSgtF")]
-        private static extern IntPtr PInvoke_convert_56DDC01E( Swift.CGRect arg0,  IntPtr toLayerAtBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_convert_1450C385( Swift.CGRect arg0,  IntPtr toLayerAtBuffer,  SwiftSelf self);
         
         
         public unsafe Swift.CGPoint? Convert( Swift.CGPoint arg0,  Swift.Lottie.AnimationKeypath? toLayerAt)
@@ -21607,7 +21666,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> toLayerAtDisposable = toLayerAtSwift.PayloadBuffer;
                 IntPtr toLayerAtBuffer = toLayerAtDisposable.Buffer;
                 
-                var result = PInvoke_convert_4F344606(arg0, toLayerAtBuffer, self);
+                var result = PInvoke_convert_14759FA2(arg0, toLayerAtBuffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.CGPoint>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -21623,7 +21682,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC7convert_9toLayerAtSo7CGPointVSgAG_AA0B7KeypathVSgtF")]
-        private static extern IntPtr PInvoke_convert_4F344606( Swift.CGPoint arg0,  IntPtr toLayerAtBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_convert_14759FA2( Swift.CGPoint arg0,  IntPtr toLayerAtBuffer,  SwiftSelf self);
         
         
         public unsafe void SetNodeIsEnabled( System.Boolean isEnabled,  Swift.Lottie.AnimationKeypath keypath)
@@ -21636,7 +21695,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_setNodeIsEnabled_6E7051B6(isEnabled, keypath.Payload, self);
+                PInvoke_setNodeIsEnabled_12554E6C(isEnabled, keypath.Payload, self);
                 
                 return;
             }
@@ -21651,7 +21710,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC16setNodeIsEnabled02isG07keypathySb_AA0B7KeypathVtF")]
-        private static extern void PInvoke_setNodeIsEnabled_6E7051B6( System.Boolean isEnabled,  SafeHandle keypath,  SwiftSelf self);
+        private static extern void PInvoke_setNodeIsEnabled_12554E6C( System.Boolean isEnabled,  SafeHandle keypath,  SwiftSelf self);
         
         
         public unsafe System.Double? ProgressTime( string forMarker)
@@ -21666,7 +21725,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_progressTime_2978FA98(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_progressTime_3E649E81(forMarkerDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -21682,7 +21741,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC12progressTime9forMarker12CoreGraphics7CGFloatVSgSS_tF")]
-        private static extern IntPtr PInvoke_progressTime_2978FA98( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern IntPtr PInvoke_progressTime_3E649E81( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe System.Double? FrameTime( string forMarker)
@@ -21697,7 +21756,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_frameTime_14261D07(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_frameTime_5F0666BB(forMarkerDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -21713,7 +21772,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC9frameTime9forMarker12CoreGraphics7CGFloatVSgSS_tF")]
-        private static extern IntPtr PInvoke_frameTime_14261D07( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern IntPtr PInvoke_frameTime_5F0666BB( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         public unsafe System.Double? DurationFrameTime( string forMarker)
@@ -21728,7 +21787,7 @@ namespace Swift.Lottie
                 using var forMarkerSwift = new SwiftString(forMarker);
                 using PayloadBuffer<SwiftString.Buffer> forMarkerDisposable = forMarkerSwift.PayloadBuffer;
                 
-                var result = PInvoke_durationFrameTime_7D30E317(forMarkerDisposable.Buffer, self);
+                var result = PInvoke_durationFrameTime_31F113EA(forMarkerDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -21744,7 +21803,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC17durationFrameTime9forMarker12CoreGraphics7CGFloatVSgSS_tF")]
-        private static extern IntPtr PInvoke_durationFrameTime_7D30E317( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
+        private static extern IntPtr PInvoke_durationFrameTime_31F113EA( Swift.SwiftString.Buffer forMarker,  SwiftSelf self);
         
         
         
@@ -21766,7 +21825,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> animationCacheDisposable = animationCacheSwift.PayloadBuffer;
                 IntPtr animationCacheBuffer = animationCacheDisposable.Buffer;
                 
-                PInvoke_init_7CA39531(swiftIndirectResult, filePathDisposable.Buffer, imageProviderBuffer, animationCacheBuffer, configuration.Payload);
+                PInvoke_init_014F14F7(swiftIndirectResult, filePathDisposable.Buffer, imageProviderBuffer, animationCacheBuffer, configuration.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -21779,12 +21838,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC8filePath13imageProvider14animationCache13configurationACSS_AA0b5ImageG0_pSgAA0biG0_pSgAA0A13ConfigurationVtcfC")]
-        private static extern void PInvoke_init_7CA39531( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer filePath,  IntPtr imageProviderBuffer,  IntPtr animationCacheBuffer,  SafeHandle configuration);
+        private static extern void PInvoke_init_014F14F7( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer filePath,  IntPtr imageProviderBuffer,  IntPtr animationCacheBuffer,  SafeHandle configuration);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_init_closure_08662B32_Callback = &init_closure_08662B32_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_init_closure_0D290910_Callback = &init_closure_0D290910_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void init_closure_08662B32_Callback(void* arg0, SwiftSelf context)
+        private static void init_closure_0D290910_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(arg0)));
@@ -21801,7 +21860,7 @@ namespace Swift.Lottie
                 
                 
                 closureHandle = GCHandle.Alloc(closure);
-                var closureClosure = new SwiftClosureData((IntPtr)s_init_closure_08662B32_Callback, GCHandle.ToIntPtr(closureHandle));
+                var closureClosure = new SwiftClosureData((IntPtr)s_init_closure_0D290910_Callback, GCHandle.ToIntPtr(closureHandle));
                 using var urlSwift = Swift.URL.FromNSUrl(url);
                 using var imageProviderSwift = imageProvider is {} imageProviderValue ? SwiftOptional<Swift.Runtime.ExistentialContainer1>.NewSome(imageProviderValue) : SwiftOptional<Swift.Runtime.ExistentialContainer1>.NewNone();
                 using PayloadBuffer<IntPtr> imageProviderDisposable = imageProviderSwift.PayloadBuffer;
@@ -21810,7 +21869,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> animationCacheDisposable = animationCacheSwift.PayloadBuffer;
                 IntPtr animationCacheBuffer = animationCacheDisposable.Buffer;
                 
-                PInvoke_init_08662B32(swiftIndirectResult, urlSwift.Payload, imageProviderBuffer, session, closureClosure, animationCacheBuffer, configuration.Payload);
+                PInvoke_init_0D290910(swiftIndirectResult, urlSwift.Payload, imageProviderBuffer, session, closureClosure, animationCacheBuffer, configuration.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -21824,14 +21883,14 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC3url13imageProvider7session7closure14animationCache13configurationAC10Foundation3URLV_AA0b5ImageF0_pSgAA0A10URLSession_pys5Error_pSgcAA0bjF0_pSgAA0A13ConfigurationVtcfC")]
-        private static extern void PInvoke_init_08662B32( SwiftIndirectResult swiftIndirectResult,  SafeHandle url,  IntPtr imageProviderBuffer,  Swift.Runtime.ExistentialContainer1 session,  SwiftClosureData closure,  IntPtr animationCacheBuffer,  SafeHandle configuration);
+        private static extern void PInvoke_init_0D290910( SwiftIndirectResult swiftIndirectResult,  SafeHandle url,  IntPtr imageProviderBuffer,  Swift.Runtime.ExistentialContainer1 session,  SwiftClosureData closure,  IntPtr animationCacheBuffer,  SafeHandle configuration);
         
         
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_completion_540F4510_Callback = &init_completion_540F4510_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_completion_13D4AE7C_Callback = &init_completion_13D4AE7C_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void init_completion_540F4510_Callback(void* arg0, void* arg1, SwiftSelf context)
+        private static void init_completion_13D4AE7C_Callback(void* arg0, void* arg1, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.Lottie.LottieAnimationView, Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationView>(new IntPtr(arg0)), SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(arg1)));
@@ -21851,7 +21910,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_init_completion_540F4510_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_init_completion_13D4AE7C_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -21866,7 +21925,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> dotLottieCacheDisposable = dotLottieCacheSwift.PayloadBuffer;
                 IntPtr dotLottieCacheBuffer = dotLottieCacheDisposable.Buffer;
                 
-                PInvoke_init_540F4510(swiftIndirectResult, dotLottieFilePathDisposable.Buffer, animationIdBuffer, dotLottieCacheBuffer, configuration.Payload, completionClosure);
+                PInvoke_init_13D4AE7C(swiftIndirectResult, dotLottieFilePathDisposable.Buffer, animationIdBuffer, dotLottieCacheBuffer, configuration.Payload, completionClosure);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -21880,12 +21939,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC03dotA8FilePath11animationId0dA5Cache13configuration10completionACSS_SSSgAA03DotaI8Provider_pSgAA0A13ConfigurationVyAC_s5Error_pSgtcSgtcfC")]
-        private static extern void PInvoke_init_540F4510( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer dotLottieFilePath,  IntPtr animationIdBuffer,  IntPtr dotLottieCacheBuffer,  SafeHandle configuration,  SwiftClosureData completion);
+        private static extern void PInvoke_init_13D4AE7C( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer dotLottieFilePath,  IntPtr animationIdBuffer,  IntPtr dotLottieCacheBuffer,  SafeHandle configuration,  SwiftClosureData completion);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_completion_1DEAA4CE_Callback = &init_completion_1DEAA4CE_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_completion_4823F783_Callback = &init_completion_4823F783_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void init_completion_1DEAA4CE_Callback(void* arg0, void* arg1, SwiftSelf context)
+        private static void init_completion_4823F783_Callback(void* arg0, void* arg1, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.Lottie.LottieAnimationView, Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationView>(new IntPtr(arg0)), SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(arg1)));
@@ -21905,7 +21964,7 @@ namespace Swift.Lottie
                 if (completion != null)
                 {
                     completionHandle = GCHandle.Alloc(completion);
-                    completionClosure = new SwiftClosureData((IntPtr)s_init_completion_1DEAA4CE_Callback, GCHandle.ToIntPtr(completionHandle));
+                    completionClosure = new SwiftClosureData((IntPtr)s_init_completion_4823F783_Callback, GCHandle.ToIntPtr(completionHandle));
                 }
                 else
                 {
@@ -21919,7 +21978,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> dotLottieCacheDisposable = dotLottieCacheSwift.PayloadBuffer;
                 IntPtr dotLottieCacheBuffer = dotLottieCacheDisposable.Buffer;
                 
-                PInvoke_init_1DEAA4CE(swiftIndirectResult, dotLottieUrlSwift.Payload, animationIdBuffer, dotLottieCacheBuffer, configuration.Payload, session, completionClosure);
+                PInvoke_init_4823F783(swiftIndirectResult, dotLottieUrlSwift.Payload, animationIdBuffer, dotLottieCacheBuffer, configuration.Payload, session, completionClosure);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationView>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -21933,7 +21992,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A13AnimationViewC03dotA3Url11animationId0dA5Cache13configuration7session10completionAC10Foundation3URLV_SSSgAA03DotaH8Provider_pSgAA0A13ConfigurationVAA0A10URLSession_pyAC_s5Error_pSgtcSgtcfC")]
-        private static extern void PInvoke_init_1DEAA4CE( SwiftIndirectResult swiftIndirectResult,  SafeHandle dotLottieUrl,  IntPtr animationIdBuffer,  IntPtr dotLottieCacheBuffer,  SafeHandle configuration,  Swift.Runtime.ExistentialContainer1 session,  SwiftClosureData completion);
+        private static extern void PInvoke_init_4823F783( SwiftIndirectResult swiftIndirectResult,  SafeHandle dotLottieUrl,  IntPtr animationIdBuffer,  IntPtr dotLottieCacheBuffer,  SafeHandle configuration,  Swift.Runtime.ExistentialContainer1 session,  SwiftClosureData completion);
         
         
         
@@ -22094,7 +22153,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<DotLottieError>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -22121,7 +22180,7 @@ namespace Swift.Lottie
                 return false;
             }
             
-            var metadata = PInvoke_getMetadata();
+            var metadata = SwiftObjectHelper<DotLottieError>.GetTypeMetadata();
             
             // Create a non-destructive copy of the enum
             byte* enumCopy = stackalloc byte[(int)metadata.Size];
@@ -22251,7 +22310,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_float_Get_3D520E19(self);
+                var result = PInvoke_float_Get_36B393BF(self);
                 
                 return result;
             }
@@ -22266,7 +22325,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18FloatValueProviderC5float12CoreGraphics7CGFloatVvg")]
-        private static extern System.Double PInvoke_float_Get_3D520E19( SwiftSelf self);
+        private static extern System.Double PInvoke_float_Get_36B393BF( SwiftSelf self);
         
         private unsafe void Float_Set( System.Double value)
         {
@@ -22278,7 +22337,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_float_Set_0BE44941(value, self);
+                PInvoke_float_Set_6B71BD10(value, self);
                 
                 return;
             }
@@ -22293,7 +22352,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18FloatValueProviderC5float12CoreGraphics7CGFloatVvs")]
-        private static extern void PInvoke_float_Set_0BE44941( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_float_Set_6B71BD10( System.Double value,  SwiftSelf self);
         
         public System.Double Float
         {
@@ -22315,7 +22374,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_valueType_Get_7FC2D9EB(self);
+                PInvoke_valueType_Get_041046FD(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -22330,7 +22389,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18FloatValueProviderC9valueTypeypXpvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_7FC2D9EB( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_041046FD( SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 ValueType
         {
@@ -22347,7 +22406,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_storage_Get_7DA57BF8(self);
+                var result = PInvoke_storage_Get_55EE0583(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ValueProviderStorage<Swift.Lottie.LottieVector1D>>(new IntPtr(&result));
             }
@@ -22362,7 +22421,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18FloatValueProviderC7storageAA0cD7StorageOyAA0A8Vector1DVGvg")]
-        private static extern Swift.AnyType PInvoke_storage_Get_7DA57BF8( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_storage_Get_55EE0583( SwiftSelf self);
         
         public Swift.Lottie.ValueProviderStorage<Swift.Lottie.LottieVector1D> Storage
         {
@@ -22462,9 +22521,9 @@ namespace Swift.Lottie
             return ProtocolConformanceDescriptor.LoadFromSymbol("Lottie", symbolName);
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void*> s_init_block_777EF2B0_Callback = &init_block_777EF2B0_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void*> s_init_block_67E5B831_Callback = &init_block_67E5B831_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void* init_block_777EF2B0_Callback(void* arg0, SwiftSelf context)
+        private static void* init_block_67E5B831_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<System.Double, System.Double>>(new IntPtr(context.Value));
             return del(SwiftMarshal.MarshalFromSwift<System.Double>(new IntPtr(arg0)));
@@ -22481,9 +22540,9 @@ namespace Swift.Lottie
                 
                 
                 blockHandle = GCHandle.Alloc(block);
-                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_777EF2B0_Callback, GCHandle.ToIntPtr(blockHandle));
+                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_67E5B831_Callback, GCHandle.ToIntPtr(blockHandle));
                 
-                PInvoke_init_777EF2B0(swiftIndirectResult, blockClosure);
+                PInvoke_init_67E5B831(swiftIndirectResult, blockClosure);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.FloatValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -22497,7 +22556,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18FloatValueProviderC5blockAC12CoreGraphics7CGFloatVAGc_tcfC")]
-        private static extern void PInvoke_init_777EF2B0( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block);
+        private static extern void PInvoke_init_67E5B831( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block);
         
         
         public unsafe Swift.Lottie.FloatValueProvider Init( System.Double arg0)
@@ -22510,7 +22569,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_1951B32F(swiftIndirectResult, arg0);
+                PInvoke_init_1A35ACCD(swiftIndirectResult, arg0);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.FloatValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -22523,7 +22582,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18FloatValueProviderCyAC12CoreGraphics7CGFloatVcfC")]
-        private static extern void PInvoke_init_1951B32F( SwiftIndirectResult swiftIndirectResult,  System.Double arg0);
+        private static extern void PInvoke_init_1A35ACCD( SwiftIndirectResult swiftIndirectResult,  System.Double arg0);
         
         
         public unsafe System.Boolean HasUpdate( System.Double frame)
@@ -22536,7 +22595,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hasUpdate_73D83941(frame, self);
+                var result = PInvoke_hasUpdate_586D3B25(frame, self);
                 
                 return result;
             }
@@ -22551,7 +22610,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18FloatValueProviderC9hasUpdate5frameSb12CoreGraphics7CGFloatV_tF")]
-        private static extern System.Boolean PInvoke_hasUpdate_73D83941( System.Double frame,  SwiftSelf self);
+        private static extern System.Boolean PInvoke_hasUpdate_586D3B25( System.Double frame,  SwiftSelf self);
         
         
     }
@@ -22573,7 +22632,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationKeypath_Get_7E22812A(swiftIndirectResult, self);
+                PInvoke_animationKeypath_Get_79212EE1(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimationKeypath>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -22588,7 +22647,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie26CompatibleAnimationKeypathC09animationD0AA0cD0Vvg")]
-        private static extern void PInvoke_animationKeypath_Get_7E22812A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_animationKeypath_Get_79212EE1( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Lottie.AnimationKeypath AnimationKeypath
         {
@@ -22696,7 +22755,7 @@ namespace Swift.Lottie
                 using var keypathSwift = new SwiftString(keypath);
                 using PayloadBuffer<SwiftString.Buffer> keypathDisposable = keypathSwift.PayloadBuffer;
                 
-                PInvoke_init_3412D71F(swiftIndirectResult, keypathDisposable.Buffer);
+                PInvoke_init_1130B6AC(swiftIndirectResult, keypathDisposable.Buffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationKeypath>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -22709,7 +22768,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie26CompatibleAnimationKeypathC7keypathACSS_tcfC")]
-        private static extern void PInvoke_init_3412D71F( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer keypath);
+        private static extern void PInvoke_init_1130B6AC( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer keypath);
         
         
         public unsafe Swift.Lottie.CompatibleAnimationKeypath Init( IEnumerable<Swift.SwiftString> keys)
@@ -22725,7 +22784,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> keysDisposable = keysSwift.PayloadBuffer;
                 IntPtr keysBuffer = keysDisposable.Buffer;
                 
-                PInvoke_init_72D059F5(swiftIndirectResult, keysBuffer);
+                PInvoke_init_0B0ABF53(swiftIndirectResult, keysBuffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationKeypath>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -22738,7 +22797,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie26CompatibleAnimationKeypathC4keysACSaySSG_tcfC")]
-        private static extern void PInvoke_init_72D059F5( SwiftIndirectResult swiftIndirectResult,  IntPtr keysBuffer);
+        private static extern void PInvoke_init_0B0ABF53( SwiftIndirectResult swiftIndirectResult,  IntPtr keysBuffer);
         
         
         public unsafe Swift.Lottie.CompatibleAnimationKeypath Init()
@@ -22751,7 +22810,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_5576DCEC(swiftIndirectResult);
+                PInvoke_init_5FB7F84B(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.CompatibleAnimationKeypath>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -22764,7 +22823,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie26CompatibleAnimationKeypathCACycfC")]
-        private static extern void PInvoke_init_5576DCEC( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_5FB7F84B( SwiftIndirectResult swiftIndirectResult);
         
         
     }
@@ -23031,7 +23090,7 @@ namespace Swift.Lottie
             {
                 
                 
-                var result = PInvoke_sharedCache_Get_055679B4();
+                var result = PInvoke_sharedCache_Get_5F3351E5();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -23046,7 +23105,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA5CacheC06sharedC0ACvgZ")]
-        private static extern IntPtr PInvoke_sharedCache_Get_055679B4();
+        private static extern IntPtr PInvoke_sharedCache_Get_5F3351E5();
         
         public static Swift.Lottie.DotLottieCache SharedCache
         {
@@ -23063,7 +23122,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_cacheSize_Get_0BEE2BED(self);
+                var result = PInvoke_cacheSize_Get_0AEC75A4(self);
                 
                 return result;
             }
@@ -23078,7 +23137,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA5CacheC9cacheSizeSivg")]
-        private static extern System.IntPtr PInvoke_cacheSize_Get_0BEE2BED( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_cacheSize_Get_0AEC75A4( SwiftSelf self);
         
         private unsafe void CacheSize_Set( System.IntPtr value)
         {
@@ -23090,7 +23149,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_cacheSize_Set_5F98C95C(value, self);
+                PInvoke_cacheSize_Set_02ED749C(value, self);
                 
                 return;
             }
@@ -23105,7 +23164,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA5CacheC9cacheSizeSivs")]
-        private static extern void PInvoke_cacheSize_Set_5F98C95C( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_cacheSize_Set_02ED749C( System.IntPtr value,  SwiftSelf self);
         
         public System.IntPtr CacheSize
         {
@@ -23210,7 +23269,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_5ECA77B0(swiftIndirectResult);
+                PInvoke_init_17966663(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DotLottieCache>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -23223,7 +23282,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA5CacheCACycfC")]
-        private static extern void PInvoke_init_5ECA77B0( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_17966663( SwiftIndirectResult swiftIndirectResult);
         
         
         public unsafe void ClearCache()
@@ -23236,7 +23295,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_clearCache_3779C788(self);
+                PInvoke_clearCache_20FA53D2(self);
                 
                 return;
             }
@@ -23251,7 +23310,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA5CacheC05clearC0yyF")]
-        private static extern void PInvoke_clearCache_3779C788( SwiftSelf self);
+        private static extern void PInvoke_clearCache_20FA53D2( SwiftSelf self);
         
         
         public unsafe Swift.Lottie.DotLottieFile? File( string forKey)
@@ -23266,7 +23325,7 @@ namespace Swift.Lottie
                 using var forKeySwift = new SwiftString(forKey);
                 using PayloadBuffer<SwiftString.Buffer> forKeyDisposable = forKeySwift.PayloadBuffer;
                 
-                var result = PInvoke_file_64A93E2A(forKeyDisposable.Buffer, self);
+                var result = PInvoke_file_3F47B604(forKeyDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.DotLottieFile>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -23282,7 +23341,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA5CacheC4file6forKeyAA0bA4FileCSgSS_tF")]
-        private static extern IntPtr PInvoke_file_64A93E2A( Swift.SwiftString.Buffer forKey,  SwiftSelf self);
+        private static extern IntPtr PInvoke_file_3F47B604( Swift.SwiftString.Buffer forKey,  SwiftSelf self);
         
         
         public unsafe void SetFile( Swift.Lottie.DotLottieFile arg0,  string forKey)
@@ -23297,7 +23356,7 @@ namespace Swift.Lottie
                 using var forKeySwift = new SwiftString(forKey);
                 using PayloadBuffer<SwiftString.Buffer> forKeyDisposable = forKeySwift.PayloadBuffer;
                 
-                PInvoke_setFile_060D3666(arg0.Payload, forKeyDisposable.Buffer, self);
+                PInvoke_setFile_528924E6(arg0.Payload, forKeyDisposable.Buffer, self);
                 
                 return;
             }
@@ -23312,7 +23371,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA5CacheC7setFile_6forKeyyAA0baE0C_SStF")]
-        private static extern void PInvoke_setFile_060D3666( SafeHandle arg0,  Swift.SwiftString.Buffer forKey,  SwiftSelf self);
+        private static extern void PInvoke_setFile_528924E6( SafeHandle arg0,  Swift.SwiftString.Buffer forKey,  SwiftSelf self);
         
         
     }
@@ -23517,7 +23576,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<LayerType>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -23538,7 +23597,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_rawValue_Get_69F21E66(self);
+                var result = PInvoke_rawValue_Get_69BFBF24(self);
                 
                 return result;
             }
@@ -23551,7 +23610,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie9LayerTypeO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_69F21E66( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_69BFBF24( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -23773,7 +23832,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<MatteType>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -23794,7 +23853,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_rawValue_Get_415C69C0(self);
+                var result = PInvoke_rawValue_Get_3FC8ACCA(self);
                 
                 return result;
             }
@@ -23807,7 +23866,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie9MatteTypeO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_415C69C0( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_3FC8ACCA( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -24233,7 +24292,7 @@ namespace Swift.Lottie
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    var metadata = PInvoke_getMetadata();
+                    var metadata = SwiftObjectHelper<BlendMode>.GetTypeMetadata();
                     byte* payload = (byte*)_payload.DangerousGetHandle();
                     return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                 }
@@ -24254,7 +24313,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_rawValue_Get_491ADD7C(self);
+                var result = PInvoke_rawValue_Get_06466B2B(self);
                 
                 return result;
             }
@@ -24267,7 +24326,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie9BlendModeO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_491ADD7C( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_06466B2B( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -24353,7 +24412,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_colors_Get_2EC62CDC(self);
+                var result = PInvoke_colors_Get_7181DDDA(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.Lottie.LottieColor>>(new IntPtr(&result));
             }
@@ -24368,7 +24427,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21GradientValueProviderC6colorsSayAA0A5ColorVGvg")]
-        private static extern IntPtr PInvoke_colors_Get_2EC62CDC( SwiftSelf self);
+        private static extern IntPtr PInvoke_colors_Get_7181DDDA( SwiftSelf self);
         
         private unsafe void Colors_Set( Swift.SwiftArray<Swift.Lottie.LottieColor> value)
         {
@@ -24382,7 +24441,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_colors_Set_29DD8386(valueBuffer, self);
+                PInvoke_colors_Set_2BBA8DB2(valueBuffer, self);
                 
                 return;
             }
@@ -24397,7 +24456,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21GradientValueProviderC6colorsSayAA0A5ColorVGvs")]
-        private static extern void PInvoke_colors_Set_29DD8386( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_colors_Set_2BBA8DB2( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftArray<Swift.Lottie.LottieColor> Colors
         {
@@ -24415,7 +24474,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_locations_Get_51E77352(self);
+                var result = PInvoke_locations_Get_25D72899(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Double>>(new IntPtr(&result));
             }
@@ -24430,7 +24489,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21GradientValueProviderC9locationsSaySdGvg")]
-        private static extern IntPtr PInvoke_locations_Get_51E77352( SwiftSelf self);
+        private static extern IntPtr PInvoke_locations_Get_25D72899( SwiftSelf self);
         
         private unsafe void Locations_Set( Swift.SwiftArray<System.Double> value)
         {
@@ -24444,7 +24503,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_locations_Set_07FD97B4(valueBuffer, self);
+                PInvoke_locations_Set_427EAC5A(valueBuffer, self);
                 
                 return;
             }
@@ -24459,7 +24518,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21GradientValueProviderC9locationsSaySdGvs")]
-        private static extern void PInvoke_locations_Set_07FD97B4( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_locations_Set_427EAC5A( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftArray<System.Double> Locations
         {
@@ -24481,7 +24540,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_valueType_Get_3870C104(self);
+                PInvoke_valueType_Get_5212B6E8(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -24496,7 +24555,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21GradientValueProviderC9valueTypeypXpvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_3870C104( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_5212B6E8( SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 ValueType
         {
@@ -24513,7 +24572,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_storage_Get_6572E4F1(self);
+                var result = PInvoke_storage_Get_3C0B0AD1(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ValueProviderStorage<Swift.SwiftArray<System.Double>>>(new IntPtr(&result));
             }
@@ -24528,7 +24587,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21GradientValueProviderC7storageAA0cD7StorageOySaySdGGvg")]
-        private static extern Swift.AnyType PInvoke_storage_Get_6572E4F1( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_storage_Get_3C0B0AD1( SwiftSelf self);
         
         public Swift.Lottie.ValueProviderStorage<Swift.SwiftArray<System.Double>> Storage
         {
@@ -24628,9 +24687,9 @@ namespace Swift.Lottie
             return ProtocolConformanceDescriptor.LoadFromSymbol("Lottie", symbolName);
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_block_4C53F9C4_Callback = &init_block_4C53F9C4_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_block_5DD1E57A_Callback = &init_block_5DD1E57A_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void init_block_4C53F9C4_Callback(void* indirectResult, void* arg0, SwiftSelf context)
+        private static void init_block_5DD1E57A_Callback(void* indirectResult, void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<System.Double, Swift.SwiftArray<Swift.Lottie.LottieColor>>>(new IntPtr(context.Value));
             var result = del(SwiftMarshal.MarshalFromSwift<System.Double>(new IntPtr(arg0)));
@@ -24640,9 +24699,9 @@ namespace Swift.Lottie
             SwiftMarshal.MarshalToSwift(result, ref resultSpan);
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_locations_4C53F9C4_Callback = &init_locations_4C53F9C4_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_locations_5DD1E57A_Callback = &init_locations_5DD1E57A_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void init_locations_4C53F9C4_Callback(void* indirectResult, void* arg0, SwiftSelf context)
+        private static void init_locations_5DD1E57A_Callback(void* indirectResult, void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<System.Double, Swift.SwiftArray<System.Double>>>(new IntPtr(context.Value));
             var result = del(SwiftMarshal.MarshalFromSwift<System.Double>(new IntPtr(arg0)));
@@ -24664,19 +24723,19 @@ namespace Swift.Lottie
                 
                 
                 blockHandle = GCHandle.Alloc(block);
-                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_4C53F9C4_Callback, GCHandle.ToIntPtr(blockHandle));
+                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_5DD1E57A_Callback, GCHandle.ToIntPtr(blockHandle));
                 SwiftClosureData locationsClosure;
                 if (locations != null)
                 {
                     locationsHandle = GCHandle.Alloc(locations);
-                    locationsClosure = new SwiftClosureData((IntPtr)s_init_locations_4C53F9C4_Callback, GCHandle.ToIntPtr(locationsHandle));
+                    locationsClosure = new SwiftClosureData((IntPtr)s_init_locations_5DD1E57A_Callback, GCHandle.ToIntPtr(locationsHandle));
                 }
                 else
                 {
                     locationsClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_init_4C53F9C4(swiftIndirectResult, blockClosure, locationsClosure);
+                PInvoke_init_5DD1E57A(swiftIndirectResult, blockClosure, locationsClosure);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.GradientValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -24691,7 +24750,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21GradientValueProviderC5block9locationsACSayAA0A5ColorVG12CoreGraphics7CGFloatVc_SaySdGAKcSgtcfC")]
-        private static extern void PInvoke_init_4C53F9C4( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block,  SwiftClosureData locations);
+        private static extern void PInvoke_init_5DD1E57A( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block,  SwiftClosureData locations);
         
         
         public unsafe Swift.Lottie.GradientValueProvider Init( IEnumerable<Swift.Lottie.LottieColor> arg0,  IEnumerable<System.Double> locations)
@@ -24710,7 +24769,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> locationsDisposable = locationsSwift.PayloadBuffer;
                 IntPtr locationsBuffer = locationsDisposable.Buffer;
                 
-                PInvoke_init_47E065D7(swiftIndirectResult, arg0Buffer, locationsBuffer);
+                PInvoke_init_5F601E9B(swiftIndirectResult, arg0Buffer, locationsBuffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.GradientValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -24723,7 +24782,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21GradientValueProviderC_9locationsACSayAA0A5ColorVG_SaySdGtcfC")]
-        private static extern void PInvoke_init_47E065D7( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Buffer,  IntPtr locationsBuffer);
+        private static extern void PInvoke_init_5F601E9B( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0Buffer,  IntPtr locationsBuffer);
         
         
         public unsafe System.Boolean HasUpdate( System.Double frame)
@@ -24736,7 +24795,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hasUpdate_68BB2B6A(frame, self);
+                var result = PInvoke_hasUpdate_7FC39875(frame, self);
                 
                 return result;
             }
@@ -24751,7 +24810,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie21GradientValueProviderC9hasUpdate5frameSb12CoreGraphics7CGFloatV_tF")]
-        private static extern System.Boolean PInvoke_hasUpdate_68BB2B6A( System.Double frame,  SwiftSelf self);
+        private static extern System.Boolean PInvoke_hasUpdate_7FC39875( System.Double frame,  SwiftSelf self);
         
         
     }
@@ -24769,7 +24828,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_id_Get_08F82351(self);
+                var result = PInvoke_id_Get_1C3FF95E(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -24786,7 +24845,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA13ConfigurationV2idSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_id_Get_08F82351( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_id_Get_1C3FF95E( SwiftSelf self);
         
         private unsafe void Id_Set( Swift.SwiftString value)
         {
@@ -24799,7 +24858,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_id_Set_057CB889(valueDisposable.Buffer, self);
+                PInvoke_id_Set_0D225895(valueDisposable.Buffer, self);
                 
                 return;
             }
@@ -24814,7 +24873,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA13ConfigurationV2idSSvs")]
-        private static extern void PInvoke_id_Set_057CB889( Swift.SwiftString.Buffer value,  SwiftSelf self);
+        private static extern void PInvoke_id_Set_0D225895( Swift.SwiftString.Buffer value,  SwiftSelf self);
         
         public Swift.SwiftString Id
         {
@@ -24836,7 +24895,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loopMode_Get_41EF5CDD(swiftIndirectResult, self);
+                PInvoke_loopMode_Get_29C3C37A(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieLoopMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -24851,7 +24910,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA13ConfigurationV8loopModeAA0a4LoopE0Ovg")]
-        private static extern void PInvoke_loopMode_Get_41EF5CDD( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_loopMode_Get_29C3C37A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void LoopMode_Set( Swift.Lottie.LottieLoopMode value)
         {
@@ -24863,7 +24922,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loopMode_Set_77217158(value.Payload, self);
+                PInvoke_loopMode_Set_6F0AE2FA(value.Payload, self);
                 
                 return;
             }
@@ -24878,7 +24937,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA13ConfigurationV8loopModeAA0a4LoopE0Ovs")]
-        private static extern void PInvoke_loopMode_Set_77217158( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_loopMode_Set_6F0AE2FA( SafeHandle value,  SwiftSelf self);
         
         public Swift.Lottie.LottieLoopMode LoopMode
         {
@@ -24896,7 +24955,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_speed_Get_646DBC7C(self);
+                var result = PInvoke_speed_Get_45945010(self);
                 
                 return result;
             }
@@ -24911,7 +24970,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA13ConfigurationV5speedSdvg")]
-        private static extern System.Double PInvoke_speed_Get_646DBC7C( SwiftSelf self);
+        private static extern System.Double PInvoke_speed_Get_45945010( SwiftSelf self);
         
         private unsafe void Speed_Set( System.Double value)
         {
@@ -24923,7 +24982,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_speed_Set_24C6EF40(value, self);
+                PInvoke_speed_Set_48D25B4F(value, self);
                 
                 return;
             }
@@ -24938,7 +24997,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA13ConfigurationV5speedSdvs")]
-        private static extern void PInvoke_speed_Set_24C6EF40( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_speed_Set_48D25B4F( System.Double value,  SwiftSelf self);
         
         public System.Double Speed
         {
@@ -24956,7 +25015,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_imageProvider_Get_3DBAB8E6(self);
+                var result = PInvoke_imageProvider_Get_56F7D05D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
             }
@@ -24971,7 +25030,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA13ConfigurationV13imageProviderAA014AnimationImageE0_pSgvg")]
-        private static extern IntPtr PInvoke_imageProvider_Get_3DBAB8E6( SwiftSelf self);
+        private static extern IntPtr PInvoke_imageProvider_Get_56F7D05D( SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1? ImageProvider
         {
@@ -25081,7 +25140,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_imageProvider_Get_19E4272B(swiftIndirectResult);
+                PInvoke_imageProvider_Get_40DBE8BC(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DotLottieConfigurationComponents>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25094,7 +25153,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA23ConfigurationComponentsV13imageProviderACvgZ")]
-        private static extern void PInvoke_imageProvider_Get_19E4272B( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_imageProvider_Get_40DBE8BC( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.DotLottieConfigurationComponents ImageProvider
         {
@@ -25111,7 +25170,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_loopMode_Get_2F6C73AD(swiftIndirectResult);
+                PInvoke_loopMode_Get_7D48E976(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DotLottieConfigurationComponents>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25124,7 +25183,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA23ConfigurationComponentsV8loopModeACvgZ")]
-        private static extern void PInvoke_loopMode_Get_2F6C73AD( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_loopMode_Get_7D48E976( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.DotLottieConfigurationComponents LoopMode
         {
@@ -25141,7 +25200,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationSpeed_Get_1817819F(swiftIndirectResult);
+                PInvoke_animationSpeed_Get_1580886F(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DotLottieConfigurationComponents>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25154,7 +25213,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA23ConfigurationComponentsV14animationSpeedACvgZ")]
-        private static extern void PInvoke_animationSpeed_Get_1817819F( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_animationSpeed_Get_1580886F( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.DotLottieConfigurationComponents AnimationSpeed
         {
@@ -25171,7 +25230,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_all_Get_0BFC299C(swiftIndirectResult);
+                PInvoke_all_Get_0C514CA1(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DotLottieConfigurationComponents>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25184,7 +25243,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA23ConfigurationComponentsV3allACvgZ")]
-        private static extern void PInvoke_all_Get_0BFC299C( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_all_Get_0C514CA1( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.DotLottieConfigurationComponents All
         {
@@ -25201,7 +25260,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_none_Get_437A8DEF(swiftIndirectResult);
+                PInvoke_none_Get_251C575B(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DotLottieConfigurationComponents>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25214,7 +25273,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA23ConfigurationComponentsV4noneACvgZ")]
-        private static extern void PInvoke_none_Get_437A8DEF( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_none_Get_251C575B( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Lottie.DotLottieConfigurationComponents None
         {
@@ -25231,7 +25290,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_rawValue_Get_2BD56FA1(self);
+                var result = PInvoke_rawValue_Get_70BEBDF6(self);
                 
                 return result;
             }
@@ -25246,7 +25305,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA23ConfigurationComponentsV8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_2BD56FA1( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_70BEBDF6( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -25348,13 +25407,13 @@ namespace Swift.Lottie
             _payload = new SwiftSafeHandle<DotLottieConfigurationComponents>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_3E763FA3(swiftIndirectResult, rawValue);
+            PInvoke_init_4DE207DC(swiftIndirectResult, rawValue);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA23ConfigurationComponentsV8rawValueACSi_tcfC")]
-        private static extern void PInvoke_init_3E763FA3( SwiftIndirectResult swiftIndirectResult,  System.IntPtr rawValue);
+        private static extern void PInvoke_init_4DE207DC( SwiftIndirectResult swiftIndirectResult,  System.IntPtr rawValue);
         
         
     }
@@ -25562,7 +25621,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_74352198(swiftIndirectResult, frame);
+                PInvoke_init_1CCC63F8(swiftIndirectResult, frame);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.AnimationSubview>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25575,7 +25634,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie16AnimationSubviewC5frameACSo6CGRectV_tcfC")]
-        private static extern void PInvoke_init_74352198( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
+        private static extern void PInvoke_init_1CCC63F8( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
         
         
         
@@ -25683,7 +25742,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_didMoveToWindow_4A0878AD(self);
+                PInvoke_didMoveToWindow_1EF17F70(self);
                 
                 return;
             }
@@ -25698,7 +25757,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A17AnimationViewBaseC15didMoveToWindowyyF")]
-        private static extern void PInvoke_didMoveToWindow_4A0878AD( SwiftSelf self);
+        private static extern void PInvoke_didMoveToWindow_1EF17F70( SwiftSelf self);
         
         
         public unsafe void LayoutSubviews()
@@ -25711,7 +25770,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_layoutSubviews_3073CB5F(self);
+                PInvoke_layoutSubviews_1DE5C342(self);
                 
                 return;
             }
@@ -25726,7 +25785,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A17AnimationViewBaseC14layoutSubviewsyyF")]
-        private static extern void PInvoke_layoutSubviews_3073CB5F( SwiftSelf self);
+        private static extern void PInvoke_layoutSubviews_1DE5C342( SwiftSelf self);
         
         
         public unsafe Swift.Lottie.LottieAnimationViewBase Init( Swift.CGRect frame)
@@ -25739,7 +25798,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_782F165A(swiftIndirectResult, frame);
+                PInvoke_init_7CDAEAF6(swiftIndirectResult, frame);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationViewBase>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25752,7 +25811,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A17AnimationViewBaseC5frameACSo6CGRectV_tcfC")]
-        private static extern void PInvoke_init_782F165A( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
+        private static extern void PInvoke_init_7CDAEAF6( SwiftIndirectResult swiftIndirectResult,  Swift.CGRect frame);
         
         
         
@@ -25771,7 +25830,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_animations_Get_3D38D90D(self);
+                var result = PInvoke_animations_Get_53028324(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.Lottie.DotLottieFile.Animation>>(new IntPtr(&result));
             }
@@ -25786,7 +25845,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC10animationsSayAC9AnimationVGvg")]
-        private static extern IntPtr PInvoke_animations_Get_3D38D90D( SwiftSelf self);
+        private static extern IntPtr PInvoke_animations_Get_53028324( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.Lottie.DotLottieFile.Animation> Animations
         {
@@ -25807,7 +25866,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_animationSource_Get_145E66E2(swiftIndirectResult, self);
+                PInvoke_animationSource_Get_7200B79A(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.LottieAnimationSource>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25822,7 +25881,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC15animationSourceAA0a9AnimationE0Ovg")]
-        private static extern void PInvoke_animationSource_Get_145E66E2( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_animationSource_Get_7200B79A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Lottie.LottieAnimationSource AnimationSource
         {
@@ -25928,7 +25987,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    var result = PInvoke_animation_Get_76D531AA(self);
+                    var result = PInvoke_animation_Get_67F0A386(self);
                     
                     var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                     *(IntPtr*)classPayload = result;
@@ -25945,7 +26004,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC9AnimationV9animationAA0aD0Cvg")]
-            private static extern IntPtr PInvoke_animation_Get_76D531AA( SwiftSelf self);
+            private static extern IntPtr PInvoke_animation_Get_67F0A386( SwiftSelf self);
             
             public Swift.Lottie.LottieAnimation AnimationValue
             {
@@ -25966,7 +26025,7 @@ namespace Swift.Lottie
                     
                     
                     
-                    PInvoke_configuration_Get_146F1992(swiftIndirectResult, self);
+                    PInvoke_configuration_Get_168FAF67(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Lottie.DotLottieConfiguration>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -25981,7 +26040,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC9AnimationV13configurationAA0bA13ConfigurationVvg")]
-            private static extern void PInvoke_configuration_Get_146F1992( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_configuration_Get_168FAF67( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public Swift.Lottie.DotLottieConfiguration Configuration
             {
@@ -26160,7 +26219,7 @@ namespace Swift.Lottie
                     using PayloadBuffer<IntPtr> dotLottieCacheDisposable = dotLottieCacheSwift.PayloadBuffer;
                     IntPtr dotLottieCacheBuffer = dotLottieCacheDisposable.Buffer;
                     
-                    var result = PInvoke_loadedFrom_218549A3(filepathDisposable.Buffer, dotLottieCacheBuffer);
+                    var result = PInvoke_loadedFrom_11A9AD3A(filepathDisposable.Buffer, dotLottieCacheBuffer);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<Swift.Lottie.DotLottieFile, Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
                 }
@@ -26173,7 +26232,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC34SynchronouslyBlockingCurrentThreadO10loadedFrom8filepath03dotA5Caches6ResultOyACs5Error_pGSS_AA0baL8Provider_pSgtFZ")]
-            private static extern Swift.AnyType PInvoke_loadedFrom_218549A3( Swift.SwiftString.Buffer filepath,  IntPtr dotLottieCacheBuffer);
+            private static extern Swift.AnyType PInvoke_loadedFrom_11A9AD3A( Swift.SwiftString.Buffer filepath,  IntPtr dotLottieCacheBuffer);
             
             
             
@@ -26186,7 +26245,7 @@ namespace Swift.Lottie
                     using var filenameSwift = new SwiftString(filename);
                     using PayloadBuffer<SwiftString.Buffer> filenameDisposable = filenameSwift.PayloadBuffer;
                     
-                    var result = PInvoke_loadedFrom_75990F8F(dataSwift, filenameDisposable.Buffer);
+                    var result = PInvoke_loadedFrom_3DB1B446(dataSwift, filenameDisposable.Buffer);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<Swift.Lottie.DotLottieFile, Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
                 }
@@ -26199,7 +26258,7 @@ namespace Swift.Lottie
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC34SynchronouslyBlockingCurrentThreadO10loadedFrom4data8filenames6ResultOyACs5Error_pG10Foundation4DataV_SStFZ")]
-            private static extern Swift.AnyType PInvoke_loadedFrom_75990F8F( Swift.Data data,  Swift.SwiftString.Buffer filename);
+            private static extern Swift.AnyType PInvoke_loadedFrom_3DB1B446( Swift.Data data,  Swift.SwiftString.Buffer filename);
             
             
         }
@@ -26218,7 +26277,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> dotLottieCacheDisposable = dotLottieCacheSwift.PayloadBuffer;
                 IntPtr dotLottieCacheBuffer = dotLottieCacheDisposable.Buffer;
                 
-                var result = PInvoke_loadedFrom_242730A9(filepathDisposable.Buffer, dotLottieCacheBuffer, out var error);
+                var result = PInvoke_loadedFrom_2D4D1649(filepathDisposable.Buffer, dotLottieCacheBuffer, out var error);
                 
                 if (error.Value != null)
                 {
@@ -26238,12 +26297,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC10loadedFrom8filepath03dotA5CacheACSS_AA0baH8Provider_pSgtYaKFZ")]
-        private static extern IntPtr PInvoke_loadedFrom_242730A9( Swift.SwiftString.Buffer filepath,  IntPtr dotLottieCacheBuffer, out SwiftError error);
+        private static extern IntPtr PInvoke_loadedFrom_2D4D1649( Swift.SwiftString.Buffer filepath,  IntPtr dotLottieCacheBuffer, out SwiftError error);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadedFrom_handleResult_7E979B98_Callback = &loadedFrom_handleResult_7E979B98_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadedFrom_handleResult_257DE3B3_Callback = &loadedFrom_handleResult_257DE3B3_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadedFrom_handleResult_7E979B98_Callback(void* arg0, SwiftSelf context)
+        private static void loadedFrom_handleResult_257DE3B3_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftResult<Swift.Lottie.DotLottieFile, Swift.Runtime.ExistentialContainer1>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<Swift.Lottie.DotLottieFile, Swift.Runtime.ExistentialContainer1>>(new IntPtr(arg0)));
@@ -26256,14 +26315,14 @@ namespace Swift.Lottie
             {
                 
                 handleResultHandle = GCHandle.Alloc(handleResult);
-                var handleResultClosure = new SwiftClosureData((IntPtr)s_loadedFrom_handleResult_7E979B98_Callback, GCHandle.ToIntPtr(handleResultHandle));
+                var handleResultClosure = new SwiftClosureData((IntPtr)s_loadedFrom_handleResult_257DE3B3_Callback, GCHandle.ToIntPtr(handleResultHandle));
                 using var filepathSwift = new SwiftString(filepath);
                 using PayloadBuffer<SwiftString.Buffer> filepathDisposable = filepathSwift.PayloadBuffer;
                 using var dotLottieCacheSwift = dotLottieCache is {} dotLottieCacheValue ? SwiftOptional<Swift.Runtime.ExistentialContainer1>.NewSome(dotLottieCacheValue) : SwiftOptional<Swift.Runtime.ExistentialContainer1>.NewNone();
                 using PayloadBuffer<IntPtr> dotLottieCacheDisposable = dotLottieCacheSwift.PayloadBuffer;
                 IntPtr dotLottieCacheBuffer = dotLottieCacheDisposable.Buffer;
                 
-                PInvoke_loadedFrom_7E979B98(filepathDisposable.Buffer, dotLottieCacheBuffer, dispatchQueue.Payload, handleResultClosure);
+                PInvoke_loadedFrom_257DE3B3(filepathDisposable.Buffer, dotLottieCacheBuffer, dispatchQueue.Payload, handleResultClosure);
                 
                 return;
             }
@@ -26277,7 +26336,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC10loadedFrom8filepath03dotA5Cache13dispatchQueue12handleResultySS_AA0baH8Provider_pSgSo03OS_I6_queueCys0L0OyACs5Error_pGctFZ")]
-        private static extern void PInvoke_loadedFrom_7E979B98( Swift.SwiftString.Buffer filepath,  IntPtr dotLottieCacheBuffer,  SafeHandle dispatchQueue,  SwiftClosureData handleResult);
+        private static extern void PInvoke_loadedFrom_257DE3B3( Swift.SwiftString.Buffer filepath,  IntPtr dotLottieCacheBuffer,  SafeHandle dispatchQueue,  SwiftClosureData handleResult);
         
         
         
@@ -26292,7 +26351,7 @@ namespace Swift.Lottie
                 using PayloadBuffer<IntPtr> dotLottieCacheDisposable = dotLottieCacheSwift.PayloadBuffer;
                 IntPtr dotLottieCacheBuffer = dotLottieCacheDisposable.Buffer;
                 
-                var result = PInvoke_loadedFrom_23438AA2(urlSwift.Payload, session, dotLottieCacheBuffer, out var error);
+                var result = PInvoke_loadedFrom_0B268A58(urlSwift.Payload, session, dotLottieCacheBuffer, out var error);
                 
                 if (error.Value != null)
                 {
@@ -26312,13 +26371,13 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC10loadedFrom3url7session03dotA5CacheAC10Foundation3URLV_AA0A10URLSession_pAA0baI8Provider_pSgtYaKFZ")]
-        private static extern IntPtr PInvoke_loadedFrom_23438AA2( SafeHandle url,  Swift.Runtime.ExistentialContainer1 session,  IntPtr dotLottieCacheBuffer, out SwiftError error);
+        private static extern IntPtr PInvoke_loadedFrom_0B268A58( SafeHandle url,  Swift.Runtime.ExistentialContainer1 session,  IntPtr dotLottieCacheBuffer, out SwiftError error);
         
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadedFrom_handleResult_4D70EBE5_Callback = &loadedFrom_handleResult_4D70EBE5_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadedFrom_handleResult_3CA0CDBA_Callback = &loadedFrom_handleResult_3CA0CDBA_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadedFrom_handleResult_4D70EBE5_Callback(void* arg0, SwiftSelf context)
+        private static void loadedFrom_handleResult_3CA0CDBA_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftResult<Swift.Lottie.DotLottieFile, Swift.Runtime.ExistentialContainer1>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<Swift.Lottie.DotLottieFile, Swift.Runtime.ExistentialContainer1>>(new IntPtr(arg0)));
@@ -26331,12 +26390,12 @@ namespace Swift.Lottie
             {
                 
                 handleResultHandle = GCHandle.Alloc(handleResult);
-                var handleResultClosure = new SwiftClosureData((IntPtr)s_loadedFrom_handleResult_4D70EBE5_Callback, GCHandle.ToIntPtr(handleResultHandle));
+                var handleResultClosure = new SwiftClosureData((IntPtr)s_loadedFrom_handleResult_3CA0CDBA_Callback, GCHandle.ToIntPtr(handleResultHandle));
                 var dataSwift = Swift.Data.FromNSData(data);
                 using var filenameSwift = new SwiftString(filename);
                 using PayloadBuffer<SwiftString.Buffer> filenameDisposable = filenameSwift.PayloadBuffer;
                 
-                PInvoke_loadedFrom_4D70EBE5(dataSwift, filenameDisposable.Buffer, dispatchQueue.Payload, handleResultClosure);
+                PInvoke_loadedFrom_3CA0CDBA(dataSwift, filenameDisposable.Buffer, dispatchQueue.Payload, handleResultClosure);
                 
                 return;
             }
@@ -26350,12 +26409,12 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie03DotA4FileC10loadedFrom4data8filename13dispatchQueue12handleResulty10Foundation4DataV_SSSo03OS_H6_queueCys0K0OyACs5Error_pGctFZ")]
-        private static extern void PInvoke_loadedFrom_4D70EBE5( Swift.Data data,  Swift.SwiftString.Buffer filename,  SafeHandle dispatchQueue,  SwiftClosureData handleResult);
+        private static extern void PInvoke_loadedFrom_3CA0CDBA( Swift.Data data,  Swift.SwiftString.Buffer filename,  SafeHandle dispatchQueue,  SwiftClosureData handleResult);
         
         
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_loadedFromCallback_6E5912CB = &loadedFromOnComplete_6E5912CB;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_loadedFromCallback_33D28088 = &loadedFromOnComplete_33D28088;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void loadedFromOnComplete_6E5912CB(IntPtr rawResult, IntPtr task)
+        private static void loadedFromOnComplete_33D28088(IntPtr rawResult, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -26402,9 +26461,9 @@ namespace Swift.Lottie
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_loadedFromErrorCallback_6E5912CB = &loadedFromOnError_6E5912CB;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_loadedFromErrorCallback_33D28088 = &loadedFromOnError_33D28088;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void loadedFromOnError_6E5912CB(IntPtr errorMessagePtr, IntPtr task)
+        private static void loadedFromOnError_33D28088(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -26466,7 +26525,7 @@ namespace Swift.Lottie
                 using var filenameSwift = new SwiftString(filename);
                 using PayloadBuffer<SwiftString.Buffer> filenameDisposable = filenameSwift.PayloadBuffer;
                 
-                PInvoke_loadedFrom_6E5912CB(s_loadedFromCallback_6E5912CB, s_loadedFromErrorCallback_6E5912CB, GCHandle.ToIntPtr(handle), dataSwift, filenameDisposable.Buffer, dispatchQueueHandle);
+                PInvoke_loadedFrom_33D28088(s_loadedFromCallback_33D28088, s_loadedFromErrorCallback_33D28088, GCHandle.ToIntPtr(handle), dataSwift, filenameDisposable.Buffer, dispatchQueueHandle);
                 
                 return task.Task;
             }
@@ -26479,7 +26538,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s6Lottie03DotA4FileC10loadedFrom4data8filename13dispatchQueueAC10Foundation4DataV_SSSo03OS_H6_queueCtYaKFZ_async")]
-        private static extern void PInvoke_loadedFrom_6E5912CB( void* s_loadedFromCallback_6E5912CB,  void* s_loadedFromErrorCallback_6E5912CB,  IntPtr handle,  Swift.Data data,  Swift.SwiftString.Buffer filename,  IntPtr dispatchQueue);
+        private static extern void PInvoke_loadedFrom_33D28088( void* s_loadedFromCallback_33D28088,  void* s_loadedFromErrorCallback_33D28088,  IntPtr handle,  Swift.Data data,  Swift.SwiftString.Buffer filename,  IntPtr dispatchQueue);
         
         
     }
@@ -26493,7 +26552,7 @@ namespace Swift.Lottie
             {
                 
                 
-                var result = PInvoke_shared_Get_133F7FFA();
+                var result = PInvoke_shared_Get_2F4E15A0();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -26508,7 +26567,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6LoggerC6sharedACvgZ")]
-        private static extern IntPtr PInvoke_shared_Get_133F7FFA();
+        private static extern IntPtr PInvoke_shared_Get_2F4E15A0();
         
         private static void Shared_Set( Swift.Lottie.LottieLogger value)
         {
@@ -26516,7 +26575,7 @@ namespace Swift.Lottie
             {
                 
                 
-                PInvoke_shared_Set_36050D05(value.Payload);
+                PInvoke_shared_Set_04A93769(value.Payload);
                 
                 return;
             }
@@ -26529,7 +26588,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6LoggerC6sharedACvsZ")]
-        private static extern void PInvoke_shared_Set_36050D05( SafeHandle value);
+        private static extern void PInvoke_shared_Set_04A93769( SafeHandle value);
         
         public static Swift.Lottie.LottieLogger Shared
         {
@@ -26543,7 +26602,7 @@ namespace Swift.Lottie
             {
                 
                 
-                var result = PInvoke_printToConsole_Get_099D0422();
+                var result = PInvoke_printToConsole_Get_1B8D6DA8();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -26558,7 +26617,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6LoggerC14printToConsoleACvgZ")]
-        private static extern IntPtr PInvoke_printToConsole_Get_099D0422();
+        private static extern IntPtr PInvoke_printToConsole_Get_1B8D6DA8();
         
         public static Swift.Lottie.LottieLogger PrintToConsole
         {
@@ -26656,9 +26715,9 @@ namespace Swift.Lottie
         
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_info_arg0_3C03C089_Callback = &info_arg0_3C03C089_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_info_arg0_3BB9878D_Callback = &info_arg0_3BB9878D_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void info_arg0_3C03C089_Callback(void* indirectResult, SwiftSelf context)
+        private static void info_arg0_3BB9878D_Callback(void* indirectResult, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<Swift.SwiftString>>(new IntPtr(context.Value));
             var result = del();
@@ -26679,9 +26738,9 @@ namespace Swift.Lottie
                 
                 
                 arg0Handle = GCHandle.Alloc(arg0);
-                var arg0Closure = new SwiftClosureData((IntPtr)s_info_arg0_3C03C089_Callback, GCHandle.ToIntPtr(arg0Handle));
+                var arg0Closure = new SwiftClosureData((IntPtr)s_info_arg0_3BB9878D_Callback, GCHandle.ToIntPtr(arg0Handle));
                 
-                PInvoke_info_3C03C089(arg0Closure, self);
+                PInvoke_info_3BB9878D(arg0Closure, self);
                 
                 return;
             }
@@ -26697,7 +26756,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie0A6LoggerC4infoyySSyXKF")]
-        private static extern void PInvoke_info_3C03C089( SwiftClosureData arg0,  SwiftSelf self);
+        private static extern void PInvoke_info_3BB9878D( SwiftClosureData arg0,  SwiftSelf self);
         
         
     }
@@ -26715,7 +26774,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_point_Get_49EA533F(self);
+                var result = PInvoke_point_Get_595B7E29(self);
                 
                 return result;
             }
@@ -26730,7 +26789,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18PointValueProviderC5pointSo7CGPointVvg")]
-        private static extern Swift.CGPoint PInvoke_point_Get_49EA533F( SwiftSelf self);
+        private static extern Swift.CGPoint PInvoke_point_Get_595B7E29( SwiftSelf self);
         
         private unsafe void Point_Set( Swift.CGPoint value)
         {
@@ -26742,7 +26801,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_point_Set_04770ADA(value, self);
+                PInvoke_point_Set_12F6BC0A(value, self);
                 
                 return;
             }
@@ -26757,7 +26816,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18PointValueProviderC5pointSo7CGPointVvs")]
-        private static extern void PInvoke_point_Set_04770ADA( Swift.CGPoint value,  SwiftSelf self);
+        private static extern void PInvoke_point_Set_12F6BC0A( Swift.CGPoint value,  SwiftSelf self);
         
         public Swift.CGPoint Point
         {
@@ -26779,7 +26838,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_valueType_Get_6A98EF15(self);
+                PInvoke_valueType_Get_19356DEB(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer1>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -26794,7 +26853,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18PointValueProviderC9valueTypeypXpvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_6A98EF15( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_valueType_Get_19356DEB( SwiftSelf self);
         
         public Swift.Runtime.ExistentialContainer1 ValueType
         {
@@ -26811,7 +26870,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_storage_Get_4EF4D93C(self);
+                var result = PInvoke_storage_Get_55ADC685(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.ValueProviderStorage<Swift.Lottie.LottieVector3D>>(new IntPtr(&result));
             }
@@ -26826,7 +26885,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18PointValueProviderC7storageAA0cD7StorageOyAA0A8Vector3DVGvg")]
-        private static extern Swift.AnyType PInvoke_storage_Get_4EF4D93C( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_storage_Get_55ADC685( SwiftSelf self);
         
         public Swift.Lottie.ValueProviderStorage<Swift.Lottie.LottieVector3D> Storage
         {
@@ -26926,9 +26985,9 @@ namespace Swift.Lottie
             return ProtocolConformanceDescriptor.LoadFromSymbol("Lottie", symbolName);
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void*> s_init_block_511B841C_Callback = &init_block_511B841C_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void*> s_init_block_448A22FA_Callback = &init_block_448A22FA_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void* init_block_511B841C_Callback(void* arg0, SwiftSelf context)
+        private static void* init_block_448A22FA_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<System.Double, Swift.CGPoint>>(new IntPtr(context.Value));
             return del(SwiftMarshal.MarshalFromSwift<System.Double>(new IntPtr(arg0)));
@@ -26945,9 +27004,9 @@ namespace Swift.Lottie
                 
                 
                 blockHandle = GCHandle.Alloc(block);
-                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_511B841C_Callback, GCHandle.ToIntPtr(blockHandle));
+                var blockClosure = new SwiftClosureData((IntPtr)s_init_block_448A22FA_Callback, GCHandle.ToIntPtr(blockHandle));
                 
-                PInvoke_init_511B841C(swiftIndirectResult, blockClosure);
+                PInvoke_init_448A22FA(swiftIndirectResult, blockClosure);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.PointValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -26961,7 +27020,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18PointValueProviderC5blockACSo7CGPointV12CoreGraphics7CGFloatVc_tcfC")]
-        private static extern void PInvoke_init_511B841C( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block);
+        private static extern void PInvoke_init_448A22FA( SwiftIndirectResult swiftIndirectResult,  SwiftClosureData block);
         
         
         public unsafe Swift.Lottie.PointValueProvider Init( Swift.CGPoint arg0)
@@ -26974,7 +27033,7 @@ namespace Swift.Lottie
                 
                 
                 
-                PInvoke_init_5BB6E121(swiftIndirectResult, arg0);
+                PInvoke_init_472059F0(swiftIndirectResult, arg0);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Lottie.PointValueProvider>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -26987,7 +27046,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18PointValueProviderCyACSo7CGPointVcfC")]
-        private static extern void PInvoke_init_5BB6E121( SwiftIndirectResult swiftIndirectResult,  Swift.CGPoint arg0);
+        private static extern void PInvoke_init_472059F0( SwiftIndirectResult swiftIndirectResult,  Swift.CGPoint arg0);
         
         
         public unsafe System.Boolean HasUpdate( System.Double frame)
@@ -27000,7 +27059,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = PInvoke_hasUpdate_67F7F05D(frame, self);
+                var result = PInvoke_hasUpdate_55D4BFE3(frame, self);
                 
                 return result;
             }
@@ -27015,7 +27074,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie18PointValueProviderC9hasUpdate5frameSb12CoreGraphics7CGFloatV_tF")]
-        private static extern System.Boolean PInvoke_hasUpdate_67F7F05D( System.Double frame,  SwiftSelf self);
+        private static extern System.Boolean PInvoke_hasUpdate_55D4BFE3( System.Double frame,  SwiftSelf self);
         
         
     }
@@ -27033,7 +27092,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = Keyframe_PInvoke.PInvoke_time_Get_1CB8AFB9(self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = Keyframe_PInvoke.PInvoke_time_Get_13F1A0C9(self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return result;
             }
@@ -27062,7 +27121,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = Keyframe_PInvoke.PInvoke_isHold_Get_5FF5DD47(self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = Keyframe_PInvoke.PInvoke_isHold_Get_40BEAE2D(self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return result;
             }
@@ -27091,7 +27150,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = Keyframe_PInvoke.PInvoke_inTangent_Get_15BC7414(self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = Keyframe_PInvoke.PInvoke_inTangent_Get_3B2383D1(self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieVector2D>>(new IntPtr(&result));
             }
@@ -27120,7 +27179,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = Keyframe_PInvoke.PInvoke_outTangent_Get_5A0D52DD(self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = Keyframe_PInvoke.PInvoke_outTangent_Get_27F4D3F4(self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieVector2D>>(new IntPtr(&result));
             }
@@ -27149,7 +27208,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = Keyframe_PInvoke.PInvoke_spatialInTangent_Get_277647F6(self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = Keyframe_PInvoke.PInvoke_spatialInTangent_Get_3C65C5E1(self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieVector3D>>(new IntPtr(&result));
             }
@@ -27178,7 +27237,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = Keyframe_PInvoke.PInvoke_spatialOutTangent_Get_1C17D956(self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = Keyframe_PInvoke.PInvoke_spatialOutTangent_Get_365F6314(self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Lottie.LottieVector3D>>(new IntPtr(&result));
             }
@@ -27207,7 +27266,7 @@ namespace Swift.Lottie
                 
                 
                 
-                var result = Keyframe_PInvoke.PInvoke_hashValue_Get_606BAA72(self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = Keyframe_PInvoke.PInvoke_hashValue_Get_5FBC5735(self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return result;
             }
@@ -27325,7 +27384,7 @@ namespace Swift.Lottie
                 
                 
                 
-                Keyframe_PInvoke.PInvoke_hash_3E65D280(into.Payload, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                Keyframe_PInvoke.PInvoke_hash_453C2706(into.Payload, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return;
             }
@@ -27346,31 +27405,31 @@ namespace Swift.Lottie
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie8KeyframeC4time12CoreGraphics7CGFloatVvg")]
-        internal static extern System.Double PInvoke_time_Get_1CB8AFB9( SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern System.Double PInvoke_time_Get_13F1A0C9( SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie8KeyframeC6isHoldSbvg")]
-        internal static extern System.Boolean PInvoke_isHold_Get_5FF5DD47( SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern System.Boolean PInvoke_isHold_Get_40BEAE2D( SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie8KeyframeC9inTangentAA0A8Vector2DVSgvg")]
-        internal static extern IntPtr PInvoke_inTangent_Get_15BC7414( SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_inTangent_Get_3B2383D1( SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie8KeyframeC10outTangentAA0A8Vector2DVSgvg")]
-        internal static extern IntPtr PInvoke_outTangent_Get_5A0D52DD( SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_outTangent_Get_27F4D3F4( SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie8KeyframeC16spatialInTangentAA0A8Vector3DVSgvg")]
-        internal static extern IntPtr PInvoke_spatialInTangent_Get_277647F6( SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_spatialInTangent_Get_3C65C5E1( SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie8KeyframeC17spatialOutTangentAA0A8Vector3DVSgvg")]
-        internal static extern IntPtr PInvoke_spatialOutTangent_Get_1C17D956( SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_spatialOutTangent_Get_365F6314( SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie8KeyframeCAASHRzlE9hashValueSivg")]
-        internal static extern System.IntPtr PInvoke_hashValue_Get_606BAA72( SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern System.IntPtr PInvoke_hashValue_Get_5FBC5735( SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie8KeyframeCMa")]
@@ -27378,7 +27437,7 @@ namespace Swift.Lottie
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Lottie", EntryPoint = "$s6Lottie8KeyframeCAASHRzlE4hash4intoys6HasherVz_tF")]
-        internal static extern void PInvoke_hash_3E65D280( SafeHandle into,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern void PInvoke_hash_453C2706( SafeHandle into,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
     }
     

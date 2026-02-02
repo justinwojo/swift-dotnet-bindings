@@ -70,18 +70,29 @@ namespace BindingsGeneration
             var enumDecl = (EnumDecl)enumEnv.TypeDecl;
             var parentDecl = enumDecl.ParentDecl ?? throw new ArgumentNullException(nameof(enumDecl.ParentDecl));
             var moduleDecl = enumDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(enumDecl.ModuleDecl));
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl);
+            var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
 
+            // Create P/Invoke helper context for generic enums (to avoid CS7042).
+            var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(enumDecl);
+            var previousContext = conductor.CurrentPInvokeHelperContext;
+            conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
 
-            // Use unsafe class since methods may use function pointers
-            csWriter.WriteLine($"public unsafe class {enumDecl.Name} : {typeof(ISwiftObject).Name}");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
+            try
+            {
+                // Use unsafe class since methods may use function pointers
+                var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {typeof(ISwiftObject).Name}";
+                if (!string.IsNullOrEmpty(whereClause))
+                    classDeclaration += $" {whereClause}";
+                csWriter.WriteLine(classDeclaration);
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
 
-            // Emit payload field and property - enums need this for property accessors
-            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{enumDecl.Name}>.GetTypeMetadata().Size;");
-            csWriter.WriteLine($"SwiftSafeHandle<{enumDecl.Name}> _payload = SwiftSafeHandle<{enumDecl.Name}>.Zero;");
-            csWriter.WriteLine($"public SwiftSafeHandle<{enumDecl.Name}> Payload => _payload;");
-            csWriter.WriteLine();
+                // Emit payload field and property - enums need this for property accessors
+                csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+                csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
+                csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+                csWriter.WriteLine();
 
             // Emit case constructors for all cases
             // Cases with associated values become static methods with P/Invoke constructors
@@ -92,7 +103,7 @@ namespace BindingsGeneration
             {
                 if (caseDecl.HasAssociatedValues)
                 {
-                    if (EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase))
+                    if (EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext))
                     {
                         emittedCaseConstructorNames.Add(NameProvider.ToPascalCase(caseDecl.Name));
                     }
@@ -111,14 +122,14 @@ namespace BindingsGeneration
             {
                 if (enumDecl.IsRawRepresentable)
                 {
-                    EmitRawRepresentableSupport(csWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase);
+                    EmitRawRepresentableSupport(csWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext);
                 }
                 else
                 {
                     // No RawRepresentable - emit simple cases via direct P/Invoke
                     foreach (var caseDecl in simpleCases)
                     {
-                        EmitSimpleCaseDirectPInvoke(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase);
+                        EmitSimpleCaseDirectPInvoke(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext);
                     }
                 }
             }
@@ -164,7 +175,7 @@ namespace BindingsGeneration
             }
 
             // Emit ISwiftObject implementation
-            var iSwiftObjectWriter = new EnumISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, enumDecl);
+            var iSwiftObjectWriter = new EnumISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, enumDecl, typeNameWithGenerics, pinvokeHelperContext);
             iSwiftObjectWriter.WriteEnumImplementation();
 
             // Collect property names for method/property collision detection
@@ -174,11 +185,19 @@ namespace BindingsGeneration
 
             // Emit nested types and methods using base handler
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase);
-            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase, propertyNames);
+            base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase, propertyNames, pinvokeHelperContext);
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+
+                // Emit the P/Invoke helper class after the main enum.
+                pinvokeHelperContext?.EmitHelperClass(csWriter);
+            }
+            finally
+            {
+                conductor.CurrentPInvokeHelperContext = previousContext;
+            }
         }
 
         /// <summary>
@@ -222,10 +241,9 @@ namespace BindingsGeneration
         /// Emits a simple enum case (no associated values) via direct P/Invoke.
         /// Swift enum case constructors use indirect return - they write to a buffer provided by the caller.
         /// </summary>
-        private void EmitSimpleCaseDirectPInvoke(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        private void EmitSimpleCaseDirectPInvoke(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext)
         {
             var caseName = caseDecl.Name;
-            var enumTypeName = enumDecl.Name;
             var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
             var pInvokeName = $"PInvoke_{capitalizedName}";
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
@@ -243,10 +261,19 @@ namespace BindingsGeneration
 
             // Swift enum case constructors use indirect return - allocate buffer and pass it
             csWriter.WriteLine($"var result = new {enumTypeName}();");
-            csWriter.WriteLine($"var metadata = PInvoke_getMetadata();");
+            var getMetadataCall = pinvokeHelperContext != null
+                ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                : "PInvoke_getMetadata()";
+            csWriter.WriteLine($"var metadata = {getMetadataCall};");
             csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
             csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
-            csWriter.WriteLine($"{pInvokeName}(indirectResult);");
+            var invokeArgs = pinvokeHelperContext != null
+                ? $"indirectResult, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())}"
+                : "indirectResult";
+            var pInvokeTarget = pinvokeHelperContext != null
+                ? $"{pinvokeHelperContext.HelperClassName}.{pInvokeName}"
+                : pInvokeName;
+            csWriter.WriteLine($"{pInvokeTarget}({invokeArgs});");
             csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
             csWriter.WriteLine("return result;");
 
@@ -257,19 +284,34 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // P/Invoke declaration for the case constructor - uses indirect result
-            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
-            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"private static extern void {pInvokeName}(SwiftIndirectResult result);");
-            csWriter.WriteLine();
+            if (pinvokeHelperContext != null)
+            {
+                pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = caseDecl.MangledName,
+                    MethodName = pInvokeName,
+                    ReturnType = "void",
+                    ParametersString = "SwiftIndirectResult result",
+                    IsAsync = false,
+                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                });
+            }
+            else
+            {
+                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine($"private static extern void {pInvokeName}(SwiftIndirectResult result);");
+                csWriter.WriteLine();
+            }
         }
 
         /// <summary>
         /// Emits a static method for an enum case with associated values.
         /// </summary>
-        private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext)
         {
             var caseName = caseDecl.Name;
-            var enumTypeName = enumDecl.Name;
             var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
             var pInvokeName = $"PInvoke_{capitalizedName}";
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
@@ -308,7 +350,10 @@ namespace BindingsGeneration
             csWriter.WriteLine($"var result = new {enumTypeName}();");
 
             // Swift enum case constructors use indirect return - allocate buffer and pass it
-            csWriter.WriteLine($"var metadata = PInvoke_getMetadata();");
+            var getMetadataCall = pinvokeHelperContext != null
+                ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                : "PInvoke_getMetadata()";
+            csWriter.WriteLine($"var metadata = {getMetadataCall};");
             csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
             csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
 
@@ -320,7 +365,17 @@ namespace BindingsGeneration
                 argList.Add(GetPInvokeArgument(name, typeSpec, typeDatabase));
             }
 
-            csWriter.WriteLine($"{pInvokeName}({string.Join(", ", argList)});");
+            var invokeArgList = string.Join(", ", argList);
+            if (pinvokeHelperContext != null)
+            {
+                var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
+                invokeArgList = string.IsNullOrEmpty(invokeArgList) ? metadataArgs : $"{invokeArgList}, {metadataArgs}";
+                csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pInvokeName}({invokeArgList});");
+            }
+            else
+            {
+                csWriter.WriteLine($"{pInvokeName}({invokeArgList});");
+            }
             csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
             csWriter.WriteLine("return result;");
             csWriter.Indent--;
@@ -336,10 +391,26 @@ namespace BindingsGeneration
                 pInvokeParams.Add($"{pInvokeType} {name}");
             }
 
-            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
-            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"private static extern void {pInvokeName}({string.Join(", ", pInvokeParams)});");
-            csWriter.WriteLine();
+            if (pinvokeHelperContext != null)
+            {
+                pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = caseDecl.MangledName,
+                    MethodName = pInvokeName,
+                    ReturnType = "void",
+                    ParametersString = string.Join(", ", pInvokeParams),
+                    IsAsync = false,
+                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                });
+            }
+            else
+            {
+                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine($"private static extern void {pInvokeName}({string.Join(", ", pInvokeParams)});");
+                csWriter.WriteLine();
+            }
             return true;
         }
 
@@ -348,6 +419,13 @@ namespace BindingsGeneration
         /// </summary>
         private static string GetCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
         {
+            if (typeSpec is NamedTypeSpec genericParamType &&
+                TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name) &&
+                TryGetGenericTypeParameterName(genericParamType.Name, out var typeParameterName))
+            {
+                return typeParameterName;
+            }
+
             // Handle existential types (any Protocol) - return ExistentialContainer
             var existentialHandler = new ExistentialHandler(typeDatabase);
             if (existentialHandler.IsExistential(typeSpec))
@@ -400,6 +478,12 @@ namespace BindingsGeneration
         /// </summary>
         private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase)
         {
+            if (typeSpec is NamedTypeSpec genericParamType &&
+                TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
+            {
+                return $"{paramName}.Payload.DangerousGetHandle()";
+            }
+
             // Handle existential types - pass the container directly (it's a blittable struct)
             var existentialHandler = new ExistentialHandler(typeDatabase);
             if (existentialHandler.IsExistential(typeSpec))
@@ -447,6 +531,12 @@ namespace BindingsGeneration
         /// </summary>
         private static string GetPInvokeType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
         {
+            if (typeSpec is NamedTypeSpec genericParamType &&
+                TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
+            {
+                return "IntPtr";
+            }
+
             // Handle existential types - use the ExistentialContainer struct directly
             var existentialHandler = new ExistentialHandler(typeDatabase);
             if (existentialHandler.IsExistential(typeSpec))
@@ -477,6 +567,33 @@ namespace BindingsGeneration
 
             // For primitives and frozen structs, use the C# type directly
             return typeRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
+        private static bool TryGetGenericTypeParameterName(string swiftTypeName, out string typeParameterName)
+        {
+            typeParameterName = string.Empty;
+            if (string.IsNullOrWhiteSpace(swiftTypeName))
+                return false;
+
+            if (swiftTypeName.StartsWith("τ_"))
+            {
+                var parts = swiftTypeName.Split('_');
+                if (parts.Length > 0 && int.TryParse(parts[^1], out var index))
+                {
+                    typeParameterName = $"T{index}";
+                    return true;
+                }
+            }
+
+            if (swiftTypeName.Length > 1 &&
+                swiftTypeName[0] == 'T' &&
+                int.TryParse(swiftTypeName.Substring(1), out _))
+            {
+                typeParameterName = swiftTypeName;
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -516,9 +633,8 @@ namespace BindingsGeneration
         /// Emits RawRepresentable support for enums with simple cases.
         /// This includes a FromRawValue method and static properties for each case.
         /// </summary>
-        private void EmitRawRepresentableSupport(CSharpWriter csWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        private void EmitRawRepresentableSupport(CSharpWriter csWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext)
         {
-            var enumTypeName = enumDecl.Name;
             var rawTypeName = enumDecl.RawValueTypeName!;
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
 
@@ -568,7 +684,10 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine($"IntPtr resultPtr = PInvoke_InitWithRawValue(rawValue);");
+                var rawInitCall = pinvokeHelperContext != null
+                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue(rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                    : "PInvoke_InitWithRawValue(rawValue)";
+                csWriter.WriteLine($"IntPtr resultPtr = {rawInitCall};");
                 csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
@@ -583,10 +702,26 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
 
                 // Emit P/Invoke for init(rawValue:) - frozen version returns IntPtr directly
-                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
-                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine($"private static extern IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
-                csWriter.WriteLine();
+                if (pinvokeHelperContext != null)
+                {
+                    pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                    {
+                        LibraryPath = libPath,
+                        EntryPoint = initRawValueMethod.MangledName,
+                        MethodName = "PInvoke_InitWithRawValue",
+                        ReturnType = "IntPtr",
+                        ParametersString = $"{csharpRawType} rawValue",
+                        IsAsync = false,
+                        MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    });
+                }
+                else
+                {
+                    csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                    csWriter.WriteLine($"private static extern IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
+                    csWriter.WriteLine();
+                }
             }
             else
             {
@@ -602,10 +737,16 @@ namespace BindingsGeneration
 
                 // Get metadata for the enum type and SwiftOptional<EnumType>
                 csWriter.WriteLine("// Get metadata for the enum type");
-                csWriter.WriteLine("var enumMetadata = PInvoke_getMetadata();");
+                var getMetadataCall = pinvokeHelperContext != null
+                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                    : "PInvoke_getMetadata()";
+                csWriter.WriteLine($"var enumMetadata = {getMetadataCall};");
                 csWriter.WriteLine();
                 csWriter.WriteLine("// Get metadata for SwiftOptional<EnumType>");
-                csWriter.WriteLine("var optionalMetadata = PInvokesForSwiftOptional_MetadataAccessor(");
+                var optionalMetadataAccessorCall = pinvokeHelperContext != null
+                    ? $"{pinvokeHelperContext.HelperClassName}.PInvokesForSwiftOptional_MetadataAccessor"
+                    : "PInvokesForSwiftOptional_MetadataAccessor";
+                csWriter.WriteLine($"var optionalMetadata = {optionalMetadataAccessorCall}(");
                 csWriter.Indent++;
                 csWriter.WriteLine("TypeMetadataRequest.Complete, enumMetadata);");
                 csWriter.Indent--;
@@ -621,7 +762,10 @@ namespace BindingsGeneration
                 // Call P/Invoke with indirect result
                 csWriter.WriteLine("// Call the failable initializer with indirect result");
                 csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
-                csWriter.WriteLine("PInvoke_InitWithRawValue(swiftIndirectResult, rawValue);");
+                var rawInitIndirectCall = pinvokeHelperContext != null
+                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue(swiftIndirectResult, rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                    : "PInvoke_InitWithRawValue(swiftIndirectResult, rawValue)";
+                csWriter.WriteLine($"{rawInitIndirectCall};");
                 csWriter.WriteLine();
 
                 // Check if Some or None via enum tag
@@ -662,17 +806,48 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
 
                 // Emit P/Invoke for init(rawValue:) - non-frozen version uses indirect result
-                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
-                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine($"private static extern void PInvoke_InitWithRawValue(SwiftIndirectResult result, {csharpRawType} rawValue);");
-                csWriter.WriteLine();
+                if (pinvokeHelperContext != null)
+                {
+                    pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                    {
+                        LibraryPath = libPath,
+                        EntryPoint = initRawValueMethod.MangledName,
+                        MethodName = "PInvoke_InitWithRawValue",
+                        ReturnType = "void",
+                        ParametersString = $"SwiftIndirectResult result, {csharpRawType} rawValue",
+                        IsAsync = false,
+                        MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    });
+                }
+                else
+                {
+                    csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                    csWriter.WriteLine($"private static extern void PInvoke_InitWithRawValue(SwiftIndirectResult result, {csharpRawType} rawValue);");
+                    csWriter.WriteLine();
+                }
 
                 // Emit P/Invoke for SwiftOptional metadata accessor (using Swift stdlib symbol)
-                csWriter.WriteLine("// SwiftOptional metadata accessor from Swift stdlib");
-                csWriter.WriteLine("[DllImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
-                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine("private static extern TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
-                csWriter.WriteLine();
+                if (pinvokeHelperContext != null)
+                {
+                    pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                    {
+                        LibraryPath = "/usr/lib/swift/libswiftCore.dylib",
+                        EntryPoint = "$sSqMa",
+                        MethodName = "PInvokesForSwiftOptional_MetadataAccessor",
+                        ReturnType = "TypeMetadata",
+                        ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata",
+                        IsAsync = false
+                    });
+                }
+                else
+                {
+                    csWriter.WriteLine("// SwiftOptional metadata accessor from Swift stdlib");
+                    csWriter.WriteLine("[DllImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
+                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                    csWriter.WriteLine("private static extern TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
+                    csWriter.WriteLine();
+                }
             }
 
             // Emit static properties for each simple case
@@ -780,7 +955,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
-            csWriter.WriteLine("var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl)}>.GetTypeMetadata();");
             csWriter.WriteLine("byte* payload = (byte*)_payload.DangerousGetHandle();");
             csWriter.WriteLine("return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);");
 
@@ -888,7 +1063,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-            csWriter.WriteLine("var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl)}>.GetTypeMetadata();");
             csWriter.WriteLine();
 
             // Create a copy to avoid destroying the original
@@ -1041,7 +1216,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-            csWriter.WriteLine("var metadata = PInvoke_getMetadata();");
+            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl)}>.GetTypeMetadata();");
             csWriter.WriteLine();
 
             // Create a copy to avoid destroying the original
@@ -1300,13 +1475,17 @@ namespace BindingsGeneration
         private readonly ITypeDatabase _typeDatabase;
         private readonly ModuleDecl _moduleDecl;
         private readonly EnumDecl _enumDecl;
+        private readonly string _typeNameWithGenerics;
+        private readonly PInvokeHelperContext? _pinvokeHelperContext;
 
-        public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl)
+        public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
             _moduleDecl = moduleDecl;
             _enumDecl = enumDecl;
+            _typeNameWithGenerics = typeNameWithGenerics;
+            _pinvokeHelperContext = pinvokeHelperContext;
         }
 
         /// <summary>
@@ -1325,10 +1504,27 @@ namespace BindingsGeneration
         /// </summary>
         private void WriteGetTypeMetadata()
         {
+            string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            if (_pinvokeHelperContext != null)
+            {
+                var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetMetadataArgumentList());
+                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({metadataArgs});");
+                _writer.WriteLine();
+                _pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                {
+                    LibraryPath = libPath,
+                    EntryPoint = _enumDecl.MetadataAccessor,
+                    MethodName = "PInvoke_getMetadata",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "",
+                    IsAsync = false,
+                    MetadataParameters = _pinvokeHelperContext.GetMetadataParameterDeclarations()
+                });
+                return;
+            }
+
             _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
             _writer.WriteLine();
-
-            string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
 
             var pinvokeText = $$"""
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -1348,7 +1544,7 @@ namespace BindingsGeneration
             var text = $$"""
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
-                return new {{_enumDecl.Name}}(handle);
+                return new {{_typeNameWithGenerics}}(handle);
             }
             """;
 
@@ -1382,7 +1578,7 @@ namespace BindingsGeneration
             var text = $$"""
             {{_enumDecl.Name}}(SwiftHandle handle)
             {
-                _payload = new SwiftSafeHandle<{{_enumDecl.Name}}>(handle);
+                _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(handle);
             }
             """;
 
@@ -1398,7 +1594,7 @@ namespace BindingsGeneration
             var text = $$"""
             unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
-                var metadata = SwiftObjectHelper<{{_enumDecl.Name}}>.GetTypeMetadata();
+                var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
                 if ((int)metadata.Size > swiftDestSpan.Length)
                 {
                     throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");

@@ -13,16 +13,18 @@ This document contains detailed task specifications for the next phase of bindin
 |------|-------------|--------|--------------|
 | 1 | Paired Operator Synthesis Validation | ✅ **COMPLETED** | CS0216 eliminated |
 | 2 | Duplicate Enum Member Deduplication | ✅ **COMPLETED** | CS0102 eliminated |
-| 3 | Generic Enum Type Parameter Propagation | 🔲 Not Started | CS0308 (10 errors) |
-| 4 | SwiftUI Constraint Handling | 🔲 Not Started | CS0246, CS0314 (6 errors) |
+| 3 | Generic Enum Type Parameter Propagation | ✅ **COMPLETED** | CS0308 eliminated |
+| 4 | SwiftUI Constraint Handling | 🔲 Not Started | CS0246, CS0314 (8 errors) |
 | 5 | Binding Completeness Report | 🔲 Not Started | N/A (DX improvement) |
 | 6 | UnsupportedType Placeholder | 🔲 Not Started | N/A (DX improvement) |
-| 7 | Generic Constraint Relaxation for Existentials | 🔲 Not Started | CS0315 (1 error) |
+| 7 | Generic Constraint Relaxation for Existentials | 🔲 Not Started | CS0315 (2 errors) |
 
-**Current Lottie Error Count**: 19 unique errors (down from 21)
+**Current Lottie Error Count**: 38 errors (CS0308 fixed, but revealed CS0311 constraint violations)
 **BlinkID**: 0 errors ✅
 **Nuke**: 0 errors ✅
-**Unit Tests**: 991 passed ✅
+**Unit Tests**: 993 passed ✅
+
+**Note**: Error count increased because Task 3 correctly emits generic constraints, revealing call-site violations (CS0311) where types don't implement required interfaces like `ISwiftAnyInterpolatable`.
 
 ---
 
@@ -188,9 +190,34 @@ dotnet build LottieTestApp/LottieTestApp.csproj 2>&1 | grep "CS0102"
 
 ## Task 3: Generic Enum Type Parameter Propagation (CS0308)
 
+### Status: ✅ COMPLETED (February 2026)
 ### Priority: P2 (Medium)
 ### Effort: Medium (1-2 days)
 ### Dependencies: None
+
+### Completion Notes
+
+**Implemented by**: Codex
+**Files Modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EnumHandler.cs` - Major updates for generic enum emission:
+  - Added `typeNameWithGenerics` and `whereClause` generation using `GenericTypeEmitter`
+  - Added `PInvokeHelperContext` for generic enums to avoid CS7042
+  - Updated all case constructors, `FromRawValue`, and P/Invoke calls to use helper class pattern
+  - Added `TryGetGenericTypeParameterName()` to map `τ_0_0` → `T0`
+  - Updated `GetCSharpTypeNameForEnumCase()`, `GetPInvokeArgument()`, `GetPInvokeType()` to handle generic params
+  - Updated `EnumISwiftObjectMethodWriter` for generic type names and helper-based metadata
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/EnumHandlerOutputTests.cs` - New test `Emit_GenericEnum_EmitsGenericTypeAndPInvokeHelper`
+- `src/Swift.Bindings/tests/UnitTests/ParserTests/SwiftABIParserTests.cs` - New test `CreateEnumDecl_WithGenericParameters_SetsGenericParameters`
+
+**Solution**: Generic enums now emit with proper type parameters and constraints. For example:
+```csharp
+// Before: public unsafe class ValueProviderStorage : ISwiftObject
+// After:  public unsafe class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject, ISwiftAnyInterpolatable
+```
+
+P/Invoke declarations are emitted to a helper class (`ValueProviderStorage_PInvoke`) to avoid CS7042 "cannot use generic type parameters in P/Invoke".
+
+**Impact**: CS0308 errors eliminated. New CS0311 errors surfaced at call sites where types don't satisfy the now-correct constraints (e.g., `LottieVector3D` doesn't implement `ISwiftAnyInterpolatable`). This is expected progress - the constraints are now correct.
 
 ### Problem Statement
 
