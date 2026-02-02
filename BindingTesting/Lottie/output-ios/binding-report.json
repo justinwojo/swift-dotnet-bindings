@@ -1,14 +1,21 @@
 {
   "ModuleName": "Lottie",
-  "GeneratedAt": "2026-02-02T21:58:39.575048+00:00",
+  "GeneratedAt": "2026-02-02T22:45:10.683634+00:00",
   "TotalTypes": 93,
   "EmittedTypes": 79,
   "SkippedTypes": 1,
   "TotalMembers": 609,
-  "EmittedMembers": 385,
-  "SkippedMembers": 43,
-  "SynthesizedMembers": 273,
+  "EmittedMembers": 372,
+  "SkippedMembers": 56,
+  "SynthesizedMembers": 268,
   "SkippedItems": [
+    {
+      "Kind": "Property",
+      "Name": "valueProviders",
+      "ContainingType": "Lottie.LottieAnimationLayer",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnyValueProvider'."
+    },
     {
       "Kind": "Property",
       "Name": "animationLayerDidLoad",
@@ -29,6 +36,27 @@
       "ContainingType": "Lottie.LottieAnimationLayer",
       "Reason": "UnsupportedClosure",
       "Details": "Closure parameters are not invokable from C#."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.LottieAnimationLayer",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationImageProvider'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "getValue",
+      "ContainingType": "Lottie.LottieAnimationLayer",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument ''."
+    },
+    {
+      "Kind": "Method",
+      "Name": "getOriginalValue",
+      "ContainingType": "Lottie.LottieAnimationLayer",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument ''."
     },
     {
       "Kind": "Property",
@@ -76,15 +104,29 @@
       "Kind": "Method",
       "Name": "named",
       "ContainingType": "Lottie.LottieAnimation",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationCacheProvider'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "filepath",
+      "ContainingType": "Lottie.LottieAnimation",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationCacheProvider'."
     },
     {
       "Kind": "Method",
       "Name": "asset",
       "ContainingType": "Lottie.LottieAnimation",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationCacheProvider'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "loadedFrom",
+      "ContainingType": "Lottie.LottieAnimation",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationCacheProvider'."
     },
     {
       "Kind": "Property",
@@ -120,6 +162,13 @@
       "ContainingType": "Lottie.CompatibleAnimationView",
       "Reason": "UnsupportedType",
       "Details": "Type resolution failed for property type 'UIKit.UIView.ContentMode'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "getValue",
+      "ContainingType": "Lottie.CompatibleAnimationView",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument ''."
     },
     {
       "Kind": "Property",
@@ -214,10 +263,38 @@
     },
     {
       "Kind": "Property",
+      "Name": "valueProviders",
+      "ContainingType": "Lottie.LottieAnimationView",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnyValueProvider'."
+    },
+    {
+      "Kind": "Property",
       "Name": "animationLoaded",
       "ContainingType": "Lottie.LottieAnimationView",
       "Reason": "UnsupportedClosure",
       "Details": "Closure parameters are not invokable from C#."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.LottieAnimationView",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationImageProvider'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "getValue",
+      "ContainingType": "Lottie.LottieAnimationView",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument ''."
+    },
+    {
+      "Kind": "Method",
+      "Name": "getOriginalValue",
+      "ContainingType": "Lottie.LottieAnimationView",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument ''."
     },
     {
       "Kind": "Method",
@@ -249,24 +326,38 @@
     },
     {
       "Kind": "Method",
+      "Name": "loadedFrom",
+      "ContainingType": "Lottie.DotLottieFile.SynchronouslyBlockingCurrentThread",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Swift.Error'."
+    },
+    {
+      "Kind": "Method",
       "Name": "named",
       "ContainingType": "Lottie.DotLottieFile.SynchronouslyBlockingCurrentThread",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Swift.Error'."
     },
     {
       "Kind": "Method",
       "Name": "named",
       "ContainingType": "Lottie.DotLottieFile",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.DotLottieCacheProvider'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "loadedFrom",
+      "ContainingType": "Lottie.DotLottieFile",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.DotLottieCacheProvider'."
     },
     {
       "Kind": "Method",
       "Name": "asset",
       "ContainingType": "Lottie.DotLottieFile",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Lottie.DotLottieCacheProvider'."
     },
     {
       "Kind": "Method",

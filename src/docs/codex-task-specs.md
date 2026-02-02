@@ -17,14 +17,14 @@ This document contains detailed task specifications for the next phase of bindin
 | 4 | SwiftUI Constraint Handling | ✅ **COMPLETED** | CS0246, CS0314 eliminated |
 | 5 | Binding Completeness Report | ✅ **COMPLETED** | N/A (DX improvement) |
 | 6 | UnsupportedType Placeholder | ✅ **COMPLETED** | N/A (DX improvement) |
-| 7 | Generic Constraint Relaxation for Existentials | 🔲 Not Started | CS0315 (1 error) |
+| 7 | Generic Constraint Relaxation for Existentials | ✅ **COMPLETED** | CS0315 eliminated |
 
-**Current Lottie Error Count**: 12 errors (CS0311: 10, CS0738: 1, CS0315: 1)
+**Current Lottie Error Count**: 11 errors (CS0311: 10, CS0738: 1)
 **BlinkID**: 0 errors ✅
 **Nuke**: 0 errors ✅
-**Unit Tests**: 1004 passed ✅
+**Unit Tests**: 1009 passed ✅
 
-**Note**: Task 6 added `[UnsupportedSwiftType]` attributes to members with fallback types. 42 attributes emitted in Lottie bindings. Remaining errors are CS0311 (generic constraint violations), CS0738 (protocol interface mismatch), and CS0315 (existential boxing).
+**Note**: All 7 Codex tasks completed. Remaining CS0311 errors are generic constraint violations where types like `LottieVector3D` don't implement `ISwiftAnyInterpolatable`. CS0738 is an interface mismatch in `AnyValueProviderProxy`. These require deeper architectural changes to fix.
 
 ---
 
@@ -695,9 +695,36 @@ dotnet build src/Swift.Runtime/src/Swift.Runtime.csproj
 
 ## Task 7: Generic Constraint Relaxation for Existentials (CS0314/CS0315)
 
+### Status: ✅ COMPLETED (February 2026)
 ### Priority: P3 (Lower - Architectural)
 ### Effort: High (2-3 days)
 ### Dependencies: Requires design discussion
+
+### Completion Notes
+
+**Implemented by**: Codex
+**Approach**: Option D (skip existential-bound generic usages with warning)
+
+**Files Modified**:
+- `src/Swift.Bindings/src/Marshaler/BoundGenericsHandler.cs` - Added `TryGetFirstExistentialTypeArgument()` for recursive existential detection; existential args now translate to AnyType
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Skips methods/constructors with existential bound generic args
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs` - Skips properties with existential bound generic args
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ProtocolProxyEmitter.cs` - Aligned proxy signature generation with interface for bound generics
+- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/BoundGenericsHandlerTests.cs` - Updated expectations, added existential detection tests
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/MethodHandlerOutputTests.cs` - Added skip test for existential bound generic
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/PropertyHandlerTests.cs` - Added skip test for existential bound generic
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ProtocolProxyEmitterTests.cs` - Added proxy signature alignment test
+
+**Solution**:
+- `TryGetFirstExistentialTypeArgument()` recursively traverses type specs to detect existential types in generic arguments
+- When detected, members are skipped with `SkipReason.UnsupportedExistential` and logged
+- Existential generic args translate to `AnyType` instead of `ExistentialContainerN` to prevent constraint violations
+- Protocol proxy signatures now use same translation path as interfaces for consistency
+
+**Impact**:
+- CS0315 eliminated (existential boxing errors)
+- 18 members skipped with `UnsupportedExistential` reason
+- Lottie errors reduced from 12 to 11
 
 ### Problem Statement
 

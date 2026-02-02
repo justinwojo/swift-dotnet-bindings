@@ -249,6 +249,22 @@ public class PropertyHandlerTests
         Assert.Contains("public Swift.TestModule.Box<object> Handler", csOutput);
     }
 
+    [Fact]
+    public void Emit_PropertyWithExistentialBoundGeneric_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Loader", moduleDecl);
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var propertyType = new NamedTypeSpec("TestModule.Box", existentialArg);
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "cache", propertyType, hasGetter: true, hasSetter: false);
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
     #endregion
 
     #region Helper Methods

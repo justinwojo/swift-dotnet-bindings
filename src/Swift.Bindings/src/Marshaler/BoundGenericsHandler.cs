@@ -114,6 +114,57 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// Tries to find the first existential type argument within a bound generic type.
+    /// </summary>
+    /// <param name="typeSpec">The type specification to inspect.</param>
+    /// <param name="existentialType">The first existential type encountered.</param>
+    /// <returns><c>true</c> if an existential type argument was found; otherwise, <c>false</c>.</returns>
+    public bool TryGetFirstExistentialTypeArgument(TypeSpec typeSpec, out string existentialType)
+    {
+        if (_existentialHandler.IsExistential(typeSpec))
+        {
+            existentialType = typeSpec.ToString();
+            return true;
+        }
+
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedTypeSpec:
+                foreach (var genericParameter in namedTypeSpec.GenericParameters)
+                {
+                    if (TryGetFirstExistentialTypeArgument(genericParameter, out existentialType))
+                    {
+                        return true;
+                    }
+                }
+                break;
+            case TupleTypeSpec tupleTypeSpec:
+                foreach (var element in tupleTypeSpec.Elements)
+                {
+                    if (TryGetFirstExistentialTypeArgument(element, out existentialType))
+                    {
+                        return true;
+                    }
+                }
+                break;
+            case ClosureTypeSpec closureTypeSpec:
+                if (TryGetFirstExistentialTypeArgument(closureTypeSpec.Arguments, out existentialType))
+                {
+                    return true;
+                }
+
+                if (TryGetFirstExistentialTypeArgument(closureTypeSpec.ReturnType, out existentialType))
+                {
+                    return true;
+                }
+                break;
+        }
+
+        existentialType = string.Empty;
+        return false;
+    }
+
+    /// <summary>
     /// Helper method to convert a Swift <see cref="NamedTypeSpec"/> into its corresponding C# type name.
     /// </summary>
     /// <param name="namedTypeSpec">The named type specification.</param>
@@ -155,9 +206,8 @@ public class BoundGenericsHandler
         // Handle existential types (including bare 'Any' with 0 protocols and 'any Protocol' syntax)
         if (_existentialHandler.IsExistential(typeSpec))
         {
-            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
-            if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
-                return _existentialHandler.GetCSharpExistentialType(protocolList);
+            // Bound generic arguments constrained to ISwiftObject cannot safely use existential containers.
+            // Emit AnyType so callers can skip this member instead of generating invalid constraints.
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 
@@ -213,4 +263,3 @@ public class BoundGenericsHandler
         return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName; // TODO: Consider throwing an exception instead
     }
 }
-

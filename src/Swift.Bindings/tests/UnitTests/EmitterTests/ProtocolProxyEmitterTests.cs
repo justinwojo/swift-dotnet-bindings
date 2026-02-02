@@ -536,6 +536,68 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("public Swift.Runtime.ExistentialContainer2 delegate", output);
     }
 
+    [Fact]
+    public void EmitProxyClass_WithOptionalExistentialGeneric_UsesAnyTypeFallback()
+    {
+        var protocolDecl = CreateSimpleProtocol("OptionalExistentialProtocol");
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Box"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+                MetadataAccessor = "$s10TestModule3BoxVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        var boxedExistential = new NamedTypeSpec("TestModule.Box");
+        boxedExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P1") }));
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "update",
+            MangledName = "$s10TestModule26OptionalExistentialProtocolP6updateyyAA3BoxVyAA2P1_pGF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "value",
+                    PrivateName = "value",
+                    SwiftTypeSpec = boxedExistential,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("public void update(Swift.TestModule.Box<Swift.AnyType> value)", output);
+    }
+
     #endregion
 
     #region Witness Table Lookup Tests

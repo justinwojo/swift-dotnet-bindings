@@ -232,6 +232,28 @@ public class MethodHandlerOutputTests
         Assert.Contains("public unsafe Swift.TestModule.Box<object> BoxedHandler()", csOutput);
     }
 
+    [Fact]
+    public void Emit_MethodWithExistentialBoundGeneric_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var method = CreateMethodDecl(
+            name: "existentialBox",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("TestModule.Box", existentialArg),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();

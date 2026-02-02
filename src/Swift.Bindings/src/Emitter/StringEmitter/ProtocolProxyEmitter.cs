@@ -1218,17 +1218,21 @@ public class ProtocolProxyEmitter
             // Handle generic types by getting base type and building generic arguments
             if (typeSpec is NamedTypeSpec namedType && namedType.GenericParameters.Count > 0)
             {
-                // Get the base type name (e.g., Swift.Optional -> SwiftOptional)
-                var baseTypeSpec = new NamedTypeSpec(namedType.Name);
-                var baseRecord = _typeDatabase.GetTypeRecordOrAnyType(baseTypeSpec);
-                var baseTypeName = baseRecord.CSharpTypeName.FullyQualifiedName;
-
-                // Recursively get C# names for all generic parameters
-                var genericArgs = namedType.GenericParameters
-                    .Select(gp => GetCSharpTypeName(gp))
-                    .ToList();
-
-                return $"{baseTypeName}<{string.Join(", ", genericArgs)}>";
+                // Keep proxy signatures aligned with protocol interface signatures for bound generics.
+                // This is especially important for existential generic arguments (Task 7),
+                // where BoundGenericsHandler intentionally falls back to AnyType.
+                var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
+                var tempProperty = new PropertyDecl
+                {
+                    Name = "_temp",
+                    SwiftTypeSpec = typeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                };
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
             }
 
             var record = _typeDatabase.GetTypeRecordOrAnyType(typeSpec);

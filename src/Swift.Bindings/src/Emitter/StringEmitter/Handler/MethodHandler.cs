@@ -86,6 +86,26 @@ namespace BindingsGeneration
 
             var isAccessor = methodEnv.MethodDecl.IsAccessor;
 
+            foreach (var argument in methodEnv.MethodDecl.CSSignature)
+            {
+                if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
+                {
+                    continue;
+                }
+
+                if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
+                {
+                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{existentialType}'.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.ParentDecl,
+                        SkipReason.UnsupportedExistential,
+                        $"Constructor bound generic contains existential type argument '{existentialType}'.");
+                    return;
+                }
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -182,6 +202,29 @@ namespace BindingsGeneration
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.GenericProtocolConstraint, "Method has constraints on protocols with associated types.");
                 }
                 return;
+            }
+
+            if (!isAccessor)
+            {
+                foreach (var argument in methodEnv.MethodDecl.CSSignature)
+                {
+                    if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
+                    {
+                        continue;
+                    }
+
+                    if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
+                    {
+                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{existentialType}'.");
+                        ReportCollector.RecordMemberSkipped(
+                            BindingItemKind.Method,
+                            methodEnv.MethodDecl.Name,
+                            methodEnv.MethodDecl.ParentDecl,
+                            SkipReason.UnsupportedExistential,
+                            $"Bound generic contains existential type argument '{existentialType}'.");
+                        return;
+                    }
+                }
             }
 
             var signatureHandler = new SignatureHandler(methodEnv);
