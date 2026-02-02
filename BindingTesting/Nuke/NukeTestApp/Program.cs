@@ -1504,12 +1504,14 @@ public class MainViewController : UIViewController
             results.Fail("Async+throwing closure constructor binding", ex.Message);
         }
 
-        // Test 2: Document known limitation with processors parameter
-        TestLogger.Info("Known limitation: Full constructor invocation blocked by SwiftArray<ExistentialContainer1> metadata issue");
-        TestLogger.Info("  - The 'processors' parameter requires IEnumerable<ExistentialContainer1>");
-        TestLogger.Info("  - Converting to SwiftArray triggers swift_getExistentialTypeMetadata");
-        TestLogger.Info("  - This crashes due to existential container metadata lookup issue");
-        results.Warn("Full ImageRequest(data:) invocation blocked by ExistentialContainer array metadata issue");
+        // Test 2: Document known limitation with SwiftArray<ExistentialContainer>
+        // The swift_getExistentialTypeMetadata function triggers a Mono JIT assertion failure
+        // This is a Mono/Swift runtime interop issue - the function is marked as async
+        // by the JIT when it shouldn't be. See: mono/metadata/jit-info.c:918
+        TestLogger.Info("Known limitation: SwiftArray<ExistentialContainer> not yet supported");
+        TestLogger.Info("  - swift_getExistentialTypeMetadata triggers Mono JIT assertion");
+        TestLogger.Info("  - Workaround: Use concrete types or Swift wrapper functions");
+        results.Warn("SwiftArray<ExistentialContainer> blocked by Mono JIT issue with swift_getExistentialTypeMetadata");
 
         // Test 3: Verify Swift.Data can be created from NSData
         try

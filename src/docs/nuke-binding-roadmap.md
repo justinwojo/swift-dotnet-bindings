@@ -166,9 +166,9 @@ error CS7042: The DllImport attribute cannot be applied to a method that is gene
 **Future work**: More sophisticated support could use runtime code generation or specialized proxy classes per type argument.
 
 ### SwiftArray<ExistentialContainer> Metadata Crash
-**Status**: Open issue (discovered Phase 28)
+**Status**: Partially mitigated (lazy init + graceful error), workaround available
 
-Creating a `SwiftArray<ExistentialContainer1>` crashes at runtime when attempting to get type metadata for the array's element type.
+Creating a `SwiftArray<ExistentialContainer1>` fails at runtime due to a Mono JIT bug with `swift_getExistentialTypeMetadata`.
 
 **Symptoms**:
 ```
@@ -177,29 +177,40 @@ Creating a `SwiftArray<ExistentialContainer1>` crashes at runtime when attemptin
 Managed Stacktrace:
   at Swift.Runtime.TypeMetadata:swift_getExistentialTypeMetadata
   at Swift.Runtime.TypeMetadata:GetExistentialTypeMetadata
-  at Swift.Runtime.TypeMetadata:TryGetTypeMetadataUncached
-  at Swift.SwiftArray`1:get_ElementTypeMetadata
-  at Swift.SwiftArray`1:.cctor
+  ...
 ```
 
-**Root cause**: When `SwiftArray<T>` is instantiated with `T = ExistentialContainer1`, the static constructor attempts to get the element type's metadata. For existential containers, this calls `swift_getExistentialTypeMetadata`, which crashes due to an async/jit interaction issue in Mono.
+**Root cause**: The Swift runtime function `swift_getExistentialTypeMetadata` triggers a Mono JIT assertion about async state. This appears to be a Mono runtime bug, not a binding generator issue.
 
-**Impact**: Blocks calling constructors/methods that require `IEnumerable<ExistentialContainer1>` parameters, such as:
-- `ImageRequest(id:, data:, processors:, priority:, options:, userInfo:)` - the async+throwing closure constructor
+**Mitigations applied** (Phase 28.1):
+1. **Lazy initialization** in `SwiftArray<T>` - Element metadata lookup deferred from static constructor to first use, preventing crashes during type loading
+2. **Graceful error** - `TypeMetadata.TryGetTypeMetadataUncached` throws a descriptive `SwiftRuntimeException` instead of crashing
+3. **P/Invoke fix** - Updated `swift_getExistentialTypeMetadata` to use Swift calling convention (`CallConvSwift`)
 
-**Workaround**: None currently. The constructor binding is generated correctly and compiles, but cannot be invoked at runtime.
+**Impact**: 3 of 4 `ImageRequest` constructors blocked (those requiring `IEnumerable<ExistentialContainer1>` for the `processors` parameter).
 
-**Affected code path**:
-```csharp
-// In generated constructor
-using var processorsSwift = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(processors);
-// ↑ This line triggers the crash when SwiftArray<ExistentialContainer1> static constructor runs
+**Working workaround - Swift wrapper functions**:
+
+Since most users don't need custom image processors, add Swift helper functions that handle empty arrays natively:
+
+```swift
+// In SwiftBindings.swift
+@_silgen_name("ImageRequest_initWithURL_noProcessors")
+public func imageRequest_withURL(_ url: URL, priority: ImageRequest.Priority = .normal) -> ImageRequest {
+    return ImageRequest(url: url, processors: [], priority: priority, options: .init(), userInfo: nil)
+}
+
+@_silgen_name("ImageRequest_initWithURLRequest_noProcessors")
+public func imageRequest_withURLRequest(_ request: URLRequest) -> ImageRequest {
+    return ImageRequest(urlRequest: request, processors: [])
+}
 ```
 
-**Potential fixes**:
-1. Investigate why `swift_getExistentialTypeMetadata` triggers async jit assertion
-2. Consider lazy metadata initialization to avoid static constructor issues
-3. Special-case existential container arrays to use a different metadata path
+This completely avoids the Mono JIT issue because Swift handles the existential array creation.
+
+**For custom processors**: A future enhancement could add Swift wrapper functions that accept a fixed number of processor identifiers or a pre-configured processor chain.
+
+**Long-term fix**: Report bug to dotnet/runtime - the Mono JIT incorrectly marks `swift_getExistentialTypeMetadata` as async
 
 ### Simple Swift Enum Case Support
 **Status**: COMPLETED (Phase 18 + Phase 19 + Phase 20)

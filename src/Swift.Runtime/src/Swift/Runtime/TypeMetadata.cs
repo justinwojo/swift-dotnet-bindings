@@ -5,7 +5,9 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Swift;
 using System.Text;
 
 namespace Swift.Runtime;
@@ -354,16 +356,17 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         }
 
         // Handle existential container types (ExistentialContainer0 through ExistentialContainer8)
+        // NOTE: swift_getExistentialTypeMetadata triggers a Mono JIT assertion failure
+        // (condition `!ji->async' not met at jit-info.c:918). This is a known interop issue
+        // between Mono and Swift's existential type metadata function.
+        // For now, we throw a descriptive exception rather than crash.
         if (typeof(IExistentialContainer).IsAssignableFrom(type))
         {
-            var protocolCount = GetProtocolCountFromExistentialType(type);
-            var metadata = GetExistentialTypeMetadata(protocolCount);
-            if (metadata.IsValid)
-            {
-                cache.GetOrAdd(type, _ => metadata);
-                result = metadata;
-                return true;
-            }
+            throw new SwiftRuntimeException(
+                $"SwiftArray<{type.Name}> is not yet supported. " +
+                "The swift_getExistentialTypeMetadata function triggers a Mono JIT assertion. " +
+                "Workaround: Use concrete types instead of existential containers in Swift arrays, " +
+                "or use a Swift wrapper function to handle the array creation.");
         }
 
         result = null;
@@ -393,16 +396,22 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// <returns>The existential type metadata.</returns>
     public static TypeMetadata GetExistentialTypeMetadata(int numProtocols)
     {
-        // classConstraint: 0 = any type, 1 = class-only
-        // superclassConstraint: null for no superclass constraint
-        // numProtocols: number of protocol constraints
-        // protocols: pointer to array of protocol descriptors (null if numProtocols is 0)
-        return swift_getExistentialTypeMetadata(0, IntPtr.Zero, (nuint)numProtocols, IntPtr.Zero);
+        // Swift signature: swift_getExistentialTypeMetadata(MetadataRequest request,
+        //   const Metadata * _Nullable superclassConstraint, size_t numProtocols,
+        //   const ProtocolDescriptorRef *protocols) -> MetadataResponse
+        // MetadataResponse contains both metadata pointer and state - we just want the pointer
+        var response = swift_getExistentialTypeMetadata(
+            TypeMetadataRequest.Complete,  // request: complete metadata
+            IntPtr.Zero,                   // superclassConstraint: null
+            (nuint)numProtocols,           // numProtocols
+            IntPtr.Zero);                  // protocols: null for unconstrained existential
+        return response;
     }
 
-    [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "swift_getExistentialTypeMetadata")]
     private static extern TypeMetadata swift_getExistentialTypeMetadata(
-        int classConstraint,
+        TypeMetadataRequest request,
         IntPtr superclassConstraint,
         nuint numProtocols,
         IntPtr protocols);

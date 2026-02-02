@@ -25,9 +25,29 @@ public interface ISwiftCollection { }
 /// <typeparam name="Element">The element type contained in the array.</typeparam>
 public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDisposable
 {
-    static nuint _payloadSize = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata().Size;
+    // Lazy initialization to avoid calling Swift runtime during static construction.
+    // This prevents crashes when Element is an existential container type, where
+    // swift_getExistentialTypeMetadata called from .cctor triggers a Mono JIT/async assertion.
+    private static TypeMetadata? _cachedElementMetadata;
+    private static nuint? _cachedElementSize;
 
-    static nuint _elementSize = ElementTypeMetadata.Size;
+    private static TypeMetadata CachedElementTypeMetadata
+    {
+        get
+        {
+            _cachedElementMetadata ??= TypeMetadata.GetTypeMetadataOrThrow<Element>();
+            return _cachedElementMetadata.Value;
+        }
+    }
+
+    private static nuint ElementSize
+    {
+        get
+        {
+            _cachedElementSize ??= CachedElementTypeMetadata.Size;
+            return _cachedElementSize.Value;
+        }
+    }
 
     private SwiftSafeHandle<SwiftArray<Element>> _payload;
 
@@ -50,10 +70,8 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDispos
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftArray<Element>), _ => SwiftArrayPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, ElementTypeMetadata));
     }
 
-    static TypeMetadata ElementTypeMetadata
-    {
-        get => TypeMetadata.GetTypeMetadataOrThrow<Element>();
-    }
+    // Use cached version to avoid static constructor issues
+    static TypeMetadata ElementTypeMetadata => CachedElementTypeMetadata;
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
@@ -147,7 +165,7 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDispos
         _payload.DangerousAddRef(ref success);
         try
         {
-            Span<byte> span = stackalloc byte[(int)_elementSize];
+            Span<byte> span = stackalloc byte[(int)ElementSize];
             IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
             SwiftMarshal.MarshalToSwift(item, ref span);
             SwiftArrayPInvokes.Append(payload, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
@@ -169,7 +187,7 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDispos
         try
         {
             var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            Span<byte> span = stackalloc byte[(int)_elementSize];
+            Span<byte> span = stackalloc byte[(int)ElementSize];
             IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
             SwiftMarshal.MarshalToSwift(item, ref span);
             SwiftArrayPInvokes.Insert(payload, index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
@@ -191,7 +209,7 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDispos
         try
         {
             var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            byte* payload = stackalloc byte[(int)_elementSize];
+            byte* payload = stackalloc byte[(int)ElementSize];
             SwiftArrayPInvokes.Remove(new SwiftIndirectResult(payload), index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
         }
         finally
@@ -228,7 +246,7 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDispos
         get
         {
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
-            void* payload = NativeMemory.Alloc(_elementSize);
+            void* payload = NativeMemory.Alloc(ElementSize);
             SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), index, disposable.Buffer, ElementTypeMetadata);
             return SwiftMarshal.MarshalFromSwift<Element>((IntPtr)payload);
         }
@@ -236,7 +254,7 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDispos
         {
             using PayloadBuffer<IntPtr> _ = PayloadBuffer;
             var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            Span<byte> span = stackalloc byte[(int)_elementSize];
+            Span<byte> span = stackalloc byte[(int)ElementSize];
             IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
             SwiftMarshal.MarshalToSwift(value, ref span);
             SwiftArrayPInvokes.Set(payload, index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
