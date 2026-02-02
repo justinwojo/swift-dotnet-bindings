@@ -127,6 +127,13 @@ namespace TbdParsing.Parsing
                         _logger.LogDebug($"Parsed {tbdFile.Exports.Count} export entries");
                         break;
 
+                    // These keys are valid TBD fields but not needed for binding generation
+                    case "flags":
+                    case "current-version":
+                    case "compatibility-version":
+                        _logger.LogDebug($"Ignoring optional TBD field: {kvp.Key}");
+                        break;
+
                     default:
                         _logger.LogWarning($"Unknown top-level key: {kvp.Key}");
                         break;
@@ -313,6 +320,12 @@ namespace TbdParsing.Parsing
                         // Parse objc-ivars list
                         currentExport.ObjcIvars = ParseMultiLineArray(lines, ref lineIndex, kvp.Value);
                         _logger.LogDebug($"Parsed {currentExport.ObjcIvars.Count} objc-ivars");
+                        break;
+                    case "weak-symbols":
+                        // Weak symbols are not needed for binding generation, but we need to
+                        // consume the array to continue parsing properly
+                        var weakSymbols = ParseMultiLineArray(lines, ref lineIndex, kvp.Value);
+                        _logger.LogDebug($"Skipped {weakSymbols.Count} weak-symbols (not needed for bindings)");
                         break;
                     default:
                         _logger.LogWarning($"Unknown export property at line {lineIndex}: {kvp.Key}");

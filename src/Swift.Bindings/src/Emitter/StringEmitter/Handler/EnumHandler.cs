@@ -154,7 +154,10 @@ namespace BindingsGeneration
             iSwiftObjectWriter.WriteEnumImplementation();
 
             // Collect property names for method/property collision detection
-            var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+            // Include nested type names and containing type name for consistent naming with PropertyHandler
+            var nestedTypeNames = new HashSet<string>(enumDecl.Types.Select(t => t.Name));
+            var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p =>
+                NameProvider.GetPropertyName(p.Name, nestedTypeNames, enumDecl.Name)));
 
             // Emit nested types and methods using base handler
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase);
@@ -691,7 +694,9 @@ namespace BindingsGeneration
                 csWriter.WriteLine("if (result == null)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine($"throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {rawValueLiteral}\");");
+                // Escape quotes in rawValueLiteral for the error message string
+                var escapedRawValue = rawValueLiteral.Replace("\"", "\\\"");
+                csWriter.WriteLine($"throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {escapedRawValue}\");");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 csWriter.WriteLine("return result;");

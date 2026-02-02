@@ -157,8 +157,11 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Get type name with generics for proper operator parameter types (fixes CS0563, CS0305)
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(parentDecl);
+
             // Emit the operator wrapper and PInvoke
-            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name);
+            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics);
             EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase);
             csWriter.WriteLine();
         }
@@ -166,12 +169,23 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits the C# operator overload method.
         /// </summary>
-        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName)
+        /// <param name="csWriter">The C# code writer.</param>
+        /// <param name="operatorDecl">The operator declaration.</param>
+        /// <param name="signatureHandler">The signature handler.</param>
+        /// <param name="typeName">The base type name (without generics).</param>
+        /// <param name="typeNameWithGenerics">The type name with generic parameters (e.g., "DateResult&lt;T0&gt;").</param>
+        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics)
         {
             var symbol = operatorDecl.OperatorSymbol;
             var csOperator = GetCSharpOperator(symbol)!;
             var wrapperSignature = signatureHandler.GetWrapperSignature();
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
+
+            // Helper function to fix generic type names in operator signatures
+            // When the type is the containing type, replace with the generic version
+            // e.g., "DateResult" -> "DateResult<T0>" for generic types
+            string FixGenericTypeName(string type) =>
+                type == typeName ? typeNameWithGenerics : type;
 
             if (operatorDecl.Kind == OperatorKind.Binary)
             {
@@ -185,9 +199,11 @@ namespace BindingsGeneration
 
                 var leftParam = parameters[0];
                 var rightParam = parameters[1];
-                var returnType = wrapperSignature.ReturnType;
+                var returnType = FixGenericTypeName(wrapperSignature.ReturnType);
+                var leftType = FixGenericTypeName(leftParam.Type);
+                var rightType = FixGenericTypeName(rightParam.Type);
 
-                csWriter.WriteLine($"public static {returnType} operator {csOperator}({leftParam.Type} {leftParam.Name}, {rightParam.Type} {rightParam.Name})");
+                csWriter.WriteLine($"public static {returnType} operator {csOperator}({leftType} {leftParam.Name}, {rightType} {rightParam.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
@@ -217,9 +233,10 @@ namespace BindingsGeneration
                 }
 
                 var operand = parameters[0];
-                var returnType = wrapperSignature.ReturnType;
+                var returnType = FixGenericTypeName(wrapperSignature.ReturnType);
+                var operandType = FixGenericTypeName(operand.Type);
 
-                csWriter.WriteLine($"public static {returnType} operator {csOperator}({operand.Type} {operand.Name})");
+                csWriter.WriteLine($"public static {returnType} operator {csOperator}({operandType} {operand.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 

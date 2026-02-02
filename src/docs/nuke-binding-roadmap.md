@@ -47,6 +47,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 27 | Swift Class Return Value Marshalling Fix | See Phase 27 section below |
 | Phase 28 | Async+Throwing Closures Support | [phase-28-async-throwing-closures.md](phase-28-async-throwing-closures.md) |
 | Phase 29 | ExistentialContainer Workaround (ImageRequestFactory) | See Phase 29 section below |
+| Phase 30 | Generic Operator & Member Collision Fixes | See Phase 30 section below |
 
 ---
 
@@ -61,10 +62,13 @@ The following phases have been completed. See individual documents for details:
 - AsyncStream properties with `IAsyncEnumerable<T>` return types
 - Closure properties with frozen and non-frozen struct parameters
 - P/Invoke declarations with Swift calling convention
+- Operators on generic types with correct type parameters (Phase 30)
+- Member name collision detection (Phase 30)
 - **0 compilation errors** (down from 95+)
 - **902 unit tests passing**
 - **Integration tests**: 678 passed, 13 skipped (known limitations)
 - **100% runtime validation pass rate** (30/30 tests in NukeTestApp)
+- **Cross-library validated**: BlinkID (0 errors), Lottie (0 errors)
 
 **Runtime validated** (Phase 15.4):
 - ✅ Async image loading from network URLs
@@ -1750,6 +1754,90 @@ var image = await ImagePipeline.Shared.Image(request);  // Successfully loads im
 ### Documentation
 
 See `/src/docs/known-issues-workarounds.md` for full technical details on this and other major issues/workarounds
+
+---
+
+## Phase 30: Generic Operator & Member Collision Fixes
+
+**Status**: COMPLETED (2026-02-01)
+
+Fixed two cross-library issues identified from BlinkID and Lottie testing that caused compilation errors on generic types.
+
+### Summary
+
+- 30.1 Generic Operator Type Parameters → COMPLETED (48 errors fixed in BlinkID, multiple in Lottie)
+- 30.2 Member Name Collision Detection → COMPLETED (CS0542 edge cases)
+- 30.3 Cross-Library Validation → COMPLETED (0 errors in BlinkID, Lottie, Nuke)
+
+### Problem 1: Operators on Generic Types (CS0563, CS0305)
+
+Operators on generic types like `DateResult<T0>` were emitting non-generic type names:
+
+```csharp
+// Before (broken):
+public static bool operator ==(DateResult left, DateResult right)  // CS0305!
+
+// After (fixed):
+public static bool operator ==(DateResult<T0> left, DateResult<T0> right)  // ✅
+```
+
+### Problem 2: Member Name Collisions (CS0542)
+
+Swift allows properties to have the same name as their containing type or nested types, but C# does not.
+
+### Solution
+
+#### 30.1 Operator Handler Updates
+
+**Files Modified:**
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/OperatorHandler.cs`
+  - Updated `EmitOperator()` to compute `typeNameWithGenerics` via `GenericTypeEmitter.GetTypeNameWithGenerics()`
+  - Updated `EmitOperatorWrapper()` to accept both `typeName` and `typeNameWithGenerics`
+  - Added `FixGenericTypeName()` helper to replace base type with generic version
+
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandlerHelpers.cs` (`EqualityMethodsWriter`)
+  - Added `_typeNameWithGenerics` field
+  - Updated `WriteSwiftEquatableImplementationWithSwiftEquals()` and `WriteDefaultEquatableImplementation()` to use generic type names
+
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs` (`ClassEqualityMethodsWriter`)
+  - Same pattern as `EqualityMethodsWriter`
+
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/NonFrozenStructHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/FrozenStructHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs`
+  - Updated `ValidateAndEmitPairs()` calls to pass `typeNameWithGenerics`
+
+#### 30.2 Member Collision Detection
+
+**Files Modified:**
+- `src/Swift.Bindings/src/Marshaler/NameProvider.cs`
+  - Added `containingTypeName` parameter to `GetPropertyName()`
+  - Properties matching containing type name get `Value` suffix
+
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/AsyncStreamEmitter.cs`
+- Type handlers (`NonFrozenStructHandler`, `FrozenStructHandler`, `ClassHandler`, `EnumHandler`)
+  - Updated to pass containing type name for collision detection
+
+### Verification
+
+**Test Results:**
+- 902 unit tests passing
+- 678 integration tests passing (13 skipped - known limitations)
+- 93 runtime tests passing
+
+**Cross-Library Compilation:**
+| Library | Before | After |
+|---------|--------|-------|
+| BlinkID | 66 errors | **0 errors** |
+| Lottie | 41 errors | **0 errors** |
+| Nuke | 0 errors | **0 errors** |
+
+### Documentation
+
+Updated:
+- `/src/docs/binding-gaps-consolidated.md` - Marked Issues 2 & 3 as FIXED
+- `/BindingTesting/BlinkId/BINDING_GAPS.md` - Updated status and statistics
 
 ---
 

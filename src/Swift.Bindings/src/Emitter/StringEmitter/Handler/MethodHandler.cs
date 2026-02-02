@@ -278,7 +278,7 @@ namespace BindingsGeneration
                 { Type: var type } when type.StartsWith("NativeRemapped:") => $"{parameter.Name}Swift",
                 // Async instance methods pass self as explicit IntPtr (not SwiftSelf register)
                 // For classes, dereference the payload buffer to get the actual class pointer
-                { Name: "_self", Type: "IntPtrSelfClass" } => "*(IntPtr*)_payload.DangerousGetHandle()",
+                { Name: "_selfClass" } => "*(IntPtr*)_payload.DangerousGetHandle()",
                 { Name: "_self", Type: "IntPtr" } => "_payload.DangerousGetHandle()",
                 _ => parameter.Name
             };
@@ -936,10 +936,11 @@ namespace BindingsGeneration
                 if (!hasSingleton)
                 {
                     // For non-singleton async methods, pass self as explicit IntPtr
-                    // For classes, use IntPtrSelfClass to indicate we need to dereference the payload
-                    // (the payload buffer contains a pointer to the class instance)
-                    var selfType = _env.ParentDecl is ClassDecl ? "IntPtrSelfClass" : "IntPtr";
-                    AddParameter(selfType, "_self");
+                    // Use different parameter names to distinguish at call site:
+                    // - _selfClass: class instance (needs dereferencing - payload contains pointer to class)
+                    // - _self: struct instance (no dereference - payload IS the data)
+                    var selfName = _env.ParentDecl is ClassDecl ? "_selfClass" : "_self";
+                    AddParameter("IntPtr", selfName);
                 }
                 // For singleton classes, don't add any self parameter - we use .shared in Swift
                 return;

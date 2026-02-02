@@ -297,6 +297,7 @@ namespace BindingsGeneration
     {
         private readonly IndentedTextWriter _writer;
         private readonly StructDecl _structDecl;
+        private readonly string _typeNameWithGenerics;
         private readonly bool _implementsEquatable;
         private readonly bool _isRefType;
         private readonly bool _hasExplicitEqualityOperator;
@@ -311,6 +312,8 @@ namespace BindingsGeneration
         {
             _writer = csWriter;
             _structDecl = structDecl;
+            // Use type name with generics for operators to fix CS0563/CS0305 errors on generic types
+            _typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
             _implementsEquatable = _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
             _isRefType = refType;
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
@@ -332,10 +335,11 @@ namespace BindingsGeneration
         private void WriteSwiftEquatableImplementationWithSwiftEquals(bool refType)
         {
             // Always write Equals and GetHashCode methods
+            // Use simple name for is-check and error messages
             var equalsMethods = $$"""
             public override bool Equals(object? obj)
             {
-                return obj is {{_structDecl.Name}} other && Swift.Runtime.SwiftEquatable.Equals(this, other);
+                return obj is {{_typeNameWithGenerics}} other && Swift.Runtime.SwiftEquatable.Equals(this, other);
             }
 
             public override int GetHashCode()
@@ -348,10 +352,11 @@ namespace BindingsGeneration
             _writer.WriteLine();
 
             // Only write operator == if no explicit operator is defined
+            // Use typeNameWithGenerics for operator parameters to fix CS0563/CS0305
             if (!_hasExplicitEqualityOperator)
             {
                 var equalityOperator = $$"""
-                public static bool operator ==({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                public static bool operator ==({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                 {
                     return Swift.Runtime.SwiftEquatable.Equals(left, right);
                 }
@@ -364,7 +369,7 @@ namespace BindingsGeneration
             if (!_hasExplicitInequalityOperator)
             {
                 var inequalityOperator = $$"""
-                public static bool operator !=({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                public static bool operator !=({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                 {
                     return !Swift.Runtime.SwiftEquatable.Equals(left, right);
                 }
@@ -373,9 +378,9 @@ namespace BindingsGeneration
                 _writer.WriteLine();
             }
 
-            // Write the IEquatable<T>.Equals method
+            // Write the IEquatable<T>.Equals method - use typeNameWithGenerics
             var equatableEquals = $$"""
-            public bool Equals({{_structDecl.Name}}{{(refType == true ? "?" : "")}} other)
+            public bool Equals({{_typeNameWithGenerics}}{{(refType == true ? "?" : "")}} other)
             {
                 return Swift.Runtime.SwiftEquatable.Equals(this, other);
             }
@@ -388,6 +393,7 @@ namespace BindingsGeneration
         private void WriteDefaultEquatableImplementation()
         {
             // Always write Equals and GetHashCode methods
+            // Use simple name for error messages
             var equalsMethods = $$"""
             // Swift structs cannot be compared using .NET's default equality semantics,
             // since Swift's equality is defined by the Equatable protocol.
@@ -408,10 +414,11 @@ namespace BindingsGeneration
             _writer.WriteLine();
 
             // Only write operator == if no explicit operator is defined
+            // Use typeNameWithGenerics for operator parameters to fix CS0563/CS0305
             if (!_hasExplicitEqualityOperator)
             {
                 var equalityOperator = $$"""
-                public static bool operator ==({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                public static bool operator ==({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                 {
                     throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
                 }
@@ -424,7 +431,7 @@ namespace BindingsGeneration
             if (!_hasExplicitInequalityOperator)
             {
                 var inequalityOperator = $$"""
-                public static bool operator !=({{_structDecl.Name}} left, {{_structDecl.Name}} right)
+                public static bool operator !=({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                 {
                     throw new InvalidOperationException("Type {{_structDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
                 }

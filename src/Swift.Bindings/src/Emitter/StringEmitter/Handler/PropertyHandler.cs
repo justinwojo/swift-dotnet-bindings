@@ -161,17 +161,20 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         // TODO: Detect and skip async properties (properties with async getters/setters are not yet supported)
 
-        // Get nested type names from parent for collision detection
+        // Get nested type names and containing type name from parent for collision detection
         // In Swift, a property can have the same name as its type (e.g., cacheType: CacheType)
-        // but in C# this causes a collision when both are PascalCase
+        // or the same name as the containing type (e.g., class Animation { var animation: ... })
+        // but in C# this causes a collision when both are PascalCase (CS0542 for containing type)
         IReadOnlySet<string>? nestedTypeNames = null;
+        string? containingTypeName = null;
         if (propertyDecl.ParentDecl is TypeDecl parentTypeDecl)
         {
             nestedTypeNames = new HashSet<string>(parentTypeDecl.Types.Select(t => t.Name));
+            containingTypeName = parentTypeDecl.Name;
         }
 
-        // Get the C# property name, handling reserved keywords, special cases, and nested type collisions
-        var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, nestedTypeNames);
+        // Get the C# property name, handling reserved keywords, special cases, and type collisions
+        var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, nestedTypeNames, containingTypeName);
 
         // Check if all accessor methods can be emitted before actually emitting them.
         // If any accessor would be skipped (due to unsupported types like AnyType),
@@ -281,11 +284,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var moduleName = propertyDecl.ParentDecl is TypeDecl td ? td.SwiftTypeName.Module : "Unknown";
         var libraryPath = propertyEnv.TypeDatabase.GetLibraryPath(moduleName);
 
-        // Get nested type names for collision detection
+        // Get nested type names and containing type name for collision detection
         IReadOnlySet<string>? nestedTypeNames = null;
+        string? containingTypeName = null;
         if (propertyDecl.ParentDecl is TypeDecl parentTypeDecl)
         {
             nestedTypeNames = new HashSet<string>(parentTypeDecl.Types.Select(t => t.Name));
+            containingTypeName = parentTypeDecl.Name;
         }
 
         // Emit callbacks
@@ -299,8 +304,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, swiftWrapperName, libraryPath, propertyDecl.IsStatic);
         csWriter.WriteLine();
 
-        // Emit property with nested type collision detection
-        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName, nestedTypeNames);
+        // Emit property with collision detection for nested types and containing type (CS0542)
+        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName, nestedTypeNames, containingTypeName);
         csWriter.WriteLine();
 
         // Emit Swift wrapper

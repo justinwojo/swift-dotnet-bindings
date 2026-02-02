@@ -120,7 +120,8 @@ namespace BindingsGeneration
                 }
             }
             // Handle paired operators (e.g., if == is defined but != is not)
-            operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, structDecl.Name);
+            // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
+            operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, typeNameWithGenerics);
 
             // Add Equatable support if the struct conforms to Equatable
             SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
@@ -129,7 +130,10 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // Collect property names for method/property collision detection
-            var propertyNames = new HashSet<string>(structDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+            // Include nested type names and containing type name for consistent naming with PropertyHandler
+            var nestedTypeNames = new HashSet<string>(structDecl.Types.Select(t => t.Name));
+            var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
+                NameProvider.GetPropertyName(p.Name, nestedTypeNames, structDecl.Name)));
 
             base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
             base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, propertyNames);

@@ -134,14 +134,23 @@ public static class NameProvider
     /// </summary>
     /// <param name="swiftPropertyName">The original Swift property name.</param>
     /// <param name="siblingNestedTypeNames">Optional set of nested type names in the same parent type, used for collision detection.</param>
+    /// <param name="containingTypeName">Optional name of the containing type, used for collision detection (CS0542).</param>
     /// <returns>The appropriate C# property name in PascalCase.</returns>
-    public static string GetPropertyName(string swiftPropertyName, IReadOnlySet<string>? siblingNestedTypeNames = null)
+    public static string GetPropertyName(string swiftPropertyName, IReadOnlySet<string>? siblingNestedTypeNames = null, string? containingTypeName = null)
     {
         // Check for explicit mappings first
         if (PropertyNameMappings.TryGetValue(swiftPropertyName, out var mappedName))
             return mappedName;
 
         var pascalName = ToPascalCase(swiftPropertyName);
+
+        // Check for collision with containing type name (CS0542: member names cannot be same as enclosing type)
+        // Example: class DotLottieFile { var Animation: Animation? } -> property Animation collides with class name
+        if (!string.IsNullOrEmpty(containingTypeName) && pascalName == containingTypeName)
+        {
+            // Suffix with "Value" to avoid collision
+            return $"{pascalName}Value";
+        }
 
         // Check for collision with nested types (e.g., property "cacheType" -> "CacheType" collides with nested type "CacheType")
         if (siblingNestedTypeNames != null && siblingNestedTypeNames.Contains(pascalName))

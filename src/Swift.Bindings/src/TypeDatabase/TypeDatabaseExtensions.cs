@@ -239,6 +239,13 @@ public static class TypeDatabaseExtensions
     /// <returns><c>true</c> if this is an existential type name; otherwise, <c>false</c>.</returns>
     private static bool IsExistentialTypeName(NamedTypeSpec typeSpec)
     {
+        // Check if the TypeSpec has the IsAny flag set (set by TypeSpecParser when "any" prefix is parsed)
+        // This is the primary way existential types are detected (e.g., "any Swift.Encoder" -> IsAny=true, Name="Swift.Encoder")
+        if (typeSpec.IsAny)
+        {
+            return true;
+        }
+
         // Check for existential type patterns:
         // - "any" alone
         // - "any SomeProtocol" or "any Module.Protocol"

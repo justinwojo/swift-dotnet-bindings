@@ -67,12 +67,25 @@ public class DemanglingResults
     {
         var tbdParser = new TbdParser(loggerFactory);
         var tbdFile = tbdParser.ParseFile(path);
+        var logger = loggerFactory.CreateLogger<DemanglingResults>();
 
         var demangler = new Swift5Demangler();
 
         // Run demangler for each export and aggregate results
+        // Catch exceptions for individual symbols so that a single bad symbol doesn't crash the whole process
         var allReductions = tbdFile.Exports.SelectMany(export => export.SwiftSymbols.Select(sym =>
-            demangler.Run(sym.Name.StartsWith('_') ? sym.Name[1..] : sym.Name))).ToArray();
+        {
+            var symbolName = sym.Name.StartsWith('_') ? sym.Name[1..] : sym.Name;
+            try
+            {
+                return demangler.Run(symbolName);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"Failed to demangle symbol '{symbolName}': {ex.Message}");
+                return new ReductionError { Symbol = symbolName, Message = ex.Message };
+            }
+        })).ToArray();
         return new DemanglingResults(allReductions);
     }
 

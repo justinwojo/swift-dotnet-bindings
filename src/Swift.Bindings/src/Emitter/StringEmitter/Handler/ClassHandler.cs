@@ -117,7 +117,8 @@ namespace BindingsGeneration
                 }
             }
             // Handle paired operators (e.g., if == is defined but != is not)
-            operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, classDecl.Name);
+            // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
+            operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, typeNameWithGenerics);
 
             // Emit ISwiftObject implementation
             var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl);
@@ -127,7 +128,10 @@ namespace BindingsGeneration
             iSwiftObjectWriter.WriteClassImplementation();
 
             // Collect property names for method/property collision detection
-            var propertyNames = new HashSet<string>(classDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+            // Include nested type names and containing type name for consistent naming with PropertyHandler
+            var nestedTypeNames = new HashSet<string>(classDecl.Types.Select(t => t.Name));
+            var propertyNames = new HashSet<string>(classDecl.Properties.Select(p =>
+                NameProvider.GetPropertyName(p.Name, nestedTypeNames, classDecl.Name)));
 
             base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase);
             base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, propertyNames);
@@ -340,6 +344,7 @@ namespace BindingsGeneration
     {
         private readonly IndentedTextWriter _writer;
         private readonly ClassDecl _classDecl;
+        private readonly string _typeNameWithGenerics;
         private readonly bool _implementsEquatable;
         private readonly bool _hasExplicitEqualityOperator;
         private readonly bool _hasExplicitInequalityOperator;
@@ -348,6 +353,8 @@ namespace BindingsGeneration
         {
             _writer = csWriter;
             _classDecl = classDecl;
+            // Use type name with generics for operators to fix CS0563/CS0305 errors on generic types
+            _typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
             _implementsEquatable = _classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
@@ -368,10 +375,11 @@ namespace BindingsGeneration
         private void WriteSwiftEquatableImplementationWithSwiftEquals()
         {
             // Always write Equals and GetHashCode methods
+            // Use typeNameWithGenerics for is-check
             var equalsMethods = $$"""
             public override bool Equals(object? obj)
             {
-                return obj is {{_classDecl.Name}} other && Swift.Runtime.SwiftEquatable.Equals(this, other);
+                return obj is {{_typeNameWithGenerics}} other && Swift.Runtime.SwiftEquatable.Equals(this, other);
             }
 
             public override int GetHashCode()
@@ -384,10 +392,11 @@ namespace BindingsGeneration
             _writer.WriteLine();
 
             // Only write operator == if no explicit operator is defined
+            // Use typeNameWithGenerics for operator parameters to fix CS0563/CS0305
             if (!_hasExplicitEqualityOperator)
             {
                 var equalityOperator = $$"""
-                public static bool operator ==({{_classDecl.Name}} left, {{_classDecl.Name}} right)
+                public static bool operator ==({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                 {
                     return Swift.Runtime.SwiftEquatable.Equals(left, right);
                 }
@@ -400,7 +409,7 @@ namespace BindingsGeneration
             if (!_hasExplicitInequalityOperator)
             {
                 var inequalityOperator = $$"""
-                public static bool operator !=({{_classDecl.Name}} left, {{_classDecl.Name}} right)
+                public static bool operator !=({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                 {
                     return !Swift.Runtime.SwiftEquatable.Equals(left, right);
                 }
@@ -409,9 +418,9 @@ namespace BindingsGeneration
                 _writer.WriteLine();
             }
 
-            // Write the IEquatable<T>.Equals method
+            // Write the IEquatable<T>.Equals method - use typeNameWithGenerics
             var equatableEquals = $$"""
-            public bool Equals({{_classDecl.Name}}? other)
+            public bool Equals({{_typeNameWithGenerics}}? other)
             {
                 return Swift.Runtime.SwiftEquatable.Equals(this, other);
             }
@@ -424,6 +433,7 @@ namespace BindingsGeneration
         private void WriteDefaultEquatableImplementation()
         {
             // Always write Equals and GetHashCode methods
+            // Use simple name for error messages
             var equalsMethods = $$"""
             // Swift classes cannot be compared using .NET's default equality semantics,
             // since Swift's equality is defined by the Equatable protocol.
@@ -444,10 +454,11 @@ namespace BindingsGeneration
             _writer.WriteLine();
 
             // Only write operator == if no explicit operator is defined
+            // Use typeNameWithGenerics for operator parameters to fix CS0563/CS0305
             if (!_hasExplicitEqualityOperator)
             {
                 var equalityOperator = $$"""
-                public static bool operator ==({{_classDecl.Name}} left, {{_classDecl.Name}} right)
+                public static bool operator ==({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                 {
                     throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
                 }
@@ -460,7 +471,7 @@ namespace BindingsGeneration
             if (!_hasExplicitInequalityOperator)
             {
                 var inequalityOperator = $$"""
-                public static bool operator !=({{_classDecl.Name}} left, {{_classDecl.Name}} right)
+                public static bool operator !=({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                 {
                     throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
                 }
