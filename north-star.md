@@ -91,8 +91,8 @@ dotnet add package Nuke.Bindings
 | Foundation type coverage (URL, Data, etc.) | **Done** | P1 |
 | Cross-platform generation (iOS bindings on macOS) | **Done** | - |
 | **Lock namespace mapping scheme** | Not Started | P1 |
-| **Binding completeness report** | Not Started | P1 |
-| **UnsupportedType placeholder** | Not Started | P2 |
+| **Binding completeness report** | **Done** | P1 |
+| **UnsupportedType placeholder** | **Done** | P2 |
 
 #### New Items (from Codex Review)
 
@@ -201,10 +201,12 @@ To maintain focus, these are explicitly **out of scope**:
 - Full protocol witness table handling
 - Protocols with Associated Types (PATs) - partial support
 
-### Key Gaps (from Nuke Testing)
-The Nuke image library binding attempt revealed:
-- ~19 methods with unsupported signatures (mostly `AnyType`/existential types in dictionaries)
-- See `/src/docs/nuke-binding-roadmap.md` for detailed tracking
+### Key Gaps (from Multi-Library Testing)
+Testing across Nuke, BlinkID, and Lottie revealed:
+- **Nuke**: 0 errors ✅ (runtime validated)
+- **BlinkID**: 0 errors ✅
+- **Lottie**: 11 errors (protocol conformance not emitted)
+- See `/src/docs/CURRENT-STATUS.md` for current status
 
 ---
 
@@ -256,8 +258,8 @@ Swift Framework (.xcframework)
 ### In This Repository
 - `/docs/binding-overview.md` - Binding philosophy
 - `/src/docs/emitter-redesign-proposal.md` - Architecture improvements
-- `/src/docs/nuke-binding-roadmap.md` - Real-world testing and gap tracking
-- `/src/docs/codex-review-notes.md` - Architectural feedback and open questions
+- `/src/docs/CURRENT-STATUS.md` - Current compilation status and gaps
+- `/src/docs/codex-task-specs.md` - Next phase task specifications
 
 ### External
 - [Swift ABI Stability Manifesto](https://github.com/apple/swift/blob/main/docs/ABIStabilityManifesto.md)
