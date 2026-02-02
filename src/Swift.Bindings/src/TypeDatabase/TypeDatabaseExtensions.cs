@@ -11,6 +11,8 @@ namespace BindingsGeneration;
 
 public static class TypeDatabaseExtensions
 {
+    public readonly record struct AnyTypeFallbackInfo(string Reason, string SwiftType);
+
     /// <summary>
     /// Determines whether the specified Swift type has been processed.
     /// </summary>
@@ -205,6 +207,55 @@ public static class TypeDatabaseExtensions
             return record;
 
         return AnyType;
+    }
+
+    /// <summary>
+    /// Tries to describe why a type would degrade to AnyType when resolving type records.
+    /// Generic type parameters are excluded because they are expected to resolve through generic constraints.
+    /// </summary>
+    public static bool TryGetAnyTypeFallbackInfo(this ITypeDatabase typeDatabase, TypeSpec typeSpec, [NotNullWhen(true)] out AnyTypeFallbackInfo? fallbackInfo)
+    {
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedTypeSpec:
+                return typeDatabase.TryGetAnyTypeFallbackInfo(namedTypeSpec, out fallbackInfo);
+            default:
+                fallbackInfo = null;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Tries to describe why a named type would degrade to AnyType when resolving type records.
+    /// </summary>
+    public static bool TryGetAnyTypeFallbackInfo(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(true)] out AnyTypeFallbackInfo? fallbackInfo)
+    {
+        // Generic type parameters (T, τ_0_0, Element, etc.) are expected and should not be marked as unsupported.
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
+        if (IsExistentialTypeName(typeSpec))
+        {
+            fallbackInfo = new AnyTypeFallbackInfo(
+                "Existential type fallback",
+                typeSpec.ToString());
+            return true;
+        }
+
+        var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
+        if (typeDatabase.TryGetTypeRecord(typeName, out _))
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
+        fallbackInfo = new AnyTypeFallbackInfo(
+            "Type is missing from the type database",
+            typeName.ModuleQualifiedName);
+        return true;
     }
 
     /// <summary>

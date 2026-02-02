@@ -196,7 +196,20 @@ namespace BindingsGeneration
                 return;
             }
 
-            var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
+            TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
+            if (!isAccessor)
+            {
+                foreach (var argument in methodEnv.MethodDecl.CSSignature)
+                {
+                    if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(methodEnv.TypeDatabase, methodEnv.ClosureHandler, argument.SwiftTypeSpec, out var foundFallbackInfo))
+                    {
+                        fallbackInfo = foundFallbackInfo;
+                        break;
+                    }
+                }
+            }
+
+            var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo);
             wrapperEmitter.EmitMethod(csWriter, swiftWriter);
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
             if (isAccessor)
@@ -1237,10 +1250,15 @@ namespace BindingsGeneration
         private readonly bool _requiresSwiftError;
         private readonly bool _requiresSwiftAsync;
         private readonly bool _requiresFixedBlock;
+        private readonly TypeDatabaseExtensions.AnyTypeFallbackInfo? _fallbackInfo;
 
-        internal WrapperEmitter(MethodEnvironment methodEnv, SignatureHandler signatureHandler)
+        internal WrapperEmitter(
+            MethodEnvironment methodEnv,
+            SignatureHandler signatureHandler,
+            TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null)
         {
             _env = methodEnv;
+            _fallbackInfo = fallbackInfo;
 
             _wrapperSignature = signatureHandler.GetWrapperSignature();
             _pInvokeSignature = signatureHandler.GetPInvokeSignature();
@@ -1332,6 +1350,10 @@ namespace BindingsGeneration
         {
             EmitAsyncWrapper(csWriter);
             EmitClosureCallbacks(csWriter);
+            if (_fallbackInfo.HasValue)
+            {
+                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value);
+            }
             EmitSignatureMethod(csWriter);
             EmitBodyStart(csWriter);
             EmitAsync(csWriter, swiftWriter);

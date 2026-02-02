@@ -16,15 +16,15 @@ This document contains detailed task specifications for the next phase of bindin
 | 3 | Generic Enum Type Parameter Propagation | ✅ **COMPLETED** | CS0308 eliminated |
 | 4 | SwiftUI Constraint Handling | ✅ **COMPLETED** | CS0246, CS0314 eliminated |
 | 5 | Binding Completeness Report | ✅ **COMPLETED** | N/A (DX improvement) |
-| 6 | UnsupportedType Placeholder | 🔲 Not Started | N/A (DX improvement) |
-| 7 | Generic Constraint Relaxation for Existentials | 🔲 Not Started | CS0315 (2 errors) |
+| 6 | UnsupportedType Placeholder | ✅ **COMPLETED** | N/A (DX improvement) |
+| 7 | Generic Constraint Relaxation for Existentials | 🔲 Not Started | CS0315 (1 error) |
 
-**Current Lottie Error Count**: 24 errors (down from 38 - SwiftUI constraint errors eliminated)
+**Current Lottie Error Count**: 12 errors (CS0311: 10, CS0738: 1, CS0315: 1)
 **BlinkID**: 0 errors ✅
 **Nuke**: 0 errors ✅
-**Unit Tests**: 999 passed ✅
+**Unit Tests**: 1004 passed ✅
 
-**Note**: Task 4 eliminated all CS0246/CS0314 errors by skipping types with unsupported SwiftUI/Combine constraints. Remaining errors are CS0311 (generic constraint violations), CS0738 (protocol interface mismatch), and CS0315 (existential boxing).
+**Note**: Task 6 added `[UnsupportedSwiftType]` attributes to members with fallback types. 42 attributes emitted in Lottie bindings. Remaining errors are CS0311 (generic constraint violations), CS0738 (protocol interface mismatch), and CS0315 (existential boxing).
 
 ---
 
@@ -548,9 +548,41 @@ cat output-ios/binding-report.json | jq '.SkippedItems | length'
 
 ## Task 6: UnsupportedType Placeholder
 
+### Status: ✅ COMPLETED (February 2026)
 ### Priority: P3 (Medium)
 ### Effort: Medium (1 day)
 ### Dependencies: None (but complements Task 5)
+
+### Completion Notes
+
+**Implemented by**: Codex
+**Files Created**:
+- `src/Swift.Runtime/src/Swift/UnsupportedSwiftTypeAttribute.cs` - Runtime attribute with `Reason` and `SwiftType` properties
+- `src/Swift.Bindings/src/Emitter/StringEmitter/UnsupportedSwiftTypeSupport.cs` - Recursive fallback detection helper
+- `src/Swift.Bindings/tests/UnitTests/TypeDatabaseTests/TypeDatabaseExtensionsTests.cs` - Fallback info tests
+
+**Files Modified**:
+- `src/Swift.Bindings/src/TypeDatabase/TypeDatabaseExtensions.cs` - Added `AnyTypeFallbackInfo` record and `TryGetAnyTypeFallbackInfo()` methods
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Emits attribute on fallback methods
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs` - Emits attribute on fallback properties
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/MethodHandlerOutputTests.cs` - Updated tests
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/PropertyHandlerTests.cs` - Updated tests
+
+**Solution**:
+- `UnsupportedSwiftTypeSupport.TryFindFallbackInfo()` recursively traverses type specs to detect:
+  - Missing types from type database
+  - Existential type fallbacks
+  - Unsupported closure fallbacks
+  - Nested generic parameters and tuple elements
+- Attribute emitted before method/property signatures when fallback detected
+
+**Sample Output (Lottie)**:
+```csharp
+[global::Swift.UnsupportedSwiftType("Existential type fallback", "any Lottie.AnimationImageProvider")]
+public AnyType imageProvider { get { ... } }
+```
+
+**Impact**: 42 `[UnsupportedSwiftType]` attributes emitted in Lottie bindings, providing clear visibility into which members have degraded types.
 
 ### Problem Statement
 

@@ -242,8 +242,19 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor);
             }
         }
+
+        TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
+        if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(propertyEnv.TypeDatabase, propertyEnv.ClosureHandler, propertyDecl.SwiftTypeSpec, out var foundFallbackInfo))
+        {
+            fallbackInfo = foundFallbackInfo;
+        }
+
         var staticModifier = propertyDecl.IsStatic ? "static " : string.Empty;
         // Then emit the property
+        if (fallbackInfo.HasValue)
+        {
+            UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value);
+        }
         csWriter.WriteLine($"public {staticModifier}{csTypeName} {propertyName}");
         csWriter.WriteLine("{");
         csWriter.Indent++;

@@ -208,6 +208,30 @@ public class MethodHandlerOutputTests
         Assert.Equal(string.Empty, swiftOutput);
     }
 
+    [Fact]
+    public void Emit_MethodWithUnsupportedClosureFallback_EmitsUnsupportedSwiftTypeAttribute()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var unsupportedClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new NamedTypeSpec("T")),
+            TupleTypeSpec.Empty);
+        var method = CreateMethodDecl(
+            name: "boxedHandler",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("TestModule.Box", unsupportedClosure),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Unsupported closure fallback\",", csOutput);
+        Assert.Contains("public unsafe Swift.TestModule.Box<object> BoxedHandler()", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();
@@ -235,6 +259,16 @@ public class MethodHandlerOutputTests
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+                MetadataAccessor = "$s10TestModule3BoxVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(module);
 

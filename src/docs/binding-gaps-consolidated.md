@@ -3,7 +3,7 @@
 This document consolidates binding issues discovered across multiple real-world Swift libraries (Lottie, BlinkID) and cross-references them with the Nuke binding roadmap to create a prioritized fix list.
 
 **Date**: February 2026
-**Last Updated**: February 2026 (Phase 37 - Binding Completeness Report)
+**Last Updated**: February 2026 (Phase 38 - UnsupportedType Placeholder)
 **Libraries Analyzed**: Lottie, BlinkID, Nuke
 **Source Documents**:
 - `BindingTesting/Lottie/BINDING_GAPS.md`
@@ -14,7 +14,7 @@ This document consolidates binding issues discovered across multiple real-world 
 
 ## Executive Summary
 
-After 37 phases of development, the binding generator handles most common Swift patterns. **Twelve improvements have been made in Phases 30-37:**
+After 38 phases of development, the binding generator handles most common Swift patterns. **Thirteen improvements have been made in Phases 30-38:**
 
 | Issue | Status | Errors/Warnings Fixed |
 |-------|--------|----------------------|
@@ -30,23 +30,30 @@ After 37 phases of development, the binding generator handles most common Swift 
 | Generic enum type parameters (CS0308) | ✅ **FIXED** (Phase 35) | 10 errors in Lottie |
 | SwiftUI constraint handling (CS0246, CS0314) | ✅ **FIXED** (Phase 36) | 14 errors in Lottie |
 | Binding completeness report | ✅ **ADDED** (Phase 37) | DX improvement |
+| UnsupportedType placeholder attributes | ✅ **ADDED** (Phase 38) | DX improvement |
 
 **Current Compilation Status:**
 - BlinkID: **0 errors** ✅
-- Lottie: **24 errors** (unchanged)
+- Lottie: **12 errors** (down from 24)
 - Nuke: **0 errors** (maintained)
 
-**Phase 37 Improvements:**
-1. **Binding Completeness Report**: New reporting infrastructure emits `binding-report.json` with coverage statistics and skip reasons. Console summary shows type/member coverage percentages and synthesized member counts. Skip reasons include: UnsupportedSignature, UnsupportedType, AnyTypeFallback, UnsupportedClosure, SwiftUIConstraint.
+**Phase 38 Improvements:**
+1. **UnsupportedType Placeholder Attributes**: New `[UnsupportedSwiftType]` runtime attribute marks members with degraded types. Recursive fallback detection identifies existential fallbacks, missing types, and unsupported closures. 42 attributes emitted in Lottie bindings.
 
-**Lottie Coverage (Phase 37)**:
+**Sample Output:**
+```csharp
+[global::Swift.UnsupportedSwiftType("Existential type fallback", "any Lottie.AnimationImageProvider")]
+public AnyType imageProvider { get { ... } }
+```
+
+**Lottie Coverage (Phase 38)**:
 - Types: 79 emitted, 1 skipped (84.9% coverage)
 - Members: 385 emitted, 43 skipped, 273 synthesized (63.2% coverage)
 
-**Remaining Lottie Errors (24 total):**
-- CS0311 (20): Generic constraint not satisfied - types like `LottieVector3D` don't implement `ISwiftAnyInterpolatable`
-- CS0738 (2): Protocol interface mismatch (`AnyValueProviderProxy`)
-- CS0315 (2): ExistentialContainer0 boxing - target for Task 7
+**Remaining Lottie Errors (12 total):**
+- CS0311 (10): Generic constraint not satisfied - types like `LottieVector3D` don't implement `ISwiftAnyInterpolatable`
+- CS0738 (1): Protocol interface mismatch (`AnyValueProviderProxy`)
+- CS0315 (1): ExistentialContainer0 boxing - target for Task 7
 
 ---
 

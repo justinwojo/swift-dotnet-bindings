@@ -231,6 +231,24 @@ public class PropertyHandlerTests
         Assert.Contains("for await element in self.updates", swiftOutput);
     }
 
+    [Fact]
+    public void Emit_PropertyWithUnsupportedClosureFallback_EmitsUnsupportedSwiftTypeAttribute()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Loader", moduleDecl);
+        var unsupportedClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new NamedTypeSpec("T")),
+            TupleTypeSpec.Empty);
+        var propertyType = new NamedTypeSpec("TestModule.Box", unsupportedClosure);
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "handler", propertyType, hasGetter: true, hasSetter: false);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Unsupported closure fallback\",", csOutput);
+        Assert.Contains("public Swift.TestModule.Box<object> Handler", csOutput);
+    }
+
     #endregion
 
     #region Helper Methods
@@ -470,7 +488,18 @@ public class PropertyHandlerTests
                 Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(swiftModule);
-        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+                MetadataAccessor = "$s10TestModule3BoxVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(testModule);
         return typeDatabase;
     }
 
@@ -588,6 +617,106 @@ public class PropertyHandlerTests
                         new ArgumentDecl
                         {
                             SwiftTypeSpec = new NamedTypeSpec(propertyType),
+                            Name = "value",
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = classDecl,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+
+        classDecl.Properties.Add(property);
+        return property;
+    }
+
+    private static PropertyDecl CreateEmittablePropertyDeclWithTypeSpec(
+        ClassDecl classDecl,
+        ModuleDecl moduleDecl,
+        string name,
+        TypeSpec propertyType,
+        bool hasGetter,
+        bool hasSetter)
+    {
+        var accessors = new List<AccessorDecl>();
+        var property = new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = propertyType,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = accessors,
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        if (hasGetter)
+        {
+            accessors.Add(new GetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Get",
+                    MangledName = $"$s{name}g",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        new ArgumentDecl
+                        {
+                            SwiftTypeSpec = propertyType,
+                            Name = string.Empty,
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = classDecl,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+
+        if (hasSetter)
+        {
+            accessors.Add(new SetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Set",
+                    MangledName = $"$s{name}s",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        new ArgumentDecl
+                        {
+                            SwiftTypeSpec = TupleTypeSpec.Empty,
+                            Name = string.Empty,
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        },
+                        new ArgumentDecl
+                        {
+                            SwiftTypeSpec = propertyType,
                             Name = "value",
                             PrivateName = string.Empty,
                             IsInOut = false,
