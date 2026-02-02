@@ -71,6 +71,17 @@ namespace BindingsGeneration
             var structDecl = (StructDecl)structEnv.TypeDecl;
             var parentDecl = structDecl.ParentDecl ?? throw new ArgumentNullException(nameof(structDecl.ParentDecl));
             var moduleDecl = structDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(structDecl.ParentDecl));
+
+            if (GenericTypeEmitter.TryGetUnsupportedConstraint(structDecl, out var unsupportedConstraint))
+            {
+                _logger.LogWarning(
+                    "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
+                    structDecl.Name,
+                    unsupportedConstraint.Name,
+                    unsupportedConstraint.Module);
+                return;
+            }
+
             // Retrieve type info from the type database
             var typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
             bool isProjectedAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord!);

@@ -70,6 +70,17 @@ namespace BindingsGeneration
             var enumDecl = (EnumDecl)enumEnv.TypeDecl;
             var parentDecl = enumDecl.ParentDecl ?? throw new ArgumentNullException(nameof(enumDecl.ParentDecl));
             var moduleDecl = enumDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(enumDecl.ModuleDecl));
+
+            if (GenericTypeEmitter.TryGetUnsupportedConstraint(enumDecl, out var unsupportedConstraint))
+            {
+                _logger.LogWarning(
+                    "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
+                    enumDecl.Name,
+                    unsupportedConstraint.Name,
+                    unsupportedConstraint.Module);
+                return;
+            }
+
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
 

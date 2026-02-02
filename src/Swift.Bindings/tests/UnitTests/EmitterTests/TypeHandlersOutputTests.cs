@@ -42,6 +42,42 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
+    public void Emit_ClassHandler_SkipsType_WithUnsupportedSwiftUIConstraint()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = new ClassDecl
+        {
+            Name = "LottieView",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieView"),
+            MangledName = "$s10TestModule10LottieViewCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new(
+                    "τ_0_0",
+                    "T",
+                    new List<GenericParameterConformance>
+                    {
+                        new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"), ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        Assert.Equal(string.Empty, csOutput.Trim());
+    }
+
+    [Fact]
     public void Emit_NonFrozenStructHandler_EmitsClassProjectionWithPayload()
     {
         var typeDatabase = CreateTypeDatabase();

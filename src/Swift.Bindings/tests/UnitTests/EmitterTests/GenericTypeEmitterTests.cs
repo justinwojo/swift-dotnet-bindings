@@ -113,6 +113,30 @@ public class GenericTypeEmitterTests
     }
 
     [Fact]
+    public void GetWhereClause_SkipsUnsupportedSwiftUIConstraint()
+    {
+        var typeDecl = CreateGenericStructWithConstraints("UIBox", new List<string> { "SwiftUI.View" });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        Assert.Equal("where T0 : ISwiftObject", result);
+        Assert.DoesNotContain("ISwiftView", result);
+    }
+
+    [Fact]
+    public void TryGetUnsupportedConstraint_ReturnsTrue_ForSwiftUIProtocol()
+    {
+        var typeDecl = CreateGenericStructWithConstraints("UIBox", new List<string> { "SwiftUI.View" });
+
+        var found = GenericTypeEmitter.TryGetUnsupportedConstraint(typeDecl, out var unsupportedConstraint);
+
+        Assert.True(found);
+        Assert.NotNull(unsupportedConstraint);
+        Assert.Equal("View", unsupportedConstraint.Name);
+        Assert.Equal("SwiftUI", unsupportedConstraint.Module);
+    }
+
+    [Fact]
     public void GetFullTypeSignature_ReturnsNameOnly_ForNonGenericType()
     {
         var typeDecl = CreateNonGenericStruct();

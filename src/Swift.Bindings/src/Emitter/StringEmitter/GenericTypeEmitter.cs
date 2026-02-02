@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace BindingsGeneration;
 
 /// <summary>
@@ -8,6 +10,12 @@ namespace BindingsGeneration;
 /// </summary>
 public static class GenericTypeEmitter
 {
+    private static readonly HashSet<string> UnsupportedConstraintModules = new(StringComparer.Ordinal)
+    {
+        "SwiftUI",
+        "Combine",
+    };
+
     /// <summary>
     /// Gets the generic type parameter list for a type declaration.
     /// For example, if a type has parameters T and U, returns "&lt;T0, T1&gt;".
@@ -68,6 +76,10 @@ public static class GenericTypeEmitter
                     if (conformance.ConformanceTarget.Name == "Sendable")
                         continue;
 
+                    // Skip constraints from unsupported framework modules (e.g. SwiftUI.View).
+                    if (IsUnsupportedConstraintModule(conformance.ConformanceTarget.Module))
+                        continue;
+
                     // Skip protocols with associated types (they generate generic interfaces
                     // which can't be used as constraints without type arguments)
                     if (typeDatabase != null && HasAssociatedTypes(typeDatabase, conformance.ConformanceTarget))
@@ -87,6 +99,40 @@ public static class GenericTypeEmitter
 
         return $"where {string.Join(", ", constraints)}";
     }
+
+    /// <summary>
+    /// Detects whether a generic type has a protocol constraint from an unsupported module
+    /// (e.g. SwiftUI), which should cause the type to be skipped during emission.
+    /// </summary>
+    /// <param name="typeDecl">The type declaration.</param>
+    /// <param name="unsupportedConstraint">The first unsupported protocol constraint encountered.</param>
+    /// <returns>True if an unsupported constraint was found; otherwise false.</returns>
+    public static bool TryGetUnsupportedConstraint(TypeDecl typeDecl, [NotNullWhen(true)] out SwiftTypeName? unsupportedConstraint)
+    {
+        unsupportedConstraint = null;
+        if (!typeDecl.IsGeneric)
+            return false;
+
+        foreach (var param in typeDecl.GenericParameters)
+        {
+            foreach (var conformance in param.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+
+                if (IsUnsupportedConstraintModule(conformance.ConformanceTarget.Module))
+                {
+                    unsupportedConstraint = conformance.ConformanceTarget;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsUnsupportedConstraintModule(string moduleName) =>
+        UnsupportedConstraintModules.Contains(moduleName);
 
     /// <summary>
     /// Checks if a protocol has associated types (which would make it a generic interface in C#).

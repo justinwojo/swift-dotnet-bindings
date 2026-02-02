@@ -14,17 +14,17 @@ This document contains detailed task specifications for the next phase of bindin
 | 1 | Paired Operator Synthesis Validation | ✅ **COMPLETED** | CS0216 eliminated |
 | 2 | Duplicate Enum Member Deduplication | ✅ **COMPLETED** | CS0102 eliminated |
 | 3 | Generic Enum Type Parameter Propagation | ✅ **COMPLETED** | CS0308 eliminated |
-| 4 | SwiftUI Constraint Handling | 🔲 Not Started | CS0246, CS0314 (8 errors) |
+| 4 | SwiftUI Constraint Handling | ✅ **COMPLETED** | CS0246, CS0314 eliminated |
 | 5 | Binding Completeness Report | 🔲 Not Started | N/A (DX improvement) |
 | 6 | UnsupportedType Placeholder | 🔲 Not Started | N/A (DX improvement) |
 | 7 | Generic Constraint Relaxation for Existentials | 🔲 Not Started | CS0315 (2 errors) |
 
-**Current Lottie Error Count**: 38 errors (CS0308 fixed, but revealed CS0311 constraint violations)
+**Current Lottie Error Count**: 24 errors (down from 38 - SwiftUI constraint errors eliminated)
 **BlinkID**: 0 errors ✅
 **Nuke**: 0 errors ✅
-**Unit Tests**: 993 passed ✅
+**Unit Tests**: 996 passed ✅
 
-**Note**: Error count increased because Task 3 correctly emits generic constraints, revealing call-site violations (CS0311) where types don't implement required interfaces like `ISwiftAnyInterpolatable`.
+**Note**: Task 4 eliminated all CS0246/CS0314 errors by skipping types with unsupported SwiftUI/Combine constraints. Remaining errors are CS0311 (generic constraint violations), CS0738 (protocol interface mismatch), and CS0315 (existential boxing).
 
 ---
 
@@ -285,9 +285,26 @@ grep -A 30 "ParseStructDecl" src/Swift.Bindings/src/Parser/SwiftABIParser.cs
 
 ## Task 4: SwiftUI Constraint Handling (CS0246)
 
+### Status: ✅ COMPLETED (February 2026)
 ### Priority: P2 (Medium)
 ### Effort: Medium (1-2 days)
 ### Dependencies: None
+
+### Completion Notes
+
+**Implemented by**: Justin Wojciechowski
+**Files Modified**:
+- `src/Swift.Bindings/src/Emitter/StringEmitter/GenericTypeEmitter.cs` - Added `TryGetUnsupportedConstraint()` and `UnsupportedConstraintModules` (SwiftUI, Combine)
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs` - Checks for unsupported constraints, skips with warning
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/NonFrozenStructHandler.cs` - Same pattern
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/FrozenStructHandler.cs` - Same pattern
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EnumHandler.cs` - Same pattern
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/GenericTypeEmitterTests.cs` - New tests for constraint detection
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/TypeHandlersOutputTests.cs` - New tests for handler skip behavior
+
+**Solution**: Centralized detection of unsupported protocol constraints in `GenericTypeEmitter.TryGetUnsupportedConstraint()`. Type handlers check at the start of `Emit()` and skip with an informative warning log when a type has generic constraints referencing SwiftUI or Combine protocols.
+
+**Impact**: All CS0246/CS0314 errors for `ISwiftView` eliminated. Lottie error count reduced from 38 to 24.
 
 ### Problem Statement
 

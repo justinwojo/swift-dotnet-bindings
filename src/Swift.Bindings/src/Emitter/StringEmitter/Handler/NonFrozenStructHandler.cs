@@ -70,6 +70,16 @@ namespace BindingsGeneration
             var structDecl = (StructDecl)structEnv.TypeDecl;
             var moduleDecl = structDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(structDecl.ModuleDecl));
 
+            if (GenericTypeEmitter.TryGetUnsupportedConstraint(structDecl, out var unsupportedConstraint))
+            {
+                _logger.LogWarning(
+                    "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
+                    structDecl.Name,
+                    unsupportedConstraint.Name,
+                    unsupportedConstraint.Module);
+                return;
+            }
+
             bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
             // Get generic type parts if this is a generic type

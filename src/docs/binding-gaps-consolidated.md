@@ -3,7 +3,7 @@
 This document consolidates binding issues discovered across multiple real-world Swift libraries (Lottie, BlinkID) and cross-references them with the Nuke binding roadmap to create a prioritized fix list.
 
 **Date**: February 2026
-**Last Updated**: February 2026 (Phase 35 - Generic Enum Type Parameters)
+**Last Updated**: February 2026 (Phase 36 - SwiftUI Constraint Handling)
 **Libraries Analyzed**: Lottie, BlinkID, Nuke
 **Source Documents**:
 - `BindingTesting/Lottie/BINDING_GAPS.md`
@@ -14,7 +14,7 @@ This document consolidates binding issues discovered across multiple real-world 
 
 ## Executive Summary
 
-After 35 phases of development, the binding generator handles most common Swift patterns. **Ten critical issues have been fixed in Phases 30-35:**
+After 36 phases of development, the binding generator handles most common Swift patterns. **Eleven critical issues have been fixed in Phases 30-36:**
 
 | Issue | Status | Errors/Warnings Fixed |
 |-------|--------|----------------------|
@@ -28,16 +28,20 @@ After 35 phases of development, the binding generator handles most common Swift 
 | Paired operator synthesis (CS0216) | ✅ **FIXED** (Phase 34) | Lottie operators |
 | Duplicate enum members (CS0102) | ✅ **FIXED** (Phase 34) | Lottie enums |
 | Generic enum type parameters (CS0308) | ✅ **FIXED** (Phase 35) | 10 errors in Lottie |
+| SwiftUI constraint handling (CS0246, CS0314) | ✅ **FIXED** (Phase 36) | 14 errors in Lottie |
 
 **Current Compilation Status:**
 - BlinkID: **0 errors** ✅
-- Lottie: **38 errors** (CS0308 fixed, revealed CS0311 constraint violations + SwiftUI constraints)
+- Lottie: **24 errors** (down from 38 - SwiftUI constraint errors eliminated)
 - Nuke: **0 errors** (maintained)
 
-**Phase 35 Fixes:**
-1. **Generic Enum Type Parameter Propagation (CS0308)**: `EnumHandler` now emits generic enums with proper type parameters and constraints (e.g., `ValueProviderStorage<T0> where T0 : ISwiftObject, ISwiftAnyInterpolatable`). Uses `PInvokeHelperContext` pattern to avoid CS7042.
+**Phase 36 Fixes:**
+1. **SwiftUI Constraint Handling (CS0246, CS0314)**: `GenericTypeEmitter.TryGetUnsupportedConstraint()` detects types with generic constraints referencing unsupported modules (SwiftUI, Combine). Type handlers skip these types with informative warning logs instead of emitting code that references non-existent interfaces like `ISwiftView`.
 
-**Note on Lottie Error Count**: The error count increased from 19 to 38 because Task 3/Phase 35 correctly emits generic constraints, which now reveals call-site violations (CS0311) where types like `LottieVector3D` don't implement required interfaces like `ISwiftAnyInterpolatable`. This is expected progress - the constraints are now correct.
+**Remaining Lottie Errors (24 total):**
+- CS0311 (20): Generic constraint not satisfied - types like `LottieVector3D` don't implement `ISwiftAnyInterpolatable`
+- CS0738 (2): Protocol interface mismatch (`AnyValueProviderProxy`)
+- CS0315 (2): ExistentialContainer0 boxing - target for Task 7
 
 ---
 
