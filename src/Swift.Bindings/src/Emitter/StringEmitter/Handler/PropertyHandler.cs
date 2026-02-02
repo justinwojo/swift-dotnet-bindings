@@ -95,6 +95,18 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
+        // Handle Optional-wrapped existential types like (any DataCaching)?
+        bool isOptionalExistential = propertyEnv.ExistentialHandler.IsOptionalExistential(propertyDecl.SwiftTypeSpec);
+        if (isOptionalExistential)
+        {
+            var innerProtocolList = propertyEnv.ExistentialHandler.UnwrapOptionalExistential(propertyDecl.SwiftTypeSpec);
+            if (innerProtocolList == null || !propertyEnv.ExistentialHandler.IsSupportedExistential(innerProtocolList))
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported Optional-wrapped existential.");
+                return;
+            }
+        }
+
         // Handle closure properties (property type is a closure/function type)
         bool isClosure = propertyEnv.ClosureHandler.IsClosure(propertyDecl);
         if (isClosure)
@@ -115,8 +127,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         bool processed = propertyEnv.TypeDatabase.TryGetTypeRecord(propertyDecl.SwiftTypeSpec, out var typeRecord);
 
-        // Only skip if not an existential and not a closure (these don't have type records in the database)
-        if (!processed && !isExistential && !isClosure)
+        // Only skip if not an existential, Optional-existential, or closure (these don't have type records in the database)
+        if (!processed && !isExistential && !isOptionalExistential && !isClosure)
         {
             _logger.LogWarning($"PropertyHandler: Couldn't process property {propertyDecl.Name} of type {propertyDecl.SwiftTypeSpec}. Skipping.");
             return;
@@ -133,6 +145,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         {
             var protocolList = propertyEnv.ExistentialHandler.ToProtocolListTypeSpec(propertyDecl.SwiftTypeSpec)!;
             csTypeName = propertyEnv.ExistentialHandler.GetCSharpExistentialType(protocolList);
+        }
+        else if (isOptionalExistential)
+        {
+            var innerProtocolList = propertyEnv.ExistentialHandler.UnwrapOptionalExistential(propertyDecl.SwiftTypeSpec)!;
+            csTypeName = propertyEnv.ExistentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
         }
         else if (isClosure)
         {

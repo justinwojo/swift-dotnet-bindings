@@ -189,12 +189,19 @@ public class TypeSpecParser
         while (tokenizer.Peek().Kind == TypeTokenKind.QuestionMark)
         {
             tokenizer.Next();
+            // When wrapping with Optional, apply any current isAny to the inner type first,
+            // then reset isAny because Optional itself is not an existential
+            type.IsAny = isAny;
+            isAny = false;
             type = WrapAsBoundGeneric(type, "Swift.Optional");
         }
 
         if (tokenizer.Peek().Kind == TypeTokenKind.ExclamationPoint)
         {
             tokenizer.Next();
+            // Same for implicitly unwrapped optional
+            type.IsAny = isAny;
+            isAny = false;
             type = WrapAsBoundGeneric(type, "Swift.ImplicitlyUnwrappedOptional");
         }
 

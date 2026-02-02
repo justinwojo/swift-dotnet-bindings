@@ -207,4 +207,50 @@ public class ExistentialHandler
     {
         return protocolList.Protocols.Keys.ToList();
     }
+
+    /// <summary>
+    /// Determines whether the specified type spec represents an Optional-wrapped existential type.
+    /// This is for types like (any DataCaching)? which are Swift.Optional with an existential generic parameter.
+    /// </summary>
+    /// <param name="typeSpec">The type specification.</param>
+    /// <returns><c>true</c> if the type spec is an Optional containing an existential; otherwise, <c>false</c>.</returns>
+    public bool IsOptionalExistential(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        // Check if it's Swift.Optional with exactly one generic parameter
+        if (namedTypeSpec.Name != "Swift.Optional" || namedTypeSpec.GenericParameters.Count != 1)
+            return false;
+
+        // Check if the generic parameter is an existential
+        var innerType = namedTypeSpec.GenericParameters[0];
+        return IsExistential(innerType);
+    }
+
+    /// <summary>
+    /// Extracts the inner existential type from an Optional-wrapped existential.
+    /// </summary>
+    /// <param name="typeSpec">The type specification (must be an Optional-wrapped existential).</param>
+    /// <returns>The inner existential type as a ProtocolListTypeSpec, or null if not an Optional-wrapped existential.</returns>
+    public ProtocolListTypeSpec? UnwrapOptionalExistential(TypeSpec typeSpec)
+    {
+        if (!IsOptionalExistential(typeSpec))
+            return null;
+
+        var namedTypeSpec = (NamedTypeSpec)typeSpec;
+        var innerType = namedTypeSpec.GenericParameters[0];
+        return ToProtocolListTypeSpec(innerType);
+    }
+
+    /// <summary>
+    /// Gets the appropriate C# type for an Optional-wrapped existential.
+    /// Returns a nullable existential container type (e.g., "Swift.Runtime.ExistentialContainer1?").
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification from the inner existential.</param>
+    /// <returns>The C# nullable existential container type name.</returns>
+    public string GetCSharpOptionalExistentialType(ProtocolListTypeSpec protocolList)
+    {
+        return $"{GetCSharpExistentialType(protocolList)}?";
+    }
 }

@@ -49,6 +49,7 @@ The following phases have been completed. See individual documents for details:
 | Phase 29 | ExistentialContainer Workaround (ImageRequestFactory) | See Phase 29 section below |
 | Phase 30 | Generic Operator & Member Collision Fixes | See Phase 30 section below |
 | Phase 31 | Generic DllImport, Protocol Proxy & AnyType Fixes | See Phase 31 section below |
+| Phase 32 | Optional-Wrapped Existential Property Accessor Fix | See Phase 32 section below |
 
 ---
 
@@ -68,6 +69,7 @@ The following phases have been completed. See individual documents for details:
 - Generic types with DllImport via helper classes (Phase 31)
 - Protocol proxy generation with full framework imports (Phase 31)
 - Generic type parameter handling in TypeDatabase (Phase 31)
+- Optional-wrapped existential properties with accessor methods (Phase 32)
 - **0 compilation errors** (down from 95+)
 - **935 unit tests passing**
 - **Integration tests**: 678 passed, 13 skipped (known limitations)
@@ -1949,6 +1951,61 @@ public static bool IsGenericTypeParameter(string typeName)
 | BlinkID | 18 CS7042 warnings | **0 warnings** |
 | Lottie | Protocol proxy errors | **0 errors** |
 | Nuke | 0 errors | **0 errors** |
+
+---
+
+## Phase 32: Optional-Wrapped Existential Property Accessor Fix
+
+**Status**: COMPLETED (2026-02-01)
+
+### Problem
+
+Properties with Optional-wrapped existential types like `(any DataCaching)?` were generating property wrappers but not their accessor methods (`DataCache_Get()`, `DataCache_Set()`), causing compilation errors:
+
+```
+error CS0103: The name 'DataCache_Get' does not exist in the current context
+error CS0103: The name 'DataCache_Set' does not exist in the current context
+```
+
+This affected 5 properties in Nuke:
+- `DataCache`, `ImageCache` in `ImagePipeline.Configuration`
+- `Delegate` in `DataLoader`
+- `DataLoadingError` in `ImagePipeline.Error`
+
+### Root Cause
+
+The `TypeSpecParser` was incorrectly propagating the `IsAny` flag from the inner existential type to the outer `Swift.Optional` wrapper when parsing types like `(any DataCaching)?`. This caused the generator to treat `Optional<Existential>` as if it were an existential type itself, leading to incorrect type handling in signature builders.
+
+### Solution
+
+1. **TypeSpecParser.cs**: Fixed to apply `IsAny` to the inner type before wrapping with Optional, then reset `IsAny` for the wrapper:
+   ```csharp
+   while (tokenizer.Peek().Kind == TypeTokenKind.QuestionMark)
+   {
+       type.IsAny = isAny;  // Apply to inner type first
+       isAny = false;        // Reset for Optional wrapper
+       type = WrapAsBoundGeneric(type, "Swift.Optional");
+   }
+   ```
+
+2. **ExistentialHandler.cs**: Added methods to detect and handle Optional-wrapped existentials:
+   - `IsOptionalExistential(TypeSpec)` - detects `Optional<Existential>` types
+   - `UnwrapOptionalExistential(TypeSpec)` - extracts the inner existential
+   - `GetCSharpOptionalExistentialType()` - returns nullable type (e.g., `ExistentialContainer1?`)
+
+3. **PropertyHandler.cs**: Added handling for Optional-existential properties
+
+4. **MethodHandler.cs**: Updated `WrapperSignatureBuilder` and `PInvokeSignatureBuilder` to handle Optional-existential return types and parameters
+
+5. **AnyType.cs**: Added `ToNullable()` method to handle generated code that calls this method
+
+### Verification
+
+- All 935 unit tests pass
+- All 678 integration tests pass (13 skipped)
+- All 93 runtime tests pass (1 skipped)
+- Nuke: 0 compilation errors
+- NukeTestApp: 34/34 validation tests pass
 
 ---
 

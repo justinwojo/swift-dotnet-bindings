@@ -448,6 +448,22 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Handle Optional-wrapped existential return types like (any DataCaching)?
+            if (_env.ExistentialHandler.IsOptionalExistential(argument.SwiftTypeSpec))
+            {
+                var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argument.SwiftTypeSpec)!;
+                if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
+                {
+                    var optionalExistentialType = _env.ExistentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
+                    SetReturnType(optionalExistentialType);
+                }
+                else
+                {
+                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                }
+                return;
+            }
+
             // Check for native type remapping (URL → NSUrl, Data → NSData)
             // Skip for property accessors to maintain property/accessor type consistency
             if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
@@ -538,6 +554,22 @@ namespace BindingsGeneration
                     {
                         var existentialType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
                         AddParameter(existentialType, argument.Name);
+                    }
+                    else
+                    {
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    }
+                    continue;
+                }
+
+                // Handle Optional-wrapped existential arguments like (any DataCaching)?
+                if (_env.ExistentialHandler.IsOptionalExistential(argument.SwiftTypeSpec))
+                {
+                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argument.SwiftTypeSpec)!;
+                    if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
+                    {
+                        var optionalExistentialType = _env.ExistentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
+                        AddParameter(optionalExistentialType, argument.Name);
                     }
                     else
                     {
@@ -695,6 +727,23 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Handle Optional-wrapped existential return types like (any DataCaching)?
+            // For P/Invoke, these use IntPtr since they require indirect marshalling
+            if (_env.ExistentialHandler.IsOptionalExistential(returnType.SwiftTypeSpec))
+            {
+                var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnType.SwiftTypeSpec)!;
+                if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
+                {
+                    // Optional existentials are passed by pointer/indirect result
+                    SetReturnType("IntPtr");
+                }
+                else
+                {
+                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                }
+                return;
+            }
+
             if (MarshallingHelpers.MethodRequiresIndirectResult(_env))
             {
                 AddParameter("SwiftIndirectResult", "swiftIndirectResult");
@@ -824,6 +873,23 @@ namespace BindingsGeneration
                     {
                         var existentialType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
                         AddParameter(existentialType, argument.Name);
+                    }
+                    else
+                    {
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    }
+                    continue;
+                }
+
+                // Handle Optional-wrapped existential arguments like (any DataCaching)?
+                // These are passed as nullable existential containers
+                if (_env.ExistentialHandler.IsOptionalExistential(argument.SwiftTypeSpec))
+                {
+                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argument.SwiftTypeSpec)!;
+                    if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
+                    {
+                        var optionalExistentialType = _env.ExistentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
+                        AddParameter(optionalExistentialType, argument.Name);
                     }
                     else
                     {

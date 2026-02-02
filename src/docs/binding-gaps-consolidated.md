@@ -365,9 +365,12 @@ Actors not supported. Properties using `_Concurrency.UnownedSerialExecutor` are 
 4. ✅ **P4: Protocol Proxy** - Fixed EveryProtocolEmitter (empty returns, generics, metatypes) and ModuleHandler (framework imports)
 5. ✅ **P5: AnyType in Generics** - Added TypeSpecHelpers.IsGenericTypeParameter() and updated TypeDatabaseExtensions
 
+### Completed (Phase 32)
+
+6. ✅ **P6: Optional-wrapped existentials** - Fixed TypeSpecParser to not propagate `IsAny` flag to Optional wrappers. Properties like `(any DataCaching)?` now correctly generate accessor methods with `ExistentialContainer?` type.
+
 ### Remaining Known Issues
 
-- **Optional-wrapped existentials in properties** - Properties like `Optional<any Protocol>` may not generate accessor methods (pre-existing)
 - **Async properties** - Properties with async getters/setters not yet supported
 - **Actors** - Swift actors not yet supported
 
