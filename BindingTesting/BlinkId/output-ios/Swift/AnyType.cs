@@ -52,4 +52,16 @@ public struct AnyType : ISwiftObject
     {
         return ProtocolConformanceDescriptor.Zero;
     }
+
+    /// <summary>
+    /// Returns a nullable version of this AnyType.
+    /// This is used for Optional-wrapped existential types where the inner type cannot be determined.
+    /// </summary>
+    /// <returns>A nullable AnyType (always returns null since AnyType represents an unsupported type).</returns>
+    public AnyType? ToNullable()
+    {
+        // AnyType represents an unsupported type placeholder.
+        // When used in Optional context, we return null since we can't properly represent the value.
+        return null;
+    }
 }

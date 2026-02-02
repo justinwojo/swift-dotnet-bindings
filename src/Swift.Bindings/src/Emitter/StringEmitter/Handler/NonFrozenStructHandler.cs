@@ -74,13 +74,14 @@ namespace BindingsGeneration
             bool hasEquality = OperatorHandler.WillHaveEqualityOperator(structDecl.Operators);
             bool hasInequality = OperatorHandler.WillHaveInequalityOperator(structDecl.Operators);
 
-            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl);
-            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, hasEquality, hasInequality);
             bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
             // Get generic type parts if this is a generic type
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
+
+            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics);
+            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, hasEquality, hasInequality);
 
             // Create P/Invoke helper context for generic types (to avoid CS7042)
             // Set it on the conductor so nested method handlers can access it
@@ -116,8 +117,8 @@ namespace BindingsGeneration
                         _logger.LogWarning($"No handler found for field {propertyDecl.Name}");
                 }
 
-                WritePrivateFields(csWriter, structDecl);
-                WritePayload(csWriter, structDecl);
+                WritePrivateFields(csWriter, typeNameWithGenerics);
+                WritePayload(csWriter, typeNameWithGenerics);
 
                 // Emit operators (operators also have P/Invoke - need to handle for generic types)
                 var operatorHandler = new OperatorHandler(_logger);
@@ -164,19 +165,19 @@ namespace BindingsGeneration
         /// <summary>
         /// Writes the private fields for the class.
         /// </summary>
-        private static void WritePrivateFields(CSharpWriter csWriter, StructDecl structDecl)
+        private static void WritePrivateFields(CSharpWriter csWriter, string typeNameWithGenerics)
         {
-            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{structDecl.Name}>.GetTypeMetadata().Size;");
-            csWriter.WriteLine($"SwiftSafeHandle<{structDecl.Name}> _payload = SwiftSafeHandle<{structDecl.Name}>.Zero;");
+            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
             csWriter.WriteLine();
         }
 
         /// <summary>
         /// Writes the payload accessor for the class.
         /// </summary>
-        private static void WritePayload(CSharpWriter csWriter, StructDecl structDecl)
+        private static void WritePayload(CSharpWriter csWriter, string typeNameWithGenerics)
         {
-            csWriter.WriteLine($"public SwiftSafeHandle<{structDecl.Name}> Payload => _payload;");
+            csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
             csWriter.WriteLine();
         }
     }

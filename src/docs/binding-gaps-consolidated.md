@@ -3,7 +3,7 @@
 This document consolidates binding issues discovered across multiple real-world Swift libraries (Lottie, BlinkID) and cross-references them with the Nuke binding roadmap to create a prioritized fix list.
 
 **Date**: February 2026
-**Last Updated**: February 2026 (Phase 31 - Generic DllImport, Protocol Proxy & AnyType Fixes)
+**Last Updated**: February 2026 (Phase 33 - Generic Type Internal References & P/Invoke Call Site Fixes)
 **Libraries Analyzed**: Lottie, BlinkID, Nuke
 **Source Documents**:
 - `BindingTesting/Lottie/BINDING_GAPS.md`
@@ -14,7 +14,7 @@ This document consolidates binding issues discovered across multiple real-world 
 
 ## Executive Summary
 
-After 31 phases of development, the binding generator handles most common Swift patterns. **Five critical issues have been fixed in Phase 30 and Phase 31:**
+After 33 phases of development, the binding generator handles most common Swift patterns. **Seven critical issues have been fixed in Phases 30-33:**
 
 | Issue | Status | Errors/Warnings Fixed |
 |-------|--------|----------------------|
@@ -23,16 +23,17 @@ After 31 phases of development, the binding generator handles most common Swift 
 | Generic types with DllImport (CS7042) | ✅ **FIXED** (Phase 31) | ~18 warnings in BlinkID |
 | Protocol proxy generation issues | ✅ **FIXED** (Phase 31) | ~8 protocols in Lottie |
 | AnyType in generic arguments | ✅ **FIXED** (Phase 31) | ~20 properties in BlinkID |
+| Optional-wrapped existentials | ✅ **FIXED** (Phase 32) | Properties with `(any Protocol)?` |
+| Generic type internal references (CS0305) | ✅ **FIXED** (Phase 33) | ~6 in BlinkID |
 
 **Current Compilation Status:**
-- BlinkID: **0 errors, minimal warnings**
-- Lottie: **0 errors** (protocol proxies now generate correctly)
+- BlinkID: **0 errors** ✅
+- Lottie: **21 errors** (unrelated issues: SwiftUI types, duplicate enums, unsupported operators)
 - Nuke: **0 errors** (maintained)
 
-**Phase 31 Fixes:**
-1. **Generic DllImport (P3)**: P/Invoke declarations now emitted to non-generic helper classes (`{TypeName}_PInvoke`)
-2. **Protocol Proxy (P4)**: Fixed empty return types, unresolved generics (τ_0_0), metatype syntax, and framework imports
-3. **AnyType in Generics (P5)**: Generic type parameters now correctly distinguished from existential types
+**Phase 33 Fixes:**
+1. **Generic Type Internal References**: Fixed `SwiftObjectHelper<>`, `SwiftSafeHandle<>`, `_payloadSize`, `_payload` to use `typeNameWithGenerics` in NonFrozenStructHandler, ClassHandler, and TypeHandlerHelpers
+2. **P/Invoke Call Site**: Fixed `EmitPInvokeCall` in MethodHandler to use helper class prefix and pass metadata parameters when inside generic types
 
 ---
 
@@ -344,6 +345,84 @@ Actors not supported. Properties using `_Concurrency.UnownedSerialExecutor` are 
 
 ---
 
+### Issue 9: Generic Type Internal References (CS0305) ✅ FIXED
+
+**Status**: ✅ **FIXED in Phase 33** (February 2026)
+**Severity**: HIGH
+**Impact**: HIGH (blocks generic type compilation)
+**Difficulty**: MEDIUM
+**Libraries**: BlinkID
+
+#### Problem
+
+Inside generic types like `DateResult<T0>`, internal type references used the bare type name instead of the generic version:
+
+```csharp
+// Generated (broken - BEFORE fix):
+public class DateResult<T0> : ISwiftObject where T0 : ISwiftObject
+{
+    // CS0305: Using generic type 'DateResult<T0>' requires 1 type arguments
+    static nuint _payloadSize = SwiftObjectHelper<DateResult>.GetTypeMetadata().Size;  // Missing <T0>!
+    SwiftSafeHandle<DateResult> _payload = SwiftSafeHandle<DateResult>.Zero;  // Missing <T0>!
+}
+```
+
+#### Solution Implemented
+
+Updated multiple emitter files to pass and use `typeNameWithGenerics`:
+
+**Files Modified:**
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/NonFrozenStructHandler.cs` - `WritePrivateFields()` and `WritePayload()` now accept `typeNameWithGenerics`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs` - Same pattern for classes, plus `ClassISwiftObjectMethodWriter` updated
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/FrozenStructHandler.cs` - Reordered code to compute `typeNameWithGenerics` before use
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandlerHelpers.cs` - `ISwiftObjectMethodWriter` now accepts and uses `_typeNameWithGenerics`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - `EmitPInvokeCall()` now uses helper class prefix and metadata parameters
+
+#### Result
+
+```csharp
+// Generated (AFTER fix):
+public class DateResult<T0> : ISwiftObject where T0 : ISwiftObject
+{
+    static nuint _payloadSize = SwiftObjectHelper<DateResult<T0>>.GetTypeMetadata().Size;  // ✅ Correct!
+    SwiftSafeHandle<DateResult<T0>> _payload = SwiftSafeHandle<DateResult<T0>>.Zero;  // ✅ Correct!
+
+    // P/Invoke calls now use helper class:
+    var result = DateResult_PInvoke.PInvoke_day_Get(self, SwiftObjectHelper<T0>.GetTypeMetadata());  // ✅
+}
+```
+
+**BlinkID: 0 compilation errors** (down from 6 CS0305 errors)
+
+---
+
+### Issue 10: Lottie-Specific Issues (Remaining)
+
+**Status**: ⚠️ **NOT FIXED** (different category of issues)
+**Severity**: MEDIUM
+**Impact**: MEDIUM (21 errors in Lottie)
+**Libraries**: Lottie only
+
+#### Problems
+
+These issues are specific to Lottie's use of SwiftUI and complex type patterns:
+
+1. **CS0246: ISwiftView not found** - SwiftUI `View` protocol not defined in bindings
+2. **CS0102: Duplicate member** - `LottiePlaybackMode.Paused` defined twice (enum case collision)
+3. **CS0308: Non-generic type with generics** - `ValueProviderStorage` used as `ValueProviderStorage<T>` but emitted as non-generic
+4. **CS0216: Missing paired operator** - `Keyframe<T0>.!=` without `==` (the `==` signature was unsupported)
+5. **CS0314/CS0315: Type parameter constraints** - Generic constraints don't match (e.g., `ExistentialContainer0` vs `ISwiftObject`)
+
+#### Status
+
+These require deeper investigation into:
+- SwiftUI protocol support
+- Enum case deduplication
+- Generic type detection for bound generics
+- Operator signature validation before synthesis
+
+---
+
 ## Prioritized Implementation Roadmap
 
 | Priority | Issue | Status | Errors Fixed | Effort |
@@ -353,6 +432,8 @@ Actors not supported. Properties using `_Concurrency.UnownedSerialExecutor` are 
 | ~~**P3**~~ | ~~Generic Type DllImport~~ | ✅ **DONE** (Phase 31) | ~18 warnings | 1-2 days |
 | ~~**P4**~~ | ~~Protocol Proxy Improvements~~ | ✅ **DONE** (Phase 31) | ~8 protocols | 3-5 days |
 | ~~**P5**~~ | ~~AnyType in Generics~~ | ✅ **DONE** (Phase 31) | ~20 properties | 2-3 days |
+| ~~**P6**~~ | ~~Optional-wrapped existentials~~ | ✅ **DONE** (Phase 32) | ~5 properties | 1 hour |
+| ~~**P7**~~ | ~~Generic Type Internal References~~ | ✅ **DONE** (Phase 33) | ~6 in BlinkID | 2-3 hours |
 
 ### Completed (Phase 30)
 
@@ -369,16 +450,22 @@ Actors not supported. Properties using `_Concurrency.UnownedSerialExecutor` are 
 
 6. ✅ **P6: Optional-wrapped existentials** - Fixed TypeSpecParser to not propagate `IsAny` flag to Optional wrappers. Properties like `(any DataCaching)?` now correctly generate accessor methods with `ExistentialContainer?` type.
 
+### Completed (Phase 33)
+
+7. ✅ **P7: Generic Type Internal References** - Fixed internal type references (`SwiftObjectHelper<>`, `SwiftSafeHandle<>`, `_payloadSize`, `_payload`) to use `typeNameWithGenerics`. Fixed P/Invoke call sites to use helper class prefix and metadata parameters.
+
 ### Remaining Known Issues
 
+- **SwiftUI types** - `View` protocol and related types not yet supported
 - **Async properties** - Properties with async getters/setters not yet supported
 - **Actors** - Swift actors not yet supported
+- **Lottie-specific issues** - See Issue 10 for details (21 errors remaining)
 
 ---
 
-## What's Already Working (from Nuke + Phase 30 + Phase 31)
+## What's Already Working (from Nuke + Phases 30-33)
 
-After 31 phases of development, the following features work correctly:
+After 33 phases of development, the following features work correctly:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -403,6 +490,8 @@ After 31 phases of development, the following features work correctly:
 | Member name collision detection | ✅ | Auto-rename with `Value` suffix **[Phase 30]** |
 | Framework import detection | ✅ | CoreGraphics, CoreText, 40+ frameworks **[Phase 31]** |
 | Generic type parameter handling | ✅ | τ_0_0, T, Element → AnyType **[Phase 31]** |
+| Generic type internal references | ✅ | `SwiftObjectHelper<T>`, `SwiftSafeHandle<T>` **[Phase 33]** |
+| Generic P/Invoke call sites | ✅ | Helper class prefix + metadata params **[Phase 33]** |
 
 ---
 
@@ -414,19 +503,15 @@ After implementing fixes, validate with:
 # Run all generator tests
 ./run-tests.sh
 
-# Regenerate Lottie bindings
+# Regenerate and test Lottie bindings
 cd BindingTesting/Lottie
 ./regenerate-bindings.sh
+dotnet build LottieTestApp/LottieTestApp.csproj 2>&1 | grep -c "error CS"
 
-# Check compilation errors
-dotnet build output-ios/Swift.Lottie.csproj 2>&1 | grep -c "error CS"
-
-# Regenerate BlinkID bindings
+# Regenerate and test BlinkID bindings
 cd BindingTesting/BlinkId
 ./regenerate-bindings.sh
-
-# Check compilation errors
-dotnet build output-ios/Swift.BlinkId.csproj 2>&1 | grep -c "error CS"
+dotnet build BlinkIdTestApp/BlinkIdTestApp.csproj 2>&1 | grep -c "error CS"
 ```
 
 ---

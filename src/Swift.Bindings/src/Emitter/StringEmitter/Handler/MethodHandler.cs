@@ -2319,7 +2319,22 @@ namespace BindingsGeneration
         {
             var voidReturn = _env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
             var returnPrefix = (_requiresIndirectResult || _requiresSwiftAsync || voidReturn) ? "" : "var result = ";
-            csWriter.WriteLine($"{returnPrefix}{NameProvider.GetPInvokeName(_env.MethodDecl)}({_pInvokeSignature.CallArgumentsString()});");
+            var pInvokeName = NameProvider.GetPInvokeName(_env.MethodDecl);
+            var callArgs = _pInvokeSignature.CallArgumentsString();
+
+            // If we're inside a generic type, call via the helper class and pass metadata parameters
+            if (_env.PInvokeHelperContext != null)
+            {
+                var metadataArgs = string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
+                var fullArgs = string.IsNullOrEmpty(callArgs)
+                    ? metadataArgs
+                    : (string.IsNullOrEmpty(metadataArgs) ? callArgs : $"{callArgs}, {metadataArgs}");
+                csWriter.WriteLine($"{returnPrefix}{_env.PInvokeHelperContext.HelperClassName}.{pInvokeName}({fullArgs});");
+            }
+            else
+            {
+                csWriter.WriteLine($"{returnPrefix}{pInvokeName}({callArgs});");
+            }
             csWriter.WriteLine();
         }
 

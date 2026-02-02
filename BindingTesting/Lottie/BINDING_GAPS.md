@@ -2,11 +2,21 @@
 
 This document tracks binding issues discovered while setting up Lottie as a test case for the swift-bindings project.
 
+**Last Updated**: February 2026 (Phase 33 - Generic Type Internal References Fix)
+
 ## Summary
 
-Lottie binding generation revealed several significant gaps in the binding generator that need to be addressed before Lottie can be fully bound.
+Lottie binding generation revealed several significant gaps in the binding generator. After Phase 33 fixes, **21 errors remain** - these are different categories of issues from what was fixed for BlinkID.
 
-## Issues Fixed (in this PR)
+| Metric | Initial | After Phase 33 |
+|--------|---------|----------------|
+| Compilation errors | 41 | **21** |
+| Generic DllImport (CS7042) | Many | 0 ✅ |
+| Generic internal refs (CS0305) | Many | Partial ✅ |
+| SwiftUI-related errors | - | 8 |
+| Other issues | - | 13 |
+
+## Issues Fixed (in previous phases)
 
 ### 1. Existential Type Detection for `any Protocol` Types
 
@@ -28,66 +38,131 @@ Lottie binding generation revealed several significant gaps in the binding gener
 
 **Impact:** Closures with generic parameters are now correctly skipped.
 
-## Outstanding Issues (Not Fixed)
+### 3. Generic Type DllImport (CS7042) - Phase 31
 
-### 1. Generic Type Classes (Keyframe<T0>)
+**Status:** ✅ **FIXED**
 
-**Error:** `CS7042: The DllImport attribute cannot be applied to a method that is generic or contained in a generic method or type.`
+P/Invoke declarations for generic types are now emitted to non-generic helper classes (`{TypeName}_PInvoke`).
 
-**Root Cause:** The binding generator emits generic classes like `Keyframe<T0>` with P/Invoke methods inside them, which C# doesn't allow.
+### 4. Generic Type Internal References - Phase 33
 
-**Affected Types:** `Keyframe<T0>` and potentially others
+**Status:** ✅ **FIXED**
 
-**Fix Needed:** Generic types should either be excluded from emission or the P/Invoke should be factored out of the generic class.
+Internal type references (`SwiftObjectHelper<>`, `SwiftSafeHandle<>`, `_payloadSize`, `_payload`) now use `typeNameWithGenerics`. P/Invoke call sites now use helper class prefix and pass metadata parameters.
 
-### 2. Member Names Matching Enclosing Type
+## Outstanding Issues (21 Errors)
 
-**Error:** `CS0542: 'Animation': member names cannot be the same as their enclosing type`
+### Category 1: SwiftUI Types (8 errors)
 
-**Root Cause:** `DotLottieFile.Animation` nested type has a property named `Animation`.
+**Errors:** CS0246, CS0314
 
-**Fix Needed:** Property renaming logic when property name matches containing type name.
+**Problem:** `LottieView<T0>` has a constraint `where T0 : ISwiftView`, but `ISwiftView` (representing SwiftUI's `View` protocol) is not defined.
 
-### 3. Swift Protocol Proxy Code Generation
+**Affected Code:**
+```csharp
+public unsafe class LottieView<T0> : ISwiftObject where T0 : ISwiftView  // CS0246: ISwiftView not found
+```
 
-**Issue:** The generated Swift code (`Swift.Lottie.swift`) for EveryProtocol conformances has multiple issues:
+**Root Cause:** SwiftUI protocols are not yet supported in the binding generator.
 
-- Missing imports for `CoreGraphics`, `CoreText`, `QuartzCore`
-- Invalid Swift syntax like `(any Any.Type).self`
-- Empty return types: `public func value(frame: CoreGraphics.CGFloat) ->  {`
-- Unresolved generic type parameters `τ_0_0` in protocol method signatures
+**Fix Needed:** Either skip types with SwiftUI constraints or add SwiftUI protocol stubs.
 
-**Affected Protocols:**
-- `AnimationFontProvider`
-- `AnimationTextProvider`
-- `AnimationImageProvider`
-- `TextContentsScaleProvider`
-- `AnyValueProvider`
-- `Interpolatable`
-- `SpatialInterpolatable`
-- `AnyInterpolatable`
+### Category 2: Duplicate Enum Cases (1 error)
 
-**Fix Needed:** Major improvements to the EveryProtocol/protocol proxy emitter.
+**Error:** CS0102
 
-### 4. Async Method Return Types
+**Problem:** `LottiePlaybackMode.Paused` is defined twice in the enum.
 
-**Issue:** Async wrappers require `@convention(c)` compatible return types. Complex Swift types like `DotLottieFile` aren't Objective-C representable.
+**Affected Code:**
+```csharp
+public enum LottiePlaybackMode
+{
+    Paused,
+    // ... other cases ...
+    Paused,  // CS0102: Duplicate!
+}
+```
 
-**Error:** `'(DotLottieFile, Int64) -> Void' is not representable in Objective-C`
+**Root Cause:** Enum case deduplication not implemented in EnumHandler.
 
-**Fix Needed:** Async wrappers need to return results via indirect pointers or use a different callback mechanism.
+**Fix Needed:** Add duplicate case detection in EnumHandler.
 
-### 5. Operator Generation for Generic Types
+### Category 3: Non-Generic Type Used as Generic (10 errors)
 
-**Issue:** Operators on generic types like `Keyframe<T0>` reference the non-generic type name `Keyframe`.
+**Error:** CS0308
 
-**Error:** `CS0305: Using the generic type 'Keyframe<T0>' requires 1 type arguments`
+**Problem:** `ValueProviderStorage` is emitted as a non-generic class but is used with type arguments.
 
-**Fix Needed:** Operator emission needs to handle generic types properly.
+**Affected Code:**
+```csharp
+public class ValueProviderStorage { ... }  // Non-generic
+
+// Usage tries to use it as generic:
+new ValueProviderStorage<LottieColor>()  // CS0308!
+```
+
+**Root Cause:** The generator didn't detect that `ValueProviderStorage` should be generic.
+
+**Fix Needed:** Improve generic type detection for bound generic usages.
+
+### Category 4: Missing Paired Operator (1 error)
+
+**Error:** CS0216
+
+**Problem:** `Keyframe<T0>.operator !=` is synthesized, but `operator ==` was skipped because its signature was unsupported.
+
+**Affected Code:**
+```csharp
+// This exists:
+public static bool operator !=(Keyframe<T0> left, Keyframe<T0> right)
+
+// But this was skipped (unsupported signature):
+// public static bool operator ==(Keyframe<T0> left, Keyframe<T0> right)
+```
+
+**Root Cause:** Paired operator synthesis doesn't check if the source operator was actually emitted.
+
+**Fix Needed:** Only synthesize paired operators if the source operator was successfully emitted.
+
+### Category 5: Type Parameter Constraint Mismatch (1 error)
+
+**Error:** CS0315
+
+**Problem:** `ExistentialContainer0` is used as a type argument where `ISwiftObject` is required.
+
+**Affected Code:**
+```csharp
+Keyframe<ExistentialContainer0>  // CS0315: No boxing conversion from ExistentialContainer0 to ISwiftObject
+```
+
+**Root Cause:** Existential containers don't implement `ISwiftObject`.
+
+**Fix Needed:** Either make existential containers implement `ISwiftObject` or skip usages with existential type arguments in generic constraints.
+
+## Statistics
+
+| Metric | Value |
+|--------|-------|
+| Generated C# lines | ~28,000 |
+| Generated C# file size | ~1.17 MB |
+| Generated Swift file size | ~37 KB |
+| Compilation errors | **21** |
+| SwiftUI-related errors | 8 |
+| Duplicate enum errors | 1 |
+| Generic type detection errors | 10 |
+| Operator pairing errors | 1 |
+| Type constraint errors | 1 |
+
+## Test Status
+
+- Binding generation: ✅ Completes without crash
+- Swift wrapper compilation: ✅ (with stripped-down Swift.Lottie.swift)
+- C# binding compilation: ❌ (21 errors in generated code)
+- Test app execution: ❌ (blocked by compilation errors)
 
 ## Types That Likely Work
 
-Based on the code generation output and Nuke test case patterns, the following types should work:
+Based on the code generation output and error patterns, the following types should work if not dependent on broken types:
 
 - `LottieConfiguration` - Configuration struct
 - `LottieColor` - Color struct
@@ -95,27 +170,33 @@ Based on the code generation output and Nuke test case patterns, the following t
 - `LottieVector3D` - 3D vector struct
 - `LottieLoopMode` - Enum
 - `LottieBackgroundBehavior` - Enum
-- Various non-generic classes without protocol conformance issues
+- Various non-generic classes without SwiftUI dependencies
 
 ## Recommendations
 
-1. **Short term:** Focus on fixing the existential/generic type parameter issues (already done) and test with Nuke which has fewer complex types.
+1. **Short term:** Skip types with SwiftUI constraints (`ISwiftView`)
+2. **Medium term:** Add enum case deduplication; improve generic type detection
+3. **Long term:** Add SwiftUI protocol stubs; fix existential container constraints
 
-2. **Medium term:** Address the generic class DllImport issue as this blocks many animation frameworks.
+## Validation Commands
 
-3. **Long term:** Rewrite the EveryProtocol/protocol proxy emitter with better type handling.
+```bash
+# Regenerate bindings
+cd BindingTesting/Lottie
+./regenerate-bindings.sh
 
-## Statistics
+# Build test app (includes bindings)
+dotnet build LottieTestApp/LottieTestApp.csproj
 
-- Total classes in generated bindings: ~80
-- Compilation errors: 41
-- Warnings: 240
-- Generated C# file size: 1.17 MB (28,330 lines)
-- Generated Swift file size: 37 KB (before trimming)
+# Count errors
+dotnet build LottieTestApp/LottieTestApp.csproj 2>&1 | grep -c "error CS"
+```
 
-## Test Status
+## Comparison with BlinkID
 
-- Binding generation: ✅ Completes without crash (after fixes)
-- Swift wrapper compilation: ✅ (with stripped-down Swift.Lottie.swift)
-- C# binding compilation: ❌ (41 errors in generated code)
-- Test app execution: ❌ (blocked by compilation errors)
+BlinkID compiles with 0 errors after Phase 33 fixes. Lottie has additional issues because:
+
+1. **SwiftUI dependency** - Lottie uses SwiftUI's `View` protocol which isn't supported
+2. **More complex generics** - Lottie has generic types used with existential type arguments
+3. **Enum edge cases** - Duplicate enum case names
+4. **Generic type detection** - Some types should be generic but aren't detected as such

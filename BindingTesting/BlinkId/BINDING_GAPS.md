@@ -2,17 +2,18 @@
 
 This document tracks binding issues discovered while setting up BlinkID as a test case for the swift-bindings project.
 
-**Last Updated**: February 2026 (Phase 30 - Generic Operator Fix)
+**Last Updated**: February 2026 (Phase 33 - Generic Type Internal References Fix)
 
 ## Summary
 
-BlinkID binding generation revealed several gaps in the binding generator. **After Phase 30 fixes, the library now compiles with 0 errors.**
+BlinkID binding generation revealed several gaps in the binding generator. **After Phase 33 fixes, the library now compiles with 0 errors.**
 
-| Metric | Before | After Phase 30 |
-|--------|--------|----------------|
-| Compilation errors | 66 | **0** |
-| Operator errors (CS0563/CS0305) | 48 | **0** |
-| DllImport warnings | 18 | 18 (skipped gracefully) |
+| Metric | Initial | After Phase 30 | After Phase 33 |
+|--------|---------|----------------|----------------|
+| Compilation errors | 66 | 6 | **0** |
+| Operator errors (CS0563/CS0305) | 48 | 0 | 0 |
+| Generic internal refs (CS0305) | - | 6 | **0** |
+| DllImport in generics (CS7042) | 18 | 0 (helper class) | 0 |
 
 ## Generator Issues Fixed During Setup
 
@@ -56,44 +57,35 @@ BlinkID binding generation revealed several gaps in the binding generator. **Aft
 
 **Fix:** Use `IntPtr` for the P/Invoke type and distinguish class vs struct at call site using different parameter names (`_selfClass` vs `_self`).
 
-## Outstanding Issues (Not Fixed)
+## Issues Fixed in Later Phases
 
-### 1. Generic Type Classes (CS7042)
+### 6. Operator Generation for Generic Types (CS0563, CS0305) - Phase 30
 
-**Error Count:** 18 errors
+**Status:** ✅ **FIXED**
 
-**Error:** `CS7042: The DllImport attribute cannot be applied to a method that is generic or contained in a generic method or type.`
+Operators on generic types like `DateResult<T0>` now correctly use `DateResult<T0>` instead of `DateResult` in parameter types.
 
-**Root Cause:** The binding generator emits generic classes like `VehicleClassInfo<T0>`, `DateResult<T0>`, and `DriverLicenseDetailedInfo<T0>` with P/Invoke methods inside them, which C# doesn't allow.
+### 7. Generic Type DllImport (CS7042) - Phase 31
 
-**Affected Types:**
-- `VehicleClassInfo<T0>`
-- `DateResult<T0>`
-- `DriverLicenseDetailedInfo<T0>`
+**Status:** ✅ **FIXED**
 
-**Fix Needed:** Generic types should either be excluded from emission or the P/Invoke should be factored out into a non-generic helper class.
+P/Invoke declarations for generic types are now emitted to non-generic helper classes (`{TypeName}_PInvoke`).
 
-### 2. Operator Generation for Generic Types (CS0563, CS0305) ✅ FIXED
+### 8. Generic Type Internal References (CS0305) - Phase 33
 
-**Status:** ✅ **FIXED in Phase 30** (February 2026)
+**Status:** ✅ **FIXED**
 
-**Error Count (before fix):** 48 errors (12 + 36)
+Internal type references (`SwiftObjectHelper<>`, `SwiftSafeHandle<>`, `_payloadSize`, `_payload`) now use `typeNameWithGenerics`. P/Invoke call sites now use helper class prefix and pass metadata parameters.
 
-**Errors (before fix):**
-- `CS0563: One of the parameters of a binary operator must be the containing type`
-- `CS0305: Using the generic type 'X<T0>' requires 1 type arguments`
+## Remaining Warnings (Expected)
 
-**Root Cause:** Operators on generic types like `DateResult<T0>` referenced the non-generic type name `DateResult` instead of `DateResult<T0>`.
-
-**Fix Applied:** Updated `OperatorHandler.cs`, `EqualityMethodsWriter`, and `ClassEqualityMethodsWriter` to use `GenericTypeEmitter.GetTypeNameWithGenerics()` for all operator parameter types. See `src/docs/binding-gaps-consolidated.md` for details.
-
-### 3. C++ Interop Symbols
+### C++ Interop Symbols
 
 **Issue:** BlinkID uses Swift/C++ interoperability (`Cxx` module). The demangler can't parse these symbols.
 
-**Impact:** C++ interop symbols are skipped (gracefully after fix), but any functionality that depends on C++ bridging won't work.
+**Impact:** C++ interop symbols are skipped (gracefully), but any functionality that depends on C++ bridging won't work.
 
-### 4. AnyType in Generics
+### AnyType in Generics
 
 **Issue:** Many properties use generic types with `AnyType` (existential types), like `DateResult<Swift.AnyType>` or `SwiftArray<VehicleClassInfo<Swift.AnyType>>`.
 
@@ -102,7 +94,7 @@ BlinkID binding generation revealed several gaps in the binding generator. **Aft
 - `vehicleClass`, `licenceType`, `restrictions`, `endorsements`, `conditions` (AnyType)
 - `vehicleClassesInfo` (SwiftArray<VehicleClassInfo<AnyType>>)
 
-### 5. Concurrency Types
+### Concurrency Types
 
 **Issue:** Properties using `_Concurrency.UnownedSerialExecutor` type are not supported.
 
@@ -113,47 +105,44 @@ BlinkID binding generation revealed several gaps in the binding generator. **Aft
 | Metric | Value |
 |--------|-------|
 | ABI JSON lines | 75,817 |
-| Generated C# lines | 49,054 |
-| Generated C# file size | 1.89 MB |
-| Generated Swift wrapper size | 18 KB |
-| Compilation errors (initial) | 2,612 |
-| Compilation errors (after Phase 30) | **0** ✅ |
+| Generated C# lines | ~49,000 |
+| Generated C# file size | ~1.9 MB |
+| Generated Swift wrapper size | ~18 KB |
+| Compilation errors | **0** ✅ |
 | Demangler warnings | ~50 (C++ interop symbols) |
 | Property skip warnings | ~20 (AnyType in generics) |
 
 ## Test Status
 
 - Binding generation: ✅ Completes without crash
-- C# binding compilation: ✅ **0 errors** (after Phase 30)
+- C# binding compilation: ✅ **0 errors**
 - Swift wrapper compilation: 🔲 Not yet tested
 - Test app execution: 🔲 Not yet tested
 
-## Types That Likely Work
+## Types That Work
 
-Based on the generated code and error patterns, the following types should compile after removing generic-related code:
+The following types compile and should be usable:
 
 - `RequestTimeout` - Struct with static property
 - `Country` - Enum with string raw values
 - `Region` - Enum with string raw values
 - `ProcessingStatus` - Enum
-- `BlinkIDSdk` - Main SDK class (non-generic async methods may have issues)
+- `BlinkIDSdk` - Main SDK class
+- `DateResult<T0>` - Generic date result struct
+- `VehicleClassInfo<T0>` - Generic vehicle info struct
+- `DriverLicenseDetailedInfo<T0>` - Generic license info struct
 - Various result/configuration structs
 
-## Recommendations
+## Validation Commands
 
-1. ~~**Short term:** Manually remove generic types~~ → **No longer needed** - bindings compile cleanly
+```bash
+# Regenerate bindings
+cd BindingTesting/BlinkId
+./regenerate-bindings.sh
 
-2. **Medium term:** Fix the generic class P/Invoke issue (CS7042) - this would enable full use of generic types like `DateResult<T0>`, `VehicleClassInfo<T0>`
+# Build test app (includes bindings)
+dotnet build BlinkIdTestApp/BlinkIdTestApp.csproj
 
-3. **Long term:** Implement full generic type support with proper type instantiation
-
-## Comparison with Lottie
-
-BlinkID exhibited the same issues as Lottie, both now fixed:
-- ~~Generic type DllImport errors~~ → Still present (CS7042, properties skipped gracefully)
-- ~~Operator generation for generic types~~ → ✅ **FIXED in Phase 30**
-
-New issues discovered in BlinkID (all handled):
-- C++ interop symbols (Cxx module) → Gracefully skipped
-- weak-symbols in TBD files → Parser updated
-- Quote escaping in enum error messages → Fixed
+# Count errors (should be 0)
+dotnet build BlinkIdTestApp/BlinkIdTestApp.csproj 2>&1 | grep -c "error CS"
+```

@@ -16,13 +16,15 @@ namespace BindingsGeneration
         private readonly ITypeDatabase _typeDatabase;
         private readonly ModuleDecl _moduleDecl;
         private readonly StructDecl _structDecl;
+        private readonly string _typeNameWithGenerics;
 
-        public ISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, StructDecl structDecl)
+        public ISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, StructDecl structDecl, string typeNameWithGenerics)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
             _moduleDecl = moduleDecl;
             _structDecl = structDecl;
+            _typeNameWithGenerics = typeNameWithGenerics;
         }
 
         /// <summary>
@@ -101,17 +103,18 @@ namespace BindingsGeneration
             TypeRecord typeRecord = _typeDatabase.GetTypeRecordOrThrow(_structDecl.SwiftTypeName);
             if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
             {
+                // Note: Constructor name uses _structDecl.Name (not generic), but type references use _typeNameWithGenerics
                 var text = $$"""
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    return new {{_structDecl.Name}}(handle);
+                    return new {{_typeNameWithGenerics}}(handle);
                 }
 
                 unsafe {{_structDecl.Name}}(IntPtr handle)
                 {
-                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({{_structDecl.Name}}.Buffer));
-                    *({{_structDecl.Name}}.Buffer*)bufferPtr = *({{_structDecl.Name}}.Buffer*)handle;
-                    _payload = new SwiftSafeHandle<{{_structDecl.Name}}>(bufferPtr);
+                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({{_typeNameWithGenerics}}.Buffer));
+                    *({{_typeNameWithGenerics}}.Buffer*)bufferPtr = *({{_typeNameWithGenerics}}.Buffer*)handle;
+                    _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(bufferPtr);
                 }
                 """;
 
@@ -123,7 +126,7 @@ namespace BindingsGeneration
                 var text = $$"""
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    return *({{_structDecl.Name}}*)handle;
+                    return *({{_typeNameWithGenerics}}*)handle;
                 }
                 """;
 
@@ -140,7 +143,7 @@ namespace BindingsGeneration
             var text = $$"""
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
-                return new {{_structDecl.Name}}(handle);
+                return new {{_typeNameWithGenerics}}(handle);
             }
             """;
 
@@ -155,10 +158,11 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPrivateConstructor()
         {
+            // Note: Constructor name uses _structDecl.Name (not generic), but SwiftSafeHandle uses _typeNameWithGenerics
             var text = $$"""
             {{_structDecl.Name}}(SwiftHandle handle)
             {
-                _payload = new SwiftSafeHandle<{{_structDecl.Name}}>(handle);
+                _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(handle);
             }
             """;
 
@@ -177,7 +181,7 @@ namespace BindingsGeneration
                 var text = $$"""
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
-                    var metadata = SwiftObjectHelper<{{_structDecl.Name}}>.GetTypeMetadata();
+                    var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
                     if ((int)metadata.Size > swiftDestSpan.Length)
                     {
                         throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -208,7 +212,7 @@ namespace BindingsGeneration
                 var text = $$"""
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
-                    var metadata = SwiftObjectHelper<{{_structDecl.Name}}>.GetTypeMetadata();
+                    var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
                     if ((int)metadata.Size > swiftDestSpan.Length)
                     {
                         throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -236,7 +240,7 @@ namespace BindingsGeneration
             var text = $$"""
             unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
-                var metadata = SwiftObjectHelper<{{_structDecl.Name}}>.GetTypeMetadata();
+                var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
                 if ((int)metadata.Size > swiftDestSpan.Length)
                 {
                     throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");

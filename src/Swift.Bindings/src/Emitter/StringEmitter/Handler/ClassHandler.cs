@@ -112,8 +112,8 @@ namespace BindingsGeneration
                 }
 
                 // Emit private fields and payload
-                WriteClassPrivateFields(csWriter, classDecl);
-                WriteClassPayload(csWriter, classDecl);
+                WriteClassPrivateFields(csWriter, typeNameWithGenerics);
+                WriteClassPayload(csWriter, typeNameWithGenerics);
 
                 // Emit operators
                 var operatorHandler = new OperatorHandler(_logger);
@@ -129,7 +129,7 @@ namespace BindingsGeneration
                 operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, typeNameWithGenerics);
 
                 // Emit ISwiftObject implementation
-                var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, pinvokeHelperContext);
+                var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext);
                 var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, hasEquality, hasInequality);
 
                 equatableWriter.WriteSwiftEquatableImplementation();
@@ -161,19 +161,19 @@ namespace BindingsGeneration
         /// <summary>
         /// Writes the private fields for the class.
         /// </summary>
-        private static void WriteClassPrivateFields(CSharpWriter csWriter, ClassDecl classDecl)
+        private static void WriteClassPrivateFields(CSharpWriter csWriter, string typeNameWithGenerics)
         {
-            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{classDecl.Name}>.GetTypeMetadata().Size;");
-            csWriter.WriteLine($"SwiftSafeHandle<{classDecl.Name}> _payload = SwiftSafeHandle<{classDecl.Name}>.Zero;");
+            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
             csWriter.WriteLine();
         }
 
         /// <summary>
         /// Writes the payload accessor for the class.
         /// </summary>
-        private static void WriteClassPayload(CSharpWriter csWriter, ClassDecl classDecl)
+        private static void WriteClassPayload(CSharpWriter csWriter, string typeNameWithGenerics)
         {
-            csWriter.WriteLine($"public SwiftSafeHandle<{classDecl.Name}> Payload => _payload;");
+            csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
             csWriter.WriteLine();
         }
     }
@@ -187,14 +187,16 @@ namespace BindingsGeneration
         private readonly ITypeDatabase _typeDatabase;
         private readonly ModuleDecl _moduleDecl;
         private readonly ClassDecl _classDecl;
+        private readonly string _typeNameWithGenerics;
         private readonly PInvokeHelperContext? _pinvokeHelperContext;
 
-        public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, PInvokeHelperContext? pinvokeHelperContext = null)
+        public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext = null)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
             _moduleDecl = moduleDecl;
             _classDecl = classDecl;
+            _typeNameWithGenerics = typeNameWithGenerics;
             _pinvokeHelperContext = pinvokeHelperContext;
         }
 
@@ -277,10 +279,11 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPrivateConstructor()
         {
+            // Note: Constructor name uses _classDecl.Name (not generic), but SwiftSafeHandle uses _typeNameWithGenerics
             var text = $$"""
             {{_classDecl.Name}}(SwiftHandle handle)
             {
-                _payload = new SwiftSafeHandle<{{_classDecl.Name}}>(handle);
+                _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(handle);
             }
             """;
 
@@ -296,7 +299,7 @@ namespace BindingsGeneration
             var text = $$"""
             unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
-                var metadata = SwiftObjectHelper<{{_classDecl.Name}}>.GetTypeMetadata();
+                var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
                 if ((int)metadata.Size > swiftDestSpan.Length)
                 {
                     throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");

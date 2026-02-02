@@ -79,8 +79,6 @@ namespace BindingsGeneration
             bool hasEquality = OperatorHandler.WillHaveEqualityOperator(structDecl.Operators);
             bool hasInequality = OperatorHandler.WillHaveInequalityOperator(structDecl.Operators);
 
-            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl);
-            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, hasEquality, hasInequality);
             bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
 
             SwiftTypeInfo? swiftTypeInfo = typeRecord?.SwiftTypeInfo;
@@ -88,6 +86,9 @@ namespace BindingsGeneration
             // Get generic type parts if this is a generic type
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
+
+            var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics);
+            var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, hasEquality, hasInequality);
 
             // Create P/Invoke helper context for generic types (to avoid CS7042)
             // Set it on the conductor so nested method handlers can access it
