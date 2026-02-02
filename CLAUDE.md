@@ -158,6 +158,7 @@ Output: NuGet package with C# bindings
 | `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` | Closure type handling |
 | `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/OperatorHandler.cs` | Operator emission |
 | `src/docs/emitter-redesign-proposal.md` | Architecture improvement proposal |
+| `src/docs/known-issues-workarounds.md` | Major runtime issues and workarounds (Mono JIT bugs, etc.) |
 | `docs/binding-overview.md` | High-level binding philosophy |
 
 ## Current Capabilities

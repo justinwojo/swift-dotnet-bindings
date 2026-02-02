@@ -23,6 +23,7 @@
   <!-- Include Nuke bindings -->
   <ItemGroup>
     <Compile Include="../output-ios/Swift.Nuke.cs" />
+    <Compile Include="../output-ios/Swift.Nuke.Wrappers.cs" />
   </ItemGroup>
 
   <!-- Include Nuke framework -->

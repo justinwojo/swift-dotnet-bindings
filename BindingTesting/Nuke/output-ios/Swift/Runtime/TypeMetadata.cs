@@ -359,9 +359,19 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         // NOTE: swift_getExistentialTypeMetadata triggers a Mono JIT assertion failure
         // (condition `!ji->async' not met at jit-info.c:918). This is a known interop issue
         // between Mono and Swift's existential type metadata function.
-        // For now, we throw a descriptive exception rather than crash.
         if (typeof(IExistentialContainer).IsAssignableFrom(type))
         {
+            var numProtocols = GetProtocolCountFromExistentialType(type);
+
+            // Try multiple P/Invoke approaches to work around the Mono JIT bug
+            if (TryGetExistentialTypeMetadataWithWorkarounds(numProtocols, out var existentialMetadata))
+            {
+                cache.GetOrAdd(type, _ => existentialMetadata);
+                result = existentialMetadata;
+                return true;
+            }
+
+            // All workarounds failed - provide descriptive error
             throw new SwiftRuntimeException(
                 $"SwiftArray<{type.Name}> is not yet supported. " +
                 "The swift_getExistentialTypeMetadata function triggers a Mono JIT assertion. " +
@@ -415,6 +425,118 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         IntPtr superclassConstraint,
         nuint numProtocols,
         IntPtr protocols);
+
+    // Alternative P/Invoke declarations to try working around Mono JIT bug
+
+    /// <summary>
+    /// Try 1: [SuppressGCTransition] to avoid GC state transition that triggers async assertion
+    /// </summary>
+    [SuppressGCTransition]
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "swift_getExistentialTypeMetadata")]
+    private static extern TypeMetadata swift_getExistentialTypeMetadata_SuppressGC(
+        TypeMetadataRequest request,
+        IntPtr superclassConstraint,
+        nuint numProtocols,
+        IntPtr protocols);
+
+    /// <summary>
+    /// Try 2: Use Cdecl calling convention instead of CallConvSwift
+    /// swift_getExistentialTypeMetadata may not actually need Swift calling convention
+    /// </summary>
+    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "swift_getExistentialTypeMetadata",
+               CallingConvention = CallingConvention.Cdecl)]
+    private static extern nint swift_getExistentialTypeMetadata_Cdecl(
+        nint request,
+        nint superclassConstraint,
+        nuint numProtocols,
+        nint protocols);
+
+    /// <summary>
+    /// Try 3: nint return type - Mono 6.12+ handles pointer returns better as nint
+    /// </summary>
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "swift_getExistentialTypeMetadata")]
+    private static extern nint swift_getExistentialTypeMetadata_nint(
+        TypeMetadataRequest request,
+        IntPtr superclassConstraint,
+        nuint numProtocols,
+        IntPtr protocols);
+
+    /// <summary>
+    /// Attempts to get existential type metadata using various P/Invoke workarounds.
+    /// Tries multiple approaches to work around the Mono JIT assertion failure.
+    /// </summary>
+    /// <param name="numProtocols">The number of protocols in the existential type.</param>
+    /// <param name="result">The resulting metadata if successful.</param>
+    /// <returns>True if any workaround succeeded, false otherwise.</returns>
+    private static bool TryGetExistentialTypeMetadataWithWorkarounds(int numProtocols, out TypeMetadata result)
+    {
+        result = Zero;
+
+        // Try 1: [SuppressGCTransition] approach - avoids GC transition that triggers async assertion
+        try
+        {
+            var metadata = swift_getExistentialTypeMetadata_SuppressGC(
+                TypeMetadataRequest.Complete,
+                IntPtr.Zero,
+                (nuint)numProtocols,
+                IntPtr.Zero);
+
+            if (metadata.IsValid)
+            {
+                result = metadata;
+                return true;
+            }
+        }
+        catch
+        {
+            // SuppressGC approach failed, try next
+        }
+
+        // Try 2: Cdecl calling convention - swift_getExistentialTypeMetadata may not need Swift CC
+        try
+        {
+            var handle = swift_getExistentialTypeMetadata_Cdecl(
+                (nint)TypeMetadataRequest.Complete,
+                0,
+                (nuint)numProtocols,
+                0);
+
+            if (handle != 0)
+            {
+                result = new TypeMetadata((IntPtr)handle);
+                return true;
+            }
+        }
+        catch
+        {
+            // Cdecl approach failed, try next
+        }
+
+        // Try 3: nint return type - Mono handles pointer returns better as nint
+        try
+        {
+            var handle = swift_getExistentialTypeMetadata_nint(
+                TypeMetadataRequest.Complete,
+                IntPtr.Zero,
+                (nuint)numProtocols,
+                IntPtr.Zero);
+
+            if (handle != 0)
+            {
+                result = new TypeMetadata((IntPtr)handle);
+                return true;
+            }
+        }
+        catch
+        {
+            // nint approach failed
+        }
+
+        // All workarounds failed
+        return false;
+    }
 
     /// <summary>
     /// Determines whether the specified type is a ValueTuple type.

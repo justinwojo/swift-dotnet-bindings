@@ -1504,16 +1504,81 @@ public class MainViewController : UIViewController
             results.Fail("Async+throwing closure constructor binding", ex.Message);
         }
 
-        // Test 2: Document known limitation with SwiftArray<ExistentialContainer>
+        // Test 2: Test Swift wrapper factory methods (bypasses ExistentialContainer bug)
+        // These wrappers avoid the Mono JIT bug by creating ImageRequests with empty
+        // processors arrays on the Swift side.
+        try
+        {
+            TestLogger.Info("Testing ImageRequestFactory.FromUrlString wrapper...");
+            var wrapperRequest = ImageRequestFactory.FromUrlString("https://picsum.photos/50/50");
+            var desc = wrapperRequest.Description.ToString();
+            TestLogger.Info($"  Wrapper request created: {desc.Substring(0, Math.Min(50, desc.Length))}...");
+
+            // Verify we can actually use the wrapper-created request with ImagePipeline
+            TestLogger.Info("Testing image load with wrapper-created request...");
+            var pipeline = ImagePipeline.Shared;
+            var image = await pipeline.Image(wrapperRequest);
+            TestLogger.Info($"  Image loaded via wrapper: {image.Size.Width}x{image.Size.Height}");
+
+            wrapperRequest.Payload.Dispose();
+            results.Pass("ImageRequestFactory.FromUrlString wrapper");
+        }
+        catch (Exception ex)
+        {
+            TestLogger.Exception(ex, "ImageRequestFactory.FromUrlString wrapper");
+            results.Fail("ImageRequestFactory.FromUrlString wrapper", ex.Message);
+        }
+
+        // Test 3: Test FromUrl with URL object
+        // Note: This currently fails due to URL.AbsoluteString using a non-blittable P/Invoke
+        // The workaround is to use FromUrlString() directly with a string URL
+        try
+        {
+            TestLogger.Info("Testing ImageRequestFactory.FromUrl wrapper with URL object...");
+            var url = Swift.URL.FromString("https://picsum.photos/60/60");
+            if (url == null)
+            {
+                results.Warn("ImageRequestFactory.FromUrl wrapper: Failed to create URL");
+            }
+            else
+            {
+                try
+                {
+                    var wrapperRequest = ImageRequestFactory.FromUrl(url);
+                    var desc = wrapperRequest.Description.ToString();
+                    TestLogger.Info($"  FromUrl request created: {desc.Substring(0, Math.Min(50, desc.Length))}...");
+                    wrapperRequest.Payload.Dispose();
+                    results.Pass("ImageRequestFactory.FromUrl wrapper");
+                }
+                catch (InvalidProgramException)
+                {
+                    // Known limitation: URL.AbsoluteString uses non-blittable P/Invoke
+                    TestLogger.Warning("FromUrl wrapper limited by URL.AbsoluteString non-blittable P/Invoke");
+                    TestLogger.Info("  Use ImageRequestFactory.FromUrlString() instead");
+                    results.Warn("ImageRequestFactory.FromUrl limited (use FromUrlString instead)");
+                }
+                finally
+                {
+                    url.Dispose();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            TestLogger.Exception(ex, "ImageRequestFactory.FromUrl wrapper");
+            results.Warn($"ImageRequestFactory.FromUrl wrapper: {ex.Message}");
+        }
+
+        // Test 4: Document known limitation with SwiftArray<ExistentialContainer>
         // The swift_getExistentialTypeMetadata function triggers a Mono JIT assertion failure
         // This is a Mono/Swift runtime interop issue - the function is marked as async
         // by the JIT when it shouldn't be. See: mono/metadata/jit-info.c:918
         TestLogger.Info("Known limitation: SwiftArray<ExistentialContainer> not yet supported");
         TestLogger.Info("  - swift_getExistentialTypeMetadata triggers Mono JIT assertion");
-        TestLogger.Info("  - Workaround: Use concrete types or Swift wrapper functions");
-        results.Warn("SwiftArray<ExistentialContainer> blocked by Mono JIT issue with swift_getExistentialTypeMetadata");
+        TestLogger.Info("  - Workaround: Use ImageRequest.FromUrlString() or FromUrl() factory methods");
+        results.Warn("SwiftArray<ExistentialContainer> blocked by Mono JIT issue (workaround available)");
 
-        // Test 3: Verify Swift.Data can be created from NSData
+        // Test 5: Verify Swift.Data can be created from NSData
         try
         {
             TestLogger.Info("Testing Swift.Data creation from NSData...");
