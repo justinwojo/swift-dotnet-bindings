@@ -1750,3 +1750,49 @@ var image = await ImagePipeline.Shared.Image(request);  // Successfully loads im
 ### Documentation
 
 See `/src/docs/known-issues-workarounds.md` for full technical details on this and other major issues/workarounds
+
+---
+
+## Technical Debt Reference
+
+This section summarizes code markers and test coverage for future contributors.
+
+### TODO/FIXME Summary
+
+| Location | Count | Notes |
+|----------|-------|-------|
+| Swift.Bindings/src | ~24 | Excludes intentional generated code markers |
+| Swift.Runtime/src | ~5 | Known limitations documented |
+| Tests | 1 | ClosuresTests.swift @convention(c) |
+
+**Known Limitation TODOs** (documented, not actionable without major work):
+- `PropertyHandler.cs:162` - Async properties not supported
+- `SwiftResult.cs:129` - Protocol conformance for Result incomplete
+- `TypeMetadata.cs:327,150` - Tuple types and built-in type metadata
+- `SwiftMarshal.cs:49,192` - Runtime tuple marshalling
+- `TbdParser.cs:34` - JSON TBD format (only YAML-like supported)
+- `ProtocolProxyEmitter.cs:44` - Generic protocol proxy sophistication
+
+**Namespace Mapping** (`ModuleProcessor.cs:273,354,385,443`): Uses temporary `Swift.{Module}` pattern. Tracked for future proper namespace mapping solution.
+
+**Generated Code Markers** (intentional): `ProtocolProxyEmitter.cs` and `EnumHandler.cs` emit TODO comments in proxy stubs that throw `NotImplementedException`. These are expected in generated Nuke bindings (~40 instances).
+
+### Test Coverage Summary
+
+**Well-Tested Components** (dedicated test files):
+| Component | Tests | Coverage |
+|-----------|-------|----------|
+| ClosureHandler | 38+ | Comprehensive |
+| ExistentialHandler | 42 | Comprehensive |
+| OperatorHandler | 68 | Comprehensive |
+| TupleHandler | 24 | Good |
+| BoundGenericsHandler | ~20 | Good |
+| TypeConversionHandler | ~15 | Good |
+| EnumHandler | ~22 | Good (includes tag calculation, tuple extraction) |
+
+**Coverage via Integration/Runtime Tests**:
+- MethodHandler (2,905 lines) - Covered by 691 integration tests
+- TypeHandler (3,090 lines) - Covered by integration tests + NukeTestApp
+- SwiftABIParser (1,160 lines) - Covered by integration tests
+
+**Test Totals**: 902 unit + 691 integration + 94 runtime = 1,687 tests
