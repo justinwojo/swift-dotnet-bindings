@@ -66,3 +66,41 @@ public func callMultipleTimes(_ callback: @escaping (Int32) -> Int32, times: Int
     }
     return sum
 }
+
+// MARK: - Throwing Closures
+// Tests: @escaping closures that throw
+// Expected C#: Delegate with exception propagation
+// Limitation: Throwing closures are not yet supported by the generator
+
+/// Error type for throwing closure tests.
+public enum ClosureError: Error {
+    case invalidInput
+    case overflow
+}
+
+/// Accepts a throwing closure and calls it with try.
+public func callThrowingClosure(_ callback: @escaping (Int32) throws -> Int32) throws -> Int32 {
+    return try callback(42)
+}
+
+/// Accepts a throwing closure and catches errors, returning a default.
+public func callThrowingClosureWithFallback(
+    _ callback: @escaping (Int32) throws -> Int32,
+    fallback: Int32
+) -> Int32 {
+    do {
+        return try callback(42)
+    } catch {
+        return fallback
+    }
+}
+
+/// Accepts a throwing void closure.
+public func callThrowingVoidClosure(_ callback: @escaping () throws -> Void) throws {
+    try callback()
+}
+
+/// Accepts a throwing closure returning String.
+public func callThrowingStringClosure(_ callback: @escaping (String) throws -> String) throws -> String {
+    return try callback("test")
+}

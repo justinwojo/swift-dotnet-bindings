@@ -29,3 +29,32 @@ public func makeIdentifiableDescribable(id: String, text: String) -> any Describ
 public func describeAll(_ items: [any Describable]) -> [String] {
     return items.map { $0.describe() }
 }
+
+// MARK: - Opaque Return Types (`some Protocol`)
+// Tests: Functions and properties returning `some Protocol` (opaque return type)
+// Expected C#: Concrete type emission (the compiler knows the real type)
+// Limitation: Opaque return types are not yet supported by the generator
+
+/// Returns an opaque Describable type.
+public func makeOpaqueDescribable(text: String) -> some Describable {
+    return SimpleItem(id: "opaque", label: text)
+}
+
+/// Struct with a computed property returning an opaque type.
+public struct OpaqueProvider {
+    public let label: String
+
+    public init(label: String) {
+        self.label = label
+    }
+
+    /// Computed property returning `some Describable`.
+    public var opaqueItem: some Describable {
+        return SimpleItem(id: "provider", label: label)
+    }
+}
+
+/// Returns an opaque Describable & TestIdentifiable composition.
+public func makeOpaqueComposition(id: String, text: String) -> some Describable & TestIdentifiable {
+    return SimpleItem(id: id, label: text)
+}

@@ -402,6 +402,30 @@ FEATURE_MAP = {
         "name": "autoclosures",
         "features": ["autoclosure_parameter", "autoclosure_with_escaping"]
     },
+    "Async/Actors.swift": {
+        "name": "actors",
+        "features": ["actor_type", "actor_isolated_method", "actor_nonisolated_method"]
+    },
+    "Generics/Existentials.swift+opaque": {
+        "name": "opaque_return_types",
+        "features": ["opaque_return_type", "opaque_return_property", "opaque_composition_return"]
+    },
+    "Closures/Escaping.swift+throwing": {
+        "name": "throwing_closures",
+        "features": ["throwing_closure", "throwing_closure_with_fallback"]
+    },
+    "Async/AsyncClosures.swift": {
+        "name": "async_closures",
+        "features": ["async_closure_parameter", "async_closure_with_param"]
+    },
+    "ObjCInterop/Selectors.swift": {
+        "name": "selectors",
+        "features": ["selector_parameter", "selector_from_method", "responds_to_selector"]
+    },
+    "Async/AsyncProperties.swift": {
+        "name": "async_properties",
+        "features": ["async_computed_property", "async_property_on_class"]
+    },
 }
 
 # Features that are known unsupported (generator can't handle them yet)
@@ -437,6 +461,21 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "variadic_with_other_params",
     "autoclosure_parameter",
     "autoclosure_with_escaping",
+    "actor_type",
+    "actor_isolated_method",
+    "actor_nonisolated_method",
+    "opaque_return_type",
+    "opaque_return_property",
+    "opaque_composition_return",
+    "throwing_closure",
+    "throwing_closure_with_fallback",
+    "async_closure_parameter",
+    "async_closure_with_param",
+    "selector_parameter",
+    "selector_from_method",
+    "responds_to_selector",
+    "async_computed_property",
+    "async_property_on_class",
 }
 
 
@@ -473,7 +512,10 @@ def build_feature_status(binding_report, source_files):
     known_unsupported_passing = 0
 
     for rel_path, info in FEATURE_MAP.items():
-        file_exists = rel_path in source_files
+        # Strip suffixes like "+opaque" or "+throwing" used to add multiple
+        # feature groups for the same source file.
+        actual_path = rel_path.split("+")[0] if "+" in rel_path else rel_path
+        file_exists = actual_path in source_files
 
         for feature_name in info["features"]:
             is_unsupported = feature_name in KNOWN_UNSUPPORTED_FEATURES
@@ -499,7 +541,7 @@ def build_feature_status(binding_report, source_files):
                 "name": feature_name,
                 "category": info["name"],
                 "status": status,
-                "test_file": rel_path,
+                "test_file": actual_path,
                 "test_exists": file_exists,
                 "test_status": test_status,
             })

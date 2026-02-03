@@ -1,8 +1,8 @@
 # Comprehensive Swift Test Library Design
 
-**Status**: v1.7 Implemented
+**Status**: v1.8 Implemented
 **Created**: February 2026
-**Last Updated**: February 2026 - v1.7 implemented (56 Swift files, 108 features covered)
+**Last Updated**: February 2026 - v1.8 implemented (60 Swift files, 123 features covered)
 
 ---
 
@@ -50,7 +50,7 @@ Create a custom Swift library specifically designed to test the full breadth of 
                     │   Third-Party SDKs  │  ← "Does it work in the wild?"
                     ├─────────────────────┤
                     │  Comprehensive Test │  ← "Does it handle all Swift features?"
-                    │      Library        │    (56 Swift files, 108 features)
+                    │      Library        │    (60 Swift files, 125 features)
                     ├─────────────────────┤
                     │  Integration Tests  │  ← Keep for quick iteration
                     ├─────────────────────┤
@@ -112,7 +112,10 @@ TestFramework/
 │       │   ├── Methods.swift            # ✅ Async methods (instance + static)
 │       │   ├── AsyncThrowing.swift      # ✅ Async throwing methods
 │       │   ├── MainActor.swift          # ✅ @MainActor class, method
-│       │   └── Sendable.swift           # ✅ Sendable type, @Sendable closure
+│       │   ├── Sendable.swift           # ✅ Sendable type, @Sendable closure
+│       │   ├── Actors.swift             # ✅ Actor type, isolated/nonisolated methods
+│       │   ├── AsyncClosures.swift      # ✅ Async closure parameters
+│       │   └── AsyncProperties.swift    # ✅ Async computed properties
 │       │
 │       ├── Properties/
 │       │   ├── Getters.swift            # ✅ Stored + computed property getters
@@ -161,7 +164,8 @@ TestFramework/
 │       │
 │       ├── ObjCInterop/
 │       │   ├── NSObjectSubclass.swift   # ✅ NSObject subclass, inheritance
-│       │   └── ObjCAttributes.swift     # ✅ @objc, @objcMembers, @objc enum
+│       │   ├── ObjCAttributes.swift     # ✅ @objc, @objcMembers, @objc enum
+│       │   └── Selectors.swift          # ✅ Selector parameter, #selector
 │       │
 │       ├── PropertyWrappers/
 │       │   └── Wrappers.swift           # ✅ @propertyWrapper, wrappedValue, projectedValue
@@ -250,6 +254,22 @@ associated types (associatedtype, PAT conformance, PAT as constraint), variadic
 parameters (Int32, String, mixed with other params), and @autoclosure (@autoclosure
 parameter, @autoclosure with @escaping).
 
+### v1.8 Binding Generation Results
+
+```
+Source:   60 Swift files, 74 structs, 26 classes, 12 enums, 12 protocols, 149 free functions
+Output:   49 C# files, 1 Swift wrapper file
+Types:    101/110 emitted (91.8% coverage)
+Members:  452/500 emitted, 20 skipped, 239 synthesized
+Coverage: 123 features tracked (77 must-pass, 46 known-unsupported)
+```
+
+v1.8 adds 4 new Swift files and updates 2 existing files covering actors (actor type,
+isolated/nonisolated methods), opaque return types (`some Protocol`, opaque computed
+property), throwing closures (@escaping closures that throw), async closures (async
+closure parameters), Selector type (Selector parameter, #selector, responds(to:)),
+and async properties (computed properties with async getter).
+
 Generator fixes required for v1.0 (all resolved):
 - Existential arguments (`any Protocol`) crashed `EmitSafeHandleAddRef` — added filter
 - Existential and tuple return types crashed `EmitReturnMethod` — added early return handlers
@@ -279,7 +299,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Associated value enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Generic enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Nested type in generic | Unknown | ✅ v1.0 | `Structs.swift` |
-| Actor | Not Yet | ⬜ Future | `Actors.swift` |
+| Actor | Not Yet | ✅ v1.8 | `Actors.swift` |
 
 ### Protocols
 
@@ -308,7 +328,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Generic subscript | Partial | ✅ v1.0 | `Types.swift` |
 | Where clause | Supported | ✅ Existing | `Constraints.swift` |
 | `any Protocol` (existential) | Supported | ✅ v1.0 | `Existentials.swift` |
-| `some Protocol` (opaque) | Not Yet | ⬜ Future | `Existentials.swift` |
+| `some Protocol` (opaque) | Not Yet | ✅ v1.8 | `Existentials.swift` |
 | Key paths (`\T.property`) | **Not Yet** | ✅ v1.7 | `KeyPaths.swift` |
 | WritableKeyPath | **Not Yet** | ✅ v1.7 | `KeyPaths.swift` |
 | Metatypes (`T.Type`) | **Not Yet** | ✅ v1.7 | `Metatypes.swift` |
@@ -323,8 +343,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | @convention(c) | Supported | ✅ v1.0 | `ConventionC.swift` |
 | @autoclosure | **Not Yet** | ✅ v1.7 | `Autoclosures.swift` |
 | Method returning closure | Supported | ✅ v1.0 | `ClosureReturns.swift` |
-| Async closure | Not Yet | ⬜ Future | `Async.swift` |
-| Throwing closure | Not Yet | ⬜ Future | `Escaping.swift` |
+| Async closure | Not Yet | ✅ v1.8 | `AsyncClosures.swift` |
+| Throwing closure | Not Yet | ✅ v1.8 | `Escaping.swift` |
 | Closure in closure | Not Supported | ⬜ Document | n/a |
 
 ### Async/Concurrency
@@ -334,7 +354,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Async method | Supported | ✅ v1.0 | `Methods.swift` |
 | Async static method | Supported | ✅ v1.0 | `Methods.swift` |
 | Async throwing method | Supported | ✅ v1.0 | `AsyncThrowing.swift` |
-| Async property | Not Yet | ⬜ Future | `Properties.swift` |
+| Async property | Not Yet | ✅ v1.8 | `AsyncProperties.swift` |
 | @MainActor class | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
 | @MainActor method | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
 | @Sendable closure | **Not Yet** | ✅ v1.6 | `Sendable.swift` |
@@ -418,7 +438,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | NSObject subclass | Unknown | ✅ v1.6 | `NSObjectSubclass.swift` |
 | @objc attribute | Unknown | ✅ v1.6 | `ObjCAttributes.swift` |
 | @objcMembers | Unknown | ✅ v1.6 | `ObjCAttributes.swift` |
-| Selector type | Unknown | ⬜ Add | `Selectors.swift` |
+| Selector type | Unknown | ✅ v1.8 | `Selectors.swift` |
 
 ### Unsafe/C-Interop Types
 
@@ -466,7 +486,8 @@ These Swift features don't appear in ABI JSON and thus don't need test coverage:
 | **v1.5** ✅ | + Tier 3 | Weak/unowned, Foundation interop, unsafe types, non-frozen class/enum |
 | **v1.6** ✅ | + Tier 4 partial | ObjC interop, property wrappers, @MainActor, @Sendable, conditional conformance |
 | **v1.7** ✅ | **+ Key paths, metatypes, PATs, variadic, autoclosures** | **56 files** |
-| v1.8+ | + Remaining | Actors, selectors, other gaps |
+| **v1.8** ✅ | **+ Actors, opaque returns, throwing/async closures, selectors, async properties** | **60 files** |
+| 2.0 | + Full coverage | All remaining gaps |
 
 ### Test Bucketing: Must-Pass vs Known-Unsupported
 
@@ -881,7 +902,7 @@ The test library should be versioned to track Swift language feature additions:
 | **1.5** ✅ | **+ Tier 3** | **45 files: + Foundation interop (Data, URL, Date, extensions), unsafe/C-interop types (pointers, raw pointers, OpaquePointer), weak/unowned refs, non-frozen class/enum** |
 | **1.6** ✅ | **+ Tier 4 partial** | **51 files: + ObjC interop (NSObject, @objc, @objcMembers), property wrappers, @MainActor, @Sendable, conditional conformance** |
 | **1.7** ✅ | **+ Key paths, metatypes, PATs, variadic, autoclosures** | **56 files: + key paths (KeyPath, WritableKeyPath), metatypes (T.Type, T.self), protocols with associated types, variadic parameters, @autoclosure** |
-| 1.8 | + Actors | Complete concurrency model |
+| **1.8** ✅ | **+ Actors, opaque returns, throwing/async closures, selectors, async properties** | **60 files: + actor type, some Protocol opaque returns, throwing closures, async closures, Selector parameter, async computed properties** |
 | 2.0 | + Full coverage | All remaining gaps |
 
 ### Documentation
@@ -959,6 +980,14 @@ The comprehensive test library is successful when:
 21. [x] Add protocol with associated type tests (associatedtype, PAT conformance, PAT as constraint)
 22. [x] Add variadic parameter tests (Int32, String, mixed with other params)
 23. [x] Add @autoclosure tests (@autoclosure parameter, @autoclosure with @escaping)
+
+### Phase 6: Concurrency & Remaining Gaps (v1.8)
+24. [x] Add actor tests (actor type, isolated methods, nonisolated methods)
+25. [x] Add opaque return type tests (`some Protocol`, opaque computed property)
+26. [x] Add throwing closure tests (@escaping closures that throw)
+27. [x] Add async closure tests (async closure parameters)
+28. [x] Add Selector tests (Selector parameter, #selector, responds(to:))
+29. [x] Add async property tests (computed property with async getter)
 
 ---
 
