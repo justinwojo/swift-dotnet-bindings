@@ -2295,7 +2295,7 @@ namespace BindingsGeneration
             }
 
             // For property accessors, don't skip convertible types since type conversion is not applied
-            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a) && (_env.MethodDecl.IsAccessor || !_env.TypeConversionHandler.IsConvertibleType(a.SwiftTypeSpec))))
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a) && !_env.ExistentialHandler.IsExistential(a) && (_env.MethodDecl.IsAccessor || !_env.TypeConversionHandler.IsConvertibleType(a.SwiftTypeSpec))))
             {
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
 
@@ -2601,6 +2601,27 @@ namespace BindingsGeneration
                     }
                     return;
                 }
+            }
+
+            // Handle existential return types (any Protocol) - result is ExistentialContainer, return as-is
+            if (_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec))
+            {
+                csWriter.WriteLine("return result;");
+                return;
+            }
+
+            // Handle Optional-wrapped existential return types
+            if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
+            {
+                csWriter.WriteLine("return result;");
+                return;
+            }
+
+            // Handle tuple return types - result is ValueTuple, return as-is
+            if (_env.TupleHandler.IsTuple(returnArg))
+            {
+                csWriter.WriteLine("return result;");
+                return;
             }
 
             if (!returnArg.IsGeneric)

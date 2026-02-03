@@ -383,6 +383,31 @@ The `validate-sim.sh` script provides reliable iOS Simulator testing:
 
 **Important**: Always use `./validate-sim.sh` instead of manual `xcrun simctl` commands. The script provides reliable pass/fail detection without arbitrary sleep timers.
 
+### TestFramework Scripts (TestFramework/)
+
+These scripts are for the comprehensive Swift test library that systematically exercises all Swift features the generator handles.
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| `./build-xcframework.sh` | Build the Swift test library as xcframework | After adding/modifying Swift test files |
+| `./regenerate-bindings.sh` | Generate C# bindings from the xcframework | After generator code changes or xcframework rebuild |
+| `./build-and-test.sh` | Full pipeline: build xcframework + generate bindings | One-step validation after any changes |
+| `./generate-coverage-report.sh` | Generate `coverage-matrix.json` from ABI + binding report | After regenerating bindings, to assess coverage |
+
+**Typical workflow:**
+```bash
+cd TestFramework
+./build-and-test.sh          # Full rebuild + binding generation
+./generate-coverage-report.sh # Generate coverage report
+```
+
+**Output files:**
+- `output/Swift.SwiftBindingsTestLib.cs` - Generated C# bindings
+- `output/binding-report.json` - Binding completeness report
+- `output/coverage-matrix.json` - Feature coverage matrix (from generate-coverage-report.sh)
+
+See `src/docs/comprehensive-test-library-design.md` for the full test library design and feature coverage matrix.
+
 ## Architecture Notes
 
 ### Emitter Redesign (In Progress)

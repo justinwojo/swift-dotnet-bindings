@@ -18,6 +18,14 @@ namespace BindingsGeneration
             if (returnType.SwiftTypeSpec is ClosureTypeSpec)
                 return false;
 
+            // Existential return types (protocol types and compositions) are passed via existential containers (IntPtr)
+            if (env.ExistentialHandler.IsExistential(returnType.SwiftTypeSpec))
+                return false;
+
+            // Tuple return types are handled by TupleHandler, not via indirect result
+            if (returnType.SwiftTypeSpec is TupleTypeSpec tupleSpec && !tupleSpec.IsEmptyTuple)
+                return false;
+
             // Bound generics that require marshalling (SwiftArray, SwiftOptional, etc.) return IntPtr directly
             // from PInvoke and don't need indirect result handling. They're marshalled via SwiftMarshal.MarshalFromSwift.
             // Note: This doesn't apply to constructors (handled above) since failable initializers need special handling.

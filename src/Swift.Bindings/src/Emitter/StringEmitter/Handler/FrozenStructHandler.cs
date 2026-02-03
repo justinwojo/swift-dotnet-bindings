@@ -131,7 +131,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                 }
 
-                if (swiftTypeInfo.HasValue)
+                if (swiftTypeInfo.HasValue && swiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)
                 {
                     unsafe
                     {
