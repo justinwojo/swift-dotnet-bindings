@@ -3,8 +3,8 @@
 Task specifications for fixing the remaining Lottie generator bugs. These are pre-existing issues surfaced after Phase 40 fixed protocol-related errors.
 
 **Date**: February 2026
-**Starting Point**: Phase 40 complete, 1024 unit tests passing
-**Libraries**: Nuke (0 errors), BlinkID (0 errors), Lottie (7 generator errors)
+**Starting Point**: Phase 40 complete, 1028 unit tests passing
+**Libraries**: Nuke (0 errors), BlinkID (0 errors), Lottie (3 generator errors)
 
 ---
 
@@ -12,21 +12,39 @@ Task specifications for fixing the remaining Lottie generator bugs. These are pr
 
 | Task | Description | Status | Priority |
 |------|-------------|--------|----------|
-| 1 | Closure callbacks returning frozen structs | 🔲 Pending | P0 |
+| 1 | Closure callbacks returning frozen/non-frozen structs | ✅ **COMPLETED** | P0 |
 | 2 | Generic enum factory T0.Payload assumption | 🔲 Pending | P0 |
 | 3 | Generic type self-reference missing type argument | 🔲 Pending | P0 |
 
 **Target**: Lottie 0 generator errors (clean compile)
-**Current**: 7 errors (4× CS0029, 2× CS0305, 1× CS1061)
+**Current**: 3 errors (2× CS0305, 1× CS1061) - CS0029 ✅ eliminated
 
 ---
 
-## Task 1: Closure Callbacks Returning Frozen Structs (CS0029)
+## Task 1: Closure Callbacks Returning Frozen/Non-Frozen Structs (CS0029)
 
-### Status: 🔲 Pending
+### Status: ✅ COMPLETED (February 2026)
 ### Priority: P0 (Critical - 4 of 7 Lottie errors)
 ### Effort: Medium (4-6 hours)
 ### Dependencies: None
+
+### Completion Notes
+
+**Implemented by**: Codex
+**Unit Tests**: 1028 passed (up from 1024)
+
+**Files Modified**:
+- `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` - Added `CanUseDirectCallbackReturn()` for frozen structs/primitives, updated `RequiresIndirectReturnMarshalling()` for non-frozen structs
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ClosureEmitter.cs` - Escaping/throwing closure callbacks now emit typed return signatures for eligible types, function pointer declarations match callback return types
+- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/ClosureHandlerTests.cs` - Added non-frozen struct indirect return test
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/MethodHandlerOutputTests.cs` - Added regression tests for frozen struct, scalar, and non-frozen struct closure returns
+
+**Key fixes**:
+1. Frozen structs (CGSize, CGPoint) and primitives (double) use direct callback return
+2. Non-frozen structs (LottieColor) use indirect return marshalling via `void* indirectResult`
+3. Function pointer signatures now match callback return types
+
+**Results**: CS0029 errors eliminated (4 → 0)
 
 ### Problem Statement
 
@@ -73,10 +91,20 @@ The closure callback emitter (`ClosureEmitter.cs`) always uses `void*` for retur
 
 ### Acceptance Criteria
 
-- [ ] CS0029 errors eliminated in Lottie (4 errors)
-- [ ] Closure callbacks with frozen struct returns compile correctly
-- [ ] Unit tests for closure return type handling
-- [ ] Nuke and BlinkID still compile clean
+- [x] CS0029 errors eliminated in Lottie (4 errors)
+- [x] Closure callbacks with frozen struct returns compile correctly
+- [x] Closure callbacks with non-frozen struct returns use indirect marshalling
+- [x] Unit tests for closure return type handling
+- [x] Nuke and BlinkID still compile clean
+
+### Validation
+
+**Validated by**: Claude
+**Date**: February 2026
+
+- All unit tests pass (1028)
+- Lottie CS0029 errors: 4 → 0
+- Remaining Lottie errors: 3 (CS1061, CS0305×2)
 
 ---
 

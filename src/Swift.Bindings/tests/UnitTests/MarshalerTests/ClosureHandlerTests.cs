@@ -839,6 +839,18 @@ public class ClosureHandlerTests
     }
 
     [Fact]
+    public void RequiresIndirectReturnMarshalling_WithNonFrozenStructReturn_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: () -> Nuke.ImageResponse (non-frozen struct)
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Nuke.ImageResponse"));
+
+        Assert.True(handler.RequiresIndirectReturnMarshalling(closure));
+    }
+
+    [Fact]
     public void IsSupportedClosure_WithOptionalReturn_ReturnsTrue()
     {
         var typeDatabase = new MockTypeDatabase();

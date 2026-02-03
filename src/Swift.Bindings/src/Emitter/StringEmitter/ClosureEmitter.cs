@@ -45,9 +45,7 @@ public static class ClosureEmitter
         // receive this value from the correct register per Swift calling convention.
         parameters.Add("SwiftSelf context");
 
-        var returnType = closureTypeSpec.ReturnType.IsEmptyTuple
-            ? "void"
-            : GetCallbackParameterType(closureTypeSpec.ReturnType, closureHandler);
+        var returnType = GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler);
 
         var parametersString = string.Join(", ", parameters);
 
@@ -107,7 +105,7 @@ public static class ClosureEmitter
         string mangledName)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
-        var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
+        var funcPtrType = BuildEscapingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler);
 
         // Add context parameter to the function pointer type
         var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
@@ -246,6 +244,63 @@ public static class ClosureEmitter
     }
 
     /// <summary>
+    /// Gets the return type for escaping/throwing closure callbacks.
+    /// Frozen structs and primitive scalars can return by value directly.
+    /// </summary>
+    private static string GetEscapingClosureCallbackReturnType(
+        ClosureTypeSpec closureTypeSpec,
+        ClosureHandler closureHandler)
+    {
+        if (closureTypeSpec.ReturnType.IsEmptyTuple)
+            return "void";
+
+        if (IsBoolType(closureTypeSpec.ReturnType))
+            return "byte";
+
+        if (closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
+            return closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
+
+        return GetCallbackParameterType(closureTypeSpec.ReturnType, closureHandler);
+    }
+
+    /// <summary>
+    /// Builds the function pointer type for an escaping closure callback.
+    /// </summary>
+    private static string BuildEscapingClosureCallbackFunctionPointerType(
+        ClosureTypeSpec closureTypeSpec,
+        ClosureHandler closureHandler)
+    {
+        var types = new List<string>();
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            types.Add(GetCallbackParameterType(arg, closureHandler));
+        }
+
+        types.Add(GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
+        return $"delegate* unmanaged[Swift]<{string.Join(", ", types)}>";
+    }
+
+    /// <summary>
+    /// Builds the function pointer type for a throwing closure callback.
+    /// </summary>
+    private static string BuildThrowingClosureCallbackFunctionPointerType(
+        ClosureTypeSpec closureTypeSpec,
+        ClosureHandler closureHandler)
+    {
+        var types = new List<string>();
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            types.Add(GetCallbackParameterType(arg, closureHandler));
+        }
+
+        types.Add("SwiftError*");
+        types.Add(closureTypeSpec.ReturnType.IsEmptyTuple
+            ? "void"
+            : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
+        return $"delegate* unmanaged[Swift]<{string.Join(", ", types)}>";
+    }
+
+    /// <summary>
     /// Emits an [UnmanagedCallersOnly] callback function that uses indirect return.
     /// The result is marshalled into a buffer pointer instead of being returned directly.
     /// This pattern is used for closures returning bound generic types like SwiftOptional&lt;T&gt;.
@@ -366,7 +421,7 @@ public static class ClosureEmitter
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var returnType = hasReturn
-            ? GetCallbackParameterType(closureTypeSpec.ReturnType, closureHandler)
+            ? GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler)
             : "void";
 
         var parametersString = string.Join(", ", parameters);
@@ -444,7 +499,7 @@ public static class ClosureEmitter
         string mangledName)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
-        var funcPtrType = closureHandler.GetPInvokeFunctionPointerTypeWithError(closureTypeSpec);
+        var funcPtrType = BuildThrowingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler);
 
         // Add context parameter to the function pointer type
         var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);

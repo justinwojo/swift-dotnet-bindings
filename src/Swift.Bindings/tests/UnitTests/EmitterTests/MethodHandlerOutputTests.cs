@@ -233,6 +233,95 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_MethodWithEscapingClosureReturningFrozenStruct_EmitsTypedCallbackReturn()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
+            new NamedTypeSpec("TestModule.Box"));
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl(
+            name: "handle",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("private static Swift.TestModule.Box handle_callback_", csOutput);
+        Assert.DoesNotContain("private static void* handle_callback_", csOutput);
+        Assert.Contains("return del(", csOutput);
+        Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, Swift.TestModule.Box>", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithEscapingClosureReturningFrozenStructMappedToScalar_EmitsScalarReturnType()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
+            new NamedTypeSpec("TestModule.Scalar"));
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl(
+            name: "sample",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("private static System.Double sample_callback_", csOutput);
+        Assert.DoesNotContain("private static void* sample_callback_", csOutput);
+        Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, System.Double>", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithEscapingClosureReturningNonFrozenStruct_UsesIndirectReturnCallback()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
+            new NamedTypeSpec("TestModule.LottieColor"));
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl(
+            name: "tint",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("private static void tint_callback_", csOutput);
+        Assert.Contains("(void* indirectResult, double arg0, SwiftSelf context)", csOutput);
+        Assert.Contains("delegate* unmanaged[Swift]<void*, double, SwiftSelf, void>", csOutput);
+        Assert.DoesNotContain("private static void* tint_callback_", csOutput);
+    }
+
+    [Fact]
     public void Emit_MethodWithExistentialBoundGeneric_SkipsEmission()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -330,6 +419,16 @@ public class MethodHandlerOutputTests
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+                MetadataAccessor = "$sSdMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
         typeDatabase.AddModuleDatabase(swiftModule);
 
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
@@ -351,6 +450,26 @@ public class MethodHandlerOutputTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
                 MetadataAccessor = "$s10TestModule3BoxVMa",
                 Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Scalar"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Scalar"),
+                MetadataAccessor = "$s10TestModule6ScalarVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "LottieColor"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieColor"),
+                MetadataAccessor = "$s10TestModule11LottieColorVMa",
+                Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(module);

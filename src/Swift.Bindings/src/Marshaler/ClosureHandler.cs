@@ -225,9 +225,25 @@ public class ClosureHandler
 
         if (closureTypeSpec.ReturnType is NamedTypeSpec namedType)
         {
+            // Pointer returns use direct pointer ABI.
+            if (IsPointerType(namedType))
+                return false;
+
             // Bound generic return types require indirect marshalling
             if (namedType.ContainsGenericParameters)
                 return true;
+
+            // Struct returns that cannot be returned directly from callbacks
+            // (for example non-frozen structs) use indirect return marshalling.
+            if (!CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
+            {
+                var nonDirectBaseType = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (_typeDatabase.TryGetTypeRecord(nonDirectBaseType, out var nonDirectRecord) &&
+                    nonDirectRecord.Kind == TypeRecordKind.Struct)
+                {
+                    return true;
+                }
+            }
 
             // Check if type requires memory management
             var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
@@ -239,6 +255,40 @@ public class ClosureHandler
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Determines whether a closure callback can return this type directly from
+    /// an UnmanagedCallersOnly callback method.
+    /// </summary>
+    /// <remarks>
+    /// Direct return is allowed for:
+    /// - blittable Swift primitives (Int/Double/etc.)
+    /// - frozen structs that do not require memory management.
+    /// Other complex types continue to use pointer-based return handling.
+    /// </remarks>
+    public bool CanUseDirectCallbackReturn(TypeSpec returnTypeSpec)
+    {
+        if (returnTypeSpec.IsEmptyTuple)
+            return false;
+
+        if (returnTypeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        if (namedType.ContainsGenericParameters)
+            return false;
+
+        // Primitives are returned directly.
+        if (GetBlittablePrimitiveType(namedType.Name) != null)
+            return true;
+
+        var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
+            return false;
+
+        return typeRecord.Kind == TypeRecordKind.Struct &&
+               (typeRecord.Flags & TypeRecordFlags.Frozen) != 0 &&
+               (typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) == 0;
     }
 
     /// <summary>
