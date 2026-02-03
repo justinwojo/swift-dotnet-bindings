@@ -537,6 +537,30 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_WithAnyExistentialProperty_UsesAnyTypeToMatchInterface()
+    {
+        var protocolDecl = CreateSimpleProtocol("AnyExistentialProtocol");
+        var anyExistential = new NamedTypeSpec("Swift.Any.Type") { IsAny = true };
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "valueType",
+            SwiftTypeSpec = anyExistential,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("valueType_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("public Swift.AnyType valueType", output);
+    }
+
+    [Fact]
     public void EmitProxyClass_WithOptionalExistentialGeneric_UsesAnyTypeFallback()
     {
         var protocolDecl = CreateSimpleProtocol("OptionalExistentialProtocol");

@@ -905,7 +905,7 @@ public class ProtocolProxyEmitter
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-        var csharpTypeName = GetCSharpTypeName(property.SwiftTypeSpec);
+        var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
 
         writer.WriteLine($"public {csharpTypeName} {property.Name}");
         writer.WriteLine("{");
@@ -1209,8 +1209,8 @@ public class ProtocolProxyEmitter
             {
                 return existentialHandler.GetCSharpExistentialType(protocolList);
             }
-            // Fall back to ExistentialContainer1 for unsupported existentials
-            return "Swift.Runtime.ExistentialContainer1";
+            // Keep fallback behavior consistent with ProtocolHandler interface emission.
+            // Unsupported existentials flow through to type database fallback (typically Swift.AnyType).
         }
 
         try
@@ -1246,6 +1246,21 @@ public class ProtocolProxyEmitter
             }
             return "object";
         }
+    }
+
+    /// <summary>
+    /// Resolves property types using the same rules as ProtocolHandler.EmitInterfaceProperty
+    /// so proxy signatures always match the emitted interface signatures.
+    /// </summary>
+    private string GetInterfaceCompatiblePropertyTypeName(PropertyDecl property)
+    {
+        var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
+        if (boundGenericsHandler.IsBoundGeneric(property))
+        {
+            return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
+        }
+
+        return _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
     }
 
     /// <summary>

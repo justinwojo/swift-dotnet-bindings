@@ -1,13 +1,13 @@
 {
   "ModuleName": "Lottie",
-  "GeneratedAt": "2026-02-02T22:45:10.683634+00:00",
+  "GeneratedAt": "2026-02-03T00:32:13.258174+00:00",
   "TotalTypes": 93,
   "EmittedTypes": 79,
   "SkippedTypes": 1,
   "TotalMembers": 609,
-  "EmittedMembers": 372,
-  "SkippedMembers": 56,
-  "SynthesizedMembers": 268,
+  "EmittedMembers": 365,
+  "SkippedMembers": 63,
+  "SynthesizedMembers": 263,
   "SkippedItems": [
     {
       "Kind": "Property",
@@ -80,6 +80,13 @@
       "Details": "Method signature contains unsupported placeholder type."
     },
     {
+      "Kind": "Property",
+      "Name": "shared",
+      "ContainingType": "Lottie.LottieAnimationCache",
+      "Reason": "UnsupportedSignature",
+      "Details": "Accessor 'shared_Get' has unsupported signature."
+    },
+    {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Lottie.FilepathImageProvider",
@@ -150,6 +157,13 @@
       "Details": "Unsupported generic constraint: SwiftUI.View"
     },
     {
+      "Kind": "Property",
+      "Name": "storage",
+      "ContainingType": "Lottie.SizeValueProvider",
+      "Reason": "UnsatisfiedGenericConstraint",
+      "Details": "Type argument 'Lottie.LottieVector3D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
+    },
+    {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Lottie.CompatibleAnimation",
@@ -169,6 +183,13 @@
       "ContainingType": "Lottie.CompatibleAnimationView",
       "Reason": "UnsupportedExistential",
       "Details": "Bound generic contains existential type argument ''."
+    },
+    {
+      "Kind": "Property",
+      "Name": "storage",
+      "ContainingType": "Lottie.ColorValueProvider",
+      "Reason": "UnsatisfiedGenericConstraint",
+      "Details": "Type argument 'Lottie.LottieColor' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
     },
     {
       "Kind": "Property",
@@ -297,6 +318,27 @@
       "Details": "Bound generic contains existential type argument ''."
     },
     {
+      "Kind": "Property",
+      "Name": "storage",
+      "ContainingType": "Lottie.FloatValueProvider",
+      "Reason": "UnsatisfiedGenericConstraint",
+      "Details": "Type argument 'Lottie.LottieVector1D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
+    },
+    {
+      "Kind": "Property",
+      "Name": "storage",
+      "ContainingType": "Lottie.GradientValueProvider",
+      "Reason": "UnsatisfiedGenericConstraint",
+      "Details": "Type argument 'Swift.Array<Swift.Double>' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
+    },
+    {
+      "Kind": "Property",
+      "Name": "imageProvider",
+      "ContainingType": "Lottie.DotLottieConfiguration",
+      "Reason": "UnsupportedSignature",
+      "Details": "Accessor 'imageProvider_Get' has unsupported signature."
+    },
+    {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Lottie.BundleImageProvider",
@@ -386,6 +428,13 @@
       "ContainingType": "Lottie.LottieLogger",
       "Reason": "UnsupportedSignature",
       "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Property",
+      "Name": "storage",
+      "ContainingType": "Lottie.PointValueProvider",
+      "Reason": "UnsatisfiedGenericConstraint",
+      "Details": "Type argument 'Lottie.LottieVector3D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
     },
     {
       "Kind": "Property",

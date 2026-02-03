@@ -1,0 +1,132 @@
+{
+  "ModuleName": "Nuke",
+  "GeneratedAt": "2026-02-03T00:13:54.683226+00:00",
+  "TotalTypes": 68,
+  "EmittedTypes": 60,
+  "SkippedTypes": 0,
+  "TotalMembers": 490,
+  "EmittedMembers": 325,
+  "SkippedMembers": 17,
+  "SynthesizedMembers": 243,
+  "SkippedItems": [
+    {
+      "Kind": "Property",
+      "Name": "dataLoadingError",
+      "ContainingType": "Nuke.ImagePipeline.Error",
+      "Reason": "UnsupportedSignature",
+      "Details": "Accessor 'dataLoadingError_Get' has unsupported signature."
+    },
+    {
+      "Kind": "Property",
+      "Name": "dataCache",
+      "ContainingType": "Nuke.ImagePipeline.Configuration",
+      "Reason": "UnsupportedSignature",
+      "Details": "Accessor 'dataCache_Get' has unsupported signature."
+    },
+    {
+      "Kind": "Property",
+      "Name": "imageCache",
+      "ContainingType": "Nuke.ImagePipeline.Configuration",
+      "Reason": "UnsupportedSignature",
+      "Details": "Accessor 'imageCache_Get' has unsupported signature."
+    },
+    {
+      "Kind": "Property",
+      "Name": "makeImageDecoder",
+      "ContainingType": "Nuke.ImagePipeline.Configuration",
+      "Reason": "UnsupportedClosure",
+      "Details": "Closure type is not supported."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Nuke.ImagePipeline",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Nuke.ImagePipelineDelegate'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "imagePublisher",
+      "ContainingType": "Nuke.ImagePipeline",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Property",
+      "Name": "delegate",
+      "ContainingType": "Nuke.DataLoader",
+      "Reason": "UnsupportedSignature",
+      "Details": "Accessor 'delegate_Get' has unsupported signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Nuke.DataLoader",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "validate",
+      "ContainingType": "Nuke.DataLoader",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Swift.Error'."
+    },
+    {
+      "Kind": "Property",
+      "Name": "userInfo",
+      "ContainingType": "Nuke.ImageContainer",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument ''."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Nuke.ImageContainer",
+      "Reason": "UnsupportedExistential",
+      "Details": "Constructor bound generic contains existential type argument ''."
+    },
+    {
+      "Kind": "Method",
+      "Name": "decoder",
+      "ContainingType": "Nuke.ImageDecoderRegistry",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Nuke.ImageDecoding'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "register",
+      "ContainingType": "Nuke.ImageDecoderRegistry",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Nuke.ImageProcessors.Composition",
+      "Reason": "UnsupportedExistential",
+      "Details": "Constructor bound generic contains existential type argument 'any Nuke.ImageProcessing'."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Nuke.ImageProcessors.CoreImageFilter",
+      "Reason": "UnsupportedExistential",
+      "Details": "Constructor bound generic contains existential type argument ''."
+    },
+    {
+      "Kind": "Property",
+      "Name": "processors",
+      "ContainingType": "Nuke.ImageRequest",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument 'any Nuke.ImageProcessing'."
+    },
+    {
+      "Kind": "Property",
+      "Name": "userInfo",
+      "ContainingType": "Nuke.ImageRequest",
+      "Reason": "UnsupportedExistential",
+      "Details": "Bound generic contains existential type argument ''."
+    }
+  ]
+}
