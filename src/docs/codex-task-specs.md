@@ -12,21 +12,40 @@ Task specifications for the next phase of binding generator improvements. Tasks 
 
 | Task | Description | Status | Priority |
 |------|-------------|--------|----------|
-| 1 | Skip Members with Unsatisfied Constraints | Not Started | P0 |
+| 1 | Skip Members with Unsatisfied Constraints | ✅ **COMPLETED** | P0 |
 | 2 | Protocol Proxy Return Type Alignment | Not Started | P1 |
 | 3 | Protocol Conformance Emission | Not Started | P2 |
 | 4 | Namespace Mapping Configuration | Not Started | P2 |
 
-**Target**: Lottie 0 errors
+**Target**: Lottie 0 errors (currently 1 - CS0738)
 
 ---
 
 ## Task 1: Skip Members with Unsatisfied Constraints (CS0311)
 
-### Status: Not Started
+### Status: ✅ COMPLETED (February 2026)
 ### Priority: P0 (Critical - blocks Lottie clean compile)
 ### Effort: Medium (4-6 hours)
 ### Dependencies: None
+
+### Completion Notes
+
+**Implemented by**: Codex
+**Unit Tests**: 1018 passed (up from 1009)
+
+**Files Modified**:
+- `src/Swift.Bindings/src/Marshaler/BoundGenericsHandler.cs` - Added `TryGetFirstUnsatisfiedConstraint()` with cross-module support
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` - Constraint checks for method arguments
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs` - Preflight checks for accessor return types and parameters, fixed accessor context mismatch
+- `src/Swift.Bindings/src/Reporting/BindingReport.cs` - Added `UnsatisfiedGenericConstraint` skip reason
+
+**Key fixes**:
+1. Constraint checking for local module types (LottieVector3D, etc.)
+2. Fail-closed for external types (SwiftArray<double>, etc.)
+3. Property preflight now sets `IsAccessor = true` and injects `PInvokeHelperContext` to match emit behavior
+4. Return type constraint checking for getters (not just arguments)
+
+**Results**: CS0311 errors eliminated in all test libraries
 
 ### Problem Statement
 

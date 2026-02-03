@@ -174,6 +174,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
         else if (propertyEnv.BoundGenericsHandler.IsBoundGeneric(propertyDecl))
         {
+            if (propertyEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(propertyDecl.SwiftTypeSpec, propertyDecl, out var constraintDetails))
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} - {constraintDetails}");
+                SkipProperty(SkipReason.UnsatisfiedGenericConstraint, constraintDetails);
+                return;
+            }
+
             if (propertyEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(propertyDecl.SwiftTypeSpec, out var existentialType))
             {
                 _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} with unsupported existential generic argument '{existentialType}'.");
@@ -220,7 +227,47 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         {
             if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
             {
+                // Preflight must mirror actual accessor emission behavior.
+                accessor.Method.IsAccessor = true;
                 var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+                if (conductor.CurrentPInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
+                {
+                    accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase, accessorEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
+                }
+                if (HasUnsupportedProtocolConstraints(accessorEnv))
+                {
+                    _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} has unsupported protocol constraints.");
+                    SkipProperty(SkipReason.GenericProtocolConstraint, $"Accessor '{accessor.Method.Name}' has constraints on protocols with associated types.");
+                    return;
+                }
+
+                if (accessor.Method.CSSignature.Count > 0)
+                {
+                    var returnArgument = accessor.Method.CSSignature[0];
+                    if (accessorEnv.BoundGenericsHandler.IsBoundGeneric(returnArgument) &&
+                        accessorEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(returnArgument.SwiftTypeSpec, accessor.Method, out var returnConstraintDetails))
+                    {
+                        _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} return type has unsatisfied generic constraints: {returnConstraintDetails}");
+                        SkipProperty(SkipReason.UnsatisfiedGenericConstraint, $"Accessor '{accessor.Method.Name}' return type: {returnConstraintDetails}");
+                        return;
+                    }
+                }
+
+                foreach (var argument in accessor.Method.CSSignature.Skip(1))
+                {
+                    if (!accessorEnv.BoundGenericsHandler.IsBoundGeneric(argument))
+                    {
+                        continue;
+                    }
+
+                    if (accessorEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(argument.SwiftTypeSpec, accessor.Method, out var parameterConstraintDetails))
+                    {
+                        _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} parameter has unsatisfied generic constraints: {parameterConstraintDetails}");
+                        SkipProperty(SkipReason.UnsatisfiedGenericConstraint, $"Accessor '{accessor.Method.Name}' parameter: {parameterConstraintDetails}");
+                        return;
+                    }
+                }
+
                 var signatureHandler = new SignatureHandler(accessorEnv);
                 if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
                 {
@@ -282,6 +329,34 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         csWriter.WriteLine("}");
         csWriter.WriteLine();
         ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
+    }
+
+    /// <summary>
+    /// Checks whether a method has constraints on protocols with associated types.
+    /// This mirrors MethodHandler logic so property preflight can skip wrappers when accessors would be skipped.
+    /// </summary>
+    private static bool HasUnsupportedProtocolConstraints(MethodEnvironment methodEnv)
+    {
+        if (!methodEnv.MethodDecl.IsGeneric)
+            return false;
+
+        foreach (var param in methodEnv.MethodDecl.GenericParameters)
+        {
+            foreach (var conformance in param.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+
+                if (methodEnv.TypeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record) &&
+                    record.Kind == TypeRecordKind.Protocol &&
+                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

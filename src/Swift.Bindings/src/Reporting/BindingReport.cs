@@ -46,6 +46,7 @@ public enum SkipReason
     SwiftUIConstraint,
     CombineFramework,
     GenericProtocolConstraint,
+    UnsatisfiedGenericConstraint,
     UnsupportedSignature,
     UnsupportedExistential,
     UnsupportedClosure,

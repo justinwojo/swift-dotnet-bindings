@@ -221,6 +221,56 @@ public class BoundGenericsHandlerTests
         Assert.Equal(string.Empty, existentialType);
     }
 
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_LocalTypeWithoutConformance_ReturnsTrue()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("ValueProviderStorage", moduleDecl, "T", "TestModule.AnyInterpolatable");
+        CreateStructDecl("LottieVector3D", moduleDecl);
+
+        var boundGeneric = new NamedTypeSpec("TestModule.ValueProviderStorage", new NamedTypeSpec("TestModule.LottieVector3D"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_EquatableConformance_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("Box", moduleDecl, "T", "Swift.Equatable");
+        CreateStructDecl("Point", moduleDecl, new[] { "Swift.Equatable" });
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Box", new NamedTypeSpec("TestModule.Point"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ExternalConcreteType_ReturnsTrue()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("ValueProviderStorage", moduleDecl, "T", "TestModule.AnyInterpolatable");
+
+        var boundGeneric = new NamedTypeSpec(
+            "TestModule.ValueProviderStorage",
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Double")));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+        Assert.Contains("Swift.Array<Swift.Double>", details);
+    }
+
     #endregion
 
     #region Mixed Generic Parameter Tests
@@ -304,6 +354,85 @@ public class BoundGenericsHandlerTests
             IsStatic = false,
             Accessors = Array.Empty<AccessorDecl>()
         };
+    }
+
+    private static PropertyDecl CreatePropertyContext(TypeSpec typeSpec, ModuleDecl moduleDecl)
+    {
+        return new PropertyDecl
+        {
+            Name = "context",
+            SwiftTypeSpec = typeSpec,
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>()
+        };
+    }
+
+    private static ModuleDecl CreateModuleDecl(string moduleName)
+    {
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static StructDecl CreateStructDecl(string structName, ModuleDecl moduleDecl, IEnumerable<string> protocolConformances = null)
+    {
+        var conformances = protocolConformances?.Select(protocol => new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{structName}"),
+            SwiftTypeName.FromModuleQualifiedName(protocol),
+            ProtocolConformanceDescriptor: string.Empty)).ToList()
+            ?? new List<TypeConformance>();
+
+        var structDecl = new StructDecl
+        {
+            Name = structName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{structName}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{structName.Length}{structName}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = conformances,
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{structName.Length}{structName}VMa"
+        };
+        moduleDecl.Types.Add(structDecl);
+        return structDecl;
+    }
+
+    private static StructDecl CreateGenericStructDecl(string structName, ModuleDecl moduleDecl, string typeParameterName, string constraintProtocolName)
+    {
+        var structDecl = CreateStructDecl(structName, moduleDecl);
+        structDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new(
+                TypeName: "τ_0_0",
+                SugaredTypeName: typeParameterName,
+                GenericConformances: new List<GenericParameterConformance>
+                {
+                    new(
+                        Path: new[] { "τ_0_0" },
+                        ConformanceTarget: SwiftTypeName.FromModuleQualifiedName(constraintProtocolName),
+                        Kind: ConformanceKind.Protocol)
+                },
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+
+        return structDecl;
     }
 
     #endregion

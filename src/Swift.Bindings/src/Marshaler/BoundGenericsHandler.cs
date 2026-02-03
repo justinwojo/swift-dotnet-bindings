@@ -11,6 +11,12 @@ namespace BindingsGeneration;
 /// </summary>
 public class BoundGenericsHandler
 {
+    private static readonly HashSet<string> s_unsupportedConstraintModules = new(StringComparer.Ordinal)
+    {
+        "SwiftUI",
+        "Combine",
+    };
+
     private readonly ITypeDatabase _typeDatabase;
     private readonly ClosureHandler _closureHandler;
     private readonly TupleHandler _tupleHandler;
@@ -165,6 +171,24 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// Tries to find the first bound generic argument that cannot satisfy emitted C# constraints.
+    /// </summary>
+    /// <param name="typeSpec">The type specification to inspect.</param>
+    /// <param name="contextDecl">Declaration context used to resolve local type declarations.</param>
+    /// <param name="details">Diagnostic details for the unsatisfied constraint.</param>
+    /// <returns><c>true</c> if an unsatisfied constraint is found; otherwise, <c>false</c>.</returns>
+    public bool TryGetFirstUnsatisfiedConstraint(TypeSpec typeSpec, BaseDecl? contextDecl, out string details)
+    {
+        details = string.Empty;
+
+        var moduleDecl = contextDecl?.ModuleDecl;
+        if (moduleDecl == null)
+            return false;
+
+        return TryGetFirstUnsatisfiedConstraint(typeSpec, moduleDecl, out details);
+    }
+
+    /// <summary>
     /// Helper method to convert a Swift <see cref="NamedTypeSpec"/> into its corresponding C# type name.
     /// </summary>
     /// <param name="namedTypeSpec">The named type specification.</param>
@@ -261,5 +285,175 @@ public class BoundGenericsHandler
 
         // Fallback when no mapping is available.
         return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName; // TODO: Consider throwing an exception instead
+    }
+
+    private bool TryGetFirstUnsatisfiedConstraint(TypeSpec typeSpec, ModuleDecl moduleDecl, out string details)
+    {
+        details = string.Empty;
+
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedTypeSpec:
+                if (namedTypeSpec.ContainsGenericParameters &&
+                    TryValidateGenericTypeConstraints(namedTypeSpec, moduleDecl, out details))
+                {
+                    return true;
+                }
+
+                foreach (var genericParameter in namedTypeSpec.GenericParameters)
+                {
+                    if (TryGetFirstUnsatisfiedConstraint(genericParameter, moduleDecl, out details))
+                        return true;
+                }
+                return false;
+
+            case TupleTypeSpec tupleTypeSpec:
+                foreach (var element in tupleTypeSpec.Elements)
+                {
+                    if (TryGetFirstUnsatisfiedConstraint(element, moduleDecl, out details))
+                        return true;
+                }
+                return false;
+
+            case ClosureTypeSpec closureTypeSpec:
+                if (TryGetFirstUnsatisfiedConstraint(closureTypeSpec.Arguments, moduleDecl, out details))
+                    return true;
+                return TryGetFirstUnsatisfiedConstraint(closureTypeSpec.ReturnType, moduleDecl, out details);
+
+            default:
+                return false;
+        }
+    }
+
+    private bool TryValidateGenericTypeConstraints(NamedTypeSpec boundGenericType, ModuleDecl moduleDecl, out string details)
+    {
+        details = string.Empty;
+
+        if (!boundGenericType.HasModule())
+            return false;
+
+        var genericTypeName = SwiftTypeName.FromTypeSpec(boundGenericType);
+        var genericTypeDecl = FindTypeDecl(moduleDecl, genericTypeName);
+        if (genericTypeDecl == null || !genericTypeDecl.IsGeneric)
+            return false;
+
+        var count = Math.Min(genericTypeDecl.GenericParameters.Count, boundGenericType.GenericParameters.Count);
+        for (var i = 0; i < count; i++)
+        {
+            var parameterConstraint = genericTypeDecl.GenericParameters[i];
+            var typeArgument = boundGenericType.GenericParameters[i];
+
+            foreach (var conformance in parameterConstraint.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+
+                if (ShouldSkipConstraint(conformance.ConformanceTarget))
+                    continue;
+
+                if (SatisfiesConstraint(typeArgument, conformance.ConformanceTarget, moduleDecl))
+                    continue;
+
+                details = $"Type argument '{typeArgument}' does not satisfy constraint '{conformance.ConformanceTarget.ModuleQualifiedName}' on '{boundGenericType.NameWithoutModule}'.";
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool ShouldSkipConstraint(SwiftTypeName protocolType)
+    {
+        if (protocolType.Name == "Sendable")
+            return true;
+
+        if (s_unsupportedConstraintModules.Contains(protocolType.Module))
+            return true;
+
+        if (_typeDatabase.TryGetTypeRecord(protocolType, out var protocolRecord) &&
+            protocolRecord.Kind == TypeRecordKind.Protocol &&
+            protocolRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool SatisfiesConstraint(TypeSpec typeArgument, SwiftTypeName protocolConstraint, ModuleDecl moduleDecl)
+    {
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeArgument))
+            return true;
+
+        if (typeArgument is not NamedTypeSpec namedTypeArgument || !namedTypeArgument.HasModule())
+            return false;
+
+        var typeArgumentName = SwiftTypeName.FromTypeSpec(namedTypeArgument);
+        var typeArgumentDecl = FindTypeDecl(moduleDecl, typeArgumentName);
+
+        if (typeArgumentDecl == null)
+        {
+            // If the argument type is an external protocol type matching the constraint,
+            // treat it as satisfying the self-conformance case.
+            if (typeArgumentName == protocolConstraint)
+                return true;
+
+            // For external concrete types (e.g. Swift stdlib types), we can't verify
+            // conformance from local declarations, so fail closed and skip the member.
+            return false;
+        }
+
+        if (typeArgumentDecl is ProtocolDecl && typeArgumentName == protocolConstraint)
+            return true;
+
+        // Only Equatable is currently emitted as a concrete conformance.
+        if (protocolConstraint.Name == "Equatable")
+            return HasConformance(typeArgumentDecl, protocolConstraint);
+
+        // General protocol conformance emission is handled in a later task.
+        return false;
+    }
+
+    private static bool HasConformance(TypeDecl typeDecl, SwiftTypeName protocolType) =>
+        typeDecl switch
+        {
+            StructDecl structDecl => structDecl.Conformances.Any(c => c.Protocol == protocolType),
+            ClassDecl classDecl => classDecl.Conformances.Any(c => c.Protocol == protocolType),
+            EnumDecl enumDecl => enumDecl.Conformances.Any(c => c.Protocol == protocolType),
+            _ => false
+        };
+
+    private static TypeDecl? FindTypeDecl(ModuleDecl moduleDecl, SwiftTypeName swiftTypeName)
+    {
+        foreach (var type in moduleDecl.Types)
+        {
+            var found = FindTypeDeclRecursive(type, swiftTypeName);
+            if (found != null)
+                return found;
+        }
+
+        foreach (var protocol in moduleDecl.Protocols)
+        {
+            var found = FindTypeDeclRecursive(protocol, swiftTypeName);
+            if (found != null)
+                return found;
+        }
+
+        return null;
+    }
+
+    private static TypeDecl? FindTypeDeclRecursive(TypeDecl typeDecl, SwiftTypeName swiftTypeName)
+    {
+        if (typeDecl.SwiftTypeName == swiftTypeName)
+            return typeDecl;
+
+        foreach (var nestedType in typeDecl.Types)
+        {
+            var found = FindTypeDeclRecursive(nestedType, swiftTypeName);
+            if (found != null)
+                return found;
+        }
+
+        return null;
     }
 }

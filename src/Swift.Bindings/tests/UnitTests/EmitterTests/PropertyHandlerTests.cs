@@ -265,6 +265,117 @@ public class PropertyHandlerTests
         Assert.Equal(string.Empty, swiftOutput);
     }
 
+    [Fact]
+    public void Emit_PropertyWithUnsatisfiedBoundGenericConstraint_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Loader", moduleDecl);
+
+        var constrainedStorageDecl = CreateGenericStructDecl(
+            "ValueProviderStorage",
+            moduleDecl,
+            "T",
+            "TestModule.AnyInterpolatable");
+        CreateStructDeclForEmission("LottieVector3D", moduleDecl);
+
+        var propertyType = new NamedTypeSpec(
+            constrainedStorageDecl.SwiftTypeName.ModuleQualifiedName,
+            new NamedTypeSpec("TestModule.LottieVector3D"));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "storage", propertyType, hasGetter: true, hasSetter: false);
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_OptionalExistentialProperty_WithUnsatisfiedAccessorConstraint_SkipsPropertyWrapper()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Loader", moduleDecl);
+
+        CreateGenericStructDecl(
+            "ValueProviderStorage",
+            moduleDecl,
+            "T",
+            "TestModule.AnyInterpolatable");
+
+        var optionalExistentialType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") }));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "dataCache", optionalExistentialType, hasGetter: true, hasSetter: true);
+
+        // Simulate accessor signatures that use an unsatisfied constrained bound generic.
+        var unsatisfiedAccessorType = new NamedTypeSpec(
+            "TestModule.ValueProviderStorage",
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Double")));
+        foreach (var accessor in property.Accessors)
+        {
+            if (accessor is GetAccessorDecl)
+            {
+                accessor.Method.CSSignature[0].SwiftTypeSpec = unsatisfiedAccessorType;
+            }
+            else if (accessor is SetAccessorDecl)
+            {
+                accessor.Method.CSSignature[1].SwiftTypeSpec = unsatisfiedAccessorType;
+            }
+        }
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_PropertyWithUnsatisfiedGetterReturnConstraint_SkipsPropertyWrapper()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Loader", moduleDecl);
+
+        CreateGenericStructDecl(
+            "ValueProviderStorage",
+            moduleDecl,
+            "T",
+            "TestModule.AnyInterpolatable");
+
+        var propertyType = new NamedTypeSpec("TestModule.Payload");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "dataCache", propertyType, hasGetter: true, hasSetter: false);
+
+        var getter = property.Accessors.OfType<GetAccessorDecl>().Single();
+        getter.Method.CSSignature[0].SwiftTypeSpec = new NamedTypeSpec(
+            "TestModule.ValueProviderStorage",
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Double")));
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_PropertyPreflightUsesAccessorSignatureBehavior_WhenCheckingPlaceholders()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Loader", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "name", "Swift.Int", hasGetter: true, hasSetter: false);
+
+        // Simulate an accessor signature that would only be considered unsupported
+        // when accessor rules are applied (no automatic type conversion).
+        var getter = property.Accessors.OfType<GetAccessorDecl>().Single();
+        getter.Method.CSSignature[0].SwiftTypeSpec = new NamedTypeSpec("Swift.String");
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
     #endregion
 
     #region Helper Methods
@@ -553,6 +664,49 @@ public class PropertyHandlerTests
         };
         moduleDecl.Types.Add(classDecl);
         return classDecl;
+    }
+
+    private static StructDecl CreateStructDeclForEmission(string structName, ModuleDecl moduleDecl)
+    {
+        var structDecl = new StructDecl
+        {
+            Name = structName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{structName}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{structName.Length}{structName}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{structName.Length}{structName}VMa"
+        };
+        moduleDecl.Types.Add(structDecl);
+        return structDecl;
+    }
+
+    private static StructDecl CreateGenericStructDecl(string structName, ModuleDecl moduleDecl, string typeParameterName, string constraintProtocolName)
+    {
+        var structDecl = CreateStructDeclForEmission(structName, moduleDecl);
+        structDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new(
+                TypeName: "τ_0_0",
+                SugaredTypeName: typeParameterName,
+                GenericConformances: new List<GenericParameterConformance>
+                {
+                    new(
+                        Path: new[] { "τ_0_0" },
+                        ConformanceTarget: SwiftTypeName.FromModuleQualifiedName(constraintProtocolName),
+                        Kind: ConformanceKind.Protocol)
+                },
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        return structDecl;
     }
 
     private static PropertyDecl CreateEmittablePropertyDecl(

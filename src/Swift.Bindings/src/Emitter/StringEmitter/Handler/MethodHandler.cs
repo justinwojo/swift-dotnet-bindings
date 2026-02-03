@@ -93,6 +93,18 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                if (methodEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(argument.SwiftTypeSpec, methodEnv.MethodDecl, out var constraintDetails))
+                {
+                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: {constraintDetails}");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.ParentDecl,
+                        SkipReason.UnsatisfiedGenericConstraint,
+                        constraintDetails);
+                    return;
+                }
+
                 if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
                 {
                     _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{existentialType}'.");
@@ -211,6 +223,18 @@ namespace BindingsGeneration
                     if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
                     {
                         continue;
+                    }
+
+                    if (methodEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(argument.SwiftTypeSpec, methodEnv.MethodDecl, out var constraintDetails))
+                    {
+                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: {constraintDetails}");
+                        ReportCollector.RecordMemberSkipped(
+                            BindingItemKind.Method,
+                            methodEnv.MethodDecl.Name,
+                            methodEnv.MethodDecl.ParentDecl,
+                            SkipReason.UnsatisfiedGenericConstraint,
+                            constraintDetails);
+                        return;
                     }
 
                     if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))

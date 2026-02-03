@@ -254,6 +254,67 @@ public class MethodHandlerOutputTests
         Assert.Equal(string.Empty, swiftOutput);
     }
 
+    [Fact]
+    public void Emit_MethodWithUnsatisfiedBoundGenericConstraint_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var constrainedStorageDecl = CreateGenericStructDecl(
+            "ValueProviderStorage",
+            moduleDecl,
+            "T",
+            "TestModule.AnyInterpolatable");
+        CreateStructDecl("LottieVector3D", moduleDecl);
+
+        var method = CreateMethodDecl(
+            name: "storage",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec(
+                constrainedStorageDecl.SwiftTypeName.ModuleQualifiedName,
+                new NamedTypeSpec("TestModule.LottieVector3D")),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithExternalTypeUnsatisfiedBoundGenericConstraint_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var constrainedStorageDecl = CreateGenericStructDecl(
+            "ValueProviderStorage",
+            moduleDecl,
+            "T",
+            "TestModule.AnyInterpolatable");
+
+        var method = CreateMethodDecl(
+            name: "storageExternal",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec(
+                constrainedStorageDecl.SwiftTypeName.ModuleQualifiedName,
+                new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Double"))),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();
@@ -331,6 +392,49 @@ public class MethodHandlerOutputTests
         };
         moduleDecl.Types.Add(classDecl);
         return classDecl;
+    }
+
+    private static StructDecl CreateStructDecl(string name, ModuleDecl moduleDecl)
+    {
+        var structDecl = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{name.Length}{name}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{name.Length}{name}VMa",
+        };
+        moduleDecl.Types.Add(structDecl);
+        return structDecl;
+    }
+
+    private static StructDecl CreateGenericStructDecl(string name, ModuleDecl moduleDecl, string typeParameterName, string constraintProtocolName)
+    {
+        var structDecl = CreateStructDecl(name, moduleDecl);
+        structDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new(
+                TypeName: $"τ_0_0",
+                SugaredTypeName: typeParameterName,
+                GenericConformances: new List<GenericParameterConformance>
+                {
+                    new(
+                        Path: new[] { $"τ_0_0" },
+                        ConformanceTarget: SwiftTypeName.FromModuleQualifiedName(constraintProtocolName),
+                        Kind: ConformanceKind.Protocol)
+                },
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        return structDecl;
     }
 
     private static MethodDecl CreateMethodDecl(
