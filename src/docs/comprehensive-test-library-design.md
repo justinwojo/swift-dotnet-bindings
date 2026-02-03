@@ -1,8 +1,8 @@
 # Comprehensive Swift Test Library Design
 
-**Status**: v1.9 Implemented (Swift 6.0–6.2 language features)
+**Status**: v2.0 Implemented (memory management, multi-protocol conformance, custom equality)
 **Created**: February 2026
-**Last Updated**: February 2026 - Phase 7 (v1.9): Swift 6.0–6.2 language features implemented
+**Last Updated**: February 2026 - v2.0: RetainCycles, LeakDetection, multi-protocol conformance, custom equality
 
 ---
 
@@ -50,7 +50,7 @@ Create a custom Swift library specifically designed to test the full breadth of 
                     │   Third-Party SDKs  │  ← "Does it work in the wild?"
                     ├─────────────────────┤
                     │  Comprehensive Test │  ← "Does it handle all Swift features?"
-                    │      Library        │    (65 Swift files, 149 features)
+                    │      Library        │    (67 Swift files, 149+ features)
                     ├─────────────────────┤
                     │  Integration Tests  │  ← Keep for quick iteration
                     ├─────────────────────┤
@@ -153,7 +153,9 @@ TestFramework/
 │       │   └── TypedThrows.swift        # ✅ throws(SomeError) typed throws (Swift 6.0+)
 │       │
 │       ├── MemoryManagement/
-│       │   └── LibraryEvolution.swift   # ✅ Non-frozen struct/class/enum layout
+│       │   ├── LibraryEvolution.swift   # ✅ Non-frozen struct/class/enum layout
+│       │   ├── RetainCycles.swift       # ✅ Circular refs, weak/unowned cycle breaking (known-unsupported)
+│       │   └── LeakDetection.swift      # ✅ Deinit tracking, struct-with-ref patterns (migrated from FunctionalTests)
 │       │
 │       ├── Foundation/
 │       │   ├── Data.swift               # ✅ Data parameter, return, round-trip
@@ -302,6 +304,26 @@ whose declarations are absent from ABI JSON (due to `#if` guards or library-evol
 limitations). These are reported separately from `missing` (no source) and `implemented`
 (source + ABI visible).
 
+### v2.0 Binding Generation Results
+
+```
+Source:   67 Swift files, 85 structs, 36 classes, 14 enums, 17 protocols, 170 free functions
+Output:   49 C# files, 1 Swift wrapper file
+Types:    151/168 emitted (89.9% coverage)
+Members:  654/747 emitted, 47 skipped, 334 synthesized
+Coverage: 145 features tracked (93 must-pass, 52 known-unsupported)
+         85 must-pass passing, 8 degraded, 0 missing
+         47 known-unsupported with tests, 5 compiled out (InlineArray/Span)
+```
+
+v2.0 adds 2 new Swift files and extends 2 existing files: RetainCycles.swift (circular
+strong references, weak cycle breaking, unowned cycle breaking — all known-unsupported),
+LeakDetection.swift (migrated from FunctionalTests/MemoryTests — deinit tracking,
+struct-with-ref-at-offset, frozen-struct-with-ref, embedded-ref-at-nonzero-offset — all
+must-pass), multi-protocol conformance in Composition.swift (4+ protocol composition
+constraints), and custom equality logic in Comparison.swift (approximate equality with
+tolerance).
+
 ### Phase 43 Generator Improvements (applied to v1.8 output)
 
 Phase 43 implemented several generator features that affect how v1.8 test cases are handled:
@@ -373,6 +395,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Protocol inheritance | Supported | ✅ v1.0 | `BasicProtocols.swift` |
 | Protocol with associated type | Partial | ✅ v1.7 | `PATs.swift` |
 | Protocol composition (`A & B`) | Supported | ✅ v1.0 | `Composition.swift` |
+| Multi-protocol conformance (4+) | Supported | ✅ v2.0 | `Composition.swift` |
 | Type conforming to protocol | Supported | ✅ v1.0 | `Conformance.swift` |
 | Retroactive conformance | Partial | ✅ v1.0 | `Conformance.swift` |
 | Circular protocol refs | Supported | ✅ v1.0 | `Composition.swift` |
@@ -442,6 +465,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 |---------|-----------------|---------------|-----------|
 | Arithmetic (+, -, *, /, %) | Supported | ✅ v1.0 | `Arithmetic.swift` |
 | Comparison (==, !=, <, >) | Supported | ✅ Existing | `Comparison.swift` |
+| Custom equality logic | Supported | ✅ v2.0 | `Comparison.swift` |
 | Bitwise (&, \|, ^, <<, >>) | Supported | ✅ v1.0 | `Bitwise.swift` |
 | Unary (!, ~) | Supported | ✅ v1.0 | `Unary.swift` |
 
@@ -521,12 +545,17 @@ This matrix tracks which Swift features are covered by the test library. Feature
 
 | Feature | Generator Status | Test Coverage | Test File |
 |---------|-----------------|---------------|-----------|
-| Circular C#↔Swift refs | **Not Yet** | ⬜ Add | `RetainCycles.swift` |
+| Circular strong reference | **Not Yet** | ✅ v2.0 | `RetainCycles.swift` |
+| Weak cycle breaking | **Not Yet** | ✅ v2.0 | `RetainCycles.swift` |
+| Unowned cycle breaking | **Not Yet** | ✅ v2.0 | `RetainCycles.swift` |
 | Non-frozen layout change | **Critical** | ✅ v1.0 | `LibraryEvolution.swift` |
 | Non-frozen class | Supported | ✅ v1.5 | `LibraryEvolution.swift` |
 | Non-frozen enum | Supported | ✅ v1.5 | `LibraryEvolution.swift` |
 | Evolving optional fields | Supported | ✅ v1.5 | `LibraryEvolution.swift` |
-| Leak detection harness | n/a | ⬜ Add | `LeakDetection.swift` |
+| Deinit tracking | Supported | ✅ v2.0 | `LeakDetection.swift` |
+| Struct with ref at offset | Supported | ✅ v2.0 | `LeakDetection.swift` |
+| Frozen struct with ref | Supported | ✅ v2.0 | `LeakDetection.swift` |
+| Embedded ref at nonzero offset | Supported | ✅ v2.0 | `LeakDetection.swift` |
 
 ### Out of Scope (Compile-Time Only)
 
@@ -1092,7 +1121,7 @@ The test library should be versioned to track Swift language feature additions:
 | **1.7** ✅ | **+ Key paths, metatypes, PATs, variadic, autoclosures** | **56 files: + key paths (KeyPath, WritableKeyPath), metatypes (T.Type, T.self), protocols with associated types, variadic parameters, @autoclosure** |
 | **1.8** ✅ | **+ Actors, opaque returns, throwing/async closures, selectors, async properties** | **60 files: + actor type, some Protocol opaque returns, throwing closures, async closures, Selector parameter, async computed properties** |
 | **1.9** ✅ | **+ Swift 6 language features** | **65 files: + typed throws, noncopyable types, ownership modifiers, isolation control, InlineArray, Span** |
-| 2.0 | + Full coverage | All remaining gaps |
+| **2.0** ✅ | **+ Memory management, multi-protocol, custom equality** | **67 files: + RetainCycles, LeakDetection (migrated from FunctionalTests), multi-protocol conformance, custom equality** |
 
 ### Documentation
 
@@ -1154,7 +1183,7 @@ The comprehensive test library is successful when:
 11. [x] Document in CLAUDE.md
 
 ### Phase 3: Expansion (v1.5+)
-12. [ ] Migrate relevant cases from existing `FunctionalTests/`
+12. [x] Migrate relevant cases from existing `FunctionalTests/` (MemoryTests patterns → LeakDetection.swift)
 13. [x] Add Tier 3 coverage (weak/unowned, Foundation interop, unsafe types)
 14. [x] Expand ABI evolution test suite (non-frozen class, enum, optional fields)
 

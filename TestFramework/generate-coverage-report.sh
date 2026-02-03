@@ -196,7 +196,7 @@ FEATURE_MAP = {
     },
     "Protocols/Composition.swift": {
         "name": "protocol_composition",
-        "features": ["protocol_composition"]
+        "features": ["protocol_composition", "multi_protocol_conformance"]
     },
     "Protocols/Conformance.swift": {
         "name": "protocol_conformance",
@@ -260,7 +260,7 @@ FEATURE_MAP = {
     },
     "Operators/Comparison.swift": {
         "name": "comparison_operators",
-        "features": ["comparison_operators"]
+        "features": ["comparison_operators", "custom_equality"]
     },
     "Operators/Bitwise.swift": {
         "name": "bitwise_operators",
@@ -313,6 +313,14 @@ FEATURE_MAP = {
     "MemoryManagement/LibraryEvolution.swift": {
         "name": "library_evolution",
         "features": ["non_frozen_layout_change", "non_frozen_class", "non_frozen_enum", "evolving_optional_fields"]
+    },
+    "MemoryManagement/RetainCycles.swift": {
+        "name": "retain_cycles",
+        "features": ["circular_strong_reference", "weak_cycle_breaking", "unowned_cycle_breaking"]
+    },
+    "MemoryManagement/LeakDetection.swift": {
+        "name": "leak_detection",
+        "features": ["deinit_tracking", "struct_with_ref_at_offset", "frozen_struct_with_ref", "embedded_ref_at_nonzero_offset"]
     },
     "EdgeCases/Unicode.swift": {
         "name": "unicode",
@@ -502,6 +510,9 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "responds_to_selector",
     "async_computed_property",
     "async_property_on_class",
+    "circular_strong_reference",
+    "weak_cycle_breaking",
+    "unowned_cycle_breaking",
 }
 
 
@@ -591,6 +602,19 @@ FEATURE_DECLARATIONS = {
     # UnsafeTypes/OpaquePointer.swift — OpaquePointer vs Optional<OpaquePointer>
     "opaque_pointer": {"opaquePointerIsValid", "HandleWrapper"},
     "optional_opaque_pointer": {"optionalOpaquePointer"},
+
+    # Protocols/Composition.swift — protocol composition vs multi-protocol conformance
+    "protocol_composition": {"Nameable", "Ageable", "describeEntity", "processDescribable", "processNameableAgeable"},
+    "multi_protocol_conformance": {"Addable", "Subtractable", "Multipliable", "Dividable", "MultiConformingValue", "applyThreeProtocols", "applyFourProtocols"},
+
+    # Operators/Comparison.swift — comparison operators vs custom equality
+    "comparison_operators": {"ComparableValue"},
+    "custom_equality": {"ApproximatelyEqual"},
+
+    # MemoryManagement/RetainCycles.swift — 3 features share one file
+    "circular_strong_reference": {"StrongNodeA", "StrongNodeB", "createStrongCycle"},
+    "weak_cycle_breaking": {"TreeNode", "DelegateHolder", "DelegateImpl", "DelegateFixture", "Delegate", "createTreeCycle", "createDelegatePattern"},
+    "unowned_cycle_breaking": {"ResourceOwner", "OwnedResource", "createOwnerResourcePair"},
 
     # Closures/Escaping.swift — regular escaping vs throwing closures
     "escaping_void_closure": {"ClosureConsumer"},
