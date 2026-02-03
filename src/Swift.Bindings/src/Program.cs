@@ -3,7 +3,9 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using System.CommandLine.Invocation;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
 
 namespace BindingsGeneration
 {
@@ -12,6 +14,8 @@ namespace BindingsGeneration
     /// </summary>
     public class BindingsGenerator
     {
+        private const string DefaultConfigFileName = ".swiftbindings.json";
+
         /// <summary>
         /// Main entry point of the bindings generator tool.
         /// </summary>
@@ -29,6 +33,12 @@ namespace BindingsGeneration
                 aliases: new[] { "--async-library" },
                 description: "Library name for async wrapper functions. If not specified, uses the module library. " +
                              "Typically 'SwiftBindings' when using a separate wrapper library.");
+            Option<string> namespacePatternOption = new(
+                aliases: new[] { "--namespace-pattern" },
+                description: "C# namespace pattern for generated modules and types. Supports {Module} and {Framework}. Default: Swift.{Module}");
+            Option<string> configOption = new(
+                aliases: new[] { "--config" },
+                description: $"Path to config JSON file. Default: {DefaultConfigFileName} in current directory.");
             Option<int> verboseOption = new(
                 aliases: new[] { "-v", "--verbose" },
                 description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -43,11 +53,25 @@ namespace BindingsGeneration
                 outputDirectoryOption,
                 libraryNameOption,
                 asyncLibraryOption,
+                namespacePatternOption,
+                configOption,
                 verboseOption,
                 helpOption,
             };
-            rootCommand.SetHandler((string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string? libraryName, string? asyncLibrary, int verbose, bool help) =>
+            rootCommand.SetHandler((InvocationContext context) =>
             {
+                var parseResult = context.ParseResult;
+                var swiftAbiPath = parseResult.GetValueForOption(swiftAbiOption);
+                var dylibPath = parseResult.GetValueForOption(dylibOption);
+                var tbdPath = parseResult.GetValueForOption(tbdOption);
+                var outputDirectory = parseResult.GetValueForOption(outputDirectoryOption);
+                var libraryName = parseResult.GetValueForOption(libraryNameOption);
+                var asyncLibrary = parseResult.GetValueForOption(asyncLibraryOption);
+                var namespacePattern = parseResult.GetValueForOption(namespacePatternOption);
+                var configPath = parseResult.GetValueForOption(configOption);
+                var verbose = parseResult.GetValueForOption(verboseOption);
+                var help = parseResult.GetValueForOption(helpOption);
+
                 if (help)
                 {
                     Console.WriteLine("Usage:");
@@ -57,6 +81,8 @@ namespace BindingsGeneration
                     Console.WriteLine("  -o, --output         Required. Output directory for generated bindings.");
                     Console.WriteLine("  -l, --library-name   Optional. Runtime library name for DllImport. Escape @ with backslash: '\\@rpath/...'");
                     Console.WriteLine("  --async-library      Optional. Library name for async wrapper functions. Default uses module library.");
+                    Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
+                    Console.WriteLine($"  --config             Optional. Path to config file. Default: {DefaultConfigFileName}");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
                     return;
                 }
@@ -90,18 +116,10 @@ namespace BindingsGeneration
 
                 // Use the provided library name, or fall back to the dylib path
                 var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
+                var effectiveNamespacePattern = ResolveNamespacePattern(namespacePattern, configPath, logger);
 
-                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, logger, loggerFactory);
-            },
-            swiftAbiOption,
-            dylibOption,
-            tbdOption,
-            outputDirectoryOption,
-            libraryNameOption,
-            asyncLibraryOption,
-            verboseOption,
-            helpOption
-            );
+                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, effectiveNamespacePattern, logger, loggerFactory);
+            });
 
             rootCommand.Invoke(args);
         }
@@ -115,9 +133,10 @@ namespace BindingsGeneration
         /// <param name="outputDirectory">Output directory for generated bindings.</param>
         /// <param name="runtimeLibraryName">Library name for DllImport in generated code.</param>
         /// <param name="asyncLibraryName">Library name for async wrapper functions. If null, uses module library.</param>
+        /// <param name="namespacePattern">Namespace pattern for generated modules and types.</param>
         /// <param name="logger">ILogger instance.</param>
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
-        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, ILogger logger, ILoggerFactory loggerFactory)
+        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
         {
             var typeDatabase = new TypeDatabase();
             typeDatabase.AsyncLibraryName = asyncLibraryName;
@@ -136,6 +155,8 @@ namespace BindingsGeneration
             // Initialize the Swift ABI parser
             var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>());
             var moduleName = swiftParser.GetModuleName();
+            var frameworkName = InferFrameworkName(dylibPath, moduleName);
+            var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);
 
             // Skip if the module has already been processed
             // Modules will have to be processed in topological order
@@ -146,14 +167,14 @@ namespace BindingsGeneration
                 ReportCollector.Start(decl);
 
                 // dylibPath is used for metadata extraction, runtimeLibraryName is used in generated DllImport
-                var moduleProcessor = new ModuleProcessor(moduleName, dylibPath, runtimeLibraryName, moduleTypes, typeDatabase, loggerFactory.CreateLogger<ModuleProcessor>());
+                var moduleProcessor = new ModuleProcessor(moduleName, dylibPath, runtimeLibraryName, moduleTypes, typeDatabase, loggerFactory.CreateLogger<ModuleProcessor>(), namespaceResolver);
                 var moduleDatabase = moduleProcessor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
                 typeDatabase.AddModuleDatabase(moduleDatabase);
 
                 logger.LogDebug("Parsed Swift ABI file successfully.");
 
                 // Emit the C# bindings
-                var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory);
+                var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver);
                 stringEmitter.EmitModule(decl);
 
                 var report = ReportCollector.Complete();
@@ -171,6 +192,64 @@ namespace BindingsGeneration
 
             // Copy the Swift library to the output directory
             CopyDirectory(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift"), Path.Combine(outputDirectory, "Swift"), true);
+        }
+
+        private static string ResolveNamespacePattern(string? cliNamespacePattern, string? configPath, ILogger logger)
+        {
+            if (!string.IsNullOrWhiteSpace(cliNamespacePattern))
+            {
+                return cliNamespacePattern;
+            }
+
+            string resolvedConfigPath = string.IsNullOrWhiteSpace(configPath)
+                ? Path.Combine(Environment.CurrentDirectory, DefaultConfigFileName)
+                : configPath;
+
+            if (!File.Exists(resolvedConfigPath))
+            {
+                return NamespacePatternResolver.DefaultPattern;
+            }
+
+            try
+            {
+                var configText = File.ReadAllText(resolvedConfigPath);
+                var config = JObject.Parse(configText);
+                var configNamespacePattern = config.Value<string>("namespacePattern");
+                if (!string.IsNullOrWhiteSpace(configNamespacePattern))
+                {
+                    return configNamespacePattern;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to parse config file {ConfigPath}. Using default namespace pattern.", resolvedConfigPath);
+            }
+
+            return NamespacePatternResolver.DefaultPattern;
+        }
+
+        private static string InferFrameworkName(string dylibPath, string moduleName)
+        {
+            if (string.IsNullOrWhiteSpace(dylibPath))
+            {
+                return moduleName;
+            }
+
+            var pathSegments = dylibPath.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var segment in pathSegments)
+            {
+                if (segment.EndsWith(".framework", StringComparison.OrdinalIgnoreCase))
+                {
+                    var frameworkName = Path.GetFileNameWithoutExtension(segment);
+                    if (!string.IsNullOrWhiteSpace(frameworkName))
+                    {
+                        return frameworkName;
+                    }
+                }
+            }
+
+            var fileName = Path.GetFileNameWithoutExtension(dylibPath);
+            return string.IsNullOrWhiteSpace(fileName) ? moduleName : fileName;
         }
 
         static void CopyDirectory(string sourceDir, string destinationDir, bool recursive)

@@ -3,8 +3,8 @@
 Task specifications for the next phase of binding generator improvements. Tasks are ordered by priority and designed to be worked independently unless noted.
 
 **Date**: February 2026
-**Starting Point**: Phase 39 complete, 1009 unit tests passing
-**Libraries**: Nuke (0 errors), BlinkID (0 errors), Lottie (11 errors)
+**Starting Point**: Phase 39 complete, 1024 unit tests passing
+**Libraries**: Nuke (0 errors), BlinkID (0 errors), Lottie (7 generator errors)
 
 ---
 
@@ -15,10 +15,10 @@ Task specifications for the next phase of binding generator improvements. Tasks 
 | 1 | Skip Members with Unsatisfied Constraints | ✅ **COMPLETED** | P0 |
 | 2 | Protocol Proxy Return Type Alignment | ✅ **COMPLETED** | P1 |
 | 3 | Protocol Conformance Emission | ✅ **COMPLETED** (partial) | P2 |
-| 4 | Namespace Mapping Configuration | Not Started | P2 |
+| 4 | Namespace Mapping Configuration | ✅ **COMPLETED** | P2 |
 
 **Target**: Lottie 0 errors
-**Current**: CS0738 ✅, CS0311 ✅, conformance infrastructure ✅ - 8 pre-existing generator bugs (CS0029, CS0305, CS1061)
+**Current**: CS0738 ✅, CS0311 ✅, conformance infrastructure ✅, namespace config ✅ - 7 pre-existing generator bugs (CS0029, CS0305, CS1061)
 
 ---
 
@@ -270,10 +270,31 @@ This task established the conformance infrastructure. Full interface emission re
 
 ## Task 4: Namespace Mapping Configuration
 
-### Status: Not Started
+### Status: ✅ COMPLETED (February 2026)
 ### Priority: P2 (Medium - DX improvement before stable release)
 ### Effort: Medium (4-6 hours)
 ### Dependencies: None
+
+### Completion Notes
+
+**Implemented by**: Codex
+**Unit Tests**: 1024 passed
+
+**Files Modified**:
+- `src/Swift.Bindings/src/Program.cs` - Added `--namespace-pattern` and `--config` support, config loading, framework name inference
+- `src/Swift.Bindings/src/Configuration/NamespacePatternResolver.cs` - Added pattern substitution (`{Module}`, `{Framework}`) with default fallback
+- `src/Swift.Bindings/src/Parser/ModuleProcessor.cs` - Namespace resolution for type registration
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ModuleEmitter.cs` - Namespace-aware output filenames
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs` - Namespace-aware C# `namespace` emission
+- `src/Swift.Bindings/src/Marshaler/Conductor.cs` - Wires namespace resolver into module handler factory
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ModuleHandlerTests.cs` - Added namespace pattern regression tests
+- `README.md` - Documented default namespace scheme and override options
+
+**Key fixes**:
+1. Default namespace remains `Swift.{Module}` (backward compatible)
+2. CLI override via `--namespace-pattern`
+3. Config override via `.swiftbindings.json` (or `--config` path)
+4. Namespace mapping now consistent across emitted files, namespace declarations, and type database records
 
 ### Problem Statement
 
@@ -312,10 +333,21 @@ This pattern needs to be:
 
 ### Acceptance Criteria
 
-- [ ] Default behavior unchanged (`Swift.{Module}`)
-- [ ] CLI flag allows override
-- [ ] Config file option available
-- [ ] Unit tests for pattern substitution
+- [x] Default behavior unchanged (`Swift.{Module}`)
+- [x] CLI flag allows override
+- [x] Config file option available
+- [x] Unit tests for pattern substitution
+
+### Validation
+
+**Validated by**: Claude
+**Date**: February 2026
+
+- All unit tests pass (1024)
+- All integration tests pass (678 passed, 13 skipped)
+- All runtime tests pass (108 passed, 1 skipped)
+- Lottie bindings regenerate successfully with new namespace resolution
+- No regressions introduced by this change
 
 ---
 

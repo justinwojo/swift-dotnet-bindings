@@ -13,12 +13,15 @@ namespace BindingsGeneration
     /// </summary>
     public class ModuleHandlerFactory : HandlerFactory, IFactory<BaseDecl, IModuleHandler>
     {
+        private readonly NamespacePatternResolver _namespacePatternResolver;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="ModuleHandlerFactory"/> class.
         /// </summary>
         /// <param name="loggerFactory">The logger factory instance.</param>
-        public ModuleHandlerFactory(ILoggerFactory loggerFactory) : base(loggerFactory.CreateLogger<ModuleHandler>())
+        public ModuleHandlerFactory(ILoggerFactory loggerFactory, NamespacePatternResolver? namespacePatternResolver = null) : base(loggerFactory.CreateLogger<ModuleHandler>())
         {
+            _namespacePatternResolver = namespacePatternResolver ?? new NamespacePatternResolver();
         }
 
         /// <summary>
@@ -35,7 +38,7 @@ namespace BindingsGeneration
         /// </summary>
         public IModuleHandler Construct()
         {
-            return new ModuleHandler(_handlerLogger);
+            return new ModuleHandler(_handlerLogger, _namespacePatternResolver);
         }
     }
 
@@ -44,8 +47,11 @@ namespace BindingsGeneration
     /// </summary>
     public class ModuleHandler : BaseHandler, IModuleHandler
     {
-        public ModuleHandler(ILogger logger) : base(logger)
+        private readonly NamespacePatternResolver _namespacePatternResolver;
+
+        public ModuleHandler(ILogger logger, NamespacePatternResolver? namespacePatternResolver = null) : base(logger)
         {
+            _namespacePatternResolver = namespacePatternResolver ?? new NamespacePatternResolver();
         }
 
         /// <inheritdoc/>
@@ -70,7 +76,7 @@ namespace BindingsGeneration
             // Emit EveryProtocol class and protocol conformances for Swift side
             EmitEveryProtocolConformances(swiftWriter, moduleDecl, env.TypeDatabase);
 
-            var generatedNamespace = $"Swift.{moduleDecl.Name}";
+            var generatedNamespace = _namespacePatternResolver.ResolveNamespace(moduleDecl.Name);
 
             csWriter.WriteLine($"using System;");
             csWriter.WriteLine($"using System.Diagnostics;");

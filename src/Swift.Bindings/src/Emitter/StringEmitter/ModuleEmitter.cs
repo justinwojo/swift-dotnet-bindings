@@ -17,16 +17,22 @@ namespace BindingsGeneration
         private readonly ITypeDatabase _typeDatabase;
         private readonly ILogger _logger;
         private readonly Conductor _conductor;
+        private readonly NamespacePatternResolver _namespacePatternResolver;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="StringEmitter"/> class.
         /// </summary>
-        public StringEmitter(string outputDirectory, ITypeDatabase typeDatabase, ILoggerFactory loggerFactory)
+        public StringEmitter(
+            string outputDirectory,
+            ITypeDatabase typeDatabase,
+            ILoggerFactory loggerFactory,
+            NamespacePatternResolver? namespacePatternResolver = null)
         {
             _outputDirectory = outputDirectory;
             _typeDatabase = typeDatabase;
             _logger = loggerFactory.CreateLogger<StringEmitter>();
-            _conductor = new Conductor(loggerFactory);
+            _namespacePatternResolver = namespacePatternResolver ?? new NamespacePatternResolver();
+            _conductor = new Conductor(loggerFactory, _namespacePatternResolver);
         }
 
         /// <summary>
@@ -41,7 +47,7 @@ namespace BindingsGeneration
                 CSharpWriter csWriter = new(csStringWriter);
                 var swiftStringWriter = new StringWriter();
                 SwiftWriter swiftWriter = new(swiftStringWriter);
-                var @namespace = $"Swift.{moduleDecl.Name}";
+                var @namespace = _namespacePatternResolver.ResolveNamespace(moduleDecl.Name);
 
                 var env = moduleHandler.Marshal(moduleDecl, _typeDatabase);
                 moduleHandler.Emit(csWriter, swiftWriter, env, _conductor);

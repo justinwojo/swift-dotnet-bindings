@@ -257,12 +257,43 @@ public class ModuleHandlerTests
 
     #endregion
 
+    #region Namespace Emission Tests
+
+    [Fact]
+    public void Emit_UsesDefaultNamespacePattern()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("namespace Swift.TestModule", csOutput);
+    }
+
+    [Fact]
+    public void Emit_UsesCustomNamespacePattern()
+    {
+        var namespaceResolver = new NamespacePatternResolver("{Module}Bindings");
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>(), namespaceResolver: namespaceResolver);
+
+        Assert.Contains("namespace TestModuleBindings", csOutput);
+    }
+
+    [Fact]
+    public void Emit_UsesFrameworkPlaceholderInNamespacePattern()
+    {
+        var namespaceResolver = new NamespacePatternResolver("Acme.{Framework}", frameworkName: "MyKit");
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>(), namespaceResolver: namespaceResolver);
+
+        Assert.Contains("namespace Acme.MyKit", csOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static (string csOutput, string swiftOutput) EmitModuleWithDependencies(
         string moduleName,
         List<string> dependencies,
-        Action<ModuleDecl> customizeModule = null)
+        Action<ModuleDecl> customizeModule = null,
+        NamespacePatternResolver namespaceResolver = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -286,12 +317,12 @@ public class ModuleHandlerTests
         var csWriter = new CSharpWriter(csStringWriter);
         var swiftWriter = new SwiftWriter(swiftStringWriter);
 
-        var handler = new ModuleHandler(new Microsoft.Extensions.Logging.Abstractions.NullLogger<ModuleHandler>());
+        var handler = new ModuleHandler(new Microsoft.Extensions.Logging.Abstractions.NullLogger<ModuleHandler>(), namespaceResolver);
         var env = handler.Marshal(moduleDecl, typeDatabase);
 
         // Create a minimal conductor for the test
         var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
-        var conductor = new Conductor(loggerFactory);
+        var conductor = new Conductor(loggerFactory, namespaceResolver);
 
         handler.Emit(csWriter, swiftWriter, env, conductor);
 

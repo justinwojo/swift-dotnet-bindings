@@ -27,6 +27,7 @@ namespace BindingsGeneration
         private readonly ITypeDatabase _typeDatabase;
         private readonly ModuleTypeDatabase _moduleDatabase;
         private readonly Dictionary<NamedTypeSpec, TypeDecl> _typeDecls;
+        private readonly NamespacePatternResolver _namespacePatternResolver;
         private readonly ILogger _logger;
 
         /// <summary>
@@ -44,7 +45,8 @@ namespace BindingsGeneration
             string runtimeLibraryName,
             Dictionary<NamedTypeSpec, TypeDecl> typeDecls,
             ITypeDatabase typeDatabase,
-            ILogger logger)
+            ILogger logger,
+            NamespacePatternResolver? namespacePatternResolver = null)
         {
             _module = module;
             _dylibPath = dylibPath;
@@ -52,6 +54,7 @@ namespace BindingsGeneration
             // Use runtimeLibraryName for DllImport in generated code
             _moduleDatabase = new ModuleTypeDatabase(module, runtimeLibraryName);
             _typeDecls = typeDecls;
+            _namespacePatternResolver = namespacePatternResolver ?? new NamespacePatternResolver();
             _logger = logger;
         }
 
@@ -270,7 +273,7 @@ namespace BindingsGeneration
             SwiftTypeInfo swiftTypeInfo,
             TypeRecordFlags flags)
         {
-            var @namespace = $"Swift.{namedTypeSpec.Module}"; // TODO: Correctly map to a .NET namespace
+            var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
             // TODO: Remove this logic once correct csharp type names are used
             var csharpTypeIdentifier = structDecl.SwiftTypeName.Module == "" ? structDecl.SwiftTypeName.Name : structDecl.SwiftTypeName.ModuleQualifiedName.Substring(structDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
             var typeRecord = new TypeRecord
@@ -351,7 +354,7 @@ namespace BindingsGeneration
             SwiftTypeInfo swiftTypeInfo,
             TypeRecordFlags flags)
         {
-            var @namespace = $"Swift.{namedTypeSpec.Module}"; // TODO: Correctly map to a .NET namespace
+            var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
             // TODO: Remove this logic once correct csharp type names are used
             var csharpTypeIdentifier = enumDecl.SwiftTypeName.Module == ""
                 ? enumDecl.SwiftTypeName.Name
@@ -382,7 +385,7 @@ namespace BindingsGeneration
             SwiftTypeInfo swiftTypeInfo)
         {
             TypeRecordFlags flags = TypeRecordFlags.RequiresMemoryManagement;
-            var @namespace = $"Swift.{namedTypeSpec.Module}"; // TODO: Correctly map to a .NET namespace
+            var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
             // TODO: Remove this logic once correct csharp type names are used
             var csharpTypeIdentifier = classDecl.SwiftTypeName.Module == "" ? classDecl.SwiftTypeName.Name : classDecl.SwiftTypeName.ModuleQualifiedName.Substring(classDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
             var typeRecord = new TypeRecord
@@ -440,7 +443,7 @@ namespace BindingsGeneration
         /// <param name="protocolDecl">The protocol declaration node.</param>
         private void RegisterProtocolType(NamedTypeSpec namedTypeSpec, ProtocolDecl protocolDecl)
         {
-            var @namespace = $"Swift.{namedTypeSpec.Module}"; // TODO: Correctly map to a .NET namespace
+            var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
 
             // Protocol types are projected as interfaces in C#
             // Use "I" prefix for interface naming convention

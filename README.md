@@ -22,7 +22,23 @@ Options:
     -d, --dylib        Required. Path to the dynamic library.
     -t, --tbd          Required. Path to the TBD file.
     -o, --output       Required. Output directory for generated bindings.
+    --namespace-pattern Optional. Namespace pattern for generated code. Supports {Module} and {Framework}. Default: Swift.{Module}
+    --config           Optional. Path to config file. Default: .swiftbindings.json in current directory.
     -v, --verbose      Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)
+```
+
+### Namespace Mapping
+
+By default, generated namespaces use `Swift.{Module}` (for example `Swift.Lottie`).
+
+You can override this using either:
+- `--namespace-pattern "{Module}Bindings"`
+- a config file (default name `.swiftbindings.json`):
+
+```json
+{
+  "namespacePattern": "MyCompany.{Framework}"
+}
 ```
 
 ## Supported scenarios
