@@ -406,7 +406,7 @@ cd TestFramework
 - `output/binding-report.json` - Binding completeness report
 - `output/coverage-matrix.json` - Feature coverage matrix (from generate-coverage-report.sh)
 
-See `src/docs/comprehensive-test-library-design.md` for the full test library design and feature coverage matrix.
+See `src/docs/CompletedPhases/comprehensive-test-library-design.md` for the full test library design and feature coverage matrix.
 
 ## Architecture Notes
 

@@ -1,130 +1,185 @@
-# Codex Task Specifications - Phase 43
+# Codex Task Specifications — Generator Gaps
 
-Task specifications for continued runtime hardening and binding coverage improvements. With Lottie runtime validated in Phase 42, the focus shifts to fixing remaining runtime issues and expanding validation.
+Binding coverage gaps exposed by the TestFramework v2.0 comprehensive test library (67 Swift files, 145 features tracked). These are generator-side issues where the test file exists and compiles but the emitter skips members due to unsupported type patterns.
 
 **Date**: February 2026
-**Starting Point**: Phase 42 complete, 1032 unit tests passing
-**Libraries**: Nuke (0 errors ✅, runtime validated), BlinkID (0 errors ✅), Lottie (0 errors ✅, 8/9 runtime tests pass)
+**Starting Point**: Phase 44 complete, 1032 unit tests passing, TestFramework v2.0 complete
+**Baseline**: 85/93 must-pass features passing, **8 degraded** (skipped binding members)
 
 ---
 
 ## Status Summary
 
-| Task | Description | Status | Priority |
-|------|-------------|--------|----------|
-| 1 | Fix LottieConfiguration.Shared property getter | 🔲 Pending | P1 |
-| 2 | Lottie test app full validation pass | 🔲 Pending | P1 |
-| 3 | BlinkID runtime validation | 🔲 Pending | P2 |
+| Task | Description | Degraded Features Fixed | Priority |
+|------|-------------|------------------------|----------|
+| 1 | Unbound generic type parameters (`AnyTypeFallback`) | 4 | P1 |
+| 2 | OpaquePointer in method signatures | 2 | P2 |
+| 3 | NSObject subclass as method parameter | 1 | P2 |
+| 4 | Existential type argument in bound generic | 1 | P3 |
 
-**Target**: All three libraries runtime validated
-**Current**: Nuke fully validated, Lottie 8/9, BlinkID compiles only
+**Target**: 93/93 must-pass features passing (0 degraded)
 
 ---
 
-## Task 1: Fix LottieConfiguration.Shared Property Getter
+## Task 1: Unbound Generic Type Parameters
 
-### Status: 🔲 Pending
-### Priority: P1 (Last remaining Lottie runtime failure)
+### Priority: P1 (fixes 4 degraded features, 12 skipped members)
 ### Dependencies: None
 
 ### Problem Statement
 
-`LottieConfiguration.Shared` returns a non-null object but accessing its properties throws `NullReferenceException`. This is the only failing test in the Lottie runtime suite.
+Generic structs, classes, and functions with unbound type parameters have their properties and methods skipped. The marshaler resolves generic type parameters to `Swift.AnyType` and then the emitter rejects them as `AnyTypeFallback` or `UnsupportedSignature`.
 
-**Runtime error**: `Object reference not set to an instance of an object`
+### Affected Features
 
-**Test code** (in `BindingTesting/Lottie/LottieTestApp/Program.cs`):
-```csharp
-var config = LottieConfiguration.Shared;
-// config is non-null, config.Payload is non-null
-// But the null check `config != null && config.Payload != null` still fails
-```
+| Feature | File | Skipped Members |
+|---------|------|-----------------|
+| `generic_function` | `Generics/Functions.swift` | `pair` (returns generic tuple) |
+| `generic_struct` | `Generics/Types.swift` | `Wrapper.wrapped` (property), `Wrapper.init`, `GenericPair.first`, `GenericPair.second`, `GenericPair.init`, `GenericPair.swapped` |
+| `generic_class` | `Generics/Types.swift` | `GenericClass.value` (property), `GenericClass.init` |
+| `where_clause` | `Generics/Constraints.swift` | `ConstrainedBox.item` (property), `ConstrainedBox.init` |
 
-### Investigation Steps
+### Skip Reasons
 
-1. Check how `LottieConfiguration.Shared` is generated in `Swift.Lottie.cs`
-2. Verify the property getter P/Invoke returns a valid handle
-3. Compare with working property getters (e.g., LottieColor properties which work)
-4. Check if this is a static property getter marshalling issue
+- **`AnyTypeFallback`**: Property type resolved to `AnyType` — the marshaler doesn't know the concrete type for the generic parameter, so it falls back to `Swift.AnyType` which has no C# mapping.
+- **`UnsupportedSignature`**: Constructor or method signature contains an unresolved placeholder type (same root cause).
 
-### Acceptance Criteria
+### Investigation Areas
 
-- [ ] Root cause identified
-- [ ] Fix implemented (or documented as architectural limitation)
-- [ ] LottieTestApp passes 9/9 tests
-
----
-
-## Task 2: Lottie Test App Full Validation Pass
-
-### Status: 🔲 Pending
-### Priority: P1
-### Dependencies: Task 1
-
-### Problem Statement
-
-The Lottie test app currently exits with `TEST FAILURE` because of the 1 failing test. Once Task 1 is resolved, the `validate-sim.sh` script should exit 0.
+- `src/Swift.Bindings/src/Marshaler/Conductor.cs` — How generic type parameters are resolved during marshalling
+- `src/Swift.Bindings/src/TypeDatabase/TypeDatabase.cs` — Whether unbound generic params are registered
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` — Where `AnyTypeFallback` rejection happens
+- Look at how **bound** generics (e.g., `BoundIntPair`) succeed — those work because the type parameter is concretized
 
 ### Acceptance Criteria
 
-- [ ] `./validate-sim.sh 30` exits 0
-- [ ] Console shows `TEST SUCCESS`
-- [ ] All 9 tests pass
+- [ ] `Wrapper<T>`, `GenericPair<T, U>`, `GenericClass<T>`, `ConstrainedBox<T>` emit properties and constructors
+- [ ] `pair<T>()` function emits
+- [ ] TestFramework coverage report: `generic_function`, `generic_struct`, `generic_class`, `where_clause` all show `passing`
+- [ ] Existing unit tests still pass
 
 ---
 
-## Task 3: BlinkID Runtime Validation
+## Task 2: OpaquePointer in Method Signatures
 
-### Status: 🔲 Pending
-### Priority: P2
+### Priority: P2 (fixes 2 degraded features, 3 skipped members)
 ### Dependencies: None
 
 ### Problem Statement
 
-BlinkID bindings compile cleanly but have never been runtime tested. Need a test app similar to `LottieTestApp` that exercises basic BlinkID APIs.
+Methods that accept or return `OpaquePointer` (or `Optional<OpaquePointer>`) are skipped with `UnsupportedSignature`. The marshaler doesn't recognize `OpaquePointer` as a marshalable type.
 
-### Implementation Approach
+### Affected Features
 
-1. Create `BindingTesting/BlinkID/BlinkIDTestApp/` project structure
-2. Add basic tests: type metadata access, configuration, enum types
-3. Add `validate-sim.sh` script
-4. Test on simulator
+| Feature | File | Skipped Members |
+|---------|------|-----------------|
+| `opaque_pointer` | `UnsafeTypes/OpaquePointer.swift` | `opaquePointerIsValid` (free function), `HandleWrapper.describe` (method) |
+| `optional_opaque_pointer` | `UnsafeTypes/OpaquePointer.swift` | `optionalOpaquePointer` (free function) |
+
+### Expected Mapping
+
+`OpaquePointer` should map to `IntPtr` in C# (same as other unsafe pointer types). `Optional<OpaquePointer>` should map to `IntPtr` (null = `IntPtr.Zero`).
+
+### Investigation Areas
+
+- `src/Swift.Bindings/src/Marshaler/Conductor.cs` — Check if `OpaquePointer` is in the type mapping table
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` — How `OpaquePointer` appears in ABI JSON
+- Compare with `UnsafePointer<T>` / `UnsafeMutablePointer<T>` handling (those work via `IntPtr`)
 
 ### Acceptance Criteria
 
-- [ ] BlinkIDTestApp project created
-- [ ] Basic API smoke tests implemented
-- [ ] validate-sim.sh runs and reports results
+- [ ] `opaquePointerIsValid`, `HandleWrapper.describe`, `optionalOpaquePointer` emit correctly
+- [ ] OpaquePointer parameters/returns map to `IntPtr`
+- [ ] TestFramework coverage report: `opaque_pointer` and `optional_opaque_pointer` show `passing`
 
 ---
 
-## Testing Commands Reference
+## Task 3: NSObject Subclass as Method Parameter
+
+### Priority: P2 (fixes 1 degraded feature, 1 skipped member)
+### Dependencies: None
+
+### Problem Statement
+
+Free functions that take an NSObject subclass as a parameter are skipped with `UnsupportedSignature`. The NSObject subclass types themselves emit correctly — the issue is only when they appear as function parameters.
+
+### Affected Features
+
+| Feature | File | Skipped Members |
+|---------|------|-----------------|
+| `nsobject_as_parameter` | `ObjCInterop/NSObjectSubclass.swift` | `describeNSObject` (free function taking `SimpleNSObject`) |
+
+### Investigation Areas
+
+- `src/Swift.Bindings/src/Marshaler/Conductor.cs` — How NSObject subclass types are marshalled as parameters
+- The `SimpleNSObject` type itself emits fine (it's a class with SafeHandle), so the issue is in parameter resolution for functions, not type emission
+- Check if the marshaler recognizes `SimpleNSObject` as a class type when it appears as a parameter in a free function (vs. as `self` in a method)
+
+### Acceptance Criteria
+
+- [ ] `describeNSObject` free function emits with `SimpleNSObject` parameter
+- [ ] TestFramework coverage report: `nsobject_as_parameter` shows `passing`
+
+---
+
+## Task 4: Existential Type Argument in Bound Generic
+
+### Priority: P3 (fixes 1 degraded feature, 1 skipped member)
+### Dependencies: None
+
+### Problem Statement
+
+Methods with a bound generic that contains an existential type argument (e.g., `[any Describable]` which is `Array<any Describable>`) are skipped with `UnsupportedExistential`.
+
+### Affected Features
+
+| Feature | File | Skipped Members |
+|---------|------|-----------------|
+| `any_protocol_existential` | `Generics/Existentials.swift` | `describeAll` (takes `[any Describable]` parameter) |
+
+### Investigation Areas
+
+- `src/Swift.Bindings/src/Marshaler/Conductor.cs` — How existential types inside bound generics are resolved
+- This is related to the Mono JIT existential metadata bug (see `known-issues-workarounds.md`) but the issue here is at the generator level — the emitter rejects the signature before it even gets to runtime
+- `SwiftArray<ExistentialContainer>` is the runtime representation; the emitter needs to know how to marshal it
+
+### Acceptance Criteria
+
+- [ ] `describeAll` function emits (may require `[UnsupportedSwiftType]` annotation if runtime is blocked by Mono JIT bug)
+- [ ] TestFramework coverage report: `any_protocol_existential` shows `passing` (or remains `degraded` with documented runtime limitation)
+
+---
+
+## Verification
+
+After any task is completed:
 
 ```bash
-# Run all unit tests
-./run-tests.sh
+# Rebuild and check
+cd TestFramework
+./build-and-test.sh
+./generate-coverage-report.sh
 
-# Build Lottie test app
-cd BindingTesting/Lottie
-dotnet build LottieTestApp/LottieTestApp.csproj
-
-# Regenerate Lottie bindings (after generator changes)
-./regenerate-bindings.sh
-
-# Validate Lottie on simulator
-cd BindingTesting/Lottie
-./validate-sim.sh 30
-
-# Validate Nuke on simulator
-cd BindingTesting/Nuke
-./validate-sim.sh 15
+# Check degraded count decreased
+python3 -c "
+import json
+with open('output/coverage-matrix.json') as f:
+    d = json.load(f)
+mp = d['summary']['must_pass']
+print(f'Must-pass: {mp[\"passing\"]}/{mp[\"total\"]} passing, {mp[\"degraded\"]} degraded')
+for f in d['features']:
+    if f.get('test_status') == 'degraded':
+        print(f'  {f[\"name\"]}: {len(f.get(\"binding_skips\",[]))} skips')
+"
 ```
 
 ---
 
 ## Notes
 
-- Phase 43 focuses on runtime hardening across all test libraries
-- The `LottieConfiguration.Shared` issue may reveal a pattern affecting other static property getters
-- BlinkID validation is lower priority but important for proving multi-library support
-- The `comprehensive-test-library-design.md` doc (if present) may have additional context
+- All 8 degraded features are generator-side issues, not test library gaps
+- Task 1 (unbound generics) has the highest impact — 4 features and 12 skipped members
+- Tasks 2 and 3 are likely straightforward type-mapping additions
+- Task 4 may be partially blocked by the Mono JIT existential bug at runtime even if the generator is fixed
+- The comprehensive test library design doc has been archived to `src/docs/CompletedPhases/comprehensive-test-library-design.md`
+- Previous Phase 43 task specs archived to `src/docs/CompletedPhases/codex-task-specs-phase43.md`
