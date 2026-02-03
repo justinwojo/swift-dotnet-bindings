@@ -324,7 +324,7 @@ Swift Framework (.xcframework)
 - `/docs/binding-overview.md` - Binding philosophy
 - `/src/docs/emitter-redesign-proposal.md` - Architecture improvements
 - `/src/docs/CURRENT-STATUS.md` - Current compilation status and gaps
-- `/src/docs/generator-gaps.md` - Degraded features exposed by TestFramework
+- `/src/docs/remaining-work.md` - Consolidated backlog (generator gaps, runtime, validation)
 
 ### External
 - [Swift ABI Stability Manifesto](https://github.com/apple/swift/blob/main/docs/ABIStabilityManifesto.md)

@@ -150,11 +150,11 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 | File | Purpose |
 |------|---------|
 | `north-star.md` | Project vision and roadmap |
-| `generator-gaps.md` | Degraded features exposed by TestFramework (8 gaps) |
+| `remaining-work.md` | Consolidated backlog (generator gaps, runtime, validation) |
 | `comprehensive-architecture-review.md` | Strategic direction and priorities |
 | `emitter-redesign-proposal.md` | Future architecture improvement plan |
 | `known-issues-workarounds.md` | Runtime issues and workarounds |
-| `swift-concurrency-interop-plan.md` | Async/concurrency interop design (partially implemented) |
+| `CompletedPhases/swift-concurrency-interop-plan.md` | Async concurrency design (Phase 0 done, remaining work in `remaining-work.md` items 5-6) |
 
 ---
 

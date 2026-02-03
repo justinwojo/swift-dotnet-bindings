@@ -334,5 +334,5 @@ The 42 phases of work have produced a solid, working foundation. The path forwar
 - `/src/docs/CURRENT-STATUS.md` - Single source of truth for status, gaps, and coverage
 - `/src/docs/emitter-redesign-proposal.md` - Architecture improvement plan
 - `/src/docs/known-issues-workarounds.md` - Runtime issue documentation
-- `/src/docs/swift-concurrency-interop-plan.md` - Async/concurrency interop (partially implemented)
-- `/src/docs/generator-gaps.md` - Degraded features exposed by TestFramework
+- `/src/docs/CompletedPhases/swift-concurrency-interop-plan.md` - Async concurrency design (remaining work in `remaining-work.md`)
+- `/src/docs/remaining-work.md` - Consolidated backlog (generator gaps, runtime, validation)
