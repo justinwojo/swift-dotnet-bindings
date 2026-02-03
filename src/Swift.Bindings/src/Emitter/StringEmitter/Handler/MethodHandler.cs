@@ -338,6 +338,8 @@ namespace BindingsGeneration
             "IntPtrFromNonFrozen" => $"{modifier} IntPtr {Name}",
             // ObjC bridged types use IntPtr in P/Invoke
             var t when t.StartsWith("ObjCBridged:") => $"{modifier} IntPtr {Name}",
+            // Enum values use IntPtr in Swift calling-convention P/Invoke (SafeHandle is non-blittable there).
+            "EnumSafeHandle" => $"{modifier} IntPtr {Name}",
             // Native-remapped types: URL uses SafeHandle, Data uses the actual Swift type
             "NativeRemappedSafeHandle" => $"{modifier} SafeHandle {Name}",
             var t when t.StartsWith("NativeRemapped:") => $"{modifier} {t.Substring("NativeRemapped:".Length)} {Name}",
@@ -369,6 +371,7 @@ namespace BindingsGeneration
             return parameter switch
             {
                 { Type: "SafeHandle" } => $"{parameter.Name}.Payload",
+                { Type: "EnumSafeHandle" } => $"{parameter.Name}.Payload.DangerousGetHandle()",
                 { Type: "IntPtrFromNonFrozen" } => $"{parameter.Name}Handle",
                 { Type: var type } when type.EndsWith(".Buffer") => $"{parameter.Name}Disposable.Buffer",
                 { Type: "AsyncCallback" } => $"{parameter.Name}",
@@ -1042,6 +1045,10 @@ namespace BindingsGeneration
                     // Use IntPtr and manage lifetime manually via DangerousAddRef/DangerousRelease.
                     if (_env.MethodDecl.IsAsync)
                         AddParameter("IntPtrFromNonFrozen", argument.Name);
+                    // Enum values are projected as managed wrappers, but SafeHandle is non-blittable
+                    // for Swift calling convention P/Invoke. Pass raw payload pointer instead.
+                    else if (argumentTypeRecord.Kind == TypeRecordKind.Enum)
+                        AddParameter("EnumSafeHandle", argument.Name);
                     else
                         AddParameter("SafeHandle", argument.Name);
                     continue;

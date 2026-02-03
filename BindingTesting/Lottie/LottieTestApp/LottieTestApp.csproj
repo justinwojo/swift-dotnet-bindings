@@ -17,6 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <BundleResource Include="Resources/test-animation.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
   </ItemGroup>
 

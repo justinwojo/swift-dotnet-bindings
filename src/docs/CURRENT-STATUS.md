@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 41 Complete)
-**Unit Tests**: 1029 passed
+**Last Updated**: February 2026 (Phase 42 Complete)
+**Unit Tests**: 1032 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
 ---
@@ -12,7 +12,7 @@
 |---------|------------------|-------------------|
 | **Nuke** | 0 ✅ | Full runtime validation |
 | **BlinkID** | 0 ✅ | Compiles clean |
-| **Lottie** | 0 ✅ | Compiles clean (test app needs update) |
+| **Lottie** | 0 ✅ | Runtime validated (8/9 tests pass) |
 
 ---
 
@@ -21,7 +21,7 @@
 ### Types
 - ✅ Classes (with ARC via SafeHandle)
 - ✅ Structs (frozen and non-frozen)
-- ✅ Enums (with associated values, raw representable)
+- ✅ Enums (with associated values, raw representable, runtime enum case construction)
 - ✅ Protocols (interface + proxy generation)
 - ✅ Generics (bound generics, generic enums, generic classes)
 
@@ -37,6 +37,7 @@
 - ✅ Closures (@convention(c), @escaping with frozen types)
 - ✅ Tuples (1-7 elements)
 - ✅ Existential containers (protocol composition)
+- ✅ CoreGraphics opaque types (CGImage, CGColor, CGContext → IntPtr)
 
 ### DX Features
 - ✅ Binding completeness report (`binding-report.json`)
@@ -64,16 +65,27 @@
 
 ---
 
-## Recent Completions (Phase 41)
+## Recent Completions (Phase 42)
 
-### Eliminated All Generator Errors
-- **CS0029** (4 errors) - Closure callback return types for frozen/non-frozen structs
-- **CS1061** (1 error) - Generic enum factory T0.Payload assumption
-- **CS0305** (2 errors) - Generic type self-reference missing type arguments
+### Lottie Runtime Validation
+- 8/9 runtime tests pass on iOS Simulator
+- LottieColor creation, animation loading, vector types, enum cases all work
+- 1 pre-existing failure: `LottieConfiguration.Shared` property getter NullRef
+
+### Enum Case Construction Fix
+- Simple enum cases now use `DestructiveInjectEnumTag` (not P/Invoke)
+- Enum case symbols (`...mF`) are not exported; `...mFWC` are data, not functions
+- Non-frozen enum parameters use scoped `EnumSafeHandle` → `IntPtr` for `CallConvSwift`
+
+### CoreGraphics Type Stubs
+- CGImage, CGColor, CGContext, CGColorSpace → IntPtr (opaque handles)
+- Ref suffix alias resolution (CGImage ↔ CGImageRef)
+- Lottie skipped members reduced: 63 → 59
 
 ### Test Coverage
-- Unit tests: 1029 (up from 1018)
-- All three test libraries compile with 0 generator errors
+- Unit tests: 1032 (up from 1029)
+- Integration tests: 678 passed
+- Runtime tests: 108 passed
 
 ---
 
@@ -89,10 +101,11 @@
 
 ## Development History
 
-41 phases of improvements tracked in git history. Key milestones:
+42 phases of improvements tracked in git history. Key milestones:
 - Phase 1-15: Core infrastructure and Nuke validation
 - Phase 16-29: Type system and runtime fixes
 - Phase 30-33: Generic type improvements
 - Phase 34-39: Codex task completion (operators, enums, reporting)
 - Phase 40: Protocol conformance infrastructure, namespace mapping
 - Phase 41: Generic type fixes, 0 generator errors achieved
+- Phase 42: Lottie runtime validation, enum case construction, CoreGraphics stubs

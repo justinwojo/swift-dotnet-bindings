@@ -198,24 +198,14 @@ namespace BindingsGeneration
         /// <inheritdoc/>
         public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
         {
-            if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
-            {
-                if (moduleDatabase.TryGetTypeRecord(swiftTypeName, out record))
-                    return true;
-            }
+            if (TryGetTypeRecordInternal(swiftTypeName, out record))
+                return true;
 
-            // Try module alias (e.g., CoreFoundation -> CoreGraphics)
-            if (_moduleAliases.TryGetValue(swiftTypeName.Module, out var aliasedModule))
-            {
-                if (_modules.TryGetValue(aliasedModule, out moduleDatabase))
-                {
-                    // Create an aliased SwiftTypeName with the canonical module
-                    var aliasedTypeName = SwiftTypeName.FromModuleQualifiedName(
-                        $"{aliasedModule}.{swiftTypeName.Name}");
-                    if (moduleDatabase.TryGetTypeRecord(aliasedTypeName, out record))
-                        return true;
-                }
-            }
+            // C-interop aliases often use either Foo or FooRef across sources.
+            // Try a suffix variant to avoid missing CoreGraphics/CoreFoundation typedef-backed types.
+            var refVariant = GetRefAliasVariant(swiftTypeName);
+            if (refVariant != null && TryGetTypeRecordInternal(refVariant, out record))
+                return true;
 
             // Try looking in the out-of-module types
             if (_outOfModuleTypes.TryGetValue(swiftTypeName, out record))
@@ -237,21 +227,11 @@ namespace BindingsGeneration
         /// <inheritdoc/>
         public bool IsTypeProcessed(SwiftTypeName swiftTypeName)
         {
-            if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
-                return moduleDatabase.IsTypeProcessed(swiftTypeName);
+            if (IsTypeProcessedInternal(swiftTypeName))
+                return true;
 
-            // Try module alias (e.g., CoreFoundation -> CoreGraphics)
-            if (_moduleAliases.TryGetValue(swiftTypeName.Module, out var aliasedModule))
-            {
-                if (_modules.TryGetValue(aliasedModule, out moduleDatabase))
-                {
-                    var aliasedTypeName = SwiftTypeName.FromModuleQualifiedName(
-                        $"{aliasedModule}.{swiftTypeName.Name}");
-                    return moduleDatabase.IsTypeProcessed(aliasedTypeName);
-                }
-            }
-
-            return false;
+            var refVariant = GetRefAliasVariant(swiftTypeName);
+            return refVariant != null && IsTypeProcessedInternal(refVariant);
         }
 
         /// <summary>
@@ -280,6 +260,61 @@ namespace BindingsGeneration
             {
                 _outOfModuleTypes.TryAdd(identifier, record);
             }
+        }
+
+        private bool TryGetTypeRecordInternal(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        {
+            if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
+            {
+                if (moduleDatabase.TryGetTypeRecord(swiftTypeName, out record))
+                    return true;
+            }
+
+            // Try module alias (e.g., CoreFoundation -> CoreGraphics)
+            if (_moduleAliases.TryGetValue(swiftTypeName.Module, out var aliasedModule))
+            {
+                if (_modules.TryGetValue(aliasedModule, out moduleDatabase))
+                {
+                    // Preserve full nested name while remapping only the root module segment.
+                    var aliasedQualifiedName = $"{aliasedModule}.{swiftTypeName.ModuleQualifiedName[(swiftTypeName.Module.Length + 1)..]}";
+                    var aliasedTypeName = SwiftTypeName.FromModuleQualifiedName(aliasedQualifiedName);
+                    if (moduleDatabase.TryGetTypeRecord(aliasedTypeName, out record))
+                        return true;
+                }
+            }
+
+            record = null;
+            return false;
+        }
+
+        private bool IsTypeProcessedInternal(SwiftTypeName swiftTypeName)
+        {
+            if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
+                return moduleDatabase.IsTypeProcessed(swiftTypeName);
+
+            // Try module alias (e.g., CoreFoundation -> CoreGraphics)
+            if (_moduleAliases.TryGetValue(swiftTypeName.Module, out var aliasedModule))
+            {
+                if (_modules.TryGetValue(aliasedModule, out moduleDatabase))
+                {
+                    var aliasedQualifiedName = $"{aliasedModule}.{swiftTypeName.ModuleQualifiedName[(swiftTypeName.Module.Length + 1)..]}";
+                    var aliasedTypeName = SwiftTypeName.FromModuleQualifiedName(aliasedQualifiedName);
+                    return moduleDatabase.IsTypeProcessed(aliasedTypeName);
+                }
+            }
+
+            return false;
+        }
+
+        private static SwiftTypeName? GetRefAliasVariant(SwiftTypeName swiftTypeName)
+        {
+            var fullName = swiftTypeName.ModuleQualifiedName;
+            if (fullName.EndsWith("Ref", StringComparison.Ordinal))
+            {
+                return SwiftTypeName.FromModuleQualifiedName(fullName[..^3]);
+            }
+
+            return SwiftTypeName.FromModuleQualifiedName($"{fullName}Ref");
         }
     }
 }

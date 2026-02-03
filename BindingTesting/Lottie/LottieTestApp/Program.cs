@@ -310,11 +310,15 @@ public class MainViewController : UIViewController
             await RunTestAsync("LottieColor", TestLottieColorAsync, results);
             await Task.Delay(100);
 
-            // Test 4: LottieVector types
+            // Test 4: LottieAnimation from bundled JSON
+            await RunTestAsync("LottieAnimation JSON", TestLottieAnimationFromBundledJsonAsync, results);
+            await Task.Delay(100);
+
+            // Test 5: LottieVector types
             await RunTestAsync("LottieVector", TestLottieVectorAsync, results);
             await Task.Delay(100);
 
-            // Test 5: Enum types
+            // Test 6: Enum types
             await RunTestAsync("Enum Types", TestEnumTypesAsync, results);
             await Task.Delay(100);
         }
@@ -328,13 +332,14 @@ public class MainViewController : UIViewController
         TestLogger.Info("=== TEST SUMMARY ===");
         TestLogger.Info(results.ToString());
 
-        if (results.AllPassed || results.Passed >= 3)
+        if (results.AllPassed)
         {
             Console.WriteLine("TEST SUCCESS");
             TestLogger.Success("=== VALIDATION PASSED ===");
         }
         else
         {
+            Console.WriteLine($"TEST FAILURE: {results.Failed} tests failed");
             TestLogger.Error("=== VALIDATION FAILED ===");
             foreach (var failed in results.FailedTests)
             {
@@ -444,7 +449,7 @@ public class MainViewController : UIViewController
         try
         {
             // Create a LottieColor
-            var color = new LottieColor(1.0, 0.5, 0.25, 1.0);
+            var color = new LottieColor(1.0, 0.5, 0.25, 1.0, ColorFormatDenominator.One);
             TestLogger.Info($"Created LottieColor with r=1.0, g=0.5, b=0.25, a=1.0");
 
             // Verify the color values
@@ -468,6 +473,48 @@ public class MainViewController : UIViewController
         catch (Exception ex)
         {
             results.Fail("LottieColor creation", ex.Message);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task TestLottieAnimationFromBundledJsonAsync(TestResults results)
+    {
+        TestLogger.Info("Testing LottieAnimation from bundled JSON...");
+
+        try
+        {
+            var jsonPath = NSBundle.MainBundle.PathForResource("test-animation", "json");
+            if (string.IsNullOrEmpty(jsonPath))
+            {
+                results.Fail("LottieAnimation JSON load", "Bundled test-animation.json not found");
+                return Task.CompletedTask;
+            }
+
+            using var data = NSData.FromFile(jsonPath);
+            if (data == null)
+            {
+                results.Fail("LottieAnimation JSON load", "Failed to read JSON file into NSData");
+                return Task.CompletedTask;
+            }
+
+            var animation = LottieAnimation.From(data, DecodingStrategy.DictionaryBased);
+            TestLogger.Info($"Animation loaded: duration={animation.Duration}, framerate={animation.Framerate}, start={animation.StartFrame}, end={animation.EndFrame}");
+
+            if (animation.Framerate > 0 &&
+                animation.EndFrame >= animation.StartFrame &&
+                animation.Duration >= 0)
+            {
+                results.Pass("LottieAnimation from bundled JSON");
+            }
+            else
+            {
+                results.Fail("LottieAnimation from bundled JSON", "Animation properties are invalid");
+            }
+        }
+        catch (Exception ex)
+        {
+            results.Fail("LottieAnimation from bundled JSON", ex.Message);
         }
 
         return Task.CompletedTask;

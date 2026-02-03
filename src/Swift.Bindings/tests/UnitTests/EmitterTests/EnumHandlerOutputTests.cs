@@ -24,7 +24,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         Assert.Contains("public static Direction North", csOutput);
-        Assert.Contains("private static extern void PInvoke_North(SwiftIndirectResult result);", csOutput);
+        Assert.Contains("metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)0, metadata);", csOutput);
         Assert.Contains("public enum CaseTag : uint", csOutput);
         Assert.Contains("North = 0,", csOutput);
         Assert.Contains("South = 1,", csOutput);

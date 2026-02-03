@@ -233,6 +233,28 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_MethodWithNonFrozenEnumParameter_UsesIntPtrInPInvokeSignature()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "setDenominator",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("denominator", new NamedTypeSpec("TestModule.ColorFormatDenominator"), moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("IntPtr denominator", csOutput);
+        Assert.Contains("denominator.Payload.DangerousGetHandle()", csOutput);
+    }
+
+    [Fact]
     public void Emit_MethodWithEscapingClosureReturningFrozenStruct_EmitsTypedCallbackReturn()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -471,6 +493,16 @@ public class MethodHandlerOutputTests
                 MetadataAccessor = "$s10TestModule11LottieColorVMa",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Struct
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ColorFormatDenominator"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "ColorFormatDenominator"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ColorFormatDenominator"),
+                MetadataAccessor = "$s10TestModule22ColorFormatDenominatorOMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Enum
             });
         typeDatabase.AddModuleDatabase(module);
 

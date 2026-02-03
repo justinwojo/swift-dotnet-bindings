@@ -270,7 +270,7 @@ The binding report (`binding-report.json`) documents which APIs use wrappers and
 Testing across Nuke, BlinkID, and Lottie:
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅ (compiles clean)
-- **Lottie**: 0 errors ✅ (compiles clean)
+- **Lottie**: 0 errors ✅ (runtime validated - 8/9 tests pass)
 - See `/src/docs/CURRENT-STATUS.md` for current status
 
 ---

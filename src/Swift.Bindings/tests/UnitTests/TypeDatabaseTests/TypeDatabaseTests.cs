@@ -28,6 +28,22 @@ public class TypeDatabaseTests
         </swifttypedatabase>
         """;
 
+    private const string CoreGraphicsOpaqueHandleXmlDatabase = """
+        <swifttypedatabase version="1.0" moduleName="CoreGraphics" modulePath="/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics">
+          <entities>
+            <entity managedNameSpace="System" managedTypeName="IntPtr">
+              <typedeclaration module="CoreGraphics" name="CGImage" mangledName="" frozen="true" requiresMemoryManagement="false" />
+            </entity>
+            <entity managedNameSpace="System" managedTypeName="IntPtr">
+              <typedeclaration module="CoreGraphics" name="CGColor" mangledName="" frozen="true" requiresMemoryManagement="false" />
+            </entity>
+            <entity managedNameSpace="System" managedTypeName="IntPtr">
+              <typedeclaration module="CoreGraphics" name="CGContext" mangledName="" frozen="true" requiresMemoryManagement="false" />
+            </entity>
+          </entities>
+        </swifttypedatabase>
+        """;
+
         [Fact]
         public void AddModuleDatabase_ModuleExists_Throws()
         {
@@ -305,6 +321,59 @@ public class TypeDatabaseTests
             {
                 File.Delete(filePath);
             }
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabaseFromFile_CoreGraphicsOpaqueHandleTypes_MapToIntPtr()
+        {
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, CoreGraphicsOpaqueHandleXmlDatabase);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(filePath);
+
+                var expectedTypes = new[] { "CGImage", "CGColor", "CGContext" };
+                foreach (var typeName in expectedTypes)
+                {
+                    var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"CoreGraphics.{typeName}");
+                    Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+                    Assert.NotNull(record);
+                    Assert.Equal("System", record!.CSharpTypeName.Namespace);
+                    Assert.Equal("IntPtr", record.CSharpTypeName.Name);
+                }
+            }
+            finally
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        [Fact]
+        public void TryGetTypeRecord_ResolvesRefSuffixAlias_BothDirections()
+        {
+            var typeDatabase = new TypeDatabase();
+            var module = new ModuleTypeDatabase("CoreGraphics", "/fake/path");
+            var refTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGImageRef");
+            module.RegisterType(refTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "IntPtr"),
+                SwiftTypeName = refTypeName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+            typeDatabase.AddModuleDatabase(module);
+
+            var noRefName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGImage");
+            Assert.True(typeDatabase.TryGetTypeRecord(noRefName, out var noRefRecord));
+            Assert.NotNull(noRefRecord);
+            Assert.Equal("IntPtr", noRefRecord!.CSharpTypeName.Name);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(refTypeName, out var refRecord));
+            Assert.NotNull(refRecord);
+            Assert.Equal("IntPtr", refRecord!.CSharpTypeName.Name);
         }
     }
 }

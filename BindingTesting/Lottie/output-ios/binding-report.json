@@ -1,13 +1,13 @@
 {
   "ModuleName": "Lottie",
-  "GeneratedAt": "2026-02-03T00:49:59.493371+00:00",
+  "GeneratedAt": "2026-02-03T04:40:57.596633+00:00",
   "TotalTypes": 93,
   "EmittedTypes": 79,
   "SkippedTypes": 1,
   "TotalMembers": 609,
-  "EmittedMembers": 365,
-  "SkippedMembers": 63,
-  "SynthesizedMembers": 263,
+  "EmittedMembers": 369,
+  "SkippedMembers": 59,
+  "SynthesizedMembers": 265,
   "SkippedItems": [
     {
       "Kind": "Property",
@@ -89,13 +89,6 @@
     {
       "Kind": "Method",
       "Name": "init",
-      "ContainingType": "Lottie.FilepathImageProvider",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
-    },
-    {
-      "Kind": "Method",
-      "Name": "imageForAsset",
       "ContainingType": "Lottie.FilepathImageProvider",
       "Reason": "UnsupportedSignature",
       "Details": "Method signature contains unsupported placeholder type."
@@ -190,20 +183,6 @@
       "ContainingType": "Lottie.ColorValueProvider",
       "Reason": "UnsatisfiedGenericConstraint",
       "Details": "Type argument 'Lottie.LottieColor' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
-    },
-    {
-      "Kind": "Property",
-      "Name": "colorSpace",
-      "ContainingType": "Lottie.LottieConfiguration",
-      "Reason": "UnsupportedType",
-      "Details": "Type resolution failed for property type 'CoreGraphics.CGColorSpace'."
-    },
-    {
-      "Kind": "Method",
-      "Name": "init",
-      "ContainingType": "Lottie.LottieConfiguration",
-      "Reason": "UnsupportedSignature",
-      "Details": "Constructor signature contains unsupported placeholder type."
     },
     {
       "Kind": "Method",
@@ -341,13 +320,6 @@
     {
       "Kind": "Method",
       "Name": "init",
-      "ContainingType": "Lottie.BundleImageProvider",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
-    },
-    {
-      "Kind": "Method",
-      "Name": "imageForAsset",
       "ContainingType": "Lottie.BundleImageProvider",
       "Reason": "UnsupportedSignature",
       "Details": "Method signature contains unsupported placeholder type."

@@ -141,7 +141,8 @@ namespace BindingsGeneration
             // Precompute naming-collision context for enum properties.
             var nestedTypeNames = new HashSet<string>(enumDecl.Types.Select(t => t.Name));
 
-            // Handle simple cases via RawRepresentable if available, otherwise via direct P/Invoke
+            // Handle simple cases via RawRepresentable if available, otherwise via enum-tag construction.
+            // Enum element symbols from ABI JSON are often not exported callable functions.
             if (simpleCases.Count > 0)
             {
                 if (enumDecl.IsRawRepresentable)
@@ -150,10 +151,10 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    // No RawRepresentable - emit simple cases via direct P/Invoke
+                    // No RawRepresentable - construct no-payload cases from enum tag.
                     foreach (var caseDecl in simpleCases)
                     {
-                        EmitSimpleCaseDirectPInvoke(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext);
+                        EmitSimpleCaseFromTag(csWriter, enumDecl, caseDecl, typeNameWithGenerics);
                     }
                 }
             }
@@ -262,15 +263,14 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits a simple enum case (no associated values) via direct P/Invoke.
-        /// Swift enum case constructors use indirect return - they write to a buffer provided by the caller.
+        /// Emits a simple enum case (no associated values) by writing the enum tag directly.
+        /// This avoids relying on enum element symbols, which are not guaranteed to be exported as callable functions.
         /// </summary>
-        private void EmitSimpleCaseDirectPInvoke(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext)
+        private void EmitSimpleCaseFromTag(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, string enumTypeName)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
-            var pInvokeName = $"PInvoke_{capitalizedName}";
-            var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+            var caseTag = enumDecl.GetCaseTag(caseDecl);
 
             // Generate a static property for this case with backing P/Invoke
             csWriter.WriteLine($"/// <summary>");
@@ -282,22 +282,10 @@ namespace BindingsGeneration
             csWriter.WriteLine("get");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-
-            // Swift enum case constructors use indirect return - allocate buffer and pass it
             csWriter.WriteLine($"var result = new {enumTypeName}();");
-            var getMetadataCall = pinvokeHelperContext != null
-                ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
-                : "PInvoke_getMetadata()";
-            csWriter.WriteLine($"var metadata = {getMetadataCall};");
+            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{enumTypeName}>.GetTypeMetadata();");
             csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
-            csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
-            var invokeArgs = pinvokeHelperContext != null
-                ? $"indirectResult, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())}"
-                : "indirectResult";
-            var pInvokeTarget = pinvokeHelperContext != null
-                ? $"{pinvokeHelperContext.HelperClassName}.{pInvokeName}"
-                : pInvokeName;
-            csWriter.WriteLine($"{pInvokeTarget}({invokeArgs});");
+            csWriter.WriteLine($"metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint){caseTag}, metadata);");
             csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
             csWriter.WriteLine("return result;");
 
@@ -306,28 +294,6 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
-
-            // P/Invoke declaration for the case constructor - uses indirect result
-            if (pinvokeHelperContext != null)
-            {
-                pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
-                {
-                    LibraryPath = libPath,
-                    EntryPoint = caseDecl.MangledName,
-                    MethodName = pInvokeName,
-                    ReturnType = "void",
-                    ParametersString = "SwiftIndirectResult result",
-                    IsAsync = false,
-                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
-                });
-            }
-            else
-            {
-                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
-                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine($"private static extern void {pInvokeName}(SwiftIndirectResult result);");
-                csWriter.WriteLine();
-            }
         }
 
         /// <summary>
