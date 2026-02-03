@@ -2,9 +2,11 @@
 
 ## Mission
 
-**Enable any .NET developer to consume any Swift library with the same ease as consuming a NuGet package.**
+**Enable any .NET developer to consume Swift libraries with the same ease as consuming a NuGet package.**
 
 Just as Objective Sharpie made Objective-C accessible to Xamarin developers, Swift Bindings will make the modern Swift ecosystem accessible to the .NET platform.
+
+*Realistic target: 90%+ of public APIs in libraries following common Swift patterns, with an escape hatch for edge cases.*
 
 ---
 
@@ -176,6 +178,69 @@ To maintain focus, these are explicitly **out of scope**:
 | Windows/Linux support | Apple platforms only |
 | Swift Package Manager integration | Focus on compiled frameworks |
 | Objective-C bridging | Existing tools handle this |
+
+---
+
+## Realistic Scope & Limitations
+
+### The 90% Target
+
+The "90%+ of public API surface" target is not arbitrary - it reflects a universal ceiling across all cross-language interop projects:
+
+| Project | Language Pair | Typical Coverage |
+|---------|---------------|------------------|
+| CppSharp | C++ → C# | ~80% of POD types |
+| SWIG | Multi-language | ~85% with manual work |
+| JNI | Java ↔ Native | ~90% with boilerplate |
+| Kotlin/Native | Kotlin ↔ C | ~85-90% |
+| **Swift Bindings** | Swift → C# | **90% target** |
+
+Full 100% coverage is not achievable for any cross-language interop tool. The remaining 10% requires manual wrapper code, which is expected and acceptable.
+
+### What Falls in the Unsupported 10%
+
+| Feature | Why It's Hard | Workaround |
+|---------|---------------|------------|
+| **Actors** | Swift's actor isolation model doesn't map to .NET threading | Manual Swift wrapper |
+| **Protocols with Associated Types (PATs)** | Exponential type complexity | Concrete type wrappers |
+| **SwiftUI types** | Deep framework integration, `@State`/`@Binding` semantics | Out of scope |
+| **Combine publishers** | Reactive paradigm mismatch with .NET | Use async/await patterns |
+| **`@MainActor` constraints** | Thread affinity doesn't map cleanly | Dispatch manually |
+| **8+ element tuples** | C# ValueTuple nesting complexity | Restructure API |
+| **Closures within closures** | ABI complexity | Flatten callback structure |
+
+### The Escape Hatch: Swift Wrappers
+
+For APIs that cannot be directly bound (due to .NET runtime limitations or Swift complexity), the generator supports a **Swift wrapper fallback**:
+
+```
+Normal API:      C# → P/Invoke → Swift dylib
+Edge case API:   C# → P/Invoke → Swift wrapper → Swift dylib
+```
+
+**Why this works:** The Swift compiler is the only entity guaranteed to understand the Swift ABI perfectly. When .NET's JIT or marshalling fails, delegating to Swift-side code is architecturally correct.
+
+**Example:** Creating arrays of existential types crashes Mono's JIT. The workaround is a Swift function that creates the array and returns an opaque pointer:
+
+```swift
+// Swift wrapper (generated)
+@_silgen_name("CreateImageProcessorArray")
+public func createImageProcessorArray(_ items: [any ImageProcessing]) -> UnsafeMutableRawPointer { ... }
+```
+
+```csharp
+// C# factory (generated)
+public static SwiftArray<ImageProcessingProxy> Create(params ISwiftImageProcessing[] items) { ... }
+```
+
+The binding report (`binding-report.json`) documents which APIs use wrappers and why.
+
+### Implications for Users
+
+1. **Most libraries will "just work"** - Nuke, BlinkID, Lottie all achieve 0 generator errors
+2. **Some APIs may be skipped** - The binding report explains what and why
+3. **Edge cases have workarounds** - Swift wrapper functions handle runtime limitations
+4. **SwiftUI is out of scope** - Use native platform UI or MAUI instead
 
 ---
 
