@@ -11,8 +11,18 @@
 | Library | Generator Errors | Runtime Validation |
 |---------|------------------|-------------------|
 | **Nuke** | 0 ✅ | Full runtime validation |
-| **BlinkID** | 0 ✅ | Compiles clean |
+| **BlinkID** | 0 ✅ | Compiles clean (no runtime tests yet) |
 | **Lottie** | 0 ✅ | Runtime validated (8/9 tests pass) |
+
+### Binding Coverage
+
+| Library | Types | Type % | Members | Member % |
+|---------|-------|--------|---------|----------|
+| BlinkID | 116/119 | 97.5% | 559/655 | 85.3% |
+| Nuke | 60/68 | 88.2% | 325/490 | 66.3% |
+| Lottie | 79/93 | 84.9% | 365/609 | 59.9% |
+
+Member coverage gaps are primarily due to unsupported signatures and existential edge cases. Target is 90%+ for common API patterns.
 
 ---
 
@@ -28,7 +38,7 @@
 ### Members
 - ✅ Methods (instance, static, async)
 - ✅ Properties (getters and setters)
-- ✅ Operators (+, -, ==, !=, <, >, etc.)
+- ✅ Operators (+, -, ==, !=, <, >, etc. with automatic pair synthesis)
 - ✅ Constructors
 - ✅ Subscripts (as C# indexers)
 
@@ -50,6 +60,7 @@
 ## What Doesn't Work
 
 ### Architectural Gaps
+- ❌ **Protocol conformance emission** - Types don't emit `ISwiftProtocol` implementations for Swift protocol conformances (blocks Lottie's `ISwiftAnyInterpolatable` requirement)
 - ❌ **Async properties** - Properties with async getters
 - ❌ **Actors** - Swift actor types
 - ❌ **Protocol witness tables** - Full witness table handling
@@ -62,6 +73,13 @@
 - ❌ **8+ element tuples** - Would require ValueTuple nesting
 - ❌ **Closures within closures** - Not supported
 - ❌ **Generic associated types** - PATs limited
+- ❌ **Async+throwing closures at runtime** - Binding generation works but runtime blocked by existential metadata Mono JIT bug
+
+### Known Runtime Issues
+- **Lottie**: `LottieConfiguration.Shared` property getter returns non-null object but property access throws `NullReferenceException` (1/9 test failure)
+- **Mono JIT**: `swift_getExistentialTypeMetadata` crash when creating `SwiftArray<ExistentialContainer>` (workaround: Swift wrapper functions)
+- **SafeHandle in async**: .NET runtime doesn't preserve SafeHandle through async P/Invoke (workaround: singleton pattern + IntPtr conversion)
+- See `known-issues-workarounds.md` for full details
 
 ---
 
@@ -89,13 +107,16 @@
 
 ---
 
-## Key Files
+## Active Documentation
 
 | File | Purpose |
 |------|---------|
 | `north-star.md` | Project vision and roadmap |
-| `known-issues-workarounds.md` | Runtime issues (Mono JIT bugs) |
-| `emitter-redesign-proposal.md` | Architecture improvement plan |
+| `codex-task-specs.md` | Current phase task specifications |
+| `comprehensive-architecture-review.md` | Strategic direction and priorities |
+| `emitter-redesign-proposal.md` | Future architecture improvement plan |
+| `known-issues-workarounds.md` | Runtime issues and workarounds |
+| `swift-concurrency-interop-plan.md` | Async/concurrency interop design (partially implemented) |
 
 ---
 

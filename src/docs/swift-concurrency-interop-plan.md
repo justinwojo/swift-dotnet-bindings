@@ -2,34 +2,33 @@
 
 **Status**: PARTIALLY IMPLEMENTED
 **Created**: 2026-01-31
-**Updated**: 2026-01-31
+**Updated**: 2026-02-02
 **Analysis**: Collaborative analysis with Claude and Grok to understand Swift concurrency internals
 
 ---
 
 ## Implementation Status
 
-### Completed
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 0 | Validate hook approach | ✅ Complete |
+| Phase 24 fix | Instance async methods | ✅ Complete |
+| Phase 1 | Swift runtime support library | Not started |
+| Phase 2 | Build infrastructure | Not started |
+| Phase 3 | C# runtime integration | Not started |
+| Phase 4 | Update tests | Not started |
+| Phase 5 | Documentation | Not started |
 
-- **Phase 0 validation**: Hook approach works for **static async methods**
-- **Hook implementation**: Using `dlsym` + custom `SerialExecutor` pattern (like swift-concurrency-extras)
-- **TestStaticMethods**: Now passes
+### What Works Now
 
-### Fixed (Phase 24)
+- Static async methods via `swift_task_enqueueGlobal_hook` + `dlsym` + custom `SerialExecutor`
+- Instance async methods (SafeHandle release deferred until async callback, `UnsafePointer<T>.pointee` for structs)
+- Tests passing: `TestInstanceMethods`, `TestStaticMethods`
 
-- **Instance async methods**: Fixed in Phase 24
-  - Root cause was twofold:
-    1. `DangerousRelease()` was called immediately after PInvoke returns, but async operation still running
-    2. Swift wrapper used `unsafeBitCast` for structs instead of `UnsafePointer.pointee` to dereference
-  - Fix: Added `DeferredSafeHandleRelease` wrapper to defer SafeHandle release until async callback
-  - Fix: Updated Swift wrapper to use `UnsafePointer<T>(_self).pointee` for struct instance methods
-  - Tests now passing: `TestInstanceMethods`, `TestStaticMethods`
+### What's Blocked
 
-### Remaining Issues
-
-- **Async callback marshalling**: `TestArray` and `TestString` blocked by separate marshalling issue
-  - Error: `Cannot marshal type System.String from Swift` in async callbacks
-  - This is a different issue requiring async result marshalling support for complex types
+- **TestArray and TestString**: Blocked by separate async callback marshalling issue (`Cannot marshal type System.String from Swift`)
+- **Formalized runtime library**: The hook works in test code but hasn't been promoted to a proper shared library (Phases 1-3 below)
 
 ---
 

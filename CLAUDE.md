@@ -163,33 +163,35 @@ Output: NuGet package with C# bindings
 
 ## Current Capabilities
 
-**Status** (February 2026 - Phase 39):
-- **Unit Tests**: 1009 passed
+**Status** (February 2026 - Phase 42):
+- **Unit Tests**: 1032 passed
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅
-- **Lottie**: 11 errors (architectural gaps)
+- **Lottie**: 0 errors ✅ (runtime validated, 8/9 tests pass)
 
 **Working**:
-- Classes, structs (frozen and non-frozen), enums (with associated values)
-- Instance and static methods, properties (getters)
+- Classes, structs (frozen and non-frozen), enums (with associated values, runtime case construction)
+- Instance and static methods, properties (getters and setters)
 - Async methods (via Swift wrapper generation)
 - Protocols (interfaces + proxy generation for C# implementations)
-- Generics (bound generics, generic enums, generic types with DllImport)
+- Generics (bound generics, generic enums, generic classes with DllImport)
 - SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>
 - Closures (`@convention(c)` and `@escaping` with frozen types)
 - Tuples (1-7 elements with frozen types)
 - Operators (arithmetic, comparison, bitwise, unary; automatic pair synthesis)
 - Existential containers (protocol composition types)
+- CoreGraphics opaque types (CGImage, CGColor, CGContext → IntPtr)
 - Binding completeness report (`binding-report.json`)
 - `[UnsupportedSwiftType]` attribute on degraded members
 - StoreKit 2 bindings (published as experimental NuGet)
 
 **Not Working**:
-- Property setters (only getters emitted)
+- Protocol conformance emission (types don't implement protocol interfaces)
 - Async properties
 - SwiftUI/Combine framework types (skipped)
-- Protocol conformance emission (types don't implement protocol interfaces)
 - Actors
+
+See `src/docs/CURRENT-STATUS.md` for full status details.
 
 **Example Usage** (from README):
 ```csharp
@@ -287,24 +289,23 @@ Swift: prefix static func !(v: T) -> Bool      →  public static bool operator 
 
 | Feature | Issue | Impact |
 |---------|-------|--------|
-| **Existential Containers** | #2875 | Protocol composition types fail |
-| **Generic Types (unbound)** | Marked Unknown | Generic type definitions skipped |
+| **Protocol Conformance Emission** | Not started | Types don't implement protocol interfaces |
 | **Async Properties** | #2996 | Properties with async getters unsupported |
 | **Actors** | No design | Swift actors unsupported |
 | **PATs (full)** | Partial | Protocols with associated types limited |
 
 ### Partially Implemented
 
-- **Generics**: Bound generics work; generic type definitions marked Unknown
-- **Protocols**: Basic conformance; methods/properties incomplete
-- **Enums with payloads**: Discriminated unions complex
+- **Generics**: Bound generics, generic enums, generic classes work; unbound generic type definitions limited
+- **Protocols**: Interface + proxy generation works; protocol conformance emission not yet done
 - **JSON TBD format**: Only YAML-like format works
 
-### Known Bugs
+### Known Runtime Issues
 
-- Type metadata cache can return wrong values (#2966)
-- Cross-module type references have workarounds
-- Namespace mapping uses temporary `Swift.{Module}` pattern
+- Mono JIT bug: `swift_getExistentialTypeMetadata` crash (workaround: Swift wrappers)
+- SafeHandle in async P/Invoke not preserved (workaround: singleton pattern + IntPtr)
+- Non-blittable types with `CallConvSwift` require `IntPtr` + manual marshalling
+- See `src/docs/known-issues-workarounds.md` for details
 
 ## Building & Testing
 

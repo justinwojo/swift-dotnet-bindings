@@ -1,14 +1,14 @@
 # Comprehensive Architecture Review: Swift Bindings
 
 **Date**: February 2026
-**Status**: Phase 41 Complete (1029 tests, 0 generator errors on Nuke/BlinkID/Lottie)
+**Status**: Phase 42 Complete (1032 tests, 0 generator errors on Nuke/BlinkID/Lottie)
 **Reviewers**: Claude, Grok, Gemini, Codex
 
 ---
 
 ## Executive Summary
 
-After 41 phases of development resulting in a 30K LOC generator and 9K LOC runtime, we have achieved functional Swift-to-C# bindings that work at runtime for real libraries (Nuke image loading). This review examines whether our fundamental approach is sound and what changes, if any, we should make going forward.
+After 42 phases of development resulting in a 30K LOC generator and 9K LOC runtime, we have achieved functional Swift-to-C# bindings that work at runtime for real libraries (Nuke, Lottie). This review examines whether our fundamental approach is sound and what changes, if any, we should make going forward.
 
 **Key Findings:**
 
@@ -28,7 +28,7 @@ After 41 phases of development resulting in a 30K LOC generator and 9K LOC runti
 |-----------|------|---------|
 | Generator (Swift.Bindings) | 29,614 LOC | 93 public classes, 43 handlers |
 | Runtime (Swift.Runtime) | 9,043 LOC | Clean SafeHandle-based ARC bridge |
-| Test Coverage | 34,395 LOC | 1.16:1 test-to-code ratio |
+| Test Coverage | 34,395 LOC | 1.16:1 test-to-code ratio (1032 unit tests) |
 | **Total** | ~73K LOC | Production-quality for supported features |
 
 ### Generated Output Quality
@@ -65,7 +65,7 @@ Codex identified several gaps that prevent "production-ready" status:
 | **No finalizer safety net** | `SwiftHandle.cs:63-124` | Memory leaks if users forget `Dispose()` |
 | **Async tests incomplete** | `AsyncTests.cs:80-112` | Key async patterns still skipped |
 | **Shallow protocol tests** | `ProtocolsTests.cs` | Compile checks, not deep runtime behavior |
-| **Documentation drift** | Multiple status docs | `CURRENT-STATUS.md`, `binding-gaps-consolidated.md`, `BINDING_GAPS.md` out of sync |
+| **Documentation drift** | Multiple status docs | Consolidated: `CURRENT-STATUS.md` is now single source of truth |
 
 **Memory safety concern:** `SwiftSafeHandle<T>` only runs `Destroy` on explicit `Dispose()`, not on finalization. This means correctness depends entirely on caller discipline - forgetting `using` or `Dispose()` will leak Swift objects.
 
@@ -255,7 +255,7 @@ Based on combined review from Claude, Grok, Gemini, and Codex, these four priori
 
 ### Immediate (This Phase)
 
-1. **Consolidate documentation** - Merge `CURRENT-STATUS.md`, `binding-gaps-consolidated.md`, `BINDING_GAPS.md`
+1. ~~**Consolidate documentation**~~ - Done: `CURRENT-STATUS.md` is now single source of truth; standalone `BINDING_GAPS.md` files removed; completed feature docs archived to `CompletedPhases/`
 2. **Add finalizer to SwiftSafeHandle** - Safety net for forgotten `Dispose()`
 3. **Improve binding report** - Add "recommended workaround" field for skipped items
 
@@ -298,7 +298,7 @@ Based on combined review from Claude, Grok, Gemini, and Codex, these four priori
 3. **Protocol runtime** - `NotImplementedException` paths for Swift implementations
 4. **DX with Swift types** - Need .NET-idiomatic convenience methods
 5. **Wrapper automation** - Should auto-generate for known-problematic patterns
-6. **Documentation drift** - Multiple status docs out of sync
+6. ~~**Documentation drift**~~ - Resolved: consolidated to single source of truth in `CURRENT-STATUS.md`
 7. **Test depth** - Protocol tests are mostly compile checks, not runtime behavior
 
 ### What's Fundamentally Hard
@@ -324,13 +324,15 @@ Based on combined review from Claude, Grok, Gemini, and Codex, these four priori
 
 **Codex's verdict (which I agree with):** "The foundation is strong and worth continuing. Keep this architecture, but tighten it around the four priorities. If those land, the north-star becomes realistic for 'common Swift patterns' at high quality."
 
-The 41 phases of work have produced a solid, working foundation. The path forward is incremental improvement with disciplined focus on the four priorities, not architectural revolution.
+The 42 phases of work have produced a solid, working foundation. The path forward is incremental improvement with disciplined focus on the four priorities, not architectural revolution.
 
 ---
 
 ## References
 
 - `/north-star.md` - Project vision
+- `/src/docs/CURRENT-STATUS.md` - Single source of truth for status, gaps, and coverage
 - `/src/docs/emitter-redesign-proposal.md` - Architecture improvement plan
 - `/src/docs/known-issues-workarounds.md` - Runtime issue documentation
-- `/src/docs/CURRENT-STATUS.md` - Compilation and test status
+- `/src/docs/swift-concurrency-interop-plan.md` - Async/concurrency interop (partially implemented)
+- `/src/docs/codex-task-specs.md` - Current phase task specifications
