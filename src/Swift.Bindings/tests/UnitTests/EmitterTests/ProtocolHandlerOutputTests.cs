@@ -58,7 +58,7 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         Assert.Contains("public interface ISwiftReader<TElement>", csOutput);
-        Assert.Contains("TElement next();", csOutput);
+        Assert.Contains("TElement Next();", csOutput);
         Assert.DoesNotContain("class ReaderProxy", csOutput);
     }
 
@@ -174,8 +174,8 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         Assert.Contains("public interface ISwiftCacheable : ISwiftHashable", csOutput);
-        Assert.Contains("System.Int64 count { get; }", csOutput);
-        Assert.Contains("Task<System.Int64> fetch(System.Int64 key);", csOutput);
+        Assert.Contains("System.Int64 Count { get; }", csOutput);
+        Assert.Contains("Task<System.Int64> Fetch(System.Int64 key);", csOutput);
         Assert.Contains("public unsafe class CacheableProxy : ISwiftCacheable, ISwiftObject", csOutput);
     }
 
@@ -209,7 +209,7 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(csOutput, "void refresh();"));
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(csOutput, "void Refresh();"));
     }
 
     private static TypeDatabase CreateTypeDatabase()

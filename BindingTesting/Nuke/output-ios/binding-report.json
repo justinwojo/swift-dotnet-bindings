@@ -1,13 +1,13 @@
 {
   "ModuleName": "Nuke",
-  "GeneratedAt": "2026-02-03T00:13:54.683226+00:00",
+  "GeneratedAt": "2026-02-03T17:53:37.592547+00:00",
   "TotalTypes": 68,
   "EmittedTypes": 60,
   "SkippedTypes": 0,
   "TotalMembers": 490,
-  "EmittedMembers": 325,
-  "SkippedMembers": 17,
-  "SynthesizedMembers": 243,
+  "EmittedMembers": 323,
+  "SkippedMembers": 19,
+  "SynthesizedMembers": 241,
   "SkippedItems": [
     {
       "Kind": "Property",
@@ -127,6 +127,20 @@
       "ContainingType": "Nuke.ImageRequest",
       "Reason": "UnsupportedExistential",
       "Details": "Bound generic contains existential type argument ''."
+    },
+    {
+      "Kind": "Property",
+      "Name": "image",
+      "ContainingType": "Nuke.ImageTask",
+      "Reason": "AsyncProperty",
+      "Details": "Property has async getter/setter."
+    },
+    {
+      "Kind": "Property",
+      "Name": "response",
+      "ContainingType": "Nuke.ImageTask",
+      "Reason": "AsyncProperty",
+      "Details": "Property has async getter/setter."
     }
   ]
 }

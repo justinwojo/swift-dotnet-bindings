@@ -77,11 +77,10 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
-    public void Emit_ClassHandler_SkipsNonEquatableProtocolInterfaces()
+    public void Emit_ClassHandler_EmitsSameModuleProtocolConformanceInterfaces()
     {
-        // Non-Equatable protocols should NOT be added to interface list
-        // (their methods aren't emitted on conforming types yet)
-        // But they ARE included in the GetProtocolConformanceDescriptor dictionary
+        // Same-module protocol conformances should be emitted as interfaces
+        // so that C# types implement the protocol interface
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = new ClassDecl
@@ -108,10 +107,9 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
-        // Class declaration should only have ISwiftObject (not ISwiftAnyInterpolatable in inheritance list)
-        Assert.Contains("public unsafe class Loader : ISwiftObject", csOutput);
-        Assert.DoesNotContain("ISwiftObject, ISwiftAnyInterpolatable", csOutput);
-        // But the conformance should still be in the dictionary for GetProtocolConformanceDescriptor
+        // Same-module protocol conformance should appear in the interface list
+        Assert.Contains("ISwiftObject, ISwiftAnyInterpolatable", csOutput);
+        // And the conformance should also be in the dictionary for GetProtocolConformanceDescriptor
         Assert.Contains("{typeof(ISwiftAnyInterpolatable)", csOutput);
     }
 

@@ -203,7 +203,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // TODO: Detect and skip async properties (properties with async getters/setters are not yet supported)
+        // Detect and skip async properties (properties with async getters/setters are not yet supported)
+        if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
+        {
+            _logger.LogWarning($"PropertyHandler: Skipping async property {propertyDecl.Name} - async properties are not yet supported.");
+            SkipProperty(SkipReason.AsyncProperty, "Property has async getter/setter.");
+            return;
+        }
 
         // Get nested type names and containing type name from parent for collision detection
         // In Swift, a property can have the same name as its type (e.g., cacheType: CacheType)

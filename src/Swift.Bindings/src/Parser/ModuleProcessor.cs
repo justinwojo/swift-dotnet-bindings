@@ -246,7 +246,14 @@ namespace BindingsGeneration
                     continue;
 
                 if (!TryGetTypeRecord(namedPropertyType, out var propertyRecord))
-                    throw new Exception($"Type not found in the database: {namedPropertyType}");
+                {
+                    // Generic types (e.g., Swift.KeyPath<T, V>) may not be registered in the type database.
+                    // Treat as non-frozen and requiring memory management to be safe.
+                    _logger.LogWarning($"Type not found in the database: {namedPropertyType}. Assuming non-frozen.");
+                    flags &= ~TypeRecordFlags.Frozen;
+                    flags |= TypeRecordFlags.RequiresMemoryManagement;
+                    continue;
+                }
 
                 // If any property is not frozen struct, remove the frozen flag
                 if (propertyRecord.Kind == TypeRecordKind.Struct && (propertyRecord.Flags & TypeRecordFlags.Frozen) == 0)

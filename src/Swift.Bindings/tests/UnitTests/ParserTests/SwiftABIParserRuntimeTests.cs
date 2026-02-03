@@ -120,10 +120,10 @@ public class SwiftABIParserRuntimeTests
         var ctor = typeof(DemanglingResults).GetConstructor(
             BindingFlags.NonPublic | BindingFlags.Instance,
             binder: null,
-            [typeof(IReduction[])],
+            [typeof(IReduction[]), typeof(HashSet<string>)],
             modifiers: null)!;
 
-        return (DemanglingResults)ctor.Invoke([Array.Empty<IReduction>()]);
+        return (DemanglingResults)ctor.Invoke([Array.Empty<IReduction>(), null]);
     }
 
     private static Node CreateNode(

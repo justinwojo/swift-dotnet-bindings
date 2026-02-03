@@ -12,13 +12,14 @@ public class DemanglingResults
     /// Constructs a DemanglingResults object with the desired reductions separated out
     /// </summary>
     /// <param name="reductions">An array of reductions</param>
-    DemanglingResults(IReduction[] reductions)
+    DemanglingResults(IReduction[] reductions, HashSet<string>? allSymbols = null)
     {
         Errors = ArrayOf<ReductionError>(reductions);
         MetadataAccessors = ArrayOf<MetadataAccessorReduction>(reductions);
         DispatchThunks = ArrayOf<DispatchThunkFunctionReduction>(reductions);
         ProtocolWitnessTables = ArrayOf<ProtocolWitnessTableReduction>(reductions);
         ProtocolConformanceDescriptors = ArrayOf<ProtocolConformanceDescriptorReduction>(reductions);
+        AllSymbols = allSymbols ?? new HashSet<string>();
     }
 
     /// <summary>
@@ -53,9 +54,15 @@ public class DemanglingResults
     public ProtocolWitnessTableReduction[] ProtocolWitnessTables { get; private set; }
 
     /// <summary>
-    /// All protocol conformance descriptors founc while demangling symbols
+    /// All protocol conformance descriptors found while demangling symbols
     /// </summary>
     public ProtocolConformanceDescriptorReduction[] ProtocolConformanceDescriptors { get; private set; }
+
+    /// <summary>
+    /// All raw symbols from the TBD file (with leading underscore stripped).
+    /// Used for detecting async property accessors via the "Tu" suffix convention.
+    /// </summary>
+    public HashSet<string> AllSymbols { get; private set; }
 
     /// <summary>
     /// Factory method to generate a suite of demangling results from the given TBD file.
@@ -73,6 +80,11 @@ public class DemanglingResults
 
         // Run demangler for each export and aggregate results
         // Catch exceptions for individual symbols so that a single bad symbol doesn't crash the whole process
+        // Collect all symbol names (with leading underscore stripped) for raw lookup
+        var allSymbols = new HashSet<string>(
+            tbdFile.Exports.SelectMany(export => export.SwiftSymbols.Select(sym =>
+                sym.Name.StartsWith('_') ? sym.Name[1..] : sym.Name)));
+
         var allReductions = tbdFile.Exports.SelectMany(export => export.SwiftSymbols.Select(sym =>
         {
             var symbolName = sym.Name.StartsWith('_') ? sym.Name[1..] : sym.Name;
@@ -86,7 +98,7 @@ public class DemanglingResults
                 return new ReductionError { Symbol = symbolName, Message = ex.Message };
             }
         })).ToArray();
-        return new DemanglingResults(allReductions);
+        return new DemanglingResults(allReductions, allSymbols);
     }
 
     /// <summary>

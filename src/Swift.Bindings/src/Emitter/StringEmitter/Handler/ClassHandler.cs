@@ -101,6 +101,9 @@ namespace BindingsGeneration
                     moduleDecl.Name,
                     env.TypeDatabase);
 
+                if (classDecl.IsActor)
+                    csWriter.WriteLine("// Swift actor type - methods are actor-isolated unless marked nonisolated");
+
                 var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";
@@ -108,9 +111,15 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
-                // Emit properties
+                // Emit properties (skip unownedExecutor for actors - it's an internal actor runtime property)
                 foreach (PropertyDecl propertyDecl in classDecl.Properties)
                 {
+                    if (classDecl.IsActor && propertyDecl.Name == "unownedExecutor")
+                    {
+                        _logger.LogInformation($"Skipping actor runtime property 'unownedExecutor' on {classDecl.Name}.");
+                        continue;
+                    }
+
                     if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                     {
                         var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);

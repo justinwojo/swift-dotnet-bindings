@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration;
@@ -71,6 +72,13 @@ public class ProtocolListTypeSpec : TypeSpec
     /// Returns a list of the protocols contained in the protocol list
     /// </summary>
     public SortedList<NamedTypeSpec, bool> Protocols { get; private set; }
+
+    /// <summary>
+    /// Returns true if this protocol list represents an opaque return type (some Protocol).
+    /// Opaque return types require a Swift wrapper to box the concrete return value into
+    /// an existential container (any Protocol) since the concrete type's ABI layout is unknown.
+    /// </summary>
+    public bool IsOpaque { get; set; }
 
     protected override bool LLEquals(TypeSpec? other, bool partialNameMatch)
     {

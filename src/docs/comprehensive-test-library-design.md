@@ -1,8 +1,8 @@
 # Comprehensive Swift Test Library Design
 
-**Status**: v1.8 Implemented
+**Status**: v1.8 Implemented (Phase 43 generator improvements applied)
 **Created**: February 2026
-**Last Updated**: February 2026 - v1.8 implemented (60 Swift files, 123 features covered)
+**Last Updated**: February 2026 - Phase 43: protocol conformance emission, opaque returns, async properties, actors
 
 ---
 
@@ -259,8 +259,8 @@ parameter, @autoclosure with @escaping).
 ```
 Source:   60 Swift files, 74 structs, 26 classes, 12 enums, 12 protocols, 149 free functions
 Output:   49 C# files, 1 Swift wrapper file
-Types:    101/110 emitted (91.8% coverage)
-Members:  452/500 emitted, 20 skipped, 239 synthesized
+Types:    123/135 emitted (91.1% coverage)
+Members:  544/629 emitted, 46 skipped, 265 synthesized
 Coverage: 123 features tracked (77 must-pass, 46 known-unsupported)
 ```
 
@@ -269,6 +269,16 @@ isolated/nonisolated methods), opaque return types (`some Protocol`, opaque comp
 property), throwing closures (@escaping closures that throw), async closures (async
 closure parameters), Selector type (Selector parameter, #selector, responds(to:)),
 and async properties (computed properties with async getter).
+
+### Phase 43 Generator Improvements (applied to v1.8 output)
+
+Phase 43 implemented several generator features that affect how v1.8 test cases are handled:
+
+- **Protocol conformance emission**: Types now emit C# interfaces for same-module protocol conformances (e.g., `SimpleItem : ISwiftObject, ISwiftDescribable, ISwiftTestIdentifiable`)
+- **Opaque return types** (`some Protocol`): Swift wrappers generated to box concrete returns into existential containers via `_opaque` suffixed symbols
+- **Async property detection**: Async getters detected via TBD `Tu` suffix; properly skipped with `SkipReason.AsyncProperty`
+- **Actor type support**: Actors detected via `$sScA` mangled conformance; `unownedExecutor` filtered; emitted as classes with actor annotation
+- **Bug fixes**: NullRef in MethodHandler for top-level async functions, CacluateFlags crash for unknown generic types
 
 Generator fixes required for v1.0 (all resolved):
 - Existential arguments (`any Protocol`) crashed `EmitSafeHandleAddRef` — added filter
@@ -299,7 +309,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Associated value enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Generic enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Nested type in generic | Unknown | ✅ v1.0 | `Structs.swift` |
-| Actor | Not Yet | ✅ v1.8 | `Actors.swift` |
+| Actor | Supported | ✅ v1.8 | `Actors.swift` |
 
 ### Protocols
 
@@ -311,7 +321,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Protocol inheritance | Supported | ✅ v1.0 | `BasicProtocols.swift` |
 | Protocol with associated type | Partial | ✅ v1.7 | `PATs.swift` |
 | Protocol composition (`A & B`) | Supported | ✅ v1.0 | `Composition.swift` |
-| Type conforming to protocol | **Not Emitted** | ✅ v1.0 | `Conformance.swift` |
+| Type conforming to protocol | Supported | ✅ v1.0 | `Conformance.swift` |
 | Retroactive conformance | Unknown | ✅ v1.0 | `Conformance.swift` |
 | Circular protocol refs | Unknown | ✅ v1.0 | `Composition.swift` |
 | Conditional conformance | **Not Yet** | ✅ v1.6 | `Conditional.swift` |
@@ -328,7 +338,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Generic subscript | Partial | ✅ v1.0 | `Types.swift` |
 | Where clause | Supported | ✅ Existing | `Constraints.swift` |
 | `any Protocol` (existential) | Supported | ✅ v1.0 | `Existentials.swift` |
-| `some Protocol` (opaque) | Not Yet | ✅ v1.8 | `Existentials.swift` |
+| `some Protocol` (opaque) | Supported | ✅ v1.8 | `Existentials.swift` |
 | Key paths (`\T.property`) | **Not Yet** | ✅ v1.7 | `KeyPaths.swift` |
 | WritableKeyPath | **Not Yet** | ✅ v1.7 | `KeyPaths.swift` |
 | Metatypes (`T.Type`) | **Not Yet** | ✅ v1.7 | `Metatypes.swift` |
@@ -343,8 +353,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | @convention(c) | Supported | ✅ v1.0 | `ConventionC.swift` |
 | @autoclosure | **Not Yet** | ✅ v1.7 | `Autoclosures.swift` |
 | Method returning closure | Supported | ✅ v1.0 | `ClosureReturns.swift` |
-| Async closure | Not Yet | ✅ v1.8 | `AsyncClosures.swift` |
-| Throwing closure | Not Yet | ✅ v1.8 | `Escaping.swift` |
+| Async closure | Supported | ✅ v1.8 | `AsyncClosures.swift` |
+| Throwing closure | Supported | ✅ v1.8 | `Escaping.swift` |
 | Closure in closure | Not Supported | ⬜ Document | n/a |
 
 ### Async/Concurrency
@@ -354,7 +364,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Async method | Supported | ✅ v1.0 | `Methods.swift` |
 | Async static method | Supported | ✅ v1.0 | `Methods.swift` |
 | Async throwing method | Supported | ✅ v1.0 | `AsyncThrowing.swift` |
-| Async property | Not Yet | ✅ v1.8 | `AsyncProperties.swift` |
+| Async property | Detected & Skipped | ✅ v1.8 | `AsyncProperties.swift` |
 | @MainActor class | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
 | @MainActor method | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
 | @Sendable closure | **Not Yet** | ✅ v1.6 | `Sendable.swift` |

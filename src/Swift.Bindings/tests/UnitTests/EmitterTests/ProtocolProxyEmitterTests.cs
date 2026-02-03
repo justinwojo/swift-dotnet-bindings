@@ -237,9 +237,9 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         // Property type comes from Swift.Int which maps to Swift.AnyType in the default translation
-        Assert.Contains("public Swift.AnyType value", output);
+        Assert.Contains("public Swift.AnyType Value", output);
         Assert.Contains("if (_csharpImpl != null)", output);
-        Assert.Contains("return _csharpImpl.value;", output);
+        Assert.Contains("return _csharpImpl.Value;", output);
     }
 
     [Fact]
@@ -248,7 +248,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("_csharpImpl.value = value;", output);
+        Assert.Contains("_csharpImpl.Value = value;", output);
     }
 
     [Fact]
@@ -257,8 +257,8 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithMethod("TestProtocol", "doSomething");
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public void doSomething()", output);
-        Assert.Contains("_csharpImpl.doSomething();", output);
+        Assert.Contains("public void DoSomething()", output);
+        Assert.Contains("_csharpImpl.DoSomething();", output);
     }
 
     #endregion
@@ -458,7 +458,7 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public (Swift.AnyType, Swift.AnyType) decompose()", output);
+        Assert.Contains("public (Swift.AnyType, Swift.AnyType) Decompose()", output);
     }
 
     [Fact]
@@ -506,7 +506,7 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public void apply(Action<Swift.AnyType> callback)", output);
+        Assert.Contains("public void Apply(Action<Swift.AnyType> callback)", output);
     }
 
     [Fact]
@@ -533,7 +533,7 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public Swift.Runtime.ExistentialContainer2 delegate", output);
+        Assert.Contains("public Swift.Runtime.ExistentialContainer2 Delegate", output);
     }
 
     [Fact]
@@ -557,7 +557,7 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public Swift.AnyType valueType", output);
+        Assert.Contains("public Swift.AnyType ValueType", output);
     }
 
     [Fact]
@@ -619,7 +619,7 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public void update(Swift.TestModule.Box<Swift.AnyType> value)", output);
+        Assert.Contains("public void Update(Swift.TestModule.Box<Swift.AnyType> value)", output);
     }
 
     #endregion

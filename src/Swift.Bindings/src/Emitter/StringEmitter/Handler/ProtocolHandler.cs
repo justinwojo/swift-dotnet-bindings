@@ -311,7 +311,8 @@ namespace BindingsGeneration
                 accessors = "{ get; }";
             }
 
-            csWriter.WriteLine($"{csharpTypeName} {propertyDecl.Name} {accessors}");
+            var propertyName = NameProvider.GetPropertyName(propertyDecl.Name);
+            csWriter.WriteLine($"{csharpTypeName} {propertyName} {accessors}");
         }
 
         /// <summary>
@@ -402,14 +403,17 @@ namespace BindingsGeneration
 
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
-            // Get return type
+            // Get return type - apply idiomatic type conversions (SwiftString -> string, etc.)
+            // to match what MethodHandler emits on concrete types
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
             var returnType = "void";
             if (methodDecl.CSSignature.Count > 0)
             {
                 var returnArg = methodDecl.CSSignature[0];
                 if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
                 {
-                    returnType = GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                    var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(returnArg.SwiftTypeSpec, isParameter: false);
+                    returnType = idiomaticType ?? GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 }
             }
 
@@ -418,7 +422,8 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
-                var argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(arg.SwiftTypeSpec, isParameter: true);
+                var argTypeName = idiomaticParamType ?? GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 var argName = string.IsNullOrEmpty(arg.Name) ? $"arg{i}" : arg.Name;
                 parameters.Add($"{argTypeName} {argName}");
             }
@@ -436,7 +441,8 @@ namespace BindingsGeneration
                 }
             }
 
-            csWriter.WriteLine($"{returnType} {methodDecl.Name}({string.Join(", ", parameters)});");
+            var methodName = NameProvider.ToPascalCase(methodDecl.Name);
+            csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
         }
 
         /// <summary>

@@ -69,6 +69,12 @@ public static class NameProvider
         if (methodDecl.IsAsync)
             return $"{methodDecl.MangledName}_async";
 
+        // Opaque return types (some Protocol) need a wrapper with a unique symbol name
+        // to avoid potential self-recursion when the wrapper calls the original function.
+        if (methodDecl.CSSignature.Count > 0 &&
+            methodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
+            return $"{methodDecl.MangledName}_opaque";
+
         return methodDecl.MangledName;
     }
 

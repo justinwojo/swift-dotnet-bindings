@@ -491,10 +491,8 @@ internal static class ProtocolConformanceHelper
     /// <summary>
     /// Builds the C# interface list for a concrete Swift type declaration.
     /// Includes ISwiftObject and supported protocol conformances.
-    /// Note: Only emits IEquatable for classes and structs (which have Equals implementations via SwiftEquatable).
-    /// Enums with associated values are emitted as C# classes without Equals implementation.
-    /// Other protocol conformances are tracked in GetProtocolConformanceDescriptor but not in the interface list
-    /// until protocol method emission on conforming types is implemented.
+    /// Enums with associated values are emitted as C# classes without Equals implementation,
+    /// so they do not get the IEquatable interface.
     /// </summary>
     public static List<string> GetImplementedInterfaces(
         TypeDecl typeDecl,
@@ -519,7 +517,7 @@ internal static class ProtocolConformanceHelper
 
         foreach (var conformance in conformances)
         {
-            // Only emit Equatable interface for classes/structs with Equals implementation
+            // Special handling for Equatable: only emit for classes/structs with Equals implementation
             if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
             {
                 if (!canEmitEquatable)
@@ -532,7 +530,16 @@ internal static class ProtocolConformanceHelper
                 if (emitted.Add(iface))
                     interfaces.Add(iface);
             }
-            // Other protocols: not emitted in interface list until protocol method emission is implemented
+            else
+            {
+                // All other protocol conformances: emit if the protocol is a supported same-module protocol
+                if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+                    continue;
+
+                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics);
+                if (emitted.Add(iface))
+                    interfaces.Add(iface);
+            }
         }
 
         return interfaces;

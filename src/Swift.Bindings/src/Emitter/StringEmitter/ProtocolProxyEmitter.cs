@@ -634,6 +634,8 @@ public class ProtocolProxyEmitter
         var proxyClassName = GetProxyClassName(protocolDecl);
         var csharpTypeName = GetCSharpTypeName(property.SwiftTypeSpec);
 
+        var pascalPropertyName = NameProvider.GetPropertyName(property.Name);
+
         if (hasGetter)
         {
             var receiverName = $"Receive_{property.Name}_get";
@@ -645,7 +647,7 @@ public class ProtocolProxyEmitter
                     {
                         var container = *(ExistentialContainer1*)selfContainer;
                         var proxy = SwiftObjectRegistry.GetProxyFromContainer<{{proxyClassName}}>(container);
-                        var result = proxy._csharpImpl!.{{property.Name}};
+                        var result = proxy._csharpImpl!.{{pascalPropertyName}};
                         return MarshalToSwiftBuffer(result);
                     }
 
@@ -665,7 +667,7 @@ public class ProtocolProxyEmitter
                         var container = *(ExistentialContainer1*)selfContainer;
                         var proxy = SwiftObjectRegistry.GetProxyFromContainer<{{proxyClassName}}>(container);
                         var value = MarshalFromSwift<{{csharpTypeName}}>(valuePtr);
-                        proxy._csharpImpl!.{{property.Name}} = value;
+                        proxy._csharpImpl!.{{pascalPropertyName}} = value;
                     }
 
                     """);
@@ -789,14 +791,16 @@ public class ProtocolProxyEmitter
 
         var argsString = string.Join(", ", argNames);
 
+        var pascalMethodName = NameProvider.ToPascalCase(method.Name);
+
         if (hasReturn)
         {
-            writer.WriteLine($"var result = proxy._csharpImpl!.{method.Name}({argsString});");
+            writer.WriteLine($"var result = proxy._csharpImpl!.{pascalMethodName}({argsString});");
             writer.WriteLine("return MarshalToSwiftBuffer(result);");
         }
         else
         {
-            writer.WriteLine($"proxy._csharpImpl!.{method.Name}({argsString});");
+            writer.WriteLine($"proxy._csharpImpl!.{pascalMethodName}({argsString});");
         }
 
         writer.Indent--;
@@ -906,8 +910,9 @@ public class ProtocolProxyEmitter
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
         var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
+        var propertyName = NameProvider.GetPropertyName(property.Name);
 
-        writer.WriteLine($"public {csharpTypeName} {property.Name}");
+        writer.WriteLine($"public {csharpTypeName} {propertyName}");
         writer.WriteLine("{");
         writer.Indent++;
 
@@ -917,7 +922,7 @@ public class ProtocolProxyEmitter
                 get
                 {
                     if (_csharpImpl != null)
-                        return _csharpImpl.{{property.Name}};
+                        return _csharpImpl.{{propertyName}};
                     // TODO: Call Swift via P/Invoke for Swift implementation
                     throw new NotImplementedException("Swift implementation not yet supported");
                 }
@@ -931,7 +936,7 @@ public class ProtocolProxyEmitter
                 {
                     if (_csharpImpl != null)
                     {
-                        _csharpImpl.{{property.Name}} = value;
+                        _csharpImpl.{{propertyName}} = value;
                         return;
                     }
                     // TODO: Call Swift via P/Invoke for Swift implementation
@@ -1004,17 +1009,28 @@ public class ProtocolProxyEmitter
 
     private void EmitMethodImplementation(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl)
     {
+        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? GetCSharpTypeName(returnType!) : "void";
+        string returnTypeName;
+        if (hasReturn)
+        {
+            var idiomaticReturn = typeConversionHandler.GetIdiomaticCSharpType(returnType!, isParameter: false);
+            returnTypeName = idiomaticReturn ?? GetCSharpTypeName(returnType!);
+        }
+        else
+        {
+            returnTypeName = "void";
+        }
 
-        // Build parameter list
+        // Build parameter list - apply idiomatic type conversions to match interface
         var parameters = new List<string>();
         var argNames = new List<string>();
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+            var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(param.SwiftTypeSpec, isParameter: true);
+            var paramTypeName = idiomaticParamType ?? GetCSharpTypeName(param.SwiftTypeSpec);
             var paramName = string.IsNullOrEmpty(param.Name) ? $"arg{argIndex}" : param.Name;
             parameters.Add($"{paramTypeName} {paramName}");
             argNames.Add(paramName);
@@ -1023,7 +1039,8 @@ public class ProtocolProxyEmitter
         var parametersString = string.Join(", ", parameters);
         var argsString = string.Join(", ", argNames);
 
-        writer.WriteLine($"public {returnTypeName} {method.Name}({parametersString})");
+        var methodName = NameProvider.ToPascalCase(method.Name);
+        writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
         writer.WriteLine("{");
         writer.Indent++;
 
@@ -1031,7 +1048,7 @@ public class ProtocolProxyEmitter
         {
             writer.WriteLines($$"""
                 if (_csharpImpl != null)
-                    return _csharpImpl.{{method.Name}}({{argsString}});
+                    return _csharpImpl.{{methodName}}({{argsString}});
                 // TODO: Call Swift via P/Invoke for Swift implementation
                 throw new NotImplementedException("Swift implementation not yet supported");
                 """);
@@ -1041,7 +1058,7 @@ public class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 if (_csharpImpl != null)
                 {
-                    _csharpImpl.{{method.Name}}({{argsString}});
+                    _csharpImpl.{{methodName}}({{argsString}});
                     return;
                 }
                 // TODO: Call Swift via P/Invoke for Swift implementation

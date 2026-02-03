@@ -1,6 +1,6 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 42 Complete)
+**Last Updated**: February 2026 (Phase 43 Complete)
 **Unit Tests**: 1032 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
@@ -32,8 +32,9 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - ✅ Classes (with ARC via SafeHandle)
 - ✅ Structs (frozen and non-frozen)
 - ✅ Enums (with associated values, raw representable, runtime enum case construction)
-- ✅ Protocols (interface + proxy generation)
+- ✅ Protocols (interface + proxy generation + conformance emission)
 - ✅ Generics (bound generics, generic enums, generic classes)
+- ✅ Actors (detected via Actor protocol conformance, emitted as classes with actor comment)
 
 ### Members
 - ✅ Methods (instance, static, async)
@@ -44,26 +45,26 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ### Special Types
 - ✅ SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>
-- ✅ Closures (@convention(c), @escaping with frozen types)
+- ✅ Closures (@convention(c), @escaping with frozen types, throwing closures)
 - ✅ Tuples (1-7 elements)
 - ✅ Existential containers (protocol composition)
+- ✅ Opaque return types (`some Protocol` → existential container via Swift wrapper)
 - ✅ CoreGraphics opaque types (CGImage, CGColor, CGContext → IntPtr)
 
 ### DX Features
 - ✅ Binding completeness report (`binding-report.json`)
 - ✅ `[UnsupportedSwiftType]` attribute on degraded members
-- ✅ Skip reasons in report (UnsupportedSignature, AnyTypeFallback, etc.)
+- ✅ Skip reasons in report (UnsupportedSignature, AnyTypeFallback, AsyncProperty, etc.)
 - ✅ Configurable namespace mapping
+- ✅ Async property detection via TBD symbol analysis
 
 ---
 
 ## What Doesn't Work
 
 ### Architectural Gaps
-- ❌ **Protocol conformance emission** - Types don't emit `ISwiftProtocol` implementations for Swift protocol conformances (blocks Lottie's `ISwiftAnyInterpolatable` requirement)
-- ❌ **Async properties** - Properties with async getters
-- ❌ **Actors** - Swift actor types
 - ❌ **Protocol witness tables** - Full witness table handling
+- ❌ **Actor isolation enforcement** - Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
 - ❌ **SwiftUI** - Types with SwiftUI constraints skipped
@@ -83,25 +84,39 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ---
 
-## Recent Completions (Phase 42)
+## Recent Completions (Phase 43)
 
-### Lottie Runtime Validation
-- 8/9 runtime tests pass on iOS Simulator
-- LottieColor creation, animation loading, vector types, enum cases all work
-- 1 pre-existing failure: `LottieConfiguration.Shared` property getter NullRef
+### Protocol Conformance Emission
+- Types now emit C# interfaces for same-module protocol conformances
+- `SimpleItem : ISwiftObject, ISwiftDescribable, ISwiftTestIdentifiable`
+- Works across classes, structs, and enums
 
-### Enum Case Construction Fix
-- Simple enum cases now use `DestructiveInjectEnumTag` (not P/Invoke)
-- Enum case symbols (`...mF`) are not exported; `...mFWC` are data, not functions
-- Non-frozen enum parameters use scoped `EnumSafeHandle` → `IntPtr` for `CallConvSwift`
+### Opaque Return Types (`some Protocol`)
+- `OpaqueTypeArchetype` parsed from ABI JSON → `ProtocolListTypeSpec { IsOpaque = true }`
+- Swift wrappers generated to box concrete returns into existential containers
+- Property getters and methods both supported
 
-### CoreGraphics Type Stubs
-- CGImage, CGColor, CGContext, CGColorSpace → IntPtr (opaque handles)
-- Ref suffix alias resolution (CGImage ↔ CGImageRef)
-- Lottie skipped members reduced: 63 → 59
+### Async Property Detection
+- Async getters detected via TBD symbol `mangledName + "Tu"` suffix
+- Properly skipped with `SkipReason.AsyncProperty` (previously emitted as synchronous)
+
+### Actor Type Support
+- Actors detected via `Actor` protocol conformance in ABI JSON
+- `IsActor` flag on `ClassDecl`, `unownedExecutor` property filtered
+- Generated with `// Swift actor type` comment
+
+### Bug Fixes
+- Fixed NullReferenceException in MethodHandler for top-level async functions
+- Fixed `CacluateFlags` crash for unknown generic types (e.g., `Swift.KeyPath`)
+- Fixed test reflection for `DemanglingResults` constructor with `AllSymbols` parameter
+
+### Previous Phase (42) Highlights
+- Lottie: 8/9 runtime tests pass on iOS Simulator
+- Enum case construction fix (DestructiveInjectEnumTag)
+- CoreGraphics type stubs (CGImage, CGColor, etc.)
 
 ### Test Coverage
-- Unit tests: 1032 (up from 1029)
+- Unit tests: 1032
 - Integration tests: 678 passed
 - Runtime tests: 108 passed
 
@@ -122,7 +137,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ## Development History
 
-42 phases of improvements tracked in git history. Key milestones:
+43 phases of improvements tracked in git history. Key milestones:
 - Phase 1-15: Core infrastructure and Nuke validation
 - Phase 16-29: Type system and runtime fixes
 - Phase 30-33: Generic type improvements
@@ -130,3 +145,4 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - Phase 40: Protocol conformance infrastructure, namespace mapping
 - Phase 41: Generic type fixes, 0 generator errors achieved
 - Phase 42: Lottie runtime validation, enum case construction, CoreGraphics stubs
+- Phase 43: Protocol conformance emission, opaque returns, async properties, actors

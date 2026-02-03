@@ -505,6 +505,11 @@ namespace BindingsGeneration
         private ClassDecl CreateClassDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters)
         {
             var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
+
+            // Detect actors by checking for conformance to the Swift Actor protocol.
+            // Use the stable mangled name ($sScA) to avoid false positives from user-defined protocols named "Actor".
+            var isActor = node.Conformances.Any(c => c.MangledName == "$sScA");
+
             return new ClassDecl
             {
                 Name = ExtractUniqueName(node.Name),
@@ -517,7 +522,8 @@ namespace BindingsGeneration
                 GenericParameters = genericParameters,
                 Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
                 ParentDecl = parentDecl,
-                ModuleDecl = moduleDecl
+                ModuleDecl = moduleDecl,
+                IsActor = isActor
             };
         }
 
@@ -702,6 +708,10 @@ namespace BindingsGeneration
 
         private GetAccessorDecl CreateGetAccessor(Node accessor, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
+            // Detect async getters by checking if the TBD contains the "Tu" (async function pointer) suffix
+            // for this accessor's mangled name. The ABI JSON doesn't mark accessors as async directly.
+            var isAsync = _demangledTbd.AllSymbols.Contains(accessor.MangledName + "Tu");
+
             var methodDecl = new MethodDecl
             {
                 Name = $"{fieldName}_Get",
@@ -725,7 +735,7 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = false,
-                IsAsync = false,
+                IsAsync = isAsync,
                 Visibility = Visibility.Private,
             };
 
@@ -1034,6 +1044,15 @@ namespace BindingsGeneration
                     {
                         return CreateProtocolCompositionTypeSpec(node);
                     }
+                    // Handle OpaqueTypeArchetype (opaque return types like 'some Protocol')
+                    // In ABI JSON, these appear as TypeNominal with name="OpaqueTypeArchetype",
+                    // printedName="some ModuleName.ProtocolName", with children listing the protocol constraints.
+                    // We represent them as a ProtocolListTypeSpec with IsOpaque=true, and generate a Swift
+                    // wrapper that boxes the concrete return value into an existential container (any Protocol).
+                    if (node.Name == "OpaqueTypeArchetype")
+                    {
+                        return CreateOpaqueReturnTypeSpec(node);
+                    }
                     var spec = TypeSpecParser.Parse(node.PrintedName);
                     if (spec is null)
                     {
@@ -1079,6 +1098,28 @@ namespace BindingsGeneration
                 }
             }
             return new ProtocolListTypeSpec(protocols);
+        }
+
+        /// <summary>
+        /// Creates a ProtocolListTypeSpec from an OpaqueTypeArchetype node (some Protocol).
+        /// The node's children represent the protocol constraints of the opaque return type.
+        /// Marked as IsOpaque=true to indicate a Swift wrapper is needed.
+        /// </summary>
+        private TypeSpec CreateOpaqueReturnTypeSpec(Node node)
+        {
+            var protocols = new List<NamedTypeSpec>();
+            foreach (var child in node.Children)
+            {
+                if (child.Kind == kNominal)
+                {
+                    var childSpec = TypeSpecParser.Parse(child.PrintedName) as NamedTypeSpec;
+                    if (childSpec != null)
+                    {
+                        protocols.Add(childSpec);
+                    }
+                }
+            }
+            return new ProtocolListTypeSpec(protocols) { IsOpaque = true };
         }
 
         /// <summary>
