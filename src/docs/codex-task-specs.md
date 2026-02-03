@@ -1,10 +1,10 @@
-# Codex Task Specifications - Phase 41
+# Codex Task Specifications - Phase 42
 
-Task specifications for fixing the remaining Lottie generator bugs. These are pre-existing issues surfaced after Phase 40 fixed protocol-related errors.
+Task specifications for improving binding coverage and runtime validation. With all generator errors eliminated in Phase 41, the focus shifts to expanding API coverage and validating runtime behavior.
 
 **Date**: February 2026
-**Starting Point**: Phase 40 complete, 1028 unit tests passing
-**Libraries**: Nuke (0 errors), BlinkID (0 errors), Lottie (3 generator errors)
+**Starting Point**: Phase 41 complete, 1029 unit tests passing
+**Libraries**: Nuke (0 errors ✅), BlinkID (0 errors ✅), Lottie (0 errors ✅)
 
 ---
 
@@ -12,226 +12,135 @@ Task specifications for fixing the remaining Lottie generator bugs. These are pr
 
 | Task | Description | Status | Priority |
 |------|-------------|--------|----------|
-| 1 | Closure callbacks returning frozen/non-frozen structs | ✅ **COMPLETED** | P0 |
-| 2 | Generic enum factory T0.Payload assumption | ✅ **COMPLETED** | P0 |
-| 3 | Generic type self-reference missing type argument | ✅ **COMPLETED** | P0 |
+| 1 | Fix Lottie test app constructor call | 🔲 Pending | P0 |
+| 2 | CoreGraphics type stubs (CGImage, CGColor) | 🔲 Pending | P1 |
+| 3 | Lottie runtime validation | 🔲 Pending | P1 |
 
-**Target**: Lottie 0 generator errors (clean compile) ✅ ACHIEVED
-**Current**: 0 generator errors - Phase 41 complete
+**Target**: Lottie runtime validation, improved binding coverage
+**Current**: All libraries compile, Nuke runtime validated
 
 ---
 
-## Task 1: Closure Callbacks Returning Frozen/Non-Frozen Structs (CS0029)
+## Binding Coverage Analysis
 
-### Status: ✅ COMPLETED (February 2026)
-### Priority: P0 (Critical - 4 of 7 Lottie errors)
-### Effort: Medium (4-6 hours)
+**Lottie Skip Reasons** (63 skipped members):
+| Reason | Count | Notes |
+|--------|-------|-------|
+| UnsupportedSignature | 28 | Often CGImage/UIImage types |
+| UnsupportedExistential | 18 | Existentials in bound generics |
+| UnsatisfiedGenericConstraint | 5 | SwiftUI/Combine constraints |
+| UnsupportedType | 5 | Types without bindings |
+| AnyTypeFallback | 4 | Type resolution failures |
+| UnsupportedClosure | 3 | Non-invokable closures |
+| SwiftUIConstraint | 1 | SwiftUI type constraint |
+
+---
+
+## Task 1: Fix Lottie Test App Constructor Call
+
+### Status: 🔲 Pending
+### Priority: P0 (Blocking runtime validation)
+### Effort: Trivial (15 minutes)
 ### Dependencies: None
-
-### Completion Notes
-
-**Implemented by**: Codex
-**Unit Tests**: 1028 passed (up from 1024)
-
-**Files Modified**:
-- `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` - Added `CanUseDirectCallbackReturn()` for frozen structs/primitives, updated `RequiresIndirectReturnMarshalling()` for non-frozen structs
-- `src/Swift.Bindings/src/Emitter/StringEmitter/ClosureEmitter.cs` - Escaping/throwing closure callbacks now emit typed return signatures for eligible types, function pointer declarations match callback return types
-- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/ClosureHandlerTests.cs` - Added non-frozen struct indirect return test
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/MethodHandlerOutputTests.cs` - Added regression tests for frozen struct, scalar, and non-frozen struct closure returns
-
-**Key fixes**:
-1. Frozen structs (CGSize, CGPoint) and primitives (double) use direct callback return
-2. Non-frozen structs (LottieColor) use indirect return marshalling via `void* indirectResult`
-3. Function pointer signatures now match callback return types
-
-**Results**: CS0029 errors eliminated (4 → 0)
 
 ### Problem Statement
 
-Closure callback methods that return frozen structs are emitted with `void*` return type, but the actual delegate returns the struct value directly. This causes CS0029 "Cannot implicitly convert type 'X' to 'void*'".
+The Lottie test app has a compilation error due to an API change in the generated bindings.
 
-**Affected lines in Swift.Lottie.cs**:
-- Line 8253: `return del(...)` returns `Swift.CGSize`, callback signature returns `void*`
-- Line 11728: `return del(...)` returns `Swift.Lottie.LottieColor`, callback signature returns `void*`
-- Line 21731: `return del(...)` returns `double`, callback signature returns `void*`
-- Line 25949: `return del(...)` returns `Swift.CGPoint`, callback signature returns `void*`
+**Error**: `CS7036: There is no argument given that corresponds to the required parameter 'denominator' of 'LottieColor.LottieColor(double, double, double, double, ColorFormatDenominator)'`
 
-### Example
+**Location**: `BindingTesting/Lottie/LottieTestApp/Program.cs:447`
+
+### Current Code
 
 ```csharp
-// Generated (broken)
-private static void* init_block_48B7AC29_Callback(void* arg0, SwiftSelf context)
-{
-    var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<System.Double, Swift.CGSize>>(new IntPtr(context.Value));
-    return del(SwiftMarshal.MarshalFromSwift<System.Double>(new IntPtr(arg0)));  // CS0029!
-}
-
-// Should be (for frozen struct returns)
-private static Swift.CGSize init_block_48B7AC29_Callback(void* arg0, SwiftSelf context)
-{
-    var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<System.Double, Swift.CGSize>>(new IntPtr(context.Value));
-    return del(SwiftMarshal.MarshalFromSwift<System.Double>(new IntPtr(arg0)));
-}
+var color = new LottieColor(1.0, 0.5, 0.25, 1.0);
 ```
 
-### Root Cause
+### Fix Required
 
-The closure callback emitter (`ClosureEmitter.cs`) always uses `void*` for return types, which works for reference types but not for frozen structs that should be returned by value.
+Add the `ColorFormatDenominator` parameter. Check the generated `Swift.Lottie.cs` for the enum values and choose the appropriate one (likely `ColorFormatDenominator.One` for values in 0-1 range).
 
-### Files to Investigate
+### Acceptance Criteria
 
-1. `src/Swift.Bindings/src/Emitter/StringEmitter/ClosureEmitter.cs` - Closure callback emission
-2. `src/Swift.Bindings/src/Marshaler/ClosureHandler.cs` - Closure marshalling decisions
+- [ ] LottieTestApp compiles successfully
+- [ ] Test app can be built and launched on simulator
+
+---
+
+## Task 2: CoreGraphics Type Stubs (CGImage, CGColor)
+
+### Status: 🔲 Pending
+### Priority: P1 (Improves binding coverage)
+### Effort: Medium (3-4 hours)
+### Dependencies: None
+
+### Problem Statement
+
+28 members are skipped with "UnsupportedSignature" because they use CoreGraphics types (CGImage, CGColor, CGContext) that aren't mapped.
+
+### Example Skipped Members
+
+```
+Lottie.FilepathImageProvider.imageForAsset - UnsupportedSignature
+Lottie.LottieAnimationLayer.image - UnsupportedSignature
+```
 
 ### Implementation Approach
 
-1. In closure callback emission, check if the return type is a frozen struct
-2. If frozen struct: use the actual C# type as return type, return the value directly
-3. If non-frozen/reference type: continue using `void*` with pointer marshalling
+1. Add type stubs to TypeDatabase for:
+   - `CoreGraphics.CGImage` → `IntPtr` (opaque handle)
+   - `CoreGraphics.CGColor` → `IntPtr` (opaque handle)
+   - `CoreGraphics.CGContext` → `IntPtr` (opaque handle)
+
+2. Register these in the Swift module database initialization
+
+3. Members using these types will compile but work with raw pointers
+
+### Files to Modify
+
+- `src/Swift.Bindings/src/TypeDatabase/BuiltInTypes.cs` or similar
+- Possibly `src/Swift.Bindings/src/Parser/ModuleProcessor.cs`
 
 ### Acceptance Criteria
 
-- [x] CS0029 errors eliminated in Lottie (4 errors)
-- [x] Closure callbacks with frozen struct returns compile correctly
-- [x] Closure callbacks with non-frozen struct returns use indirect marshalling
-- [x] Unit tests for closure return type handling
-- [x] Nuke and BlinkID still compile clean
-
-### Validation
-
-**Validated by**: Claude
-**Date**: February 2026
-
-- All unit tests pass (1028)
-- Lottie CS0029 errors: 4 → 0
-- Remaining Lottie errors: 3 (CS1061, CS0305×2)
+- [ ] CGImage, CGColor, CGContext types registered
+- [ ] Skipped members using these types are now emitted
+- [ ] Members compile (IntPtr parameters/returns)
+- [ ] Unit tests for type registration
 
 ---
 
-## Task 2: Generic Enum Factory T0.Payload Assumption (CS1061)
+## Task 3: Lottie Runtime Validation
 
-### Status: ✅ COMPLETED (February 2026)
-### Priority: P0 (Critical - 1 of 7 Lottie errors)
-### Effort: Low (2-3 hours)
-### Dependencies: None
-
-### Completion Notes
-
-**Implemented by**: Codex
-**Validated by**: Claude
-**Unit Tests**: 1029 passed (up from 1028)
-
-**Files Modified**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EnumHandler.cs` - Added generic type parameter detection and proper marshalling via `SwiftMarshal.MarshalToSwift()`
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/EnumHandlerOutputTests.cs` - Added `Emit_GenericEnum_EmitsGenericTypeAndPInvokeHelper` test
-
-**Key fix**: When a parameter is a generic type parameter (T0), marshal via:
-1. `TypeMetadata.GetTypeMetadataOrThrow<T0>()` - get metadata
-2. `stackalloc byte[(int)metadata.Size]` - allocate buffer
-3. `SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan)` - marshal to buffer
-4. `(IntPtr)value0SwiftBuffer` - pass buffer pointer to P/Invoke
-
-**Results**: CS1061 error eliminated (1 → 0)
+### Status: 🔲 Pending
+### Priority: P1 (Validates binding correctness)
+### Effort: Medium (2-3 hours)
+### Dependencies: Task 1
 
 ### Problem Statement
 
-Generic enum case factory methods assume the type parameter `T0` has a `.Payload` property, but generic type parameters don't have this property.
+Lottie bindings compile but haven't been runtime validated. Need to verify that basic Lottie functionality works.
 
-**Affected line**: Swift.Lottie.cs:16413
+### Implementation Approach
 
-### Example
+1. Update `LottieTestApp/Program.cs` to exercise basic Lottie APIs:
+   - Load a Lottie animation from bundled JSON
+   - Create an animation view
+   - Query animation properties (duration, frameRate, etc.)
 
-```csharp
-// Generated (broken)
-public static ValueProviderStorage<T0> SingleValue(T0 value0)
-{
-    // ...
-    ValueProviderStorage_PInvoke.PInvoke_SingleValue(indirectResult, value0.Payload.DangerousGetHandle(), ...);  // CS1061!
-}
+2. Add test markers similar to NukeTestApp:
+   - `Console.WriteLine("TEST SUCCESS")` on completion
+   - `Console.WriteLine("TEST FAILURE: ...")` on errors
 
-// Fixed: Use generic marshalling pattern
-public static ValueProviderStorage<T0> SingleValue(T0 value0)
-{
-    var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-    byte* value0SwiftBuffer = stackalloc byte[(int)value0Metadata.Size];
-    var value0SwiftSpan = new Span<byte>(value0SwiftBuffer, (int)value0Metadata.Size);
-    SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);
-    ValueProviderStorage_PInvoke.PInvoke_SingleValue(indirectResult, (IntPtr)value0SwiftBuffer, ...);
-}
-```
+3. Update or create `validate-sim.sh` for Lottie
 
 ### Acceptance Criteria
 
-- [x] CS1061 error eliminated in Lottie
-- [x] Generic enum case factories compile correctly with proper marshalling
-- [x] Unit tests for generic parameter detection in enum factories
-
----
-
-## Task 3: Generic Type Self-Reference Missing Type Argument (CS0305)
-
-### Status: ✅ COMPLETED (February 2026)
-### Priority: P0 (Critical - 2 of 7 Lottie errors)
-### Effort: Low (2-3 hours)
-### Dependencies: None
-
-### Completion Notes
-
-**Implemented by**: Codex
-**Validated by**: Claude
-**Unit Tests**: 1029 passed
-
-**Files Modified**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs` - Fixed `NewFromPayload` to use `_typeNameWithGenerics` for constructor call
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/TypeHandlerHelpers.cs` - Fixed conformance dictionary to use `typeName` (which includes generics)
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EnumHandler.cs` - Fixed `NewFromPayload` for generic enums
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/TypeHandlersOutputTests.cs` - Added `Emit_ClassHandler_GenericClass_UsesTypeArgumentsInSelfReferences` test
-
-**Key fix**: Pass `typeNameWithGenerics` (e.g., `Keyframe<T0>`) instead of just type name to:
-1. `NewFromPayload` constructor: `new Keyframe<T0>(handle)`
-2. Protocol conformance dictionary: `typeof(IEquatable<Keyframe<T0>>)`
-
-**Results**: CS0305 errors eliminated (2 → 0)
-
-### Problem Statement
-
-Generic types reference themselves without the type argument in certain contexts.
-
-**Affected lines**: Swift.Lottie.cs:26277, 26315
-
-### Example
-
-```csharp
-// Generated (broken)
-public class Keyframe<T0> : ISwiftObject, IEquatable<Keyframe<T0>>
-{
-    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-    {
-        return new Keyframe(handle);  // CS0305! Should be Keyframe<T0>
-    }
-
-    static Keyframe()
-    {
-        _protocolConformanceSymbols = new Dictionary<Type, string>
-        {
-            {typeof(IEquatable<Keyframe>), "..."}  // CS0305! Should be IEquatable<Keyframe<T0>>
-        };
-    }
-}
-
-// Fixed
-static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-{
-    return new Keyframe<T0>(handle);  // ✓ Correct
-}
-{typeof(IEquatable<Keyframe<T0>>), "..."}  // ✓ Correct
-```
-
-### Acceptance Criteria
-
-- [x] CS0305 errors eliminated in Lottie (2 errors)
-- [x] Generic types self-reference correctly with type parameters
-- [x] Unit tests for generic type self-reference
+- [ ] LottieTestApp runs on iOS Simulator
+- [ ] Basic Lottie animation loads successfully
+- [ ] Animation properties can be queried
+- [ ] Validation script exits 0 on success
 
 ---
 
@@ -241,38 +150,23 @@ static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
 # Run all unit tests
 ./run-tests.sh
 
-# Regenerate and test Lottie
+# Build Lottie test app
 cd BindingTesting/Lottie
-./regenerate-bindings.sh
 dotnet build LottieTestApp/LottieTestApp.csproj
 
-# Count errors by type
-dotnet build LottieTestApp/LottieTestApp.csproj 2>&1 | grep "error CS" | sed 's/.*error \(CS[0-9]*\).*/\1/' | sort | uniq -c
+# Regenerate Lottie bindings (after generator changes)
+./regenerate-bindings.sh
 
-# Regenerate and test Nuke (with runtime validation)
+# Validate Nuke on simulator
 cd BindingTesting/Nuke
-./build-all.sh && ./validate-sim.sh 15
+./validate-sim.sh 15
 ```
 
 ---
 
-## Phase 41 Summary
-
-**Completed**: February 2026
-**Result**: Lottie 0 generator errors ✅
-
-| Metric | Before | After |
-|--------|--------|-------|
-| Unit Tests | 1028 | 1029 |
-| Lottie Generator Errors | 7 | 0 |
-| Nuke Errors | 0 | 0 |
-| BlinkID Errors | 0 | 0 |
-
-**Note**: Lottie test app has 1 error in `Program.cs` (CS7036 - missing constructor argument) due to Lottie API changes. This is a test app issue, not a generator issue.
-
 ## Notes
 
-- All three tasks were completed successfully
-- Generator now properly handles generic type parameters in enum factories
-- Generic types now correctly include type arguments in self-references
-- All three test libraries compile with 0 generator errors
+- Phase 42 focuses on coverage and validation rather than error elimination
+- CoreGraphics stubs are pragmatic - full support would require significant work
+- Runtime validation is critical before declaring Lottie "production ready"
+- Existential-in-bound-generics is a known architectural limitation (deferred)

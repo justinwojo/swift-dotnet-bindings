@@ -90,7 +90,7 @@ dotnet add package Nuke.Bindings
 | Enum case constructors | **Done** | P1 |
 | Foundation type coverage (URL, Data, etc.) | **Done** | P1 |
 | Cross-platform generation (iOS bindings on macOS) | **Done** | - |
-| **Lock namespace mapping scheme** | Not Started | P1 |
+| **Lock namespace mapping scheme** | **Done** | P1 |
 | **Binding completeness report** | **Done** | P1 |
 | **UnsupportedType placeholder** | **Done** | P2 |
 
@@ -201,11 +201,11 @@ To maintain focus, these are explicitly **out of scope**:
 - Full protocol witness table handling
 - Protocols with Associated Types (PATs) - partial support
 
-### Key Gaps (from Multi-Library Testing)
-Testing across Nuke, BlinkID, and Lottie revealed:
+### Multi-Library Testing Status
+Testing across Nuke, BlinkID, and Lottie:
 - **Nuke**: 0 errors ✅ (runtime validated)
-- **BlinkID**: 0 errors ✅
-- **Lottie**: 11 errors (protocol conformance not emitted)
+- **BlinkID**: 0 errors ✅ (compiles clean)
+- **Lottie**: 0 errors ✅ (compiles clean)
 - See `/src/docs/CURRENT-STATUS.md` for current status
 
 ---

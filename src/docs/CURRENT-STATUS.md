@@ -1,18 +1,18 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 40)
-**Unit Tests**: 1018 passed
+**Last Updated**: February 2026 (Phase 41 Complete)
+**Unit Tests**: 1029 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
 ---
 
 ## Compilation Status
 
-| Library | Errors | Coverage |
-|---------|--------|----------|
+| Library | Generator Errors | Runtime Validation |
+|---------|------------------|-------------------|
 | **Nuke** | 0 ✅ | Full runtime validation |
 | **BlinkID** | 0 ✅ | Compiles clean |
-| **Lottie** | 1 | CS0738 only (protocol proxy) |
+| **Lottie** | 0 ✅ | Compiles clean (test app needs update) |
 
 ---
 
@@ -23,11 +23,11 @@
 - ✅ Structs (frozen and non-frozen)
 - ✅ Enums (with associated values, raw representable)
 - ✅ Protocols (interface + proxy generation)
-- ✅ Generics (bound generics, generic enums)
+- ✅ Generics (bound generics, generic enums, generic classes)
 
 ### Members
 - ✅ Methods (instance, static, async)
-- ✅ Properties (getters, readonly)
+- ✅ Properties (getters and setters)
 - ✅ Operators (+, -, ==, !=, <, >, etc.)
 - ✅ Constructors
 - ✅ Subscripts (as C# indexers)
@@ -42,16 +42,16 @@
 - ✅ Binding completeness report (`binding-report.json`)
 - ✅ `[UnsupportedSwiftType]` attribute on degraded members
 - ✅ Skip reasons in report (UnsupportedSignature, AnyTypeFallback, etc.)
+- ✅ Configurable namespace mapping
 
 ---
 
 ## What Doesn't Work
 
 ### Architectural Gaps
-- ❌ **Protocol conformance emission** - Types don't emit `ISwiftProtocol` implementations even when Swift type conforms
-- ❌ **Property setters** - Only getters emitted
 - ❌ **Async properties** - Properties with async getters
 - ❌ **Actors** - Swift actor types
+- ❌ **Protocol witness tables** - Full witness table handling
 
 ### Framework Limitations
 - ❌ **SwiftUI** - Types with SwiftUI constraints skipped
@@ -64,15 +64,16 @@
 
 ---
 
-## Remaining Lottie Errors (1)
+## Recent Completions (Phase 41)
 
-**CS0738 (1)** - Interface mismatch:
-```
-AnyValueProviderProxy.valueType returns wrong type vs ISwiftAnyValueProvider.valueType
-```
-*Fix: Task 2 - Protocol proxy return type alignment*
+### Eliminated All Generator Errors
+- **CS0029** (4 errors) - Closure callback return types for frozen/non-frozen structs
+- **CS1061** (1 error) - Generic enum factory T0.Payload assumption
+- **CS0305** (2 errors) - Generic type self-reference missing type arguments
 
-**Fixed in Phase 40**: CS0311 errors eliminated by skipping members with unsatisfied generic constraints.
+### Test Coverage
+- Unit tests: 1029 (up from 1018)
+- All three test libraries compile with 0 generator errors
 
 ---
 
@@ -88,8 +89,10 @@ AnyValueProviderProxy.valueType returns wrong type vs ISwiftAnyValueProvider.val
 
 ## Development History
 
-39 phases of improvements tracked in git history. Key milestones:
+41 phases of improvements tracked in git history. Key milestones:
 - Phase 1-15: Core infrastructure and Nuke validation
 - Phase 16-29: Type system and runtime fixes
 - Phase 30-33: Generic type improvements
 - Phase 34-39: Codex task completion (operators, enums, reporting)
+- Phase 40: Protocol conformance infrastructure, namespace mapping
+- Phase 41: Generic type fixes, 0 generator errors achieved
