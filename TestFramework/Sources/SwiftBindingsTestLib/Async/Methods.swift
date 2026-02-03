@@ -1,0 +1,103 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+import Foundation
+
+// MARK: - Swift Concurrency Interop Hook
+
+fileprivate typealias EnqueueOriginal = @convention(thin) (UnownedJob) -> Void
+fileprivate typealias EnqueueHook = @convention(thin) (UnownedJob, EnqueueOriginal) -> Void
+
+/// A minimal executor that runs Swift async jobs on GCD.
+/// Required for Swift async/await to work when called from .NET.
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+final class GCDExecutor: SerialExecutor {
+    static let shared = GCDExecutor()
+    private let queue = DispatchQueue(label: "swift-bindings-test.executor", qos: .userInitiated)
+
+    @available(macOS 14.0, iOS 17.0, tvOS 17.0, watchOS 10.0, *)
+    func enqueue(_ job: consuming ExecutorJob) {
+        let unownedJob = UnownedJob(job)
+        let executor = asUnownedSerialExecutor()
+        queue.async {
+            unownedJob.runSynchronously(on: executor)
+        }
+    }
+
+    // Legacy API for older OS versions.
+    func enqueue(_ job: UnownedJob) {
+        let executor = asUnownedSerialExecutor()
+        queue.async {
+            job.runSynchronously(on: executor)
+        }
+    }
+
+    func asUnownedSerialExecutor() -> UnownedSerialExecutor {
+        UnownedSerialExecutor(ordinary: self)
+    }
+}
+
+private var _concurrencyInitialized = false
+
+/// Initializes the Swift concurrency runtime for .NET interop.
+/// Must be called before any async methods are invoked from C#.
+@_cdecl("SwiftBindingsTestLib_InitializeConcurrency")
+public func initializeConcurrency() {
+    guard !_concurrencyInitialized else { return }
+    _concurrencyInitialized = true
+
+    guard let handle = dlopen(nil, 0),
+          let hookPtr = dlsym(handle, "swift_task_enqueueGlobal_hook") else {
+        return
+    }
+
+    let hook = hookPtr.assumingMemoryBound(to: EnqueueHook?.self)
+    hook.pointee = { job, _ in
+        GCDExecutor.shared.enqueue(job)
+    }
+}
+
+// MARK: - AsyncWorker
+
+/// Struct with various async methods for testing async emission.
+public struct AsyncWorker {
+    public let name: String
+
+    public init(name: String) {
+        self.name = name
+    }
+
+    /// Async void instance method.
+    public func asyncVoidMethod() async {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    /// Async instance method returning Int32.
+    public func asyncReturnMethod() async -> Int32 {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return 42
+    }
+
+    /// Async instance method returning String.
+    public func asyncStringMethod() async -> String {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return "Hello from \(name)"
+    }
+
+    /// Async static void method.
+    public static func asyncStaticVoid() async {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    /// Async static method returning Int32.
+    public static func asyncStaticReturn() async -> Int32 {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return 99
+    }
+
+    /// Async method with parameters.
+    public func asyncAdd(a: Int32, b: Int32) async -> Int32 {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return a + b
+    }
+}

@@ -1,0 +1,157 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+import Foundation
+
+// MARK: - Frozen Structs
+
+/// A simple frozen struct with stored properties and methods.
+@frozen
+public struct FrozenPoint {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+
+    /// Returns the distance from the origin.
+    public func distanceFromOrigin() -> Double {
+        return (x * x + y * y).squareRoot()
+    }
+
+    /// Returns a new point translated by the given offsets.
+    public func translated(dx: Double, dy: Double) -> FrozenPoint {
+        return FrozenPoint(x: x + dx, y: y + dy)
+    }
+
+    /// Returns the midpoint between this point and another.
+    public func midpoint(to other: FrozenPoint) -> FrozenPoint {
+        return FrozenPoint(x: (x + other.x) / 2.0, y: (y + other.y) / 2.0)
+    }
+}
+
+/// A frozen struct with various property types for testing property emission.
+@frozen
+public struct FrozenStructWithProperties {
+    public let constantValue: Int32
+    public var mutableValue: Int32
+    public var name: String
+
+    public init(constantValue: Int32, mutableValue: Int32, name: String) {
+        self.constantValue = constantValue
+        self.mutableValue = mutableValue
+        self.name = name
+    }
+
+    /// Computed property (read-only).
+    public var displayName: String {
+        return "\(name) (\(mutableValue))"
+    }
+
+    /// Static stored property.
+    public static let defaultName: String = "Default"
+
+    /// Static computed property.
+    public static var typeName: String {
+        return "FrozenStructWithProperties"
+    }
+}
+
+// MARK: - Non-Frozen Structs
+
+/// A non-frozen struct (default). ABI is opaque to consumers.
+public struct NonFrozenPoint {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+
+    public func distanceFromOrigin() -> Double {
+        return (x * x + y * y).squareRoot()
+    }
+}
+
+/// Non-frozen struct with various property types.
+public struct NonFrozenStructWithProperties {
+    public let constantValue: Int32
+    public var mutableValue: Int32
+
+    public init(constantValue: Int32, mutableValue: Int32) {
+        self.constantValue = constantValue
+        self.mutableValue = mutableValue
+    }
+
+    public var doubled: Int32 {
+        return mutableValue * 2
+    }
+}
+
+// MARK: - Nested Structs
+
+/// Outer struct containing an inner struct, testing nested type emission.
+@frozen
+public struct NestedOuter {
+    @frozen
+    public struct Inner {
+        public var value: Int32
+
+        public init(value: Int32) {
+            self.value = value
+        }
+    }
+
+    public var inner: Inner
+    public var label: String
+
+    public init(inner: Inner, label: String) {
+        self.inner = inner
+        self.label = label
+    }
+
+    public func innerValue() -> Int32 {
+        return inner.value
+    }
+}
+
+// MARK: - Factory Pattern
+
+/// A struct with factory (static) methods.
+public struct StructBuilder {
+    public var value: Int32
+
+    public init(value: Int32) {
+        self.value = value
+    }
+
+    /// Factory method returning a new instance.
+    public static func withValue(_ value: Int32) -> StructBuilder {
+        return StructBuilder(value: value)
+    }
+
+    /// Factory method returning a default instance.
+    public static func makeDefault() -> StructBuilder {
+        return StructBuilder(value: 0)
+    }
+}
+
+// MARK: - Free Functions
+
+/// Free function accepting a frozen struct.
+public func describePoint(_ point: FrozenPoint) -> String {
+    return "(\(point.x), \(point.y))"
+}
+
+/// Free function returning a frozen struct.
+public func makeOrigin() -> FrozenPoint {
+    return FrozenPoint(x: 0.0, y: 0.0)
+}
+
+/// Free function accepting and returning a non-frozen struct.
+public func scalePoint(_ point: NonFrozenPoint, by factor: Double) -> NonFrozenPoint {
+    return NonFrozenPoint(x: point.x * factor, y: point.y * factor)
+}
