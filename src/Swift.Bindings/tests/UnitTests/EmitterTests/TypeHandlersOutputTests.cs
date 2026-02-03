@@ -152,6 +152,47 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
+    public void Emit_ClassHandler_GenericClass_UsesTypeArgumentsInSelfReferences()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = new ClassDecl
+        {
+            Name = "Keyframe",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Keyframe"),
+            MangledName = "$s10TestModule8KeyframeCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new(
+                    "τ_0_0",
+                    "T",
+                    new List<GenericParameterConformance>(),
+                    new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>
+            {
+                new(
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.Keyframe"),
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                    "$s10TestModule8KeyframeCSQAAMc")
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        Assert.Contains("public unsafe class Keyframe<T0> : ISwiftObject, IEquatable<Keyframe<T0>>", csOutput);
+        Assert.Contains("return new Keyframe<T0>(handle);", csOutput);
+        Assert.Contains("{typeof(IEquatable<Keyframe<T0>>)", csOutput);
+    }
+
+    [Fact]
     public void Emit_NonFrozenStructHandler_EmitsClassProjectionWithPayload()
     {
         var typeDatabase = CreateTypeDatabase();

@@ -282,7 +282,7 @@ namespace BindingsGeneration
             var text = $$"""
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
-                return new {{_classDecl.Name}}(handle);
+                return new {{_typeNameWithGenerics}}(handle);
             }
             """;
 
@@ -395,7 +395,7 @@ namespace BindingsGeneration
             return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
                 _classDecl.Conformances,
                 _moduleDecl.Name,
-                _classDecl.Name,
+                _typeNameWithGenerics,
                 _typeDatabase);
         }
     }

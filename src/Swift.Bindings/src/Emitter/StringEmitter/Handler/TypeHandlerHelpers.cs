@@ -320,7 +320,7 @@ namespace BindingsGeneration
             return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
                 _structDecl.Conformances,
                 _moduleDecl.Name,
-                _structDecl.Name,
+                _typeNameWithGenerics,
                 _typeDatabase);
         }
     }

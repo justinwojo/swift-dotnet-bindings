@@ -386,7 +386,19 @@ namespace BindingsGeneration
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, name, typeSpec) = parameters[i];
-                argList.Add(GetPInvokeArgument(name, typeSpec, typeDatabase));
+                if (typeSpec is NamedTypeSpec genericParamType &&
+                    TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
+                {
+                    csWriter.WriteLine($"var {name}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{type}>();");
+                    csWriter.WriteLine($"byte* {name}SwiftBuffer = stackalloc byte[(int){name}Metadata.Size];");
+                    csWriter.WriteLine($"var {name}SwiftSpan = new Span<byte>({name}SwiftBuffer, (int){name}Metadata.Size);");
+                    csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({name}, ref {name}SwiftSpan);");
+                    argList.Add($"(IntPtr){name}SwiftBuffer");
+                }
+                else
+                {
+                    argList.Add(GetPInvokeArgument(name, typeSpec, typeDatabase));
+                }
             }
 
             var invokeArgList = string.Join(", ", argList);
@@ -1696,7 +1708,7 @@ namespace BindingsGeneration
             return ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
                 _enumDecl.Conformances,
                 _moduleDecl.Name,
-                _enumDecl.Name,
+                _typeNameWithGenerics,
                 _typeDatabase);
         }
     }

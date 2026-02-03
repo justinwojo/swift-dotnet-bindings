@@ -112,7 +112,9 @@ public class EnumHandlerOutputTests
 
         Assert.Contains("public unsafe class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject", csOutput);
         Assert.Contains("public static ValueProviderStorage<T0> Boxed(T0 value0)", csOutput);
-        Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, value0.Payload.DangerousGetHandle()", csOutput);
+        Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);
+        Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, (IntPtr)value0SwiftBuffer", csOutput);
         Assert.Contains("internal static class ValueProviderStorage_PInvoke", csOutput);
     }
 
