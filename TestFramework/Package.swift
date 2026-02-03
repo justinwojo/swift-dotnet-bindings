@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.0
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
@@ -20,7 +20,10 @@ let package = Package(
     targets: [
         .target(
             name: "SwiftBindingsTestLib",
-            path: "Sources/SwiftBindingsTestLib"
+            path: "Sources/SwiftBindingsTestLib",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
         ),
     ]
 )

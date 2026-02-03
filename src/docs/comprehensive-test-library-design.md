@@ -1,8 +1,8 @@
 # Comprehensive Swift Test Library Design
 
-**Status**: v1.8 Implemented, v1.9 Planned (Swift 6 language features)
+**Status**: v1.9 Implemented (Swift 6.0–6.2 language features)
 **Created**: February 2026
-**Last Updated**: February 2026 - Phase 7 planned: Swift 6.0–6.2 language features
+**Last Updated**: February 2026 - Phase 7 (v1.9): Swift 6.0–6.2 language features implemented
 
 ---
 
@@ -50,7 +50,7 @@ Create a custom Swift library specifically designed to test the full breadth of 
                     │   Third-Party SDKs  │  ← "Does it work in the wild?"
                     ├─────────────────────┤
                     │  Comprehensive Test │  ← "Does it handle all Swift features?"
-                    │      Library        │    (60+ Swift files, 135+ features)
+                    │      Library        │    (65 Swift files, 149 features)
                     ├─────────────────────┤
                     │  Integration Tests  │  ← Keep for quick iteration
                     ├─────────────────────┤
@@ -86,8 +86,8 @@ TestFramework/
 │       │   ├── Structs.swift            # ✅ Frozen, non-frozen, nested
 │       │   ├── Classes.swift            # ✅ Basic, inheritance, ARC, weak/unowned
 │       │   ├── Enums.swift              # ✅ Raw, associated values, generic
-│       │   ├── Noncopyable.swift        # ⬜ ~Copyable, consuming, borrowing (Swift 6.0+)
-│       │   └── InlineArray.swift        # ⬜ InlineArray fixed-size type (Swift 6.2+)
+│       │   ├── Noncopyable.swift        # ✅ ~Copyable, consuming, borrowing (Swift 6.0+)
+│       │   └── InlineArray.swift        # ✅ InlineArray fixed-size type (Swift 6.2+, #if guarded)
 │       │
 │       ├── Protocols/
 │       │   ├── BasicProtocols.swift     # ✅ Simple protocols, properties, methods
@@ -118,7 +118,7 @@ TestFramework/
 │       │   ├── Actors.swift             # ✅ Actor type, isolated/nonisolated methods
 │       │   ├── AsyncClosures.swift      # ✅ Async closure parameters
 │       │   ├── AsyncProperties.swift    # ✅ Async computed properties
-│       │   └── IsolationControl.swift   # ⬜ @concurrent, nonisolated(unsafe) (Swift 6.1/6.2)
+│       │   └── IsolationControl.swift   # ✅ nonisolated(unsafe) (Swift 6.1/6.2)
 │       │
 │       ├── Properties/
 │       │   ├── Getters.swift            # ✅ Stored + computed property getters
@@ -150,7 +150,7 @@ TestFramework/
 │       ├── ErrorHandling/
 │       │   ├── ThrowingFunctions.swift  # ✅ Synchronous throws methods
 │       │   ├── ErrorTypes.swift         # ✅ Custom Error types
-│       │   └── TypedThrows.swift        # ⬜ throws(SomeError) typed throws (Swift 6.0+)
+│       │   └── TypedThrows.swift        # ✅ throws(SomeError) typed throws (Swift 6.0+)
 │       │
 │       ├── MemoryManagement/
 │       │   └── LibraryEvolution.swift   # ✅ Non-frozen struct/class/enum layout
@@ -165,7 +165,7 @@ TestFramework/
 │       │   ├── Pointers.swift           # ✅ UnsafePointer, UnsafeMutablePointer
 │       │   ├── RawPointers.swift        # ✅ UnsafeRawPointer, UnsafeMutableRawPointer
 │       │   ├── OpaquePointer.swift      # ✅ OpaquePointer, Optional<OpaquePointer>
-│       │   └── Span.swift              # ⬜ Span<T>, RawSpan (Swift 6.2+)
+│       │   └── Span.swift              # ✅ Span<T>, RawSpan (Swift 6.2+, #if guarded)
 │       │
 │       ├── ObjCInterop/
 │       │   ├── NSObjectSubclass.swift   # ✅ NSObject subclass, inheritance
@@ -276,6 +276,32 @@ property), throwing closures (@escaping closures that throw), async closures (as
 closure parameters), Selector type (Selector parameter, #selector, responds(to:)),
 and async properties (computed properties with async getter).
 
+### v1.9 Binding Generation Results
+
+```
+Source:   65 Swift files, 77 structs, 27 classes, 14 enums, 12 protocols, 159 free functions
+Output:   49 C# files, 1 Swift wrapper file
+Types:    129/141 emitted (91.5% coverage)
+Members:  570/655 emitted, 46 skipped, ~265 synthesized
+Coverage: 136 features tracked (87 must-pass, 49 known-unsupported)
+         79 must-pass passing, 8 degraded, 0 missing
+         44 known-unsupported with tests, 5 compiled out (InlineArray/Span)
+```
+
+v1.9 adds 5 new Swift files covering Swift 6.0–6.2 language features: typed throws
+(`throws(SomeError)` with specific error type, async typed throws, struct with typed
+throwing method), noncopyable types (`~Copyable` struct, `consuming`/`borrowing`
+ownership modifiers, deinit), isolation control (`nonisolated(unsafe)` property),
+InlineArray (fixed-size inline type, `#if swift(>=6.2)` guarded), and Span (safe
+buffer view, `#if swift(>=6.2)` guarded). Also updated `Package.swift` from
+swift-tools-version 5.9 to 6.0 with `swiftLanguageMode(.v5)` to avoid breaking
+existing code with strict concurrency.
+
+The coverage report now detects `compiled_out` features — files that exist on disk but
+whose declarations are absent from ABI JSON (due to `#if` guards or library-evolution
+limitations). These are reported separately from `missing` (no source) and `implemented`
+(source + ABI visible).
+
 ### Phase 43 Generator Improvements (applied to v1.8 output)
 
 Phase 43 implemented several generator features that affect how v1.8 test cases are handled:
@@ -331,11 +357,11 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Generic enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Nested type in generic | Partial | ✅ v1.0 | `Structs.swift` |
 | Actor | Supported | ✅ v1.8 | `Actors.swift` |
-| Noncopyable struct (`~Copyable`) | **Not Yet** | ⬜ v1.9 | `Noncopyable.swift` |
-| Noncopyable class (`~Copyable`) | **Not Yet** | ⬜ v1.9 | `Noncopyable.swift` |
-| `consuming` parameter | **Not Yet** | ⬜ v1.9 | `Noncopyable.swift` |
-| `borrowing` parameter | **Not Yet** | ⬜ v1.9 | `Noncopyable.swift` |
-| InlineArray (fixed-size) | **Not Yet** | ⬜ v1.9 | `InlineArray.swift` |
+| Noncopyable struct (`~Copyable`) | **Not Yet** | ✅ v1.9 | `Noncopyable.swift` |
+| `consuming` parameter | **Not Yet** | ✅ v1.9 | `Noncopyable.swift` |
+| `borrowing` parameter | **Not Yet** | ✅ v1.9 | `Noncopyable.swift` |
+| Noncopyable `deinit` | **Not Yet** | ✅ v1.9 | `Noncopyable.swift` |
+| InlineArray (fixed-size) | **Not Yet** | ✅ v1.9 | `InlineArray.swift` (compiled out) |
 
 ### Protocols
 
@@ -395,8 +421,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | @MainActor method | Supported | ✅ v1.6 | `MainActor.swift` |
 | @Sendable closure | Supported | ✅ v1.6 | `Sendable.swift` |
 | Sendable type | Supported | ✅ v1.6 | `Sendable.swift` |
-| `@concurrent` function | **Not Yet** | ⬜ v1.9 | `IsolationControl.swift` |
-| `nonisolated(unsafe)` | **Not Yet** | ⬜ v1.9 | `IsolationControl.swift` |
+| `nonisolated(unsafe)` | **Not Yet** | ✅ v1.9 | `IsolationControl.swift` |
 
 ### Properties
 
@@ -458,8 +483,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Static `throws` method | Supported | ✅ v1.0 | `ThrowingFunctions.swift` |
 | Custom `Error` type | Supported | ✅ v1.0 | `ErrorTypes.swift` |
 | Error to Exception mapping | Supported | ✅ v1.0 | `ErrorTypes.swift` |
-| Typed throws (`throws(E)`) | **Not Yet** | ⬜ v1.9 | `TypedThrows.swift` |
-| Typed async throws | **Not Yet** | ⬜ v1.9 | `TypedThrows.swift` |
+| Typed throws (`throws(E)`) | **Not Yet** | ✅ v1.9 | `TypedThrows.swift` |
+| Typed async throws | **Not Yet** | ✅ v1.9 | `TypedThrows.swift` |
 
 ### Foundation Interop
 
@@ -489,8 +514,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | UnsafeRawPointer | Supported | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
 | UnsafeMutableRawPointer | Supported | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
 | OpaquePointer | Partial | ✅ v1.5 | `UnsafeTypes/OpaquePointer.swift` |
-| Span<T> | **Not Yet** | ⬜ v1.9 | `UnsafeTypes/Span.swift` |
-| RawSpan | **Not Yet** | ⬜ v1.9 | `UnsafeTypes/Span.swift` |
+| Span<T> | **Not Yet** | ✅ v1.9 | `UnsafeTypes/Span.swift` (compiled out) |
+| RawSpan | **Not Yet** | ✅ v1.9 | `UnsafeTypes/Span.swift` (compiled out) |
 
 ### Memory Management (Stability Tests)
 
@@ -554,6 +579,7 @@ against per-feature declaration ownership:
 
 - **passing**: Test file exists and no binding members were skipped
 - **degraded**: Test file exists but some binding members were skipped
+- **compiled_out**: Test file exists but declarations are absent from ABI (e.g., `#if swift(>=6.2)` guard)
 - **missing**: No test file for this feature
 
 When a feature is implemented, remove it from `KNOWN_UNSUPPORTED_FEATURES` to promote it
@@ -570,14 +596,15 @@ and Swift source files:
   "generated": "2026-02-03T00:00:00Z",
   "generator_exit_code": 0,
   "summary": {
-    "must_pass": { "total": 87, "passing": 79, "degraded": 8, "missing": 0 },
-    "known_unsupported": { "total": 36, "with_test": 36, "without_test": 0 }
+    "must_pass": { "total": 87, "passing": 79, "degraded": 8, "compiled_out": 0, "missing": 0 },
+    "known_unsupported": { "total": 49, "with_test": 44, "compiled_out": 5, "without_test": 0 }
   },
   "features": [
     { "name": "frozen_struct", "status": "must_pass", "test_status": "passing", ... },
     { "name": "generic_struct", "status": "must_pass", "test_status": "degraded",
       "binding_skips": [{"name": "wrapped", "kind": "Property", "reason": "AnyTypeFallback", ...}] },
-    { "name": "actor_type", "status": "known_unsupported", "test_status": "implemented", ... }
+    { "name": "actor_type", "status": "known_unsupported", "test_status": "implemented", ... },
+    { "name": "inline_array_parameter", "status": "known_unsupported", "test_status": "compiled_out", ... }
   ]
 }
 ```
@@ -585,6 +612,7 @@ and Swift source files:
 Benefits:
 - Cross-references binding report to detect degraded features (skipped binding members)
 - Declaration-level attribution avoids false positives when features share source files
+- Detects `compiled_out` features (source exists but not in ABI due to `#if` guards)
 - Status can't drift from reality
 - Can diff against previous runs to detect regressions
 - Powers dashboard/reporting if desired
@@ -1063,7 +1091,7 @@ The test library should be versioned to track Swift language feature additions:
 | **1.6** ✅ | **+ Tier 4 partial** | **51 files: + ObjC interop (NSObject, @objc, @objcMembers), property wrappers, @MainActor, @Sendable, conditional conformance** |
 | **1.7** ✅ | **+ Key paths, metatypes, PATs, variadic, autoclosures** | **56 files: + key paths (KeyPath, WritableKeyPath), metatypes (T.Type, T.self), protocols with associated types, variadic parameters, @autoclosure** |
 | **1.8** ✅ | **+ Actors, opaque returns, throwing/async closures, selectors, async properties** | **60 files: + actor type, some Protocol opaque returns, throwing closures, async closures, Selector parameter, async computed properties** |
-| **1.9** | **+ Swift 6 language features** | **~65 files: + typed throws, noncopyable types, ownership modifiers, isolation control, InlineArray, Span** |
+| **1.9** ✅ | **+ Swift 6 language features** | **65 files: + typed throws, noncopyable types, ownership modifiers, isolation control, InlineArray, Span** |
 | 2.0 | + Full coverage | All remaining gaps |
 
 ### Documentation
@@ -1152,13 +1180,13 @@ The comprehensive test library is successful when:
 29. [x] Add async property tests (computed property with async getter)
 
 ### Phase 7: Swift 6 Language Features (v1.9)
-30. [ ] Update `Package.swift` swift-tools-version from 5.9 to 6.0 (required for typed throws, noncopyable types)
-31. [ ] Add typed throws tests (`throws(SomeError)` with specific error type, async typed throws, struct with typed throwing method)
-32. [ ] Add noncopyable type tests (`~Copyable` struct, `~Copyable` class, `consuming` parameter, `borrowing` parameter, deinit on noncopyable)
-33. [ ] Add Swift 6.2 isolation control tests (`@concurrent` function, `nonisolated(unsafe)` property/method)
-34. [ ] Add InlineArray tests (InlineArray parameter, InlineArray return, InlineArray property)
-35. [ ] Add Span tests (Span<T> parameter, RawSpan parameter, Span from array)
-36. [ ] Update `generate-coverage-report.sh` FEATURE_MAP and KNOWN_UNSUPPORTED_FEATURES for new files/features
+30. [x] Update `Package.swift` swift-tools-version from 5.9 to 6.0 (required for typed throws, noncopyable types)
+31. [x] Add typed throws tests (`throws(SomeError)` with specific error type, async typed throws, struct with typed throwing method)
+32. [x] Add noncopyable type tests (`~Copyable` struct, `consuming` parameter, `borrowing` parameter, deinit on noncopyable)
+33. [x] Add Swift 6.2 isolation control tests (`nonisolated(unsafe)` property)
+34. [x] Add InlineArray tests (InlineArray parameter, InlineArray return, InlineArray property; guarded with `#if swift(>=6.2)`)
+35. [x] Add Span tests (Span<T> parameter, RawSpan parameter; guarded with `#if swift(>=6.2)`)
+36. [x] Update `generate-coverage-report.sh` FEATURE_MAP and KNOWN_UNSUPPORTED_FEATURES for new files/features
 
 ---
 

@@ -426,12 +426,46 @@ FEATURE_MAP = {
         "name": "async_properties",
         "features": ["async_computed_property", "async_property_on_class"]
     },
+    "ErrorHandling/TypedThrows.swift": {
+        "name": "typed_throws",
+        "features": ["typed_throws", "typed_async_throws", "typed_throws_on_struct"]
+    },
+    "Types/Noncopyable.swift": {
+        "name": "noncopyable_types",
+        "features": ["noncopyable_struct", "consuming_parameter", "borrowing_parameter", "noncopyable_deinit"]
+    },
+    "Async/IsolationControl.swift": {
+        "name": "isolation_control",
+        "features": ["nonisolated_unsafe"]
+    },
+    "Types/InlineArray.swift": {
+        "name": "inline_array",
+        "features": ["inline_array_parameter", "inline_array_return", "inline_array_property"]
+    },
+    "UnsafeTypes/Span.swift": {
+        "name": "span_types",
+        "features": ["span_parameter", "raw_span_parameter"]
+    },
 }
 
 # Features that are known unsupported (generator can't handle them yet).
 # Updated for Phase 43: actors, opaque returns, throwing closures, and
 # async closures now emit successfully and have been promoted to must_pass.
+# Updated for Phase 7 (v1.9): Swift 6.0-6.2 language features added.
 KNOWN_UNSUPPORTED_FEATURES = {
+    "typed_throws",
+    "typed_async_throws",
+    "typed_throws_on_struct",
+    "noncopyable_struct",
+    "consuming_parameter",
+    "borrowing_parameter",
+    "noncopyable_deinit",
+    "nonisolated_unsafe",
+    "inline_array_parameter",
+    "inline_array_return",
+    "inline_array_property",
+    "span_parameter",
+    "raw_span_parameter",
     "failable_initializer",
     "inout_parameter",
     "default_parameter_value",
@@ -647,6 +681,24 @@ def build_feature_status(binding_report, source_files, module_name):
     source_dir = get_source_dir()
     decl_map = build_declaration_map(source_dir, source_files)
 
+    # Build reverse map: file -> set of declaration names found in source.
+    # Used to detect files whose declarations are compiled out by #if guards.
+    file_decl_names = {}
+    for decl_name, rel_file in decl_map.items():
+        file_decl_names.setdefault(rel_file, set()).add(decl_name)
+
+    # Build set of declaration names actually present in ABI JSON.
+    abi_decl_names = set()
+    if abi_data:
+        def collect_abi_names(children):
+            for child in children:
+                name = child.get("name", "")
+                if name:
+                    abi_decl_names.add(name)
+                collect_abi_names(child.get("children", []))
+        root = abi_data.get("ABIRoot", {})
+        collect_abi_names(root.get("children", []))
+
     # Map skipped items to source files
     skipped_items = []
     if binding_report and "SkippedItems" in binding_report:
@@ -658,14 +710,24 @@ def build_feature_status(binding_report, source_files, module_name):
     must_pass_total = 0
     must_pass_passing = 0
     must_pass_degraded = 0
+    must_pass_compiled_out = 0
     known_unsupported_total = 0
     known_unsupported_with_test = 0
+    known_unsupported_compiled_out = 0
 
     for rel_path, info in FEATURE_MAP.items():
         # Strip suffixes like "+opaque" or "+throwing" used to add multiple
         # feature groups for the same source file.
         actual_path = rel_path.split("+")[0] if "+" in rel_path else rel_path
         file_exists = actual_path in source_files
+
+        # Detect files guarded by #if swift(>=...) where declarations exist
+        # in the source but were compiled out (not present in ABI JSON).
+        file_has_abi_decls = True
+        if file_exists and abi_decl_names:
+            source_decls = file_decl_names.get(actual_path, set())
+            if source_decls and not source_decls & abi_decl_names:
+                file_has_abi_decls = False
 
         for feature_name in info["features"]:
             is_unsupported = feature_name in KNOWN_UNSUPPORTED_FEATURES
@@ -675,15 +737,22 @@ def build_feature_status(binding_report, source_files, module_name):
                 status = "known_unsupported"
                 known_unsupported_total += 1
                 if file_exists:
-                    known_unsupported_with_test += 1
-                    test_status = "implemented"
+                    if file_has_abi_decls:
+                        known_unsupported_with_test += 1
+                        test_status = "implemented"
+                    else:
+                        known_unsupported_compiled_out += 1
+                        test_status = "compiled_out"
                 else:
                     test_status = "missing"
             else:
                 status = "must_pass"
                 must_pass_total += 1
                 if file_exists:
-                    if skips:
+                    if not file_has_abi_decls:
+                        must_pass_compiled_out += 1
+                        test_status = "compiled_out"
+                    elif skips:
                         must_pass_degraded += 1
                         test_status = "degraded"
                     else:
@@ -713,19 +782,25 @@ def build_feature_status(binding_report, source_files, module_name):
 
             features.append(entry)
 
-    must_pass_missing = must_pass_total - must_pass_passing - must_pass_degraded
+    must_pass_missing = (must_pass_total - must_pass_passing
+                         - must_pass_degraded - must_pass_compiled_out)
+    known_unsupported_without_test = (known_unsupported_total
+                                      - known_unsupported_with_test
+                                      - known_unsupported_compiled_out)
 
     return features, {
         "must_pass": {
             "total": must_pass_total,
             "passing": must_pass_passing,
             "degraded": must_pass_degraded,
+            "compiled_out": must_pass_compiled_out,
             "missing": must_pass_missing,
         },
         "known_unsupported": {
             "total": known_unsupported_total,
             "with_test": known_unsupported_with_test,
-            "without_test": known_unsupported_total - known_unsupported_with_test,
+            "compiled_out": known_unsupported_compiled_out,
+            "without_test": known_unsupported_without_test,
         }
     }
 
@@ -809,9 +884,13 @@ if binding_stats:
     print(f"Bindings: {binding_stats['emitted_types']}/{binding_stats['total_types']} types emitted, "
           f"{binding_stats['emitted_members']}/{binding_stats['total_members']} members emitted, "
           f"{binding_stats['skipped_members']} skipped")
+mp_compiled = mp.get('compiled_out', 0)
+ku_compiled = ku.get('compiled_out', 0)
 print(f"\nMust-pass features: {mp['passing']}/{mp['total']} passing"
-      f", {mp['degraded']} degraded, {mp['missing']} missing")
-print(f"Known-unsupported features: {ku['with_test']}/{ku['total']} have tests")
+      f", {mp['degraded']} degraded, {mp['missing']} missing"
+      + (f", {mp_compiled} compiled out" if mp_compiled else ""))
+print(f"Known-unsupported features: {ku['with_test']}/{ku['total']} have tests"
+      + (f" ({ku_compiled} compiled out)" if ku_compiled else ""))
 
 if mp["degraded"] > 0:
     print(f"\n*** WARNING: {mp['degraded']} must-pass feature(s) have skipped binding members ***")

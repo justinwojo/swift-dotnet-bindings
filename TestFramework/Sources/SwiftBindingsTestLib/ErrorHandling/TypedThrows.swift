@@ -1,0 +1,101 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+import Foundation
+
+// MARK: - Typed Throws (Swift 6.0)
+// Tests: Typed throws with specific error types in function signatures
+// Expected C#: Error type encoded in ABI; may require typed error marshalling
+// Limitation: Typed throws are not yet supported by the generator
+
+/// Error type for testing typed throws — parse failures.
+public enum ParseError: Error {
+    /// The input string could not be parsed.
+    case invalidInput
+    /// The parsed value exceeded the representable range.
+    case overflow(value: String)
+}
+
+/// Error type for testing multiple typed-error types in the same module.
+public enum RangeError: Error {
+    /// The value was below the minimum.
+    case belowMinimum(value: Int32, minimum: Int32)
+    /// The value was above the maximum.
+    case aboveMaximum(value: Int32, maximum: Int32)
+}
+
+// MARK: - Free Functions with Typed Throws
+
+/// Parses a string into an Int32, throwing a typed ParseError on failure.
+public func parseNumber(_ input: String) throws(ParseError) -> Int32 {
+    guard let value = Int32(input) else {
+        throw ParseError.invalidInput
+    }
+    return value
+}
+
+/// Validates that a value is within a range, throwing a typed RangeError.
+public func validateRange(_ value: Int32, min: Int32, max: Int32) throws(RangeError) -> Int32 {
+    if value < min {
+        throw RangeError.belowMinimum(value: value, minimum: min)
+    }
+    if value > max {
+        throw RangeError.aboveMaximum(value: value, maximum: max)
+    }
+    return value
+}
+
+// MARK: - Async Typed Throws
+
+/// Async function with typed throws — simulates async parsing.
+public func asyncParse(_ input: String) async throws(ParseError) -> Int32 {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    guard let value = Int32(input) else {
+        throw ParseError.invalidInput
+    }
+    return value
+}
+
+// MARK: - Struct with Typed Throwing Method
+
+/// A parser struct with typed throwing instance methods.
+public struct TypedThrowingParser {
+    public let strict: Bool
+
+    public init(strict: Bool) {
+        self.strict = strict
+    }
+
+    /// Parses input with typed throws.
+    public func parse(_ input: String) throws(ParseError) -> Int32 {
+        guard !input.isEmpty else {
+            throw ParseError.invalidInput
+        }
+        if strict {
+            // In strict mode, reject leading/trailing whitespace
+            let trimmed = input.trimmingCharacters(in: .whitespaces)
+            guard trimmed == input else {
+                throw ParseError.invalidInput
+            }
+        }
+        guard let value = Int32(input) else {
+            if input.count > 10 {
+                throw ParseError.overflow(value: input)
+            }
+            throw ParseError.invalidInput
+        }
+        return value
+    }
+}
+
+// MARK: - Free Functions (Creation Helpers)
+
+/// Creates a strict TypedThrowingParser.
+public func createStrictParser() -> TypedThrowingParser {
+    return TypedThrowingParser(strict: true)
+}
+
+/// Creates a lenient TypedThrowingParser.
+public func createLenientParser() -> TypedThrowingParser {
+    return TypedThrowingParser(strict: false)
+}
