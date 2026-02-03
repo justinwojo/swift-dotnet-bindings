@@ -335,4 +335,4 @@ The 42 phases of work have produced a solid, working foundation. The path forwar
 - `/src/docs/emitter-redesign-proposal.md` - Architecture improvement plan
 - `/src/docs/known-issues-workarounds.md` - Runtime issue documentation
 - `/src/docs/swift-concurrency-interop-plan.md` - Async/concurrency interop (partially implemented)
-- `/src/docs/codex-task-specs.md` - Current phase task specifications
+- `/src/docs/generator-gaps.md` - Degraded features exposed by TestFramework

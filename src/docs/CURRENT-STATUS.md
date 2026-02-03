@@ -150,7 +150,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 | File | Purpose |
 |------|---------|
 | `north-star.md` | Project vision and roadmap |
-| `codex-task-specs.md` | Current phase task specifications |
+| `generator-gaps.md` | Degraded features exposed by TestFramework (8 gaps) |
 | `comprehensive-architecture-review.md` | Strategic direction and priorities |
 | `emitter-redesign-proposal.md` | Future architecture improvement plan |
 | `known-issues-workarounds.md` | Runtime issues and workarounds |

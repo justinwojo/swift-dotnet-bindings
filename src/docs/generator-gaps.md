@@ -1,4 +1,4 @@
-# Codex Task Specifications — Generator Gaps
+# Generator Gaps
 
 Binding coverage gaps exposed by the TestFramework v2.0 comprehensive test library (67 Swift files, 145 features tracked). These are generator-side issues where the test file exists and compiles but the emitter skips members due to unsupported type patterns.
 
