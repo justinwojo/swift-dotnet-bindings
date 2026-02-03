@@ -358,6 +358,30 @@ FEATURE_MAP = {
         "name": "opaque_pointer",
         "features": ["opaque_pointer", "optional_opaque_pointer"]
     },
+    "ObjCInterop/NSObjectSubclass.swift": {
+        "name": "nsobject_subclass",
+        "features": ["nsobject_subclass", "nsobject_inheritance", "nsobject_as_parameter"]
+    },
+    "ObjCInterop/ObjCAttributes.swift": {
+        "name": "objc_attributes",
+        "features": ["objc_attribute", "objc_members", "objc_enum"]
+    },
+    "PropertyWrappers/Wrappers.swift": {
+        "name": "property_wrappers",
+        "features": ["property_wrapper_type", "wrapped_property_access", "projected_value"]
+    },
+    "Async/MainActor.swift": {
+        "name": "main_actor",
+        "features": ["main_actor_class", "main_actor_method"]
+    },
+    "Async/Sendable.swift": {
+        "name": "sendable",
+        "features": ["sendable_type", "sendable_closure"]
+    },
+    "Protocols/Conditional.swift": {
+        "name": "conditional_conformance",
+        "features": ["conditional_conformance"]
+    },
 }
 
 # Features that are known unsupported (generator can't handle them yet)
@@ -372,6 +396,13 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "unowned_reference",
     "extension_on_foundation_type",
     "retroactive_conformance",
+    "property_wrapper_type",
+    "wrapped_property_access",
+    "projected_value",
+    "main_actor_class",
+    "main_actor_method",
+    "sendable_closure",
+    "conditional_conformance",
 }
 
 

@@ -1,8 +1,8 @@
 # Comprehensive Swift Test Library Design
 
-**Status**: v1.5 Implemented
+**Status**: v1.6 Implemented
 **Created**: February 2026
-**Last Updated**: February 2026 - v1.5 implemented (45 Swift files, 80 features covered)
+**Last Updated**: February 2026 - v1.6 implemented (51 Swift files, 93 features covered)
 
 ---
 
@@ -50,7 +50,7 @@ Create a custom Swift library specifically designed to test the full breadth of 
                     │   Third-Party SDKs  │  ← "Does it work in the wild?"
                     ├─────────────────────┤
                     │  Comprehensive Test │  ← "Does it handle all Swift features?"
-                    │      Library        │    (45 Swift files, 80 features)
+                    │      Library        │    (51 Swift files, 93 features)
                     ├─────────────────────┤
                     │  Integration Tests  │  ← Keep for quick iteration
                     ├─────────────────────┤
@@ -90,7 +90,8 @@ TestFramework/
 │       ├── Protocols/
 │       │   ├── BasicProtocols.swift     # ✅ Simple protocols, properties, methods
 │       │   ├── Composition.swift        # ✅ Protocol composition (A & B)
-│       │   └── Conformance.swift        # ✅ Types conforming to protocols
+│       │   ├── Conformance.swift        # ✅ Types conforming to protocols
+│       │   └── Conditional.swift        # ✅ Conditional conformance (where clause)
 │       │
 │       ├── Generics/
 │       │   ├── Functions.swift          # ✅ Generic functions
@@ -105,7 +106,9 @@ TestFramework/
 │       │
 │       ├── Async/
 │       │   ├── Methods.swift            # ✅ Async methods (instance + static)
-│       │   └── AsyncThrowing.swift      # ✅ Async throwing methods
+│       │   ├── AsyncThrowing.swift      # ✅ Async throwing methods
+│       │   ├── MainActor.swift          # ✅ @MainActor class, method
+│       │   └── Sendable.swift           # ✅ Sendable type, @Sendable closure
 │       │
 │       ├── Properties/
 │       │   ├── Getters.swift            # ✅ Stored + computed property getters
@@ -150,6 +153,13 @@ TestFramework/
 │       │   ├── Pointers.swift           # ✅ UnsafePointer, UnsafeMutablePointer
 │       │   ├── RawPointers.swift        # ✅ UnsafeRawPointer, UnsafeMutableRawPointer
 │       │   └── OpaquePointer.swift      # ✅ OpaquePointer, Optional<OpaquePointer>
+│       │
+│       ├── ObjCInterop/
+│       │   ├── NSObjectSubclass.swift   # ✅ NSObject subclass, inheritance
+│       │   └── ObjCAttributes.swift     # ✅ @objc, @objcMembers, @objc enum
+│       │
+│       ├── PropertyWrappers/
+│       │   └── Wrappers.swift           # ✅ @propertyWrapper, wrappedValue, projectedValue
 │       │
 │       └── EdgeCases/
 │           ├── Unicode.swift            # ✅ Unicode identifiers
@@ -202,6 +212,23 @@ unsafe/C-interop types (pointers, raw pointers, OpaquePointer), weak/unowned ref
 and non-frozen class/enum types. Also expanded the coverage report with 15 new feature
 entries.
 
+### v1.6 Binding Generation Results
+
+```
+Source:   51 Swift files, 62 structs, 20 classes, 11 enums, 9 protocols, 105 free functions
+Output:   49 C# files, 1 Swift wrapper file
+Types:    101/110 emitted (91.8% coverage)
+Members:  452/500 emitted, 20 skipped, 239 synthesized
+Coverage: 93 features tracked (77 must-pass, 17 known-unsupported — note: some v1.6 features
+          like NSObject subclass, @objc, Sendable type land as must-pass since the generator
+          handles them without issues)
+```
+
+v1.6 adds 6 new Swift files covering Objective-C interop (NSObject subclass, @objc,
+@objcMembers, @objc enum), property wrappers (@propertyWrapper, wrappedValue,
+projectedValue), concurrency attributes (@MainActor class/method, Sendable type,
+@Sendable closure), and conditional conformance (extension with where clause).
+
 Generator fixes required for v1.0 (all resolved):
 - Existential arguments (`any Protocol`) crashed `EmitSafeHandleAddRef` — added filter
 - Existential and tuple return types crashed `EmitReturnMethod` — added early return handlers
@@ -246,7 +273,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Type conforming to protocol | **Not Emitted** | ✅ v1.0 | `Conformance.swift` |
 | Retroactive conformance | Unknown | ✅ v1.0 | `Conformance.swift` |
 | Circular protocol refs | Unknown | ✅ v1.0 | `Composition.swift` |
-| Conditional conformance | **Not Yet** | ⬜ Add | `Conditional.swift` |
+| Conditional conformance | **Not Yet** | ✅ v1.6 | `Conditional.swift` |
 
 ### Generics
 
@@ -287,10 +314,10 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Async static method | Supported | ✅ v1.0 | `Methods.swift` |
 | Async throwing method | Supported | ✅ v1.0 | `AsyncThrowing.swift` |
 | Async property | Not Yet | ⬜ Future | `Properties.swift` |
-| @MainActor class | **Not Yet** | ⬜ Add | `MainActor.swift` |
-| @MainActor method | **Not Yet** | ⬜ Add | `MainActor.swift` |
-| @Sendable closure | **Not Yet** | ⬜ Add | `Sendable.swift` |
-| Sendable type | **Not Yet** | ⬜ Add | `Sendable.swift` |
+| @MainActor class | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
+| @MainActor method | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
+| @Sendable closure | **Not Yet** | ✅ v1.6 | `Sendable.swift` |
+| Sendable type | **Not Yet** | ✅ v1.6 | `Sendable.swift` |
 
 ### Properties
 
@@ -301,9 +328,9 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Property setter | **Not Yet** | ✅ v1.0 | `Setters.swift` |
 | Static property | Supported | ✅ Existing | `Static.swift` |
 | Lazy property | Unknown | ✅ v1.0 | `Getters.swift` |
-| @propertyWrapper type | **Not Yet** | ⬜ Add | `Wrappers.swift` |
-| Wrapped property access | **Not Yet** | ⬜ Add | `Wrappers.swift` |
-| Projected value (`$prop`) | **Not Yet** | ⬜ Add | `Wrappers.swift` |
+| @propertyWrapper type | **Not Yet** | ✅ v1.6 | `Wrappers.swift` |
+| Wrapped property access | **Not Yet** | ✅ v1.6 | `Wrappers.swift` |
+| Projected value (`$prop`) | **Not Yet** | ✅ v1.6 | `Wrappers.swift` |
 
 ### Operators
 
@@ -367,9 +394,9 @@ This matrix tracks which Swift features are covered by the test library. Feature
 
 | Feature | Generator Status | Test Coverage | Test File |
 |---------|-----------------|---------------|-----------|
-| NSObject subclass | Unknown | ⬜ Add | `NSObjectSubclass.swift` |
-| @objc attribute | Unknown | ⬜ Add | `ObjCAttributes.swift` |
-| @objcMembers | Unknown | ⬜ Add | `ObjCAttributes.swift` |
+| NSObject subclass | Unknown | ✅ v1.6 | `NSObjectSubclass.swift` |
+| @objc attribute | Unknown | ✅ v1.6 | `ObjCAttributes.swift` |
+| @objcMembers | Unknown | ✅ v1.6 | `ObjCAttributes.swift` |
 | Selector type | Unknown | ⬜ Add | `Selectors.swift` |
 
 ### Unsafe/C-Interop Types
@@ -416,7 +443,8 @@ These Swift features don't appear in ABI JSON and thus don't need test coverage:
 |---------|-------|----------|
 | **v1.0** ✅ | Tier 1 + 2 | Property setters, protocol conformance, throws, inout, failable init, default params |
 | **v1.5** ✅ | + Tier 3 | Weak/unowned, Foundation interop, unsafe types, non-frozen class/enum |
-| v2.0 | + Tier 4 | Property wrappers, @MainActor, key paths, actors |
+| **v1.6** ✅ | + Tier 4 partial | ObjC interop, property wrappers, @MainActor, @Sendable, conditional conformance |
+| v1.7+ | + Remaining | Key paths, metatypes, actors, variadic params, autoclosures |
 
 ### Test Bucketing: Must-Pass vs Known-Unsupported
 
@@ -829,11 +857,10 @@ The test library should be versioned to track Swift language feature additions:
 |----------------|----------------|-------|
 | **1.0** ✅ | **All Tier 1-2 + extras** | **38 files: types, closures, async, operators, tuples, protocols, generics, existentials, error handling, edge cases** |
 | **1.5** ✅ | **+ Tier 3** | **45 files: + Foundation interop (Data, URL, Date, extensions), unsafe/C-interop types (pointers, raw pointers, OpaquePointer), weak/unowned refs, non-frozen class/enum** |
-| 1.6 | + Property wrappers | SwiftUI/Combine compatibility |
+| **1.6** ✅ | **+ Tier 4 partial** | **51 files: + ObjC interop (NSObject, @objc, @objcMembers), property wrappers, @MainActor, @Sendable, conditional conformance** |
 | 1.7 | + Key paths, metatypes | Advanced generics |
-| 1.8 | + @MainActor, @Sendable | Swift concurrency attributes |
-| 1.9 | + Conditional conformance | Full protocol support |
-| 2.0 | + Actors | Complete concurrency model |
+| 1.8 | + Actors | Complete concurrency model |
+| 2.0 | + Full coverage | All remaining gaps |
 
 ### Documentation
 
@@ -897,6 +924,12 @@ The comprehensive test library is successful when:
 12. [ ] Migrate relevant cases from existing `FunctionalTests/`
 13. [x] Add Tier 3 coverage (weak/unowned, Foundation interop, unsafe types)
 14. [x] Expand ABI evolution test suite (non-frozen class, enum, optional fields)
+
+### Phase 4: Tier 4 Features (v1.6)
+15. [x] Add Objective-C interop tests (NSObject subclass, @objc, @objcMembers)
+16. [x] Add property wrapper tests (@propertyWrapper, wrappedValue, projectedValue)
+17. [x] Add concurrency attribute tests (@MainActor class/method, Sendable, @Sendable closure)
+18. [x] Add conditional conformance test (extension with where clause)
 
 ---
 
