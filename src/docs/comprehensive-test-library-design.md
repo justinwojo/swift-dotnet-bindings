@@ -1,0 +1,932 @@
+# Comprehensive Swift Test Library Design
+
+**Status**: Proposal (Multi-Model Reviewed)
+**Created**: February 2026
+**Last Updated**: February 2026 - Expanded via Grok + Gemini + Codex analysis
+
+---
+
+## Purpose
+
+Create a custom Swift library specifically designed to test the full breadth of Swift language features that the binding generator must handle. This library serves as a **systematic regression suite** that complements the real-world validation provided by third-party bindings (Nuke, BlinkID, Lottie).
+
+---
+
+## Goals
+
+| Goal | Description |
+|------|-------------|
+| **Systematic coverage** | Deliberately include every Swift construct the generator needs to support |
+| **Stability** | Tests don't break due to third-party SDK updates |
+| **Debugging clarity** | When failures occur, Swift source is immediately inspectable |
+| **Feature-driven development** | Add test cases *before* implementing new features |
+| **Minimal size** | Small, focused library without third-party noise |
+| **Living documentation** | The library documents what's supported vs. what's not |
+
+---
+
+## Relationship to Existing Tests
+
+### Current Test Pyramid
+
+```
+                    ┌─────────────────────┐
+                    │   Third-Party SDKs  │  ← Real-world patterns
+                    │  (Nuke, BlinkID,    │    (unpredictable, evolving)
+                    │   Lottie)           │
+                    ├─────────────────────┤
+                    │  Integration Tests  │  ← Basic Swift constructs
+                    │  (FunctionalTests/) │    (limited coverage)
+                    ├─────────────────────┤
+                    │    Unit Tests       │  ← Component isolation
+                    │  (synthetic data)   │    (no runtime validation)
+                    └─────────────────────┘
+```
+
+### Proposed Addition
+
+```
+                    ┌─────────────────────┐
+                    │   Third-Party SDKs  │  ← "Does it work in the wild?"
+                    ├─────────────────────┤
+                    │  Comprehensive Test │  ← "Does it handle all Swift features?"
+                    │      Library        │    (NEW - systematic, stable)
+                    ├─────────────────────┤
+                    │  Integration Tests  │  ← Keep for quick iteration
+                    ├─────────────────────┤
+                    │    Unit Tests       │  ← Component isolation
+                    └─────────────────────┘
+```
+
+### Complementary Roles
+
+| Test Type | Purpose | Stability | Coverage |
+|-----------|---------|-----------|----------|
+| Unit Tests | Component logic | High | Synthetic patterns |
+| Integration Tests | Quick end-to-end | High | Basic constructs |
+| **Comprehensive Library** | **All Swift features** | **High** | **Systematic** |
+| Third-Party SDKs | Real-world validation | Low (external) | Incidental |
+
+---
+
+## Library Structure
+
+### Directory Layout
+
+```
+TestFramework/
+├── Package.swift                    # Swift Package Manager manifest
+├── Sources/
+│   └── SwiftBindingsTestLib/
+│       ├── Types/
+│       │   ├── Structs.swift        # Frozen, non-frozen, nested
+│       │   ├── Classes.swift        # Basic, inheritance, ARC, weak/unowned
+│       │   ├── Enums.swift          # Raw, associated values, generic
+│       │   └── Actors.swift         # Actor isolation (future)
+│       │
+│       ├── Protocols/
+│       │   ├── BasicProtocols.swift # Simple protocols
+│       │   ├── PATs.swift           # Protocols with associated types
+│       │   ├── Composition.swift    # Protocol composition
+│       │   ├── Conformance.swift    # Types conforming to protocols
+│       │   └── Conditional.swift    # Conditional conformance (where clauses)
+│       │
+│       ├── Generics/
+│       │   ├── Functions.swift      # Generic functions
+│       │   ├── Types.swift          # Generic structs/classes, generic subscripts
+│       │   ├── Constraints.swift    # Where clauses, protocol bounds
+│       │   ├── Existentials.swift   # any Protocol, some Protocol
+│       │   ├── KeyPaths.swift       # KeyPath, WritableKeyPath
+│       │   └── Metatypes.swift      # T.Type parameters
+│       │
+│       ├── Closures/
+│       │   ├── Escaping.swift       # @escaping closures
+│       │   ├── ConventionC.swift    # @convention(c) closures
+│       │   ├── Autoclosures.swift   # @autoclosure parameters
+│       │   ├── Async.swift          # Async closures (future)
+│       │   └── Returns.swift        # Methods returning closures
+│       │
+│       ├── Async/
+│       │   ├── Methods.swift        # Async methods
+│       │   ├── Throwing.swift       # Async throwing methods
+│       │   └── Properties.swift     # Async properties (future)
+│       │
+│       ├── Concurrency/
+│       │   ├── MainActor.swift      # @MainActor types and methods
+│       │   └── Sendable.swift       # @Sendable closures and types
+│       │
+│       ├── Properties/
+│       │   ├── Getters.swift        # Read-only properties
+│       │   ├── Setters.swift        # Read-write properties
+│       │   ├── Static.swift         # Static properties
+│       │   ├── Computed.swift       # Computed properties
+│       │   └── Wrappers.swift       # @propertyWrapper types
+│       │
+│       ├── Operators/
+│       │   ├── Arithmetic.swift     # +, -, *, /, %
+│       │   ├── Comparison.swift     # ==, !=, <, >, <=, >=
+│       │   ├── Bitwise.swift        # &, |, ^, <<, >>
+│       │   └── Unary.swift          # !, ~, prefix -, prefix +
+│       │
+│       ├── Tuples/
+│       │   ├── Basic.swift          # 2-7 element tuples
+│       │   ├── Named.swift          # Labeled tuple elements
+│       │   └── Returns.swift        # Methods returning tuples
+│       │
+│       ├── Initializers/
+│       │   ├── Basic.swift          # Standard initializers
+│       │   ├── Failable.swift       # init? and init! (optional returns)
+│       │   └── Throwing.swift       # throws initializers
+│       │
+│       ├── Parameters/
+│       │   ├── Inout.swift          # inout parameters (mutable refs)
+│       │   ├── Variadic.swift       # Variadic parameters
+│       │   └── Defaults.swift       # Default argument values
+│       │
+│       ├── ErrorHandling/
+│       │   ├── Throwing.swift       # Synchronous throws methods
+│       │   └── ErrorTypes.swift     # Custom Error types
+│       │
+│       ├── FoundationInterop/
+│       │   ├── Data.swift           # Foundation.Data bridging
+│       │   ├── URL.swift            # Foundation.URL bridging
+│       │   ├── Date.swift           # Foundation.Date bridging
+│       │   └── Extensions.swift     # Extensions on Foundation types
+│       │
+│       ├── ObjCInterop/
+│       │   ├── NSObjectSubclass.swift  # Classes inheriting NSObject
+│       │   ├── ObjCAttributes.swift    # @objc, @objcMembers
+│       │   └── Selectors.swift         # Selector usage
+│       │
+│       ├── MemoryManagement/
+│       │   ├── RetainCycles.swift   # Circular reference patterns
+│       │   ├── LibraryEvolution.swift  # Non-frozen struct layout changes
+│       │   └── LeakDetection.swift  # C#↔Swift prevent leaks
+│       │
+│       ├── UnsafeTypes/
+│       │   ├── Pointers.swift       # UnsafePointer, UnsafeMutablePointer
+│       │   ├── RawPointers.swift    # UnsafeRawPointer, UnsafeMutableRawPointer
+│       │   └── OpaquePointer.swift  # OpaquePointer usage
+│       │
+│       └── EdgeCases/
+│           ├── Unicode.swift        # Unicode identifiers
+│           ├── Keywords.swift       # Reserved word handling
+│           ├── Visibility.swift     # Access levels (public, internal)
+│           └── Deprecation.swift    # @available attributes
+│
+├── Tests/                           # Optional: Swift-side unit tests
+│   └── SwiftBindingsTestLibTests/
+│
+└── build-xcframework.sh             # Build script for xcframework output
+```
+
+### Build Output
+
+The library builds to an xcframework that can be consumed by the binding generator:
+
+```
+TestFramework/
+└── .build/
+    └── SwiftBindingsTestLib.xcframework/
+        ├── ios-arm64/
+        │   └── SwiftBindingsTestLib.framework/
+        ├── ios-arm64_x86_64-simulator/
+        │   └── SwiftBindingsTestLib.framework/
+        └── macos-arm64_x86_64/
+            └── SwiftBindingsTestLib.framework/
+```
+
+---
+
+## Feature Coverage Matrix
+
+This matrix tracks which Swift features are covered by the test library. Features marked "Supported" should have corresponding test cases; features marked "Not Yet" are gaps to fill as we implement them.
+
+### Types
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Frozen struct | Supported | ✅ Existing | `Structs.swift` |
+| Non-frozen struct | Supported | ✅ Existing | `Structs.swift` |
+| Nested struct | Supported | ✅ Existing | `Structs.swift` |
+| Struct with ref field | Supported | ⬜ Add | `Structs.swift` |
+| Basic class | Supported | ⬜ Add | `Classes.swift` |
+| Class inheritance | Supported | ⬜ Add | `Classes.swift` |
+| Final class | Supported | ⬜ Add | `Classes.swift` |
+| Weak reference (`weak var`) | **Not Yet** | ⬜ Add | `Classes.swift` |
+| Unowned reference (`unowned`) | **Not Yet** | ⬜ Add | `Classes.swift` |
+| Raw value enum | Supported | ⬜ Add | `Enums.swift` |
+| Associated value enum | Supported | ⬜ Add | `Enums.swift` |
+| Generic enum | Supported | ⬜ Add | `Enums.swift` |
+| Nested type in generic | Unknown | ⬜ Add | `Structs.swift` |
+| Actor | Not Yet | ⬜ Future | `Actors.swift` |
+
+### Protocols
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Simple protocol | Supported | ✅ Existing | `BasicProtocols.swift` |
+| Protocol with properties | Supported | ⬜ Add | `BasicProtocols.swift` |
+| Protocol with methods | Supported | ⬜ Add | `BasicProtocols.swift` |
+| Protocol inheritance | Supported | ⬜ Add | `BasicProtocols.swift` |
+| Protocol with associated type | Partial | ⬜ Add | `PATs.swift` |
+| Protocol composition (`A & B`) | Supported | ⬜ Add | `Composition.swift` |
+| Type conforming to protocol | **Not Emitted** | ⬜ Add | `Conformance.swift` |
+| Retroactive conformance | Unknown | ⬜ Add | `Conformance.swift` |
+| Circular protocol refs | Unknown | ⬜ Add | `Composition.swift` |
+| Conditional conformance | **Not Yet** | ⬜ Add | `Conditional.swift` |
+
+### Generics
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Generic function | Supported | ✅ Existing | `Functions.swift` |
+| Generic function with constraint | Supported | ✅ Existing | `Functions.swift` |
+| Generic struct | Partial | ⬜ Add | `Types.swift` |
+| Generic class | Partial | ⬜ Add | `Types.swift` |
+| Bound generic type | Supported | ⬜ Add | `Types.swift` |
+| Generic subscript | Partial | ⬜ Add | `Types.swift` |
+| Where clause | Supported | ✅ Existing | `Constraints.swift` |
+| `any Protocol` (existential) | Supported | ⬜ Add | `Existentials.swift` |
+| `some Protocol` (opaque) | Not Yet | ⬜ Future | `Existentials.swift` |
+| Key paths (`\T.property`) | **Not Yet** | ⬜ Add | `KeyPaths.swift` |
+| WritableKeyPath | **Not Yet** | ⬜ Add | `KeyPaths.swift` |
+| Metatypes (`T.Type`) | **Not Yet** | ⬜ Add | `Metatypes.swift` |
+
+### Closures
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| @escaping void closure | Supported | ✅ Existing | `Escaping.swift` |
+| @escaping with primitives | Supported | ✅ Existing | `Escaping.swift` |
+| @escaping with frozen struct | Supported | ⬜ Add | `Escaping.swift` |
+| @convention(c) | Supported | ⬜ Add | `ConventionC.swift` |
+| @autoclosure | **Not Yet** | ⬜ Add | `Autoclosures.swift` |
+| Method returning closure | Supported | ⬜ Add | `Returns.swift` |
+| Async closure | Not Yet | ⬜ Future | `Async.swift` |
+| Throwing closure | Not Yet | ⬜ Future | `Escaping.swift` |
+| Closure in closure | Not Supported | ⬜ Document | n/a |
+
+### Async/Concurrency
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Async method | Supported | ⬜ Add | `Methods.swift` |
+| Async static method | Supported | ⬜ Add | `Methods.swift` |
+| Async throwing method | Supported | ⬜ Add | `Throwing.swift` |
+| Async property | Not Yet | ⬜ Future | `Properties.swift` |
+| @MainActor class | **Not Yet** | ⬜ Add | `MainActor.swift` |
+| @MainActor method | **Not Yet** | ⬜ Add | `MainActor.swift` |
+| @Sendable closure | **Not Yet** | ⬜ Add | `Sendable.swift` |
+| Sendable type | **Not Yet** | ⬜ Add | `Sendable.swift` |
+
+### Properties
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Stored property getter | Supported | ✅ Existing | `Getters.swift` |
+| Computed property getter | Supported | ✅ Existing | `Getters.swift` |
+| Property setter | **Not Yet** | ⬜ Add | `Setters.swift` |
+| Static property | Supported | ✅ Existing | `Static.swift` |
+| Lazy property | Unknown | ⬜ Add | `Getters.swift` |
+| @propertyWrapper type | **Not Yet** | ⬜ Add | `Wrappers.swift` |
+| Wrapped property access | **Not Yet** | ⬜ Add | `Wrappers.swift` |
+| Projected value (`$prop`) | **Not Yet** | ⬜ Add | `Wrappers.swift` |
+
+### Operators
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Arithmetic (+, -, *, /, %) | Supported | ⬜ Add | `Arithmetic.swift` |
+| Comparison (==, !=, <, >) | Supported | ✅ Existing | `Comparison.swift` |
+| Bitwise (&, \|, ^, <<, >>) | Supported | ⬜ Add | `Bitwise.swift` |
+| Unary (!, ~) | Supported | ⬜ Add | `Unary.swift` |
+
+### Tuples
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| 2-element tuple | Supported | ⬜ Add | `Basic.swift` |
+| 7-element tuple | Supported | ⬜ Add | `Basic.swift` |
+| Named tuple elements | Supported | ⬜ Add | `Named.swift` |
+| Method returning tuple | Supported | ⬜ Add | `Returns.swift` |
+| 8+ element tuple | Not Supported | ⬜ Document | n/a |
+
+### Initializers
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Standard initializer | Supported | ✅ Existing | `Basic.swift` |
+| Failable initializer (`init?`) | **Not Yet** | ⬜ Add | `Failable.swift` |
+| Implicitly unwrapped (`init!`) | **Not Yet** | ⬜ Add | `Failable.swift` |
+| Throwing initializer | Supported | ✅ Existing | `Throwing.swift` |
+| Convenience initializer | Unknown | ⬜ Add | `Basic.swift` |
+| Required initializer | Unknown | ⬜ Add | `Basic.swift` |
+
+### Parameters
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Inout parameter (`inout`) | **Not Yet** | ⬜ Add | `Inout.swift` |
+| Inout with frozen struct | **Not Yet** | ⬜ Add | `Inout.swift` |
+| Variadic parameter | Unknown | ⬜ Add | `Variadic.swift` |
+| Default parameter value | **Not Yet** | ⬜ Add | `Defaults.swift` |
+
+### Error Handling
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Synchronous `throws` method | Supported | ⬜ Add | `Throwing.swift` |
+| Static `throws` method | Supported | ⬜ Add | `Throwing.swift` |
+| Custom `Error` type | Unknown | ⬜ Add | `ErrorTypes.swift` |
+| Error to Exception mapping | Unknown | ⬜ Add | `ErrorTypes.swift` |
+
+### Foundation Interop
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Foundation.Data | Supported | ⬜ Add | `Data.swift` |
+| Foundation.URL | Supported | ⬜ Add | `URL.swift` |
+| Foundation.Date | Unknown | ⬜ Add | `Date.swift` |
+| Extension on Foundation type | Unknown | ⬜ Add | `Extensions.swift` |
+| Retroactive conformance | Unknown | ⬜ Add | `Extensions.swift` |
+
+### Objective-C Interop
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| NSObject subclass | Unknown | ⬜ Add | `NSObjectSubclass.swift` |
+| @objc attribute | Unknown | ⬜ Add | `ObjCAttributes.swift` |
+| @objcMembers | Unknown | ⬜ Add | `ObjCAttributes.swift` |
+| Selector type | Unknown | ⬜ Add | `Selectors.swift` |
+
+### Unsafe/C-Interop Types
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| UnsafePointer<T> | Supported | ⬜ Add | `Pointers.swift` |
+| UnsafeMutablePointer<T> | Supported | ⬜ Add | `Pointers.swift` |
+| UnsafeRawPointer | Unknown | ⬜ Add | `RawPointers.swift` |
+| UnsafeMutableRawPointer | Unknown | ⬜ Add | `RawPointers.swift` |
+| OpaquePointer | Unknown | ⬜ Add | `OpaquePointer.swift` |
+
+### Memory Management (Stability Tests)
+
+| Feature | Generator Status | Test Coverage | Test File |
+|---------|-----------------|---------------|-----------|
+| Circular C#↔Swift refs | Unknown | ⬜ Add | `RetainCycles.swift` |
+| Non-frozen layout change | **Critical** | ⬜ Add | `LibraryEvolution.swift` |
+| Leak detection harness | n/a | ⬜ Add | `LeakDetection.swift` |
+
+### Out of Scope (Compile-Time Only)
+
+These Swift features don't appear in ABI JSON and thus don't need test coverage:
+
+| Feature | Reason |
+|---------|--------|
+| Macros (`@Observable`, etc.) | Expanded at compile time; bindings see expanded code |
+| Parameter packs | Compile-time variadic generics; monomorphized in ABI |
+| Result builders (`@ViewBuilder`) | DSL syntax sugar; desugared before ABI |
+| Property observers (`willSet`/`didSet`) | Internal implementation; not in public ABI |
+
+---
+
+## Implementation Strategy (Codex Recommendations)
+
+### v1 Scope: Start Small
+
+**v1 should include only Tier 1 + Tier 2 features.** Resist the temptation to build everything at once.
+
+| Version | Tiers | Features |
+|---------|-------|----------|
+| **v1.0** | Tier 1 + 2 | Property setters, protocol conformance, throws, inout, failable init, default params |
+| v1.5 | + Tier 3 | Weak/unowned, Foundation interop, non-frozen layout tests |
+| v2.0 | + Tier 4 | Property wrappers, @MainActor, key paths, actors |
+
+### Test Bucketing: Must-Pass vs Known-Unsupported
+
+Split tests into two categories from day one:
+
+| Category | Purpose | CI Behavior |
+|----------|---------|-------------|
+| **must-pass** | Features that work today | Gates PRs - failures block merge |
+| **known-unsupported** | Features we're tracking | No gate - tracks progress over time |
+
+```
+Tests/
+├── MustPass/           # Gates PRs
+│   ├── Structs/
+│   ├── Classes/
+│   └── ...
+└── KnownUnsupported/   # Progress tracking
+    ├── Actors/
+    ├── PATs/
+    └── ...
+```
+
+When a feature is implemented, move its tests from `KnownUnsupported/` to `MustPass/`.
+
+### Machine-Readable Coverage Report
+
+Auto-generate a `coverage-matrix.json` from the test results:
+
+```json
+{
+  "generated": "2026-02-03T00:00:00Z",
+  "summary": {
+    "must_pass": { "total": 42, "passing": 42, "failing": 0 },
+    "known_unsupported": { "total": 18, "passing": 3, "failing": 15 }
+  },
+  "features": [
+    { "name": "frozen_struct", "status": "supported", "tests": 5, "passing": 5 },
+    { "name": "actors", "status": "unsupported", "tests": 2, "passing": 0 }
+  ]
+}
+```
+
+Benefits:
+- Status can't drift from reality
+- Can diff against previous runs to detect regressions
+- Powers dashboard/reporting if desired
+
+### Early ABI Evolution Tests
+
+Add 1-2 non-frozen struct layout tests in v1.0, not v1.5. This is a high-risk area that's easy to get wrong silently.
+
+```swift
+// v1 of library
+public struct EvolvingConfig {
+    public var featureA: Bool
+    public var timeout: Int
+}
+
+// v2 of library (simulated by building two versions)
+public struct EvolvingConfig {
+    public var featureA: Bool
+    public var featureB: Bool  // NEW - shifts layout!
+    public var timeout: Int
+}
+```
+
+Test verifies that C# bindings using getter/setter functions (not memory offsets) work across both versions.
+
+---
+
+## Recommended Prioritization
+
+Based on analysis of real-world library patterns and current blockers:
+
+### Tier 1: Functional Blockers (Implement First)
+| Feature | Rationale |
+|---------|-----------|
+| **Property Setters** | Without setters, bindings are read-only "viewers" not usable APIs |
+| **Protocol Conformance Emission** | Required for delegates, callbacks, UI patterns - #1 blocker for UI libs |
+| **Synchronous throws** | Standard Swift error handling; `Error` → `Exception` mapping essential |
+
+### Tier 2: High-Impact Features
+| Feature | Rationale |
+|---------|-----------|
+| **Inout Parameters** | Required for mutation-heavy libs (animation, math, buffers) |
+| **Failable Initializers** | Factory patterns everywhere; `init?` → `TryCreate()` |
+| **Default Parameter Values** | Without these, C# users must specify every argument (poor DX) |
+
+### Tier 3: Completeness & Stability
+| Feature | Rationale |
+|---------|-----------|
+| **Weak/Unowned References** | Prevents memory leak cycles between C# and Swift |
+| **Foundation Interop** | Data, URL, Date are ubiquitous in real libraries |
+| **Non-frozen Layout Testing** | Prevents silent crashes when Swift lib updates internally |
+
+### Tier 4: Advanced Features
+| Feature | Rationale |
+|---------|-----------|
+| **Property Wrappers** | SwiftUI/Combine compatibility |
+| **@MainActor/@Sendable** | Swift concurrency model |
+| **Key Paths / Metatypes** | Advanced generic patterns |
+| **Actors** | Complete concurrency support |
+
+---
+
+## Known C# Interop Challenges
+
+These are anticipated challenges when implementing certain features:
+
+### Non-Frozen Struct Layout Trap
+> **Warning**: Non-frozen structs do NOT have fixed memory layout. Using `[StructLayout(LayoutKind.Sequential)]` with P/Invoke will cause crashes when the Swift library changes internal field order.
+
+**Solution**: Use getter/setter function calls instead of direct memory offsets for non-frozen types.
+
+### Protocol Diamond Problem
+Swift allows a type to conform to two protocols with same-named methods but different semantics. C# requires Explicit Interface Implementation to handle this.
+
+```csharp
+// C# must detect and emit:
+public class MyType : IProtocolA, IProtocolB
+{
+    void IProtocolA.DoThing() { /* A's impl */ }
+    void IProtocolB.DoThing() { /* B's impl */ }
+}
+```
+
+### Generic Constraint Mapping
+Swift constraints like `where T: Numeric` or `where T: AnyObject` don't always map to C#. May require runtime validation in constructors.
+
+### Swift Task vs .NET Task
+Swift's async uses a different executor than .NET ThreadPool. A `SwiftTaskAwaiter` bridge is needed to prevent UI thread deadlocks.
+
+### String Marshalling
+Swift strings are UTF-8 and can contain null bytes. Standard P/Invoke `CharSet.Ansi`/`Unicode` causes data loss. Custom `SwiftString` marshaller required (already implemented).
+
+### Circular Protocol References
+Protocol A returning Protocol B (and vice versa) can cause stack overflow in proxy generation. Requires lazy initialization or forward declaration pattern.
+
+### Debug Symbols
+The `build-xcframework.sh` script should generate **dSYMs** (debug symbols). Without these, debugging the C#→Swift boundary is nearly impossible.
+
+---
+
+## Example Swift Code for Complex Features
+
+### Inout Parameters
+```swift
+// C# expected: public static void IncrementX(ref MutablePoint point)
+public func incrementX(_ point: inout MutablePoint) {
+    point.x += 1.0
+}
+```
+
+### Failable Initializers
+```swift
+// C# expected: public static bool TryCreate(..., out SafeDiv? result)
+public struct SafeDiv {
+    public let result: Double
+    public init?(numerator: Double, denominator: Double) {
+        guard denominator != 0 else { return nil }
+        self.result = numerator / denominator
+    }
+}
+```
+
+### Property Wrappers
+```swift
+// C# expected: Properties for wrappedValue, projectedValue ($count)
+@propertyWrapper
+public struct Clamped<T: Comparable> {
+    public var wrappedValue: T
+    public var projectedValue: T { wrappedValue }
+    public init(wrappedValue: T) { self.wrappedValue = wrappedValue }
+}
+
+public struct Counter {
+    @Clamped public var count: Int = 0
+}
+```
+
+### Weak/Unowned References
+```swift
+// C# expected: WeakRef<Node> or nullable SafeHandle with weak semantics
+public class Node {
+    public weak var parent: Node?
+    public unowned var owner: Owner
+}
+```
+
+### Key Paths
+```swift
+// C# expected: KeyPath<Point, double> or delegate-based equivalent
+public func getValue<T, V>(_ obj: T, at keyPath: KeyPath<T, V>) -> V {
+    return obj[keyPath: keyPath]
+}
+```
+
+### @MainActor
+```swift
+// C# expected: [MainActor] attribute or dispatch wrapper
+@MainActor
+public class ViewModel {
+    public var title: String = ""
+    public func refresh() async { }
+}
+```
+
+### Conditional Conformance
+```swift
+// C# expected: Box<T> : IDescribable only when T : ICustomStringConvertible
+public struct Box<T> { public var value: T }
+extension Box: CustomStringConvertible where T: CustomStringConvertible {
+    public var description: String { value.description }
+}
+```
+
+### Autoclosures
+```swift
+// C# expected: Func<bool> (no parameters, lazy evaluation)
+public func logIfTrue(_ condition: @autoclosure () -> Bool, message: String) {
+    if condition() { print(message) }
+}
+```
+
+### Default Parameter Values
+```swift
+// C# expected: Multiple overloads or optional parameters
+// ABI generates separate "default argument generator" function
+public func search(query: String, limit: Int = 10, offset: Int = 0) -> [Result] {
+    // ...
+}
+```
+
+### Extension on Foundation Type
+```swift
+// C# expected: Static extension methods on SwiftData
+extension Data {
+    public var hexString: String {
+        return map { String(format: "%02x", $0) }.joined()
+    }
+}
+```
+
+### Nested Type in Generic
+```swift
+// Complex mangled name in ABI - tests name resolution
+public struct Container<T> {
+    public enum Status {
+        case empty
+        case loaded(T)
+    }
+
+    public var status: Status = .empty
+}
+```
+
+### Circular Protocol References
+```swift
+// Tests proxy generation doesn't stack overflow
+public protocol NodeProtocol {
+    var parent: (any TreeProtocol)? { get }
+}
+
+public protocol TreeProtocol {
+    var root: any NodeProtocol { get }
+}
+```
+
+### Synchronous Throws with Custom Error
+```swift
+// C# expected: throws SwiftException wrapping the error
+public enum ValidationError: Error {
+    case empty
+    case tooLong(maxLength: Int)
+}
+
+public func validate(_ input: String) throws -> String {
+    guard !input.isEmpty else { throw ValidationError.empty }
+    guard input.count <= 100 else { throw ValidationError.tooLong(maxLength: 100) }
+    return input
+}
+```
+
+### Non-Frozen Struct (Library Evolution Test)
+```swift
+// WARNING: Field order may change between library versions
+// C# bindings MUST use getter/setter functions, not memory offsets
+public struct EvolvingConfig {
+    public var featureA: Bool
+    public var featureB: Bool
+    // Future version might add featureC here, shifting layout
+    public var timeout: Int
+
+    public init(featureA: Bool, featureB: Bool, timeout: Int) {
+        self.featureA = featureA
+        self.featureB = featureB
+        self.timeout = timeout
+    }
+}
+```
+
+---
+
+## Integration with Test Suite
+
+### Binding Generation Test
+
+```csharp
+[Fact]
+public async Task ComprehensiveLibrary_GeneratesWithoutErrors()
+{
+    // Generate bindings for the comprehensive test library
+    var result = await GenerateBindings("SwiftBindingsTestLib.xcframework");
+
+    Assert.Empty(result.Errors);
+    Assert.True(result.TypeCount > 100, "Expected comprehensive type coverage");
+}
+```
+
+### Compilation Test
+
+```csharp
+[Fact]
+public async Task ComprehensiveLibrary_CompilesCleanly()
+{
+    var generatedCode = await GenerateBindings("SwiftBindingsTestLib.xcframework");
+    var compilation = CSharpCompilation.Create("Test", generatedCode.SyntaxTrees);
+
+    var diagnostics = compilation.GetDiagnostics()
+        .Where(d => d.Severity == DiagnosticSeverity.Error);
+
+    Assert.Empty(diagnostics);
+}
+```
+
+### Runtime Validation Test (iOS Simulator)
+
+```csharp
+[Fact]
+public async Task ComprehensiveLibrary_RuntimeValidation()
+{
+    // Build and run test app on simulator
+    // Verify key operations work at runtime
+}
+```
+
+---
+
+## Usage Workflow
+
+### Adding a New Feature
+
+When implementing a new Swift feature (e.g., property setters):
+
+1. **Add test case to library**:
+   ```swift
+   // In Properties/Setters.swift
+   public struct SettableProperties {
+       public var value: Int32
+
+       public init(value: Int32) {
+           self.value = value
+       }
+   }
+   ```
+
+2. **Regenerate bindings** (expect failure or placeholder):
+   ```bash
+   ./TestFramework/regenerate-bindings.sh
+   ```
+
+3. **Implement the feature** in the generator
+
+4. **Verify bindings compile** and run correctly
+
+5. **Update coverage matrix** in this document
+
+### Running the Full Suite
+
+```bash
+# Build the test library
+cd TestFramework && ./build-xcframework.sh
+
+# Generate bindings
+./regenerate-bindings.sh
+
+# Run compilation test
+dotnet test --filter "Category=ComprehensiveLibrary"
+
+# Run on simulator (if runtime tests exist)
+./validate-sim.sh
+```
+
+---
+
+## Maintenance Guidelines
+
+### When to Add Test Cases
+
+- Before implementing any new Swift feature
+- When a third-party SDK reveals an unhandled pattern
+- When a bug is found (add regression test)
+- When expanding to new Swift language versions
+
+### Versioning
+
+The test library should be versioned to track Swift language feature additions:
+
+| Library Version | Swift Features | Notes |
+|----------------|----------------|-------|
+| 1.0 | Swift 5.9 baseline | Core types, closures, async, operators |
+| 1.1 | + Property setters | Read-write bindings |
+| 1.2 | + Protocol conformance | Delegate/callback patterns |
+| 1.3 | + Inout, failable init | Parameter mutation, factories |
+| 1.4 | + Default params, throws | Better DX, error handling |
+| 1.5 | + Foundation interop | Data, URL, Date bridging |
+| 1.6 | + Property wrappers | SwiftUI/Combine compatibility |
+| 1.7 | + Weak/unowned, key paths | Full ARC, advanced generics |
+| 1.8 | + @MainActor, @Sendable | Swift concurrency attributes |
+| 1.9 | + Conditional conformance | Full protocol support |
+| 2.0 | + Actors | Complete concurrency model |
+
+### Documentation
+
+Each Swift file should include comments explaining:
+- What feature is being tested
+- Expected C# output (for complex cases)
+- Any known limitations
+
+```swift
+// MARK: - Escaping Closures with Frozen Struct Parameters
+// Tests: @escaping closures where parameters are frozen structs
+// Expected C#: Action<FrozenPoint> / Func<FrozenPoint, FrozenPoint>
+// Limitation: Non-frozen struct parameters not supported
+
+@frozen
+public struct FrozenPoint {
+    public var x: Double
+    public var y: Double
+}
+
+public func transformPoint(
+    _ point: FrozenPoint,
+    using transform: @escaping (FrozenPoint) -> FrozenPoint
+) -> FrozenPoint {
+    return transform(point)
+}
+```
+
+---
+
+## Success Criteria
+
+The comprehensive test library is successful when:
+
+1. **Coverage**: Every supported Swift feature has at least one test case
+2. **Regression detection**: New changes that break existing features are caught
+3. **Feature roadmap**: Unsupported features are documented with placeholder tests
+4. **CI integration**: The library is built and tested in CI pipeline
+5. **Developer confidence**: Engineers can implement features knowing tests will verify correctness
+
+---
+
+## Next Steps
+
+### Phase 1: v1.0 Foundation
+1. [ ] Create `TestFramework/` directory structure with `MustPass/` and `KnownUnsupported/` split
+2. [ ] Write `Package.swift` manifest
+3. [ ] Implement Tier 1 tests (property setters, protocol conformance, throws)
+4. [ ] Implement Tier 2 tests (inout, failable init, default params)
+5. [ ] Add 1-2 ABI evolution tests (non-frozen struct layout)
+6. [ ] Create `build-xcframework.sh` script
+7. [ ] Create `generate-coverage-report.sh` that outputs `coverage-matrix.json`
+
+### Phase 2: CI Integration
+8. [ ] Add CI job: build library, generate bindings, run must-pass tests
+9. [ ] Configure must-pass tests to gate PRs
+10. [ ] Configure known-unsupported tests as informational (no gate)
+11. [ ] Document in CLAUDE.md
+
+### Phase 3: Expansion (v1.5+)
+12. [ ] Migrate relevant cases from existing `FunctionalTests/`
+13. [ ] Add Tier 3 coverage (weak/unowned, Foundation interop)
+14. [ ] Expand ABI evolution test suite
+
+---
+
+## See Also
+
+- `CURRENT-STATUS.md` - What currently works
+- `binding-gaps-consolidated.md` - Known gaps
+- `north-star.md` - Project vision
+- `emitter-redesign-proposal.md` - Architecture direction
+
+---
+
+## Research Notes
+
+**Coverage matrix expanded February 2026** based on multi-model analysis:
+
+### Round 1: Grok Analysis
+- Swift 5.9+ language features (concurrency attributes, existentials)
+- Common patterns in popular Swift libraries (Nuke, Lottie, Alamofire)
+- Apple SDK API patterns (SwiftUI property wrappers, StoreKit)
+- Interop edge cases (inout, weak refs, key paths)
+
+**Key insight**: Macros and parameter packs don't need coverage as they're compile-time features that don't persist in ABI JSON. The binding generator sees the expanded/monomorphized code.
+
+### Round 2: Gemini Analysis
+- Foundation type bridging (Data, URL, Date)
+- Objective-C interop patterns (NSObject, @objc, Selector)
+- C-interop unsafe types (UnsafePointer, OpaquePointer)
+- Memory management edge cases (non-frozen layout, circular refs)
+- Default parameter values (separate ABI function)
+- Extension on external types (retroactive conformance)
+
+**Key insight**: Non-frozen struct layout is a critical trap - using `StructLayout.Sequential` for P/Invoke will cause silent crashes when Swift library internals change. Must use getter/setter functions.
+
+### Prioritization Consensus
+Both models agreed that **Property Setters** and **Protocol Conformance Emission** are the highest-priority gaps, as they're functional blockers preventing the generator from producing usable (non-read-only) bindings.
+
+### Round 3: Codex Analysis
+- Start small: v1 should be Tier 1 + Tier 2 only
+- Split tests into must-pass (gates PRs) vs known-unsupported (tracks progress)
+- Auto-generate machine-readable coverage report to prevent status drift
+- Add ABI evolution tests early (non-frozen layout is high-risk)
+
+**Key insight**: The test library should be a *living compatibility suite*, not a comprehensive catalog of every Swift feature. Start with what blocks real usage, expand incrementally.
