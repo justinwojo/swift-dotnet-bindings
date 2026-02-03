@@ -428,7 +428,9 @@ FEATURE_MAP = {
     },
 }
 
-# Features that are known unsupported (generator can't handle them yet)
+# Features that are known unsupported (generator can't handle them yet).
+# Updated for Phase 43: actors, opaque returns, throwing closures, and
+# async closures now emit successfully and have been promoted to must_pass.
 KNOWN_UNSUPPORTED_FEATURES = {
     "failable_initializer",
     "inout_parameter",
@@ -461,16 +463,6 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "variadic_with_other_params",
     "autoclosure_parameter",
     "autoclosure_with_escaping",
-    "actor_type",
-    "actor_isolated_method",
-    "actor_nonisolated_method",
-    "opaque_return_type",
-    "opaque_return_property",
-    "opaque_composition_return",
-    "throwing_closure",
-    "throwing_closure_with_fallback",
-    "async_closure_parameter",
-    "async_closure_with_param",
     "selector_parameter",
     "selector_from_method",
     "responds_to_selector",
@@ -479,13 +471,15 @@ KNOWN_UNSUPPORTED_FEATURES = {
 }
 
 
+def get_source_dir():
+    """Get the absolute path to the Swift source directory."""
+    script_dir = os.getcwd()
+    return os.path.join(script_dir, 'Sources', 'SwiftBindingsTestLib')
+
+
 def get_source_files():
     """Find all Swift source files relative to the Sources directory."""
-    source_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else '.',
-                              'Sources', 'SwiftBindingsTestLib')
-    # Use the script's directory
-    script_dir = os.getcwd()
-    source_dir = os.path.join(script_dir, 'Sources', 'SwiftBindingsTestLib')
+    source_dir = get_source_dir()
 
     files = []
     for root, dirs, filenames in os.walk(source_dir):
@@ -496,20 +490,176 @@ def get_source_files():
     return sorted(files)
 
 
-def build_feature_status(binding_report, source_files):
-    """Build per-feature status from binding report and source file list."""
+import re
+
+def build_declaration_map(source_dir, source_files):
+    """Parse Swift source files to build declaration name -> file mapping.
+
+    Scans for type declarations (class, struct, enum, protocol, actor) and
+    top-level function declarations to map names back to source files.
+    """
+    decl_map = {}  # name -> relative file path
+    type_pattern = re.compile(
+        r'^\s*(?:public\s+)?(?:open\s+)?(?:@\w+[\s(][^)]*\)\s*)*'
+        r'(?:final\s+)?(?:class|struct|enum|protocol|actor)\s+(\w+)',
+        re.MULTILINE
+    )
+    func_pattern = re.compile(
+        r'^(?:public\s+)?(?:static\s+)?func\s+(\w+)',
+        re.MULTILINE
+    )
+
+    for rel_path in source_files:
+        full_path = os.path.join(source_dir, rel_path)
+        try:
+            with open(full_path) as f:
+                content = f.read()
+            for m in type_pattern.finditer(content):
+                decl_map[m.group(1)] = rel_path
+            for m in func_pattern.finditer(content):
+                decl_map[m.group(1)] = rel_path
+        except OSError:
+            pass
+    return decl_map
+
+
+# Per-feature declaration ownership for files hosting multiple features.
+# Maps feature_name -> set of declaration names (types and top-level functions).
+# Only required when multiple features share a source file; features not listed
+# here fall back to file-level matching (all skips in the file apply).
+FEATURE_DECLARATIONS = {
+    # Generics/Types.swift — 3 features share one file
+    "generic_struct": {"Wrapper", "GenericPair"},
+    "generic_class": {"GenericClass"},
+    "bound_generic_type": {"BoundIntPair", "BoundStringPair"},
+
+    # Generics/Existentials.swift — existentials vs opaque returns
+    "any_protocol_existential": {
+        "describeAll", "acceptsAnyDescribable", "makeDescribable",
+        "acceptsComposition", "makeIdentifiableDescribable",
+        "ExistentialConsumer", "ExistentialBox",
+    },
+    "opaque_return_type": {"makeOpaqueDescribable"},
+    "opaque_return_property": {"OpaqueProvider"},
+    "opaque_composition_return": {"makeOpaqueComposition"},
+
+    # Generics/Functions.swift — unconstrained vs constrained
+    "generic_function": {"identity", "pair"},
+    "generic_function_with_constraint": {
+        "constrained", "multiConstrained", "compareIdentifiables",
+    },
+
+    # ObjCInterop/NSObjectSubclass.swift — subclass vs inheritance vs parameter
+    "nsobject_subclass": {"SimpleNSObject", "createSimpleNSObject"},
+    "nsobject_inheritance": {"LabeledItem", "SpecialItem"},
+    "nsobject_as_parameter": {"describeNSObject"},
+
+    # UnsafeTypes/OpaquePointer.swift — OpaquePointer vs Optional<OpaquePointer>
+    "opaque_pointer": {"opaquePointerIsValid", "HandleWrapper"},
+    "optional_opaque_pointer": {"optionalOpaquePointer"},
+
+    # Closures/Escaping.swift — regular escaping vs throwing closures
+    "escaping_void_closure": {"ClosureConsumer"},
+    "escaping_with_primitives": {"ClosureConsumer"},
+    "escaping_with_frozen_struct": {"ClosureConsumer"},
+    "throwing_closure": {
+        "callThrowingClosure", "callThrowingVoidClosure",
+        "callThrowingStringClosure",
+    },
+    "throwing_closure_with_fallback": {"callThrowingClosureWithFallback"},
+}
+
+
+def resolve_declaration(item, module_name):
+    """Extract the owning declaration name from a skipped binding item.
+
+    For free functions (ContainingType == module), the declaration is the
+    function name itself.  For type members, it is the type name.
+    """
+    containing = item.get("ContainingType", "")
+    name = item.get("Name", "")
+
+    if containing == module_name:
+        return name  # free function
+    elif "." in containing:
+        return containing.rsplit(".", 1)[-1]  # type name
+    return None
+
+
+def match_skipped_to_features(skipped_items, decl_map, module_name):
+    """Map each skipped binding item to the features it affects.
+
+    Uses FEATURE_DECLARATIONS for fine-grained attribution when multiple
+    features share a source file; falls back to file-level matching for
+    features without explicit declaration lists.
+
+    Returns feature_name -> [skipped items].
+    """
+    # Build file -> [skipped items] mapping
+    file_skips = {}
+    item_decls = {}  # item id -> declaration name
+    for item in skipped_items:
+        decl_name = resolve_declaration(item, module_name)
+        if decl_name is None:
+            continue
+        source_file = decl_map.get(decl_name)
+        if source_file:
+            file_skips.setdefault(source_file, []).append(item)
+            item_decls[id(item)] = decl_name
+
+    # Build file -> set of feature names
+    file_to_features = {}
+    for rel_path, info in FEATURE_MAP.items():
+        actual_path = rel_path.split("+")[0] if "+" in rel_path else rel_path
+        file_to_features.setdefault(actual_path, set()).update(info["features"])
+
+    # Attribute each skipped item to the correct feature(s)
+    feature_skips = {}
+    for source_file, items in file_skips.items():
+        feature_names = file_to_features.get(source_file, set())
+        for item in items:
+            decl_name = item_decls.get(id(item))
+            matched = False
+            for feat in feature_names:
+                owned = FEATURE_DECLARATIONS.get(feat)
+                if owned is not None and decl_name in owned:
+                    feature_skips.setdefault(feat, []).append(item)
+                    matched = True
+            if not matched:
+                # No declaration-level mapping matched — check for features
+                # without explicit ownership (file-level fallback).
+                for feat in feature_names:
+                    if feat not in FEATURE_DECLARATIONS:
+                        feature_skips.setdefault(feat, []).append(item)
+
+    return feature_skips
+
+
+def build_feature_status(binding_report, source_files, module_name):
+    """Build per-feature status from binding report and source file list.
+
+    Cross-references binding report skipped items against feature categories
+    to detect degraded features (test exists but bindings have skipped members).
+    """
     features = []
 
-    skipped_reasons = {}
+    # Build declaration map to link skipped items to source files
+    source_dir = get_source_dir()
+    decl_map = build_declaration_map(source_dir, source_files)
+
+    # Map skipped items to source files
+    skipped_items = []
     if binding_report and "SkippedItems" in binding_report:
-        for item in binding_report["SkippedItems"]:
-            key = f"{item.get('ContainingType', '')}.{item.get('Name', '')}"
-            skipped_reasons[key] = item.get("Reason", "Unknown")
+        skipped_items = binding_report["SkippedItems"]
+
+    # Build feature -> skipped items mapping (declaration-level granularity)
+    feature_skips = match_skipped_to_features(skipped_items, decl_map, module_name)
 
     must_pass_total = 0
     must_pass_passing = 0
+    must_pass_degraded = 0
     known_unsupported_total = 0
-    known_unsupported_passing = 0
+    known_unsupported_with_test = 0
 
     for rel_path, info in FEATURE_MAP.items():
         # Strip suffixes like "+opaque" or "+throwing" used to add multiple
@@ -519,12 +669,13 @@ def build_feature_status(binding_report, source_files):
 
         for feature_name in info["features"]:
             is_unsupported = feature_name in KNOWN_UNSUPPORTED_FEATURES
+            skips = feature_skips.get(feature_name, [])
 
             if is_unsupported:
                 status = "known_unsupported"
                 known_unsupported_total += 1
                 if file_exists:
-                    known_unsupported_passing += 1
+                    known_unsupported_with_test += 1
                     test_status = "implemented"
                 else:
                     test_status = "missing"
@@ -532,30 +683,49 @@ def build_feature_status(binding_report, source_files):
                 status = "must_pass"
                 must_pass_total += 1
                 if file_exists:
-                    must_pass_passing += 1
-                    test_status = "implemented"
+                    if skips:
+                        must_pass_degraded += 1
+                        test_status = "degraded"
+                    else:
+                        must_pass_passing += 1
+                        test_status = "passing"
                 else:
                     test_status = "missing"
 
-            features.append({
+            entry = {
                 "name": feature_name,
                 "category": info["name"],
                 "status": status,
                 "test_file": actual_path,
                 "test_exists": file_exists,
                 "test_status": test_status,
-            })
+            }
+            if skips:
+                entry["binding_skips"] = [
+                    {
+                        "name": s.get("Name", ""),
+                        "kind": s.get("Kind", ""),
+                        "reason": s.get("Reason", ""),
+                        "details": s.get("Details", ""),
+                    }
+                    for s in skips
+                ]
+
+            features.append(entry)
+
+    must_pass_missing = must_pass_total - must_pass_passing - must_pass_degraded
 
     return features, {
         "must_pass": {
             "total": must_pass_total,
             "passing": must_pass_passing,
-            "failing": must_pass_total - must_pass_passing
+            "degraded": must_pass_degraded,
+            "missing": must_pass_missing,
         },
         "known_unsupported": {
             "total": known_unsupported_total,
-            "passing": known_unsupported_passing,
-            "failing": known_unsupported_total - known_unsupported_passing
+            "with_test": known_unsupported_with_test,
+            "without_test": known_unsupported_total - known_unsupported_with_test,
         }
     }
 
@@ -587,12 +757,24 @@ if binding_report:
     }
 
 # Feature status
-features, summary = build_feature_status(binding_report, source_files)
+module = "SwiftBindingsTestLib"
+features, summary = build_feature_status(binding_report, source_files, module)
+
+# Read generator exit code if available
+generator_exit_code = None
+exit_code_path = os.path.join("output", "generator-exit-code")
+if os.path.isfile(exit_code_path):
+    try:
+        with open(exit_code_path) as f:
+            generator_exit_code = int(f.read().strip())
+    except (ValueError, OSError):
+        pass
 
 # Assemble final report
 report = {
     "generated": datetime.now(timezone.utc).isoformat(),
     "module": "SwiftBindingsTestLib",
+    "generator_exit_code": generator_exit_code,
     "summary": summary,
     "source_files": {
         "total": len(source_files),
@@ -614,6 +796,9 @@ with open(output_path, "w") as f:
     json.dump(report, f, indent=2)
 
 # Print summary
+mp = summary["must_pass"]
+ku = summary["known_unsupported"]
+
 print(f"\n=== Coverage Report ===")
 print(f"Source files: {len(source_files)}")
 if abi_stats:
@@ -624,8 +809,21 @@ if binding_stats:
     print(f"Bindings: {binding_stats['emitted_types']}/{binding_stats['total_types']} types emitted, "
           f"{binding_stats['emitted_members']}/{binding_stats['total_members']} members emitted, "
           f"{binding_stats['skipped_members']} skipped")
-print(f"\nMust-pass features: {summary['must_pass']['passing']}/{summary['must_pass']['total']}")
-print(f"Known-unsupported features: {summary['known_unsupported']['passing']}/{summary['known_unsupported']['total']}")
+print(f"\nMust-pass features: {mp['passing']}/{mp['total']} passing"
+      f", {mp['degraded']} degraded, {mp['missing']} missing")
+print(f"Known-unsupported features: {ku['with_test']}/{ku['total']} have tests")
+
+if mp["degraded"] > 0:
+    print(f"\n*** WARNING: {mp['degraded']} must-pass feature(s) have skipped binding members ***")
+    degraded = [f for f in features if f.get("test_status") == "degraded"]
+    for f in degraded:
+        skips = f.get("binding_skips", [])
+        print(f"  - {f['name']} ({f['category']}): {len(skips)} skipped member(s)")
+        for s in skips[:3]:
+            print(f"      {s['kind']} {s['name']}: {s['reason']}")
+        if len(skips) > 3:
+            print(f"      ... and {len(skips) - 3} more")
+
 print(f"\nOutput: {output_path}")
 PYTHON_SCRIPT
 

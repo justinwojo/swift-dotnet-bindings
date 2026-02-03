@@ -261,7 +261,8 @@ Source:   60 Swift files, 74 structs, 26 classes, 12 enums, 12 protocols, 149 fr
 Output:   49 C# files, 1 Swift wrapper file
 Types:    123/135 emitted (91.1% coverage)
 Members:  544/629 emitted, 46 skipped, 265 synthesized
-Coverage: 123 features tracked (77 must-pass, 46 known-unsupported)
+Coverage: 123 features tracked (87 must-pass, 36 known-unsupported)
+         79 must-pass passing, 8 degraded (skipped binding members)
 ```
 
 v1.8 adds 4 new Swift files and updates 2 existing files covering actors (actor type,
@@ -279,6 +280,10 @@ Phase 43 implemented several generator features that affect how v1.8 test cases 
 - **Async property detection**: Async getters detected via TBD `Tu` suffix; properly skipped with `SkipReason.AsyncProperty`
 - **Actor type support**: Actors detected via `$sScA` mangled conformance; `unownedExecutor` filtered; emitted as classes with actor annotation
 - **Bug fixes**: NullRef in MethodHandler for top-level async functions, CacluateFlags crash for unknown generic types
+
+As a result of Phase 43, the following features were promoted from known-unsupported to
+must-pass: actors (3 features), opaque returns (3 features), throwing closures (2 features),
+and async closures (2 features).
 
 Generator fixes required for v1.0 (all resolved):
 - Existential arguments (`any Protocol`) crashed `EmitSafeHandleAddRef` — added filter
@@ -368,7 +373,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | @MainActor class | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
 | @MainActor method | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
 | @Sendable closure | **Not Yet** | ✅ v1.6 | `Sendable.swift` |
-| Sendable type | **Not Yet** | ✅ v1.6 | `Sendable.swift` |
+| Sendable type | Supported | ✅ v1.6 | `Sendable.swift` |
 
 ### Properties
 
@@ -376,7 +381,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 |---------|-----------------|---------------|-----------|
 | Stored property getter | Supported | ✅ Existing | `Getters.swift` |
 | Computed property getter | Supported | ✅ Existing | `Getters.swift` |
-| Property setter | **Not Yet** | ✅ v1.0 | `Setters.swift` |
+| Property setter | Supported | ✅ v1.0 | `Setters.swift` |
 | Static property | Supported | ✅ Existing | `Static.swift` |
 | Lazy property | Unknown | ✅ v1.0 | `Getters.swift` |
 | @propertyWrapper type | **Not Yet** | ✅ v1.6 | `Wrappers.swift` |
@@ -501,46 +506,51 @@ These Swift features don't appear in ABI JSON and thus don't need test coverage:
 
 ### Test Bucketing: Must-Pass vs Known-Unsupported
 
-Split tests into two categories from day one:
+Tests are split into two categories via the `KNOWN_UNSUPPORTED_FEATURES` set in
+`generate-coverage-report.sh` (conceptual split, not directory-based):
 
 | Category | Purpose | CI Behavior |
 |----------|---------|-------------|
-| **must-pass** | Features that work today | Gates PRs - failures block merge |
-| **known-unsupported** | Features we're tracking | No gate - tracks progress over time |
+| **must-pass** | Features that work today | `run-tests.sh` warns on degradation |
+| **known-unsupported** | Features we're tracking | Reported but does not warn |
 
-```
-Tests/
-├── MustPass/           # Gates PRs
-│   ├── Structs/
-│   ├── Classes/
-│   └── ...
-└── KnownUnsupported/   # Progress tracking
-    ├── Actors/
-    ├── PATs/
-    └── ...
-```
+All Swift sources live in a single target (`Sources/SwiftBindingsTestLib/`). The coverage
+report script classifies features by cross-referencing the binding report's skipped items
+against per-feature declaration ownership:
 
-When a feature is implemented, move its tests from `KnownUnsupported/` to `MustPass/`.
+- **passing**: Test file exists and no binding members were skipped
+- **degraded**: Test file exists but some binding members were skipped
+- **missing**: No test file for this feature
+
+When a feature is implemented, remove it from `KNOWN_UNSUPPORTED_FEATURES` to promote it
+to must-pass. The coverage report will then flag it as degraded if any bindings are still
+skipped.
 
 ### Machine-Readable Coverage Report
 
-Auto-generate a `coverage-matrix.json` from the test results:
+Auto-generate a `coverage-matrix.json` by cross-referencing ABI JSON, binding report,
+and Swift source files:
 
 ```json
 {
   "generated": "2026-02-03T00:00:00Z",
+  "generator_exit_code": 0,
   "summary": {
-    "must_pass": { "total": 42, "passing": 42, "failing": 0 },
-    "known_unsupported": { "total": 18, "passing": 3, "failing": 15 }
+    "must_pass": { "total": 87, "passing": 79, "degraded": 8, "missing": 0 },
+    "known_unsupported": { "total": 36, "with_test": 36, "without_test": 0 }
   },
   "features": [
-    { "name": "frozen_struct", "status": "supported", "tests": 5, "passing": 5 },
-    { "name": "actors", "status": "unsupported", "tests": 2, "passing": 0 }
+    { "name": "frozen_struct", "status": "must_pass", "test_status": "passing", ... },
+    { "name": "generic_struct", "status": "must_pass", "test_status": "degraded",
+      "binding_skips": [{"name": "wrapped", "kind": "Property", "reason": "AnyTypeFallback", ...}] },
+    { "name": "actor_type", "status": "known_unsupported", "test_status": "implemented", ... }
   ]
 }
 ```
 
 Benefits:
+- Cross-references binding report to detect degraded features (skipped binding members)
+- Declaration-level attribution avoids false positives when features share source files
 - Status can't drift from reality
 - Can diff against previous runs to detect regressions
 - Powers dashboard/reporting if desired
@@ -949,17 +959,18 @@ public func transformPoint(
 The comprehensive test library is successful when:
 
 1. **Coverage**: Every supported Swift feature has at least one test case
-2. **Regression detection**: New changes that break existing features are caught
+2. **Regression detection**: New changes that break existing features are caught via binding report cross-referencing (degraded features flagged automatically)
 3. **Feature roadmap**: Unsupported features are documented with placeholder tests
-4. **CI integration**: The library is built and tested in CI pipeline
+4. **CI integration**: The library is built and tested via `run-tests.sh` (macOS only)
 5. **Developer confidence**: Engineers can implement features knowing tests will verify correctness
+6. **Honest reporting**: Coverage report cannot show false-green — skipped binding members are attributed to specific features via declaration-level mapping
 
 ---
 
 ## Next Steps
 
 ### Phase 1: v1.0 Foundation
-1. [x] Create `TestFramework/` directory structure with `MustPass/` and `KnownUnsupported/` split
+1. [x] Create `TestFramework/` directory structure (MustPass/KnownUnsupported split is conceptual via `KNOWN_UNSUPPORTED_FEATURES` in coverage report, not directory-based)
 2. [x] Write `Package.swift` manifest
 3. [x] Implement Tier 1 tests (property setters, protocol conformance, throws)
 4. [x] Implement Tier 2 tests (inout, failable init, default params)
@@ -968,9 +979,9 @@ The comprehensive test library is successful when:
 7. [x] Create `generate-coverage-report.sh` that outputs `coverage-matrix.json`
 
 ### Phase 2: CI Integration
-8. [ ] Add CI job: build library, generate bindings, run must-pass tests
-9. [ ] Configure must-pass tests to gate PRs
-10. [ ] Configure known-unsupported tests as informational (no gate)
+8. [x] Wire TestFramework into `run-tests.sh` (macOS-only guard, warns on degraded features)
+9. [ ] Configure must-pass tests to gate PRs (currently warns, does not fail)
+10. [x] Known-unsupported tests are informational (reported in coverage matrix, no gate)
 11. [x] Document in CLAUDE.md
 
 ### Phase 3: Expansion (v1.5+)

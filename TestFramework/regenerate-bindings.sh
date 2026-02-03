@@ -56,6 +56,9 @@ dotnet run --project "$PROJECT_ROOT/src/Swift.Bindings/src" -- \
 GENERATOR_EXIT=$?
 set -e
 
+# Save exit code for downstream scripts (e.g., generate-coverage-report.sh)
+echo "$GENERATOR_EXIT" > output/generator-exit-code
+
 echo ""
 if [ $GENERATOR_EXIT -ne 0 ]; then
     echo "=== Generator exited with code $GENERATOR_EXIT ==="
