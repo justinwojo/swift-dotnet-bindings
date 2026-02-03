@@ -184,7 +184,7 @@ FEATURE_MAP = {
     },
     "Types/Classes.swift": {
         "name": "classes",
-        "features": ["basic_class", "class_inheritance", "final_class"]
+        "features": ["basic_class", "class_inheritance", "final_class", "weak_reference", "unowned_reference"]
     },
     "Types/Enums.swift": {
         "name": "enums",
@@ -312,7 +312,7 @@ FEATURE_MAP = {
     },
     "MemoryManagement/LibraryEvolution.swift": {
         "name": "library_evolution",
-        "features": ["non_frozen_layout_change"]
+        "features": ["non_frozen_layout_change", "non_frozen_class", "non_frozen_enum", "evolving_optional_fields"]
     },
     "EdgeCases/Unicode.swift": {
         "name": "unicode",
@@ -330,6 +330,34 @@ FEATURE_MAP = {
         "name": "deprecation",
         "features": ["available_attributes"]
     },
+    "Foundation/Data.swift": {
+        "name": "foundation_data",
+        "features": ["data_as_parameter", "data_as_return", "optional_data"]
+    },
+    "Foundation/URL.swift": {
+        "name": "foundation_url",
+        "features": ["url_as_parameter", "optional_url_return", "struct_with_url"]
+    },
+    "Foundation/Date.swift": {
+        "name": "foundation_date",
+        "features": ["date_as_parameter", "date_as_return", "date_arithmetic"]
+    },
+    "Foundation/Extensions.swift": {
+        "name": "foundation_extensions",
+        "features": ["extension_on_foundation_type", "retroactive_conformance"]
+    },
+    "UnsafeTypes/Pointers.swift": {
+        "name": "typed_pointers",
+        "features": ["unsafe_pointer", "unsafe_mutable_pointer", "pointer_as_return"]
+    },
+    "UnsafeTypes/RawPointers.swift": {
+        "name": "raw_pointers",
+        "features": ["unsafe_raw_pointer", "unsafe_mutable_raw_pointer"]
+    },
+    "UnsafeTypes/OpaquePointer.swift": {
+        "name": "opaque_pointer",
+        "features": ["opaque_pointer", "optional_opaque_pointer"]
+    },
 }
 
 # Features that are known unsupported (generator can't handle them yet)
@@ -340,6 +368,10 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "non_frozen_layout_change",
     "unicode_identifiers",
     "reserved_word_handling",
+    "weak_reference",
+    "unowned_reference",
+    "extension_on_foundation_type",
+    "retroactive_conformance",
 }
 
 

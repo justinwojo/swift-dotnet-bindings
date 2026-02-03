@@ -108,3 +108,39 @@ public class ClassWithProperties {
 public func createAnimal(name: String, sound: String) -> Animal {
     return Animal(name: name, sound: sound)
 }
+
+// MARK: - Weak and Unowned References
+
+/// Owner class used as a target for weak and unowned references.
+public class Owner {
+    public var name: String
+
+    public init(name: String) {
+        self.name = name
+    }
+}
+
+/// Holds a weak reference to an Owner. The reference becomes nil when the owner is deallocated.
+public class WeakReferenceHolder {
+    public weak var owner: Owner?
+
+    public init(owner: Owner?) {
+        self.owner = owner
+    }
+}
+
+/// Holds an unowned reference to an Owner. The owner must outlive this object.
+public class UnownedReferenceHolder {
+    public unowned var owner: Owner
+
+    public init(owner: Owner) {
+        self.owner = owner
+    }
+}
+
+/// Creates a paired Owner and WeakReferenceHolder for testing weak reference semantics.
+public func createWeakPair() -> (Owner, WeakReferenceHolder) {
+    let owner = Owner(name: "SharedOwner")
+    let holder = WeakReferenceHolder(owner: owner)
+    return (owner, holder)
+}

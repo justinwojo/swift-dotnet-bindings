@@ -1,8 +1,8 @@
 # Comprehensive Swift Test Library Design
 
-**Status**: v1.0 Implemented
+**Status**: v1.5 Implemented
 **Created**: February 2026
-**Last Updated**: February 2026 - v1.0 implemented (38 Swift files, 57 features covered)
+**Last Updated**: February 2026 - v1.5 implemented (45 Swift files, 80 features covered)
 
 ---
 
@@ -50,7 +50,7 @@ Create a custom Swift library specifically designed to test the full breadth of 
                     │   Third-Party SDKs  │  ← "Does it work in the wild?"
                     ├─────────────────────┤
                     │  Comprehensive Test │  ← "Does it handle all Swift features?"
-                    │      Library        │    (38 Swift files, 57 features)
+                    │      Library        │    (45 Swift files, 80 features)
                     ├─────────────────────┤
                     │  Integration Tests  │  ← Keep for quick iteration
                     ├─────────────────────┤
@@ -138,7 +138,18 @@ TestFramework/
 │       │   └── ErrorTypes.swift         # ✅ Custom Error types
 │       │
 │       ├── MemoryManagement/
-│       │   └── LibraryEvolution.swift   # ✅ Non-frozen struct layout
+│       │   └── LibraryEvolution.swift   # ✅ Non-frozen struct/class/enum layout
+│       │
+│       ├── Foundation/
+│       │   ├── Data.swift               # ✅ Data parameter, return, round-trip
+│       │   ├── URL.swift                # ✅ URL parameter, optional return, struct
+│       │   ├── Date.swift               # ✅ Date parameter, return, arithmetic
+│       │   └── Extensions.swift         # ✅ Extensions on Data/URL, retroactive conformance
+│       │
+│       ├── UnsafeTypes/
+│       │   ├── Pointers.swift           # ✅ UnsafePointer, UnsafeMutablePointer
+│       │   ├── RawPointers.swift        # ✅ UnsafeRawPointer, UnsafeMutableRawPointer
+│       │   └── OpaquePointer.swift      # ✅ OpaquePointer, Optional<OpaquePointer>
 │       │
 │       └── EdgeCases/
 │           ├── Unicode.swift            # ✅ Unicode identifiers
@@ -176,6 +187,21 @@ Types:    71/79 emitted (8 not emitted due to unbound generic parameters)
 Members:  313/348 emitted, 12 skipped, 153 synthesized (operator pairs, etc.)
 ```
 
+### v1.5 Binding Generation Results
+
+```
+Source:   45 Swift files, 53 structs, 13 classes, 10 enums, 9 protocols, 91 free functions
+Output:   49 C# files, 1 Swift wrapper file
+Types:    84/93 emitted (90.3% coverage)
+Members:  378/418 emitted, 15 skipped, 186 synthesized
+Coverage: 80 features tracked (70 must-pass, 10 known-unsupported)
+```
+
+v1.5 adds 7 new Swift files covering Foundation interop (Data, URL, Date, extensions),
+unsafe/C-interop types (pointers, raw pointers, OpaquePointer), weak/unowned references,
+and non-frozen class/enum types. Also expanded the coverage report with 15 new feature
+entries.
+
 Generator fixes required for v1.0 (all resolved):
 - Existential arguments (`any Protocol`) crashed `EmitSafeHandleAddRef` — added filter
 - Existential and tuple return types crashed `EmitReturnMethod` — added early return handlers
@@ -199,8 +225,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Basic class | Supported | ✅ v1.0 | `Classes.swift` |
 | Class inheritance | Supported | ✅ v1.0 | `Classes.swift` |
 | Final class | Supported | ✅ v1.0 | `Classes.swift` |
-| Weak reference (`weak var`) | **Not Yet** | ✅ v1.0 | `Classes.swift` |
-| Unowned reference (`unowned`) | **Not Yet** | ✅ v1.0 | `Classes.swift` |
+| Weak reference (`weak var`) | **Not Yet** | ✅ v1.5 | `Classes.swift` |
+| Unowned reference (`unowned`) | **Not Yet** | ✅ v1.5 | `Classes.swift` |
 | Raw value enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Associated value enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Generic enum | Supported | ✅ v1.0 | `Enums.swift` |
@@ -331,11 +357,11 @@ This matrix tracks which Swift features are covered by the test library. Feature
 
 | Feature | Generator Status | Test Coverage | Test File |
 |---------|-----------------|---------------|-----------|
-| Foundation.Data | Supported | ⬜ Add | `Data.swift` |
-| Foundation.URL | Supported | ⬜ Add | `URL.swift` |
-| Foundation.Date | Unknown | ⬜ Add | `Date.swift` |
-| Extension on Foundation type | Unknown | ⬜ Add | `Extensions.swift` |
-| Retroactive conformance | Unknown | ⬜ Add | `Extensions.swift` |
+| Foundation.Data | Supported | ✅ v1.5 | `Foundation/Data.swift` |
+| Foundation.URL | Supported | ✅ v1.5 | `Foundation/URL.swift` |
+| Foundation.Date | Unknown | ✅ v1.5 | `Foundation/Date.swift` |
+| Extension on Foundation type | Unknown | ✅ v1.5 | `Foundation/Extensions.swift` |
+| Retroactive conformance | Unknown | ✅ v1.5 | `Foundation/Extensions.swift` |
 
 ### Objective-C Interop
 
@@ -350,11 +376,11 @@ This matrix tracks which Swift features are covered by the test library. Feature
 
 | Feature | Generator Status | Test Coverage | Test File |
 |---------|-----------------|---------------|-----------|
-| UnsafePointer<T> | Supported | ⬜ Add | `Pointers.swift` |
-| UnsafeMutablePointer<T> | Supported | ⬜ Add | `Pointers.swift` |
-| UnsafeRawPointer | Unknown | ⬜ Add | `RawPointers.swift` |
-| UnsafeMutableRawPointer | Unknown | ⬜ Add | `RawPointers.swift` |
-| OpaquePointer | Unknown | ⬜ Add | `OpaquePointer.swift` |
+| UnsafePointer<T> | Supported | ✅ v1.5 | `UnsafeTypes/Pointers.swift` |
+| UnsafeMutablePointer<T> | Supported | ✅ v1.5 | `UnsafeTypes/Pointers.swift` |
+| UnsafeRawPointer | Unknown | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
+| UnsafeMutableRawPointer | Unknown | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
+| OpaquePointer | Unknown | ✅ v1.5 | `UnsafeTypes/OpaquePointer.swift` |
 
 ### Memory Management (Stability Tests)
 
@@ -362,6 +388,9 @@ This matrix tracks which Swift features are covered by the test library. Feature
 |---------|-----------------|---------------|-----------|
 | Circular C#↔Swift refs | Unknown | ⬜ Add | `RetainCycles.swift` |
 | Non-frozen layout change | **Critical** | ✅ v1.0 | `LibraryEvolution.swift` |
+| Non-frozen class | Supported | ✅ v1.5 | `LibraryEvolution.swift` |
+| Non-frozen enum | Supported | ✅ v1.5 | `LibraryEvolution.swift` |
+| Evolving optional fields | Unknown | ✅ v1.5 | `LibraryEvolution.swift` |
 | Leak detection harness | n/a | ⬜ Add | `LeakDetection.swift` |
 
 ### Out of Scope (Compile-Time Only)
@@ -385,8 +414,8 @@ These Swift features don't appear in ABI JSON and thus don't need test coverage:
 
 | Version | Tiers | Features |
 |---------|-------|----------|
-| **v1.0** | Tier 1 + 2 | Property setters, protocol conformance, throws, inout, failable init, default params |
-| v1.5 | + Tier 3 | Weak/unowned, Foundation interop, non-frozen layout tests |
+| **v1.0** ✅ | Tier 1 + 2 | Property setters, protocol conformance, throws, inout, failable init, default params |
+| **v1.5** ✅ | + Tier 3 | Weak/unowned, Foundation interop, unsafe types, non-frozen class/enum |
 | v2.0 | + Tier 4 | Property wrappers, @MainActor, key paths, actors |
 
 ### Test Bucketing: Must-Pass vs Known-Unsupported
@@ -799,7 +828,7 @@ The test library should be versioned to track Swift language feature additions:
 | Library Version | Swift Features | Notes |
 |----------------|----------------|-------|
 | **1.0** ✅ | **All Tier 1-2 + extras** | **38 files: types, closures, async, operators, tuples, protocols, generics, existentials, error handling, edge cases** |
-| 1.5 | + Foundation interop | Data, URL, Date bridging |
+| **1.5** ✅ | **+ Tier 3** | **45 files: + Foundation interop (Data, URL, Date, extensions), unsafe/C-interop types (pointers, raw pointers, OpaquePointer), weak/unowned refs, non-frozen class/enum** |
 | 1.6 | + Property wrappers | SwiftUI/Combine compatibility |
 | 1.7 | + Key paths, metatypes | Advanced generics |
 | 1.8 | + @MainActor, @Sendable | Swift concurrency attributes |
@@ -866,8 +895,8 @@ The comprehensive test library is successful when:
 
 ### Phase 3: Expansion (v1.5+)
 12. [ ] Migrate relevant cases from existing `FunctionalTests/`
-13. [ ] Add Tier 3 coverage (weak/unowned, Foundation interop)
-14. [ ] Expand ABI evolution test suite
+13. [x] Add Tier 3 coverage (weak/unowned, Foundation interop, unsafe types)
+14. [x] Expand ABI evolution test suite (non-frozen class, enum, optional fields)
 
 ---
 
