@@ -382,6 +382,26 @@ FEATURE_MAP = {
         "name": "conditional_conformance",
         "features": ["conditional_conformance"]
     },
+    "Generics/KeyPaths.swift": {
+        "name": "key_paths",
+        "features": ["key_path", "writable_key_path", "key_path_as_parameter"]
+    },
+    "Generics/Metatypes.swift": {
+        "name": "metatypes",
+        "features": ["metatype_parameter", "metatype_return", "metatype_t_self"]
+    },
+    "Protocols/PATs.swift": {
+        "name": "protocols_with_associated_types",
+        "features": ["protocol_with_associated_type", "type_conforming_to_pat", "pat_as_constraint"]
+    },
+    "Parameters/Variadic.swift": {
+        "name": "variadic_parameters",
+        "features": ["variadic_int32", "variadic_string", "variadic_with_other_params"]
+    },
+    "Closures/Autoclosures.swift": {
+        "name": "autoclosures",
+        "features": ["autoclosure_parameter", "autoclosure_with_escaping"]
+    },
 }
 
 # Features that are known unsupported (generator can't handle them yet)
@@ -403,6 +423,20 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "main_actor_method",
     "sendable_closure",
     "conditional_conformance",
+    "key_path",
+    "writable_key_path",
+    "key_path_as_parameter",
+    "metatype_parameter",
+    "metatype_return",
+    "metatype_t_self",
+    "protocol_with_associated_type",
+    "type_conforming_to_pat",
+    "pat_as_constraint",
+    "variadic_int32",
+    "variadic_string",
+    "variadic_with_other_params",
+    "autoclosure_parameter",
+    "autoclosure_with_escaping",
 }
 
 

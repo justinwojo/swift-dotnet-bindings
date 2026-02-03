@@ -1,8 +1,8 @@
 # Comprehensive Swift Test Library Design
 
-**Status**: v1.6 Implemented
+**Status**: v1.7 Implemented
 **Created**: February 2026
-**Last Updated**: February 2026 - v1.6 implemented (51 Swift files, 93 features covered)
+**Last Updated**: February 2026 - v1.7 implemented (56 Swift files, 108 features covered)
 
 ---
 
@@ -50,7 +50,7 @@ Create a custom Swift library specifically designed to test the full breadth of 
                     │   Third-Party SDKs  │  ← "Does it work in the wild?"
                     ├─────────────────────┤
                     │  Comprehensive Test │  ← "Does it handle all Swift features?"
-                    │      Library        │    (51 Swift files, 93 features)
+                    │      Library        │    (56 Swift files, 108 features)
                     ├─────────────────────┤
                     │  Integration Tests  │  ← Keep for quick iteration
                     ├─────────────────────┤
@@ -91,18 +91,22 @@ TestFramework/
 │       │   ├── BasicProtocols.swift     # ✅ Simple protocols, properties, methods
 │       │   ├── Composition.swift        # ✅ Protocol composition (A & B)
 │       │   ├── Conformance.swift        # ✅ Types conforming to protocols
-│       │   └── Conditional.swift        # ✅ Conditional conformance (where clause)
+│       │   ├── Conditional.swift        # ✅ Conditional conformance (where clause)
+│       │   └── PATs.swift              # ✅ Protocols with associated types
 │       │
 │       ├── Generics/
 │       │   ├── Functions.swift          # ✅ Generic functions
 │       │   ├── Types.swift              # ✅ Generic structs/classes, subscripts
 │       │   ├── Constraints.swift        # ✅ Where clauses, protocol bounds
-│       │   └── Existentials.swift       # ✅ any Protocol
+│       │   ├── Existentials.swift       # ✅ any Protocol
+│       │   ├── KeyPaths.swift           # ✅ KeyPath, WritableKeyPath, key path params
+│       │   └── Metatypes.swift          # ✅ T.Type parameter, T.self, metatype return
 │       │
 │       ├── Closures/
 │       │   ├── Escaping.swift           # ✅ @escaping closures
 │       │   ├── ConventionC.swift        # ✅ @convention(c) closures
-│       │   └── ClosureReturns.swift     # ✅ Methods returning closures
+│       │   ├── ClosureReturns.swift     # ✅ Methods returning closures
+│       │   └── Autoclosures.swift       # ✅ @autoclosure, @autoclosure @escaping
 │       │
 │       ├── Async/
 │       │   ├── Methods.swift            # ✅ Async methods (instance + static)
@@ -134,7 +138,8 @@ TestFramework/
 │       │
 │       ├── Parameters/
 │       │   ├── Inout.swift              # ✅ inout parameters
-│       │   └── Defaults.swift           # ✅ Default argument values
+│       │   ├── Defaults.swift           # ✅ Default argument values
+│       │   └── Variadic.swift           # ✅ Variadic parameters (Int32, String, mixed)
 │       │
 │       ├── ErrorHandling/
 │       │   ├── ThrowingFunctions.swift  # ✅ Synchronous throws methods
@@ -229,6 +234,22 @@ v1.6 adds 6 new Swift files covering Objective-C interop (NSObject subclass, @ob
 projectedValue), concurrency attributes (@MainActor class/method, Sendable type,
 @Sendable closure), and conditional conformance (extension with where clause).
 
+### v1.7 Binding Generation Results
+
+```
+Source:   56 Swift files, 71 structs, 22 classes, 11 enums, 12 protocols, 131 free functions
+Output:   49 C# files, 1 Swift wrapper file
+Types:    101/110 emitted (91.8% coverage)
+Members:  452/500 emitted, 20 skipped, 239 synthesized
+Coverage: 108 features tracked (77 must-pass, 31 known-unsupported)
+```
+
+v1.7 adds 5 new Swift files covering key paths (KeyPath, WritableKeyPath, key path
+as parameter), metatypes (T.Type parameter, T.self, metatype return), protocols with
+associated types (associatedtype, PAT conformance, PAT as constraint), variadic
+parameters (Int32, String, mixed with other params), and @autoclosure (@autoclosure
+parameter, @autoclosure with @escaping).
+
 Generator fixes required for v1.0 (all resolved):
 - Existential arguments (`any Protocol`) crashed `EmitSafeHandleAddRef` — added filter
 - Existential and tuple return types crashed `EmitReturnMethod` — added early return handlers
@@ -268,7 +289,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Protocol with properties | Supported | ✅ v1.0 | `BasicProtocols.swift` |
 | Protocol with methods | Supported | ✅ v1.0 | `BasicProtocols.swift` |
 | Protocol inheritance | Supported | ✅ v1.0 | `BasicProtocols.swift` |
-| Protocol with associated type | Partial | ⬜ Add | `PATs.swift` |
+| Protocol with associated type | Partial | ✅ v1.7 | `PATs.swift` |
 | Protocol composition (`A & B`) | Supported | ✅ v1.0 | `Composition.swift` |
 | Type conforming to protocol | **Not Emitted** | ✅ v1.0 | `Conformance.swift` |
 | Retroactive conformance | Unknown | ✅ v1.0 | `Conformance.swift` |
@@ -288,9 +309,9 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Where clause | Supported | ✅ Existing | `Constraints.swift` |
 | `any Protocol` (existential) | Supported | ✅ v1.0 | `Existentials.swift` |
 | `some Protocol` (opaque) | Not Yet | ⬜ Future | `Existentials.swift` |
-| Key paths (`\T.property`) | **Not Yet** | ⬜ Add | `KeyPaths.swift` |
-| WritableKeyPath | **Not Yet** | ⬜ Add | `KeyPaths.swift` |
-| Metatypes (`T.Type`) | **Not Yet** | ⬜ Add | `Metatypes.swift` |
+| Key paths (`\T.property`) | **Not Yet** | ✅ v1.7 | `KeyPaths.swift` |
+| WritableKeyPath | **Not Yet** | ✅ v1.7 | `KeyPaths.swift` |
+| Metatypes (`T.Type`) | **Not Yet** | ✅ v1.7 | `Metatypes.swift` |
 
 ### Closures
 
@@ -300,7 +321,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | @escaping with primitives | Supported | ✅ Existing | `Escaping.swift` |
 | @escaping with frozen struct | Supported | ✅ v1.0 | `Escaping.swift` |
 | @convention(c) | Supported | ✅ v1.0 | `ConventionC.swift` |
-| @autoclosure | **Not Yet** | ⬜ Add | `Autoclosures.swift` |
+| @autoclosure | **Not Yet** | ✅ v1.7 | `Autoclosures.swift` |
 | Method returning closure | Supported | ✅ v1.0 | `ClosureReturns.swift` |
 | Async closure | Not Yet | ⬜ Future | `Async.swift` |
 | Throwing closure | Not Yet | ⬜ Future | `Escaping.swift` |
@@ -368,7 +389,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 |---------|-----------------|---------------|-----------|
 | Inout parameter (`inout`) | **Not Yet** | ✅ v1.0 | `Inout.swift` |
 | Inout with frozen struct | **Not Yet** | ✅ v1.0 | `Inout.swift` |
-| Variadic parameter | Unknown | ⬜ Add | `Variadic.swift` |
+| Variadic parameter | Unknown | ✅ v1.7 | `Variadic.swift` |
 | Default parameter value | **Not Yet** | ✅ v1.0 | `Defaults.swift` |
 
 ### Error Handling
@@ -444,7 +465,8 @@ These Swift features don't appear in ABI JSON and thus don't need test coverage:
 | **v1.0** ✅ | Tier 1 + 2 | Property setters, protocol conformance, throws, inout, failable init, default params |
 | **v1.5** ✅ | + Tier 3 | Weak/unowned, Foundation interop, unsafe types, non-frozen class/enum |
 | **v1.6** ✅ | + Tier 4 partial | ObjC interop, property wrappers, @MainActor, @Sendable, conditional conformance |
-| v1.7+ | + Remaining | Key paths, metatypes, actors, variadic params, autoclosures |
+| **v1.7** ✅ | **+ Key paths, metatypes, PATs, variadic, autoclosures** | **56 files** |
+| v1.8+ | + Remaining | Actors, selectors, other gaps |
 
 ### Test Bucketing: Must-Pass vs Known-Unsupported
 
@@ -858,7 +880,7 @@ The test library should be versioned to track Swift language feature additions:
 | **1.0** ✅ | **All Tier 1-2 + extras** | **38 files: types, closures, async, operators, tuples, protocols, generics, existentials, error handling, edge cases** |
 | **1.5** ✅ | **+ Tier 3** | **45 files: + Foundation interop (Data, URL, Date, extensions), unsafe/C-interop types (pointers, raw pointers, OpaquePointer), weak/unowned refs, non-frozen class/enum** |
 | **1.6** ✅ | **+ Tier 4 partial** | **51 files: + ObjC interop (NSObject, @objc, @objcMembers), property wrappers, @MainActor, @Sendable, conditional conformance** |
-| 1.7 | + Key paths, metatypes | Advanced generics |
+| **1.7** ✅ | **+ Key paths, metatypes, PATs, variadic, autoclosures** | **56 files: + key paths (KeyPath, WritableKeyPath), metatypes (T.Type, T.self), protocols with associated types, variadic parameters, @autoclosure** |
 | 1.8 | + Actors | Complete concurrency model |
 | 2.0 | + Full coverage | All remaining gaps |
 
@@ -930,6 +952,13 @@ The comprehensive test library is successful when:
 16. [x] Add property wrapper tests (@propertyWrapper, wrappedValue, projectedValue)
 17. [x] Add concurrency attribute tests (@MainActor class/method, Sendable, @Sendable closure)
 18. [x] Add conditional conformance test (extension with where clause)
+
+### Phase 5: Advanced Features (v1.7)
+19. [x] Add key path tests (KeyPath, WritableKeyPath, key path as parameter)
+20. [x] Add metatype tests (T.Type parameter, T.self, metatype return)
+21. [x] Add protocol with associated type tests (associatedtype, PAT conformance, PAT as constraint)
+22. [x] Add variadic parameter tests (Int32, String, mixed with other params)
+23. [x] Add @autoclosure tests (@autoclosure parameter, @autoclosure with @escaping)
 
 ---
 
