@@ -1,6 +1,6 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 43 Complete)
+**Last Updated**: February 2026 (Phase 44 Complete)
 **Unit Tests**: 1032 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
@@ -40,7 +40,8 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - ✅ Methods (instance, static, async)
 - ✅ Properties (getters and setters)
 - ✅ Operators (+, -, ==, !=, <, >, etc. with automatic pair synthesis)
-- ✅ Constructors
+- ✅ Constructors (including failable `init?` as `TryCreate()` factory methods)
+- ✅ Inout parameters (emitted as `ref` in C#)
 - ✅ Subscripts (as C# indexers)
 
 ### Special Types
@@ -84,7 +85,29 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ---
 
-## Recent Completions (Phase 43)
+## Recent Completions (Phase 44)
+
+### Inout Parameter Support
+- Swift `inout` parameters now emit as C# `ref` parameters
+- ABI JSON `paramValueOwnership: "InOut"` detected in parser
+- `ref` modifier added to P/Invoke and wrapper signatures for direct-pass types
+- `PayloadBuffer<T>.BufferRef` added for inout frozen-with-memory-management types (ref-returning property into native memory; avoids CS1510 from by-value `Buffer` property)
+
+### Failable Initializer Support (`init?`)
+- Failable constructors emit `TryCreate()` static factory methods returning nullable types
+- Correctly handles frozen structs (direct value extraction) and non-frozen types (InitializeWithCopy)
+- Uses `SwiftOptional` metadata accessor to check Some/None tag on indirect result
+- String and other type-converted parameters marshalled correctly
+- Generic and closure-heavy failable constructors supported (TypeMetadata, payload, GCHandle, protocol witness table setup)
+
+### Codex Review Fixes
+- Generic inout writeback now runs before error check, so `ref` generic parameter mutations survive exceptions on throwing paths
+- P/Invoke dedup for `SwiftOptional` metadata accessor scoped to generation run (moved from static `ConstructorHandler` set to instance field on `ConstructorHandlerFactory`); prevents suppressed emission across multiple runs in the same process
+- `PInvokeHelperContext.AddDeclaration` deduplicates by method name to prevent duplicate P/Invoke declarations in generic type helper classes
+
+---
+
+## Previous Completions (Phase 43)
 
 ### Protocol Conformance Emission
 - Types now emit C# interfaces for same-module protocol conformances
@@ -146,3 +169,4 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - Phase 41: Generic type fixes, 0 generator errors achieved
 - Phase 42: Lottie runtime validation, enum case construction, CoreGraphics stubs
 - Phase 43: Protocol conformance emission, opaque returns, async properties, actors
+- Phase 44: Inout parameters, failable initializers

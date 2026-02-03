@@ -10,6 +10,10 @@ namespace BindingsGeneration
         {
             if (env.MethodDecl.IsAsync) return false;
 
+            // Failable constructors (init?) always need indirect result because they return
+            // Optional<Self> which must be checked for None before extracting the value.
+            if (env.MethodDecl.IsConstructor && env.MethodDecl.IsFailable) return true;
+
             if (env.MethodDecl.IsConstructor && !(env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)) return true;
 
             var returnType = env.MethodDecl.CSSignature.First();

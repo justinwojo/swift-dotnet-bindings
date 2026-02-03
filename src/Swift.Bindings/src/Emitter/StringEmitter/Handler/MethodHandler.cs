@@ -23,6 +23,11 @@ namespace BindingsGeneration
     /// </summary>
     public class ConstructorHandlerFactory : HandlerFactory, IFactory<BaseDecl, IMethodHandler>
     {
+        // Tracks which types have had the SwiftOptional metadata accessor P/Invoke emitted (inline path).
+        // Prevents duplicate declarations when a type has multiple failable initializers.
+        // Instance field scoped to a single generation run (factory is created per Conductor per run).
+        private readonly HashSet<string> _emittedOptionalAccessorForTypes = new();
+
         /// <summary>
         /// Initializes a new instance of the <see cref="ConstructorHandlerFactory"/> class.
         /// </summary>
@@ -45,7 +50,7 @@ namespace BindingsGeneration
         /// </summary>
         public IMethodHandler Construct()
         {
-            return new ConstructorHandler(_handlerLogger);
+            return new ConstructorHandler(_handlerLogger, _emittedOptionalAccessorForTypes);
         }
     }
 
@@ -54,12 +59,16 @@ namespace BindingsGeneration
     /// </summary>
     public class ConstructorHandler : BaseHandler, IMethodHandler
     {
+        private readonly HashSet<string> _emittedOptionalAccessorForTypes;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="ConstructorHandler"/> class.
         /// </summary>
         /// <param name="logger">The logger instance.</param>
-        public ConstructorHandler(ILogger logger) : base(logger)
+        /// <param name="emittedOptionalAccessorForTypes">Shared dedup set from the factory, scoped to one generation run.</param>
+        public ConstructorHandler(ILogger logger, HashSet<string> emittedOptionalAccessorForTypes) : base(logger)
         {
+            _emittedOptionalAccessorForTypes = emittedOptionalAccessorForTypes;
         }
 
         /// <inheritdoc/>
@@ -128,7 +137,22 @@ namespace BindingsGeneration
             }
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
-            wrapperEmitter.EmitConstructor(csWriter);
+            if (methodEnv.MethodDecl.IsFailable)
+            {
+                wrapperEmitter.EmitFailableFactory(csWriter);
+
+                // Emit the SwiftOptional metadata accessor P/Invoke once per type.
+                // PInvokeHelperContext deduplicates by method name; for inline, use shared factory set.
+                var typeKey = methodEnv.ParentDecl is TypeDecl td ? td.SwiftTypeName?.ToString() ?? methodEnv.ParentDecl.Name : methodEnv.ParentDecl.Name;
+                if (methodEnv.PInvokeHelperContext != null || _emittedOptionalAccessorForTypes.Add(typeKey))
+                {
+                    wrapperEmitter.EmitOptionalMetadataAccessorPInvoke(csWriter);
+                }
+            }
+            else
+            {
+                wrapperEmitter.EmitConstructor(csWriter);
+            }
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
             ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
             csWriter.WriteLine();
@@ -373,12 +397,15 @@ namespace BindingsGeneration
                 { Type: "SafeHandle" } => $"{parameter.Name}.Payload",
                 { Type: "EnumSafeHandle" } => $"{parameter.Name}.Payload.DangerousGetHandle()",
                 { Type: "IntPtrFromNonFrozen" } => $"{parameter.Name}Handle",
+                // Handle .Buffer params: ref modifier uses BufferRef (ref-returning property) for in-place mutation
+                { Type: var type, modifier: "ref" } when type.EndsWith(".Buffer") => $"ref {parameter.Name}Disposable.BufferRef",
                 { Type: var type } when type.EndsWith(".Buffer") => $"{parameter.Name}Disposable.Buffer",
                 { Type: "AsyncCallback" } => $"{parameter.Name}",
                 { Type: "AsyncErrorCallback" } => $"{parameter.Name}",
                 { Type: "AsyncContext" } => "null",
                 { Type: "AsyncTask" } => $"GCHandle.ToIntPtr({parameter.Name})",
                 { modifier: "out" } => $"out var {parameter.Name}",
+                { modifier: "ref" } => $"ref {parameter.Name}",
                 // Handle escaping closures: parameter is SwiftClosureData, variable is {name}Closure
                 { Type: "SwiftClosureData" } => $"{parameter.Name}Closure",
                 // Handle async+throwing closure context: AsyncThrowingContext:{paramName} -> {paramName}ContextPtr
@@ -683,10 +710,13 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Determine ref modifier for inout parameters
+                var inoutModifier = argument.IsInOut ? "ref" : "";
+
                 if (argument.IsGeneric)
                 {
                     var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
-                    AddParameter(csTypeParamName, argument.Name);
+                    AddParameter(csTypeParamName, argument.Name, inoutModifier);
                 }
                 else
                 {
@@ -697,7 +727,7 @@ namespace BindingsGeneration
                         var nativeType = _env.TypeConversionHandler.GetNativeTypeName(argument.SwiftTypeSpec);
                         if (nativeType != null)
                         {
-                            AddParameter(nativeType, argument.Name);
+                            AddParameter(nativeType, argument.Name, inoutModifier);
                             continue;
                         }
                     }
@@ -709,7 +739,7 @@ namespace BindingsGeneration
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
                         continue;
                     }
-                    AddParameter(typeRecord.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    AddParameter(typeRecord.CSharpTypeName.FullyQualifiedName, argument.Name, inoutModifier);
                 }
             }
         }
@@ -1022,10 +1052,13 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Determine ref modifier for inout parameters
+                var inoutModifier = argument.IsInOut ? "ref" : "";
+
                 if (argument.IsGeneric)
                 {
                     var payloadName = NameProvider.GetPayloadName(argument.Name);
-                    AddParameter("IntPtr", payloadName);
+                    AddParameter("IntPtr", payloadName, inoutModifier);
                     continue;
                 }
 
@@ -1055,9 +1088,9 @@ namespace BindingsGeneration
                 }
 
                 if (MarshallingHelpers.RequiresMemoryManagement(argumentTypeRecord))
-                    AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName + ".Buffer", argument.Name);
+                    AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName + ".Buffer", argument.Name, inoutModifier);
                 else
-                    AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName, argument.Name);
+                    AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName, argument.Name, inoutModifier);
             }
         }
 
@@ -1410,6 +1443,7 @@ namespace BindingsGeneration
             }
 
             EmitPInvokeCall(csWriter);
+            EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnConstructor(csWriter);
 
@@ -1421,6 +1455,151 @@ namespace BindingsGeneration
             }
 
             EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Emits a static factory method for failable initializers (init?).
+        /// Instead of a constructor, generates a TryCreate method that returns null on failure.
+        /// </summary>
+        /// <param name="csWriter">The CSharpWriter instance.</param>
+        internal void EmitFailableFactory(CSharpWriter csWriter)
+        {
+            var typeName = _env.ParentDecl.Name;
+            var structDecl = _env.ParentDecl as StructDecl;
+            if (structDecl == null)
+            {
+                // Failable initializers on classes are not yet supported in the factory pattern
+                return;
+            }
+
+            TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+            bool isFrozenValue = MarshallingHelpers.IsTypeFrozen(typeRecord) && !MarshallingHelpers.RequiresMemoryManagement(typeRecord);
+
+            // Emit closure callbacks before factory body (like methods do)
+            bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
+            if (hasClosures)
+            {
+                EmitClosureCallbacks(csWriter);
+            }
+
+            // Emit signature: public static unsafe TypeName? TryCreate(params)
+            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
+            csWriter.WriteLine($"{accessModifier} static unsafe {typeName}? TryCreate({_wrapperSignature.ParametersString()})");
+            EmitBodyStart(csWriter);
+
+            // Declare TypeMetadata, payload, and GCHandle variables for generic/closure args
+            EmitDeclarationsForAllocations(csWriter);
+
+            // Get metadata for Self type
+            csWriter.WriteLine($"var selfMetadata = TypeMetadata.GetTypeMetadataOrThrow<{typeName}>();");
+            csWriter.WriteLine();
+
+            // Get metadata for SwiftOptional<Self>
+            var optionalMetadataCall = _env.PInvokeHelperContext != null
+                ? $"{_env.PInvokeHelperContext.HelperClassName}.PInvokesForSwiftOptional_MetadataAccessor"
+                : "PInvokesForSwiftOptional_MetadataAccessor";
+            csWriter.WriteLine($"var optionalMetadata = {optionalMetadataCall}(");
+            csWriter.Indent++;
+            csWriter.WriteLine("TypeMetadataRequest.Complete, selfMetadata);");
+            csWriter.Indent--;
+            csWriter.WriteLine();
+
+            // Allocate buffer for SwiftOptional<Self> result
+            csWriter.WriteLine("void* resultBuffer = NativeMemory.AllocZeroed(optionalMetadata.Size);");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Create SwiftIndirectResult pointing to the optional buffer
+            csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
+            csWriter.WriteLine();
+
+            // Marshal arguments using existing helpers
+            EmitSafeHandleAddRef(csWriter);
+            EmitGenericArguments(csWriter);
+            EmitBoundGenericArguments(csWriter);
+            EmitClosureMarshalling(csWriter);
+            EmitTypeConversions(csWriter);
+            EmitProtocolWitnessTables(csWriter);
+
+            // Call P/Invoke (writes Optional<Self> into resultBuffer)
+            EmitPInvokeCall(csWriter);
+
+            // Write back inout generic params before error check (so mutations survive exceptions)
+            EmitGenericInoutWriteback(csWriter);
+
+            // Check SwiftError if the constructor throws
+            EmitSwiftError(csWriter);
+
+            // Check tag: 0 = Some, 1 = None
+            csWriter.WriteLine("uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);");
+            csWriter.WriteLine();
+            csWriter.WriteLine("if (tag == 1) // None");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("return null;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // Extract value based on type kind
+            if (isFrozenValue)
+            {
+                // Frozen struct (C# value type): read value directly from the optional's payload
+                csWriter.WriteLine($"return *({typeName}*)resultBuffer;");
+            }
+            else
+            {
+                // Non-frozen or frozen-with-memory-management (C# class):
+                // copy payload and create instance via the private SwiftHandle constructor
+                csWriter.WriteLines($$"""
+                    IntPtr payloadBuffer = (IntPtr)NativeMemory.Alloc(selfMetadata.Size);
+                    selfMetadata.ValueWitnessTable->InitializeWithCopy((void*)payloadBuffer, resultBuffer, selfMetadata);
+                    return new {{typeName}}(payloadBuffer);
+                    """);
+            }
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
+            csWriter.WriteLine("NativeMemory.Free(resultBuffer);");
+            // Clean up generic payloads and closure GCHandles
+            EmitSafeHandleRelease(csWriter);
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+
+            EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the P/Invoke for the SwiftOptional metadata accessor ($sSqMa).
+        /// Called once per type that has failable initializers, to avoid duplicate declarations.
+        /// </summary>
+        internal void EmitOptionalMetadataAccessorPInvoke(CSharpWriter csWriter)
+        {
+            if (_env.PInvokeHelperContext != null)
+            {
+                // AddDeclaration deduplicates by method name
+                _env.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                {
+                    LibraryPath = "/usr/lib/swift/libswiftCore.dylib",
+                    EntryPoint = "$sSqMa",
+                    MethodName = "PInvokesForSwiftOptional_MetadataAccessor",
+                    ReturnType = "TypeMetadata",
+                    ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata",
+                    IsAsync = false
+                });
+            }
+            else
+            {
+                csWriter.WriteLine("[DllImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                csWriter.WriteLine("private static extern TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
+                csWriter.WriteLine();
+            }
         }
 
         /// <summary>
@@ -1454,6 +1633,7 @@ namespace BindingsGeneration
             EmitTypeConversions(csWriter);
             EmitProtocolWitnessTables(csWriter);
             EmitPInvokeCall(csWriter);
+            EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnMethod(csWriter);
 
@@ -2559,6 +2739,21 @@ namespace BindingsGeneration
             csWriter.WriteLine();
         }
 
+        /// <summary>
+        /// After a P/Invoke call, writes back modified generic inout payloads to the caller's ref parameters.
+        /// Without this, mutations made by Swift to ref generic parameters would be lost.
+        /// </summary>
+        private void EmitGenericInoutWriteback(CSharpWriter csWriter)
+        {
+            foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric && a.IsInOut))
+            {
+                var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
+                var payloadName = NameProvider.GetPayloadName(argument.Name);
+
+                csWriter.WriteLine($"// Write back modified inout generic parameter");
+                csWriter.WriteLine($"{argument.Name} = SwiftMarshal.MarshalFromSwift<{csTypeParamName}>({payloadName});");
+            }
+        }
 
         private void EmitProtocolWitnessTables(CSharpWriter csWriter)
         {

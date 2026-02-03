@@ -138,6 +138,12 @@ public unsafe ref struct PayloadBuffer<T> : IDisposable where T : unmanaged
 
     public T Buffer => *(T*)_payload.DangerousGetHandle();
 
+    /// <summary>
+    /// Returns a ref to the buffer value in native memory, allowing in-place modification
+    /// via ref parameters (e.g., Swift inout on frozen-with-memory-management types).
+    /// </summary>
+    public ref T BufferRef => ref *(T*)_payload.DangerousGetHandle();
+
     public PayloadBuffer(SafeHandle payload)
     {
         _payload = payload;

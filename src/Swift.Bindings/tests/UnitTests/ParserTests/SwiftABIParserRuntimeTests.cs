@@ -150,6 +150,8 @@ public class SwiftABIParserRuntimeTests
             throwing = false,
             AccessorKind = null,
             EnumRawTypeName = null,
+            paramValueOwnership = null,
+            hasDefaultArg = null,
             Children = children ?? [],
             Conformances = [],
             Accessors = []

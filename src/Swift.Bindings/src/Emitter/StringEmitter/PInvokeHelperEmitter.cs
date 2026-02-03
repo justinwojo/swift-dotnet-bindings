@@ -59,6 +59,10 @@ public class PInvokeHelperContext
     /// <param name="declaration">The P/Invoke declaration to add.</param>
     public void AddDeclaration(PInvokeDeclaration declaration)
     {
+        // Deduplicate by method name to avoid duplicate P/Invoke declarations
+        // (e.g., multiple failable inits in the same type share PInvokesForSwiftOptional_MetadataAccessor)
+        if (Declarations.Any(d => d.MethodName == declaration.MethodName))
+            return;
         Declarations.Add(declaration);
     }
 

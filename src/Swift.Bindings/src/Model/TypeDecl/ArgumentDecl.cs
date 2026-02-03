@@ -27,5 +27,12 @@ namespace BindingsGeneration
         /// Indicates if the argument is generic.
         /// </summary>
         public required bool IsGeneric { get; set; }
+
+        /// <summary>
+        /// Indicates if the argument has a default value in Swift.
+        /// When true, the parameter could potentially be omitted by callers
+        /// if overload generation is implemented.
+        /// </summary>
+        public bool HasDefaultArg { get; set; } = false;
     }
 }

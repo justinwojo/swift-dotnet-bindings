@@ -24,6 +24,13 @@ namespace BindingsGeneration
         public required bool IsConstructor { get; set; }
 
         /// <summary>
+        /// Indicates if the constructor is failable (init? or init!).
+        /// When true, the initializer may return nil and should be emitted
+        /// as a static factory method returning a nullable type.
+        /// </summary>
+        public bool IsFailable { get; set; } = false;
+
+        /// <summary>
         /// Signature of the method.
         /// </summary>
         public required List<ArgumentDecl> CSSignature { get; set; }

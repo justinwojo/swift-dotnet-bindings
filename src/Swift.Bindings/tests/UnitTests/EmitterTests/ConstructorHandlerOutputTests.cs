@@ -255,7 +255,7 @@ public class ConstructorHandlerOutputTests
         var csWriter = new CSharpWriter(csOutput);
         var swiftWriter = new SwiftWriter(swiftOutput);
 
-        var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>());
+        var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
         handler.Emit(csWriter, swiftWriter, env, conductor);

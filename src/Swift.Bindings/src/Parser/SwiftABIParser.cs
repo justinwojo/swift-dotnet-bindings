@@ -54,6 +54,8 @@ namespace BindingsGeneration
         public required bool? throwing { get; set; }
         public required string? AccessorKind { get; set; }
         public required string? EnumRawTypeName { get; set; }
+        public required string? paramValueOwnership { get; set; }
+        public required bool? hasDefaultArg { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Accessors { get; set; } = Enumerable.Empty<Node>();
@@ -607,6 +609,13 @@ namespace BindingsGeneration
             var reduction = demangler.Run(mangledName);
             FunctionReduction? functionReduction = reduction as FunctionReduction;
 
+            // Detect failable initializer: init? returns Optional<Self>
+            // The first child of a Constructor node is the return type.
+            // For init?, it will have name == "Optional".
+            bool isFailable = node.Kind == "Constructor" &&
+                node.Children.Any() &&
+                node.Children.First().Name == "Optional";
+
             var methodDecl = new MethodDecl
             {
                 Name = ExtractUniqueName(node.Name),
@@ -615,6 +624,7 @@ namespace BindingsGeneration
                 MangledName = mangledName,
                 MethodType = node.@static ?? false ? MethodType.Static : MethodType.Instance,
                 IsConstructor = node.Kind == "Constructor",
+                IsFailable = isFailable,
                 CSSignature = new List<ArgumentDecl>(),
                 GenericParameters = GenericSignatureParser.ParseGenericSignature(node.GenericSig, node.sugared_genericSig),
                 ParentDecl = parentDecl,
@@ -628,13 +638,15 @@ namespace BindingsGeneration
             {
                 var typeSpec = CreateTypeSpec(node.Children.ElementAt(i));
 
+                var childNode = node.Children.ElementAt(i);
                 methodDecl.CSSignature.Add(new ArgumentDecl
                 {
                     SwiftTypeSpec = typeSpec,
                     Name = paramNames[i],
                     PrivateName = string.Empty,
-                    IsInOut = false,
-                    IsGeneric = node.Children.ElementAt(i).Name == "GenericTypeParam",
+                    IsInOut = childNode.paramValueOwnership == "InOut",
+                    IsGeneric = childNode.Name == "GenericTypeParam",
+                    HasDefaultArg = childNode.hasDefaultArg == true,
                     ParentDecl = methodDecl,
                     ModuleDecl = moduleDecl
                 });

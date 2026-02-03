@@ -1,8 +1,8 @@
 # Comprehensive Swift Test Library Design
 
-**Status**: v1.8 Implemented (Phase 43 generator improvements applied)
+**Status**: v1.8 Implemented (Phase 44 generator improvements applied)
 **Created**: February 2026
-**Last Updated**: February 2026 - Phase 43: protocol conformance emission, opaque returns, async properties, actors
+**Last Updated**: February 2026 - Phase 44: inout params, failable initializers, Codex review fixes
 
 ---
 
@@ -285,6 +285,17 @@ As a result of Phase 43, the following features were promoted from known-unsuppo
 must-pass: actors (3 features), opaque returns (3 features), throwing closures (2 features),
 and async closures (2 features).
 
+### Phase 44 Generator Improvements (applied to v1.8 output)
+
+Phase 44 added two new feature implementations and applied several correctness fixes identified via Codex review:
+
+- **Inout parameter support**: Swift `inout` parameters emit as C# `ref` parameters; ABI JSON `paramValueOwnership: "InOut"` detected in parser
+- **Failable initializer support** (`init?`): Failable constructors emit `TryCreate()` static factory methods returning nullable types; handles frozen (direct value extraction) and non-frozen (InitializeWithCopy) types
+- **`PayloadBuffer<T>.BufferRef`**: Added ref-returning property to `PayloadBuffer<T>` for inout frozen-with-memory-management types — `Buffer` returns by value (CS1510 if used with `ref`), `BufferRef` returns a ref into native memory
+- **Generic inout writeback ordering**: `EmitGenericInoutWriteback` now runs before `EmitSwiftError` so mutations to `ref` generic parameters are preserved even when the Swift call throws
+- **Failable factory generic/closure setup**: `EmitFailableFactory` now calls `EmitDeclarationsForAllocations`, `EmitGenericArguments`, `EmitProtocolWitnessTables`, `EmitGenericInoutWriteback`, and `EmitSafeHandleRelease` for proper generic and closure-heavy failable constructors
+- **P/Invoke dedup scoping**: `PInvokeHelperContext.AddDeclaration` deduplicates by method name; inline dedup set moved from static `ConstructorHandler` field to instance field on `ConstructorHandlerFactory` (scoped to one generation run)
+
 Generator fixes required for v1.0 (all resolved):
 - Existential arguments (`any Protocol`) crashed `EmitSafeHandleAddRef` — added filter
 - Existential and tuple return types crashed `EmitReturnMethod` — added early return handlers
@@ -308,12 +319,12 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Basic class | Supported | ✅ v1.0 | `Classes.swift` |
 | Class inheritance | Supported | ✅ v1.0 | `Classes.swift` |
 | Final class | Supported | ✅ v1.0 | `Classes.swift` |
-| Weak reference (`weak var`) | **Not Yet** | ✅ v1.5 | `Classes.swift` |
-| Unowned reference (`unowned`) | **Not Yet** | ✅ v1.5 | `Classes.swift` |
+| Weak reference (`weak var`) | Supported | ✅ v1.5 | `Classes.swift` |
+| Unowned reference (`unowned`) | Supported | ✅ v1.5 | `Classes.swift` |
 | Raw value enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Associated value enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Generic enum | Supported | ✅ v1.0 | `Enums.swift` |
-| Nested type in generic | Unknown | ✅ v1.0 | `Structs.swift` |
+| Nested type in generic | Partial | ✅ v1.0 | `Structs.swift` |
 | Actor | Supported | ✅ v1.8 | `Actors.swift` |
 
 ### Protocols
@@ -327,8 +338,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Protocol with associated type | Partial | ✅ v1.7 | `PATs.swift` |
 | Protocol composition (`A & B`) | Supported | ✅ v1.0 | `Composition.swift` |
 | Type conforming to protocol | Supported | ✅ v1.0 | `Conformance.swift` |
-| Retroactive conformance | Unknown | ✅ v1.0 | `Conformance.swift` |
-| Circular protocol refs | Unknown | ✅ v1.0 | `Composition.swift` |
+| Retroactive conformance | Partial | ✅ v1.0 | `Conformance.swift` |
+| Circular protocol refs | Supported | ✅ v1.0 | `Composition.swift` |
 | Conditional conformance | **Not Yet** | ✅ v1.6 | `Conditional.swift` |
 
 ### Generics
@@ -344,9 +355,9 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Where clause | Supported | ✅ Existing | `Constraints.swift` |
 | `any Protocol` (existential) | Supported | ✅ v1.0 | `Existentials.swift` |
 | `some Protocol` (opaque) | Supported | ✅ v1.8 | `Existentials.swift` |
-| Key paths (`\T.property`) | **Not Yet** | ✅ v1.7 | `KeyPaths.swift` |
-| WritableKeyPath | **Not Yet** | ✅ v1.7 | `KeyPaths.swift` |
-| Metatypes (`T.Type`) | **Not Yet** | ✅ v1.7 | `Metatypes.swift` |
+| Key paths (`\T.property`) | Partial | ✅ v1.7 | `KeyPaths.swift` |
+| WritableKeyPath | Partial | ✅ v1.7 | `KeyPaths.swift` |
+| Metatypes (`T.Type`) | Partial | ✅ v1.7 | `Metatypes.swift` |
 
 ### Closures
 
@@ -356,7 +367,7 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | @escaping with primitives | Supported | ✅ Existing | `Escaping.swift` |
 | @escaping with frozen struct | Supported | ✅ v1.0 | `Escaping.swift` |
 | @convention(c) | Supported | ✅ v1.0 | `ConventionC.swift` |
-| @autoclosure | **Not Yet** | ✅ v1.7 | `Autoclosures.swift` |
+| @autoclosure | Supported | ✅ v1.7 | `Autoclosures.swift` |
 | Method returning closure | Supported | ✅ v1.0 | `ClosureReturns.swift` |
 | Async closure | Supported | ✅ v1.8 | `AsyncClosures.swift` |
 | Throwing closure | Supported | ✅ v1.8 | `Escaping.swift` |
@@ -370,9 +381,9 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Async static method | Supported | ✅ v1.0 | `Methods.swift` |
 | Async throwing method | Supported | ✅ v1.0 | `AsyncThrowing.swift` |
 | Async property | Detected & Skipped | ✅ v1.8 | `AsyncProperties.swift` |
-| @MainActor class | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
-| @MainActor method | **Not Yet** | ✅ v1.6 | `MainActor.swift` |
-| @Sendable closure | **Not Yet** | ✅ v1.6 | `Sendable.swift` |
+| @MainActor class | Supported | ✅ v1.6 | `MainActor.swift` |
+| @MainActor method | Supported | ✅ v1.6 | `MainActor.swift` |
+| @Sendable closure | Supported | ✅ v1.6 | `Sendable.swift` |
 | Sendable type | Supported | ✅ v1.6 | `Sendable.swift` |
 
 ### Properties
@@ -383,10 +394,10 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Computed property getter | Supported | ✅ Existing | `Getters.swift` |
 | Property setter | Supported | ✅ v1.0 | `Setters.swift` |
 | Static property | Supported | ✅ Existing | `Static.swift` |
-| Lazy property | Unknown | ✅ v1.0 | `Getters.swift` |
-| @propertyWrapper type | **Not Yet** | ✅ v1.6 | `Wrappers.swift` |
-| Wrapped property access | **Not Yet** | ✅ v1.6 | `Wrappers.swift` |
-| Projected value (`$prop`) | **Not Yet** | ✅ v1.6 | `Wrappers.swift` |
+| Lazy property | Supported | ✅ v1.0 | `Getters.swift` |
+| @propertyWrapper type | Supported | ✅ v1.6 | `Wrappers.swift` |
+| Wrapped property access | Supported | ✅ v1.6 | `Wrappers.swift` |
+| Projected value (`$prop`) | Supported | ✅ v1.6 | `Wrappers.swift` |
 
 ### Operators
 
@@ -412,20 +423,20 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Feature | Generator Status | Test Coverage | Test File |
 |---------|-----------------|---------------|-----------|
 | Standard initializer | Supported | ✅ v1.0 | `BasicInit.swift` |
-| Failable initializer (`init?`) | **Not Yet** | ✅ v1.0 | `Failable.swift` |
-| Implicitly unwrapped (`init!`) | **Not Yet** | ✅ v1.0 | `Failable.swift` |
+| Failable initializer (`init?`) | Supported | ✅ v1.0 | `Failable.swift` |
+| Implicitly unwrapped (`init!`) | Supported | ✅ v1.0 | `Failable.swift` |
 | Throwing initializer | Supported | ✅ v1.0 | `Throwing.swift` |
-| Convenience initializer | Unknown | ✅ v1.0 | `BasicInit.swift` |
-| Required initializer | Unknown | ✅ v1.0 | `BasicInit.swift` |
+| Convenience initializer | Supported | ✅ v1.0 | `BasicInit.swift` |
+| Required initializer | Supported | ✅ v1.0 | `BasicInit.swift` |
 
 ### Parameters
 
 | Feature | Generator Status | Test Coverage | Test File |
 |---------|-----------------|---------------|-----------|
-| Inout parameter (`inout`) | **Not Yet** | ✅ v1.0 | `Inout.swift` |
-| Inout with frozen struct | **Not Yet** | ✅ v1.0 | `Inout.swift` |
-| Variadic parameter | Unknown | ✅ v1.7 | `Variadic.swift` |
-| Default parameter value | **Not Yet** | ✅ v1.0 | `Defaults.swift` |
+| Inout parameter (`inout`) | Supported | ✅ v1.0 | `Inout.swift` |
+| Inout with frozen struct | Supported | ✅ v1.0 | `Inout.swift` |
+| Variadic parameter | Supported | ✅ v1.7 | `Variadic.swift` |
+| Default parameter value | Partial | ✅ v1.0 | `Defaults.swift` |
 
 ### Error Handling
 
@@ -433,8 +444,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 |---------|-----------------|---------------|-----------|
 | Synchronous `throws` method | Supported | ✅ v1.0 | `ThrowingFunctions.swift` |
 | Static `throws` method | Supported | ✅ v1.0 | `ThrowingFunctions.swift` |
-| Custom `Error` type | Unknown | ✅ v1.0 | `ErrorTypes.swift` |
-| Error to Exception mapping | Unknown | ✅ v1.0 | `ErrorTypes.swift` |
+| Custom `Error` type | Supported | ✅ v1.0 | `ErrorTypes.swift` |
+| Error to Exception mapping | Supported | ✅ v1.0 | `ErrorTypes.swift` |
 
 ### Foundation Interop
 
@@ -442,18 +453,18 @@ This matrix tracks which Swift features are covered by the test library. Feature
 |---------|-----------------|---------------|-----------|
 | Foundation.Data | Supported | ✅ v1.5 | `Foundation/Data.swift` |
 | Foundation.URL | Supported | ✅ v1.5 | `Foundation/URL.swift` |
-| Foundation.Date | Unknown | ✅ v1.5 | `Foundation/Date.swift` |
-| Extension on Foundation type | Unknown | ✅ v1.5 | `Foundation/Extensions.swift` |
-| Retroactive conformance | Unknown | ✅ v1.5 | `Foundation/Extensions.swift` |
+| Foundation.Date | Supported | ✅ v1.5 | `Foundation/Date.swift` |
+| Extension on Foundation type | Partial | ✅ v1.5 | `Foundation/Extensions.swift` |
+| Retroactive conformance | Partial | ✅ v1.5 | `Foundation/Extensions.swift` |
 
 ### Objective-C Interop
 
 | Feature | Generator Status | Test Coverage | Test File |
 |---------|-----------------|---------------|-----------|
-| NSObject subclass | Unknown | ✅ v1.6 | `NSObjectSubclass.swift` |
-| @objc attribute | Unknown | ✅ v1.6 | `ObjCAttributes.swift` |
-| @objcMembers | Unknown | ✅ v1.6 | `ObjCAttributes.swift` |
-| Selector type | Unknown | ✅ v1.8 | `Selectors.swift` |
+| NSObject subclass | Partial | ✅ v1.6 | `NSObjectSubclass.swift` |
+| @objc attribute | Supported | ✅ v1.6 | `ObjCAttributes.swift` |
+| @objcMembers | Supported | ✅ v1.6 | `ObjCAttributes.swift` |
+| Selector type | Partial | ✅ v1.8 | `Selectors.swift` |
 
 ### Unsafe/C-Interop Types
 
@@ -461,19 +472,19 @@ This matrix tracks which Swift features are covered by the test library. Feature
 |---------|-----------------|---------------|-----------|
 | UnsafePointer<T> | Supported | ✅ v1.5 | `UnsafeTypes/Pointers.swift` |
 | UnsafeMutablePointer<T> | Supported | ✅ v1.5 | `UnsafeTypes/Pointers.swift` |
-| UnsafeRawPointer | Unknown | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
-| UnsafeMutableRawPointer | Unknown | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
-| OpaquePointer | Unknown | ✅ v1.5 | `UnsafeTypes/OpaquePointer.swift` |
+| UnsafeRawPointer | Supported | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
+| UnsafeMutableRawPointer | Supported | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
+| OpaquePointer | Partial | ✅ v1.5 | `UnsafeTypes/OpaquePointer.swift` |
 
 ### Memory Management (Stability Tests)
 
 | Feature | Generator Status | Test Coverage | Test File |
 |---------|-----------------|---------------|-----------|
-| Circular C#↔Swift refs | Unknown | ⬜ Add | `RetainCycles.swift` |
+| Circular C#↔Swift refs | **Not Yet** | ⬜ Add | `RetainCycles.swift` |
 | Non-frozen layout change | **Critical** | ✅ v1.0 | `LibraryEvolution.swift` |
 | Non-frozen class | Supported | ✅ v1.5 | `LibraryEvolution.swift` |
 | Non-frozen enum | Supported | ✅ v1.5 | `LibraryEvolution.swift` |
-| Evolving optional fields | Unknown | ✅ v1.5 | `LibraryEvolution.swift` |
+| Evolving optional fields | Supported | ✅ v1.5 | `LibraryEvolution.swift` |
 | Leak detection harness | n/a | ⬜ Add | `LeakDetection.swift` |
 
 ### Out of Scope (Compile-Time Only)
