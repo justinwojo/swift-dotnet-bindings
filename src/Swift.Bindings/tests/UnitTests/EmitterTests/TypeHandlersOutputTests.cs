@@ -42,6 +42,80 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
+    public void Emit_ClassHandler_EmitsEquatableConformanceInterface()
+    {
+        // Only Equatable gets interface emission (has special C# implementation via SwiftEquatable.Equals)
+        // Other protocols are tracked in GetProtocolConformanceDescriptor but not as interfaces
+        // until protocol method emission on conforming types is implemented.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = new ClassDecl
+        {
+            Name = "Loader",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            MangledName = "$s10TestModule6LoaderCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                    "$s10TestModule6LoaderCSQAAMc")
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        Assert.Contains("public unsafe class Loader : ISwiftObject, IEquatable<Loader>", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ClassHandler_SkipsNonEquatableProtocolInterfaces()
+    {
+        // Non-Equatable protocols should NOT be added to interface list
+        // (their methods aren't emitted on conforming types yet)
+        // But they ARE included in the GetProtocolConformanceDescriptor dictionary
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = new ClassDecl
+        {
+            Name = "Loader",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            MangledName = "$s10TestModule6LoaderCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.AnyInterpolatable"),
+                    "$s10TestModule6LoaderVAA16AnyInterpolatableAAMc")
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        // Class declaration should only have ISwiftObject (not ISwiftAnyInterpolatable in inheritance list)
+        Assert.Contains("public unsafe class Loader : ISwiftObject", csOutput);
+        Assert.DoesNotContain("ISwiftObject, ISwiftAnyInterpolatable", csOutput);
+        // But the conformance should still be in the dictionary for GetProtocolConformanceDescriptor
+        Assert.Contains("{typeof(ISwiftAnyInterpolatable)", csOutput);
+    }
+
+    [Fact]
     public void Emit_ClassHandler_SkipsType_WithUnsupportedSwiftUIConstraint()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -179,6 +253,7 @@ public class TypeHandlersOutputTests
                             (structDecl.Name == "Blob" || structDecl.Name == "CacheKey" ? TypeRecordFlags.RequiresMemoryManagement : TypeRecordFlags.None),
                     Kind = TypeRecordKind.Struct
                 });
+            RegisterConformanceProtocols(module, structDecl.Conformances);
             typeDatabase.AddModuleDatabase(module);
         }
         else if (typeDecl is ClassDecl classDecl)
@@ -194,6 +269,7 @@ public class TypeHandlersOutputTests
                     Flags = TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Class
                 });
+            RegisterConformanceProtocols(module, classDecl.Conformances);
             typeDatabase.AddModuleDatabase(module);
         }
 
@@ -207,5 +283,26 @@ public class TypeHandlersOutputTests
         handler.Emit(csWriter, swiftWriter, env, conductor);
 
         return (csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    private static void RegisterConformanceProtocols(ModuleTypeDatabase module, IEnumerable<TypeConformance> conformances)
+    {
+        var registered = new HashSet<string>();
+        foreach (var conformance in conformances.Where(c => c.Protocol.Module == module.Name))
+        {
+            if (!registered.Add(conformance.Protocol.ModuleQualifiedName))
+                continue;
+
+            module.RegisterType(
+                conformance.Protocol,
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module.Name}", conformance.Protocol.Name),
+                    SwiftTypeName = conformance.Protocol,
+                    MetadataAccessor = string.Empty,
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Protocol
+                });
+        }
     }
 }

@@ -83,8 +83,6 @@ namespace BindingsGeneration
 
             ReportCollector.RecordTypeEmitted(classDecl);
 
-            bool implementsEquatable = classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
-
             // Get generic type parts if this is a generic type
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(classDecl, env.TypeDatabase);
@@ -97,13 +95,11 @@ namespace BindingsGeneration
 
             try
             {
-                var interfaces = new List<string> {
-                    typeof(ISwiftObject).Name,
-                };
-                if (implementsEquatable)
-                {
-                    interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
-                }
+                var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+                    classDecl,
+                    typeNameWithGenerics,
+                    moduleDecl.Name,
+                    env.TypeDatabase);
 
                 var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))

@@ -477,16 +477,66 @@ namespace BindingsGeneration
     /// <summary>
     /// Static helper class for protocol conformance code generation shared across type handlers.
     /// </summary>
-    internal static class ProtocolConformanceHelper
-    {
+internal static class ProtocolConformanceHelper
+{
         /// <summary>
         /// Protocols from other modules that we support for cross-module conformance.
         /// This will be removed once we process multiple modules properly.
         /// </summary>
-        private static readonly HashSet<string> CrossModuleSupportedProtocols = new()
+    private static readonly HashSet<string> CrossModuleSupportedProtocols = new()
+    {
+        "Swift.Equatable"
+    };
+
+    /// <summary>
+    /// Builds the C# interface list for a concrete Swift type declaration.
+    /// Includes ISwiftObject and supported protocol conformances.
+    /// Note: Only emits IEquatable for classes and structs (which have Equals implementations via SwiftEquatable).
+    /// Enums with associated values are emitted as C# classes without Equals implementation.
+    /// Other protocol conformances are tracked in GetProtocolConformanceDescriptor but not in the interface list
+    /// until protocol method emission on conforming types is implemented.
+    /// </summary>
+    public static List<string> GetImplementedInterfaces(
+        TypeDecl typeDecl,
+        string typeNameWithGenerics,
+        string moduleName,
+        ITypeDatabase typeDatabase)
+    {
+        var interfaces = new List<string> { typeof(ISwiftObject).Name };
+        var emitted = new HashSet<string>(interfaces);
+
+        // Only classes and structs get Equatable interface (they have Equals via SwiftEquatable)
+        // Enums with associated values are emitted as C# classes without Equals implementation
+        bool canEmitEquatable = typeDecl is ClassDecl or StructDecl;
+
+        IEnumerable<TypeConformance> conformances = typeDecl switch
         {
-            "Swift.Equatable"
+            ClassDecl classDecl => classDecl.Conformances,
+            StructDecl structDecl => structDecl.Conformances,
+            EnumDecl enumDecl => enumDecl.Conformances,
+            _ => Enumerable.Empty<TypeConformance>()
         };
+
+        foreach (var conformance in conformances)
+        {
+            // Only emit Equatable interface for classes/structs with Equals implementation
+            if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
+            {
+                if (!canEmitEquatable)
+                    continue;
+
+                if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+                    continue;
+
+                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics);
+                if (emitted.Add(iface))
+                    interfaces.Add(iface);
+            }
+            // Other protocols: not emitted in interface list until protocol method emission is implemented
+        }
+
+        return interfaces;
+    }
 
         /// <summary>
         /// Generates the dictionary entries for GetProtocolConformanceDescriptor implementation.
@@ -496,37 +546,51 @@ namespace BindingsGeneration
         /// <param name="typeName">The name of the type implementing the conformances.</param>
         /// <param name="typeDatabase">The type database for protocol lookups.</param>
         /// <returns>A comma-separated string of dictionary entries.</returns>
-        public static string GenerateProtocolConformanceDictionaryEntries(
-            IEnumerable<TypeConformance> conformances,
-            string moduleName,
-            string typeName,
-            ITypeDatabase typeDatabase)
+    public static string GenerateProtocolConformanceDictionaryEntries(
+        IEnumerable<TypeConformance> conformances,
+        string moduleName,
+        string typeName,
+        ITypeDatabase typeDatabase)
         {
             var entries = new List<string>();
 
-            foreach (var conformance in conformances)
-            {
-                if (conformance.Protocol.Module != moduleName &&
-                    !CrossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
-                {
-                    continue;
-                }
+        foreach (var conformance in conformances)
+        {
+            if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+                continue;
 
-                // Skip protocols with associated types (they generate generic interfaces that can't be used with typeof)
-                if (typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record) &&
-                    record.Kind == TypeRecordKind.Protocol &&
-                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
-                {
-                    continue;
-                }
-
-                var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName);
-                var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
+            var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName);
+            var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
 
                 entries.Add($"{{typeof({protocol}), \"{protocolConformanceSymbol}\"}}");
             }
 
-            return string.Join(",\n", entries);
-        }
+        return string.Join(",\n", entries);
     }
+
+    private static bool ShouldEmitConformance(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)
+    {
+        if (conformance.Protocol.Module != moduleName &&
+            !CrossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
+        {
+            return false;
+        }
+
+        // Preserve existing behavior for Equatable even when protocol records are unavailable.
+        if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
+            return true;
+
+        // Skip unknown protocols and protocols with associated types (PATs).
+        if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record))
+            return false;
+
+        if (record.Kind != TypeRecordKind.Protocol)
+            return false;
+
+        if (record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+            return false;
+
+        return true;
+    }
+}
 }

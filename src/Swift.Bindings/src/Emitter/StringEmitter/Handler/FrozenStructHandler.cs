@@ -94,8 +94,6 @@ namespace BindingsGeneration
             var typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
             bool isProjectedAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord!);
 
-            bool implementsEquatable = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
-
             SwiftTypeInfo? swiftTypeInfo = typeRecord?.SwiftTypeInfo;
 
             // Get generic type parts if this is a generic type
@@ -111,13 +109,11 @@ namespace BindingsGeneration
 
             try
             {
-                var interfaces = new List<string> {
-                    typeof(ISwiftObject).Name,
-                };
-                if (implementsEquatable)
-                {
-                    interfaces.Add($"IEquatable<{typeNameWithGenerics}>");
-                }
+                var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+                    structDecl,
+                    typeNameWithGenerics,
+                    moduleDecl.Name,
+                    env.TypeDatabase);
 
                 if (isProjectedAsClass)
                 {
