@@ -1,8 +1,8 @@
 # Comprehensive Swift Test Library Design
 
-**Status**: v1.8 Implemented (Phase 44 generator improvements applied)
+**Status**: v1.8 Implemented, v1.9 Planned (Swift 6 language features)
 **Created**: February 2026
-**Last Updated**: February 2026 - Phase 44: inout params, failable initializers, Codex review fixes
+**Last Updated**: February 2026 - Phase 7 planned: Swift 6.0–6.2 language features
 
 ---
 
@@ -50,7 +50,7 @@ Create a custom Swift library specifically designed to test the full breadth of 
                     │   Third-Party SDKs  │  ← "Does it work in the wild?"
                     ├─────────────────────┤
                     │  Comprehensive Test │  ← "Does it handle all Swift features?"
-                    │      Library        │    (60 Swift files, 125 features)
+                    │      Library        │    (60+ Swift files, 135+ features)
                     ├─────────────────────┤
                     │  Integration Tests  │  ← Keep for quick iteration
                     ├─────────────────────┤
@@ -85,7 +85,9 @@ TestFramework/
 │       ├── Types/
 │       │   ├── Structs.swift            # ✅ Frozen, non-frozen, nested
 │       │   ├── Classes.swift            # ✅ Basic, inheritance, ARC, weak/unowned
-│       │   └── Enums.swift              # ✅ Raw, associated values, generic
+│       │   ├── Enums.swift              # ✅ Raw, associated values, generic
+│       │   ├── Noncopyable.swift        # ⬜ ~Copyable, consuming, borrowing (Swift 6.0+)
+│       │   └── InlineArray.swift        # ⬜ InlineArray fixed-size type (Swift 6.2+)
 │       │
 │       ├── Protocols/
 │       │   ├── BasicProtocols.swift     # ✅ Simple protocols, properties, methods
@@ -115,7 +117,8 @@ TestFramework/
 │       │   ├── Sendable.swift           # ✅ Sendable type, @Sendable closure
 │       │   ├── Actors.swift             # ✅ Actor type, isolated/nonisolated methods
 │       │   ├── AsyncClosures.swift      # ✅ Async closure parameters
-│       │   └── AsyncProperties.swift    # ✅ Async computed properties
+│       │   ├── AsyncProperties.swift    # ✅ Async computed properties
+│       │   └── IsolationControl.swift   # ⬜ @concurrent, nonisolated(unsafe) (Swift 6.1/6.2)
 │       │
 │       ├── Properties/
 │       │   ├── Getters.swift            # ✅ Stored + computed property getters
@@ -146,7 +149,8 @@ TestFramework/
 │       │
 │       ├── ErrorHandling/
 │       │   ├── ThrowingFunctions.swift  # ✅ Synchronous throws methods
-│       │   └── ErrorTypes.swift         # ✅ Custom Error types
+│       │   ├── ErrorTypes.swift         # ✅ Custom Error types
+│       │   └── TypedThrows.swift        # ⬜ throws(SomeError) typed throws (Swift 6.0+)
 │       │
 │       ├── MemoryManagement/
 │       │   └── LibraryEvolution.swift   # ✅ Non-frozen struct/class/enum layout
@@ -160,7 +164,8 @@ TestFramework/
 │       ├── UnsafeTypes/
 │       │   ├── Pointers.swift           # ✅ UnsafePointer, UnsafeMutablePointer
 │       │   ├── RawPointers.swift        # ✅ UnsafeRawPointer, UnsafeMutableRawPointer
-│       │   └── OpaquePointer.swift      # ✅ OpaquePointer, Optional<OpaquePointer>
+│       │   ├── OpaquePointer.swift      # ✅ OpaquePointer, Optional<OpaquePointer>
+│       │   └── Span.swift              # ⬜ Span<T>, RawSpan (Swift 6.2+)
 │       │
 │       ├── ObjCInterop/
 │       │   ├── NSObjectSubclass.swift   # ✅ NSObject subclass, inheritance
@@ -326,6 +331,11 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Generic enum | Supported | ✅ v1.0 | `Enums.swift` |
 | Nested type in generic | Partial | ✅ v1.0 | `Structs.swift` |
 | Actor | Supported | ✅ v1.8 | `Actors.swift` |
+| Noncopyable struct (`~Copyable`) | **Not Yet** | ⬜ v1.9 | `Noncopyable.swift` |
+| Noncopyable class (`~Copyable`) | **Not Yet** | ⬜ v1.9 | `Noncopyable.swift` |
+| `consuming` parameter | **Not Yet** | ⬜ v1.9 | `Noncopyable.swift` |
+| `borrowing` parameter | **Not Yet** | ⬜ v1.9 | `Noncopyable.swift` |
+| InlineArray (fixed-size) | **Not Yet** | ⬜ v1.9 | `InlineArray.swift` |
 
 ### Protocols
 
@@ -385,6 +395,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | @MainActor method | Supported | ✅ v1.6 | `MainActor.swift` |
 | @Sendable closure | Supported | ✅ v1.6 | `Sendable.swift` |
 | Sendable type | Supported | ✅ v1.6 | `Sendable.swift` |
+| `@concurrent` function | **Not Yet** | ⬜ v1.9 | `IsolationControl.swift` |
+| `nonisolated(unsafe)` | **Not Yet** | ⬜ v1.9 | `IsolationControl.swift` |
 
 ### Properties
 
@@ -446,6 +458,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | Static `throws` method | Supported | ✅ v1.0 | `ThrowingFunctions.swift` |
 | Custom `Error` type | Supported | ✅ v1.0 | `ErrorTypes.swift` |
 | Error to Exception mapping | Supported | ✅ v1.0 | `ErrorTypes.swift` |
+| Typed throws (`throws(E)`) | **Not Yet** | ⬜ v1.9 | `TypedThrows.swift` |
+| Typed async throws | **Not Yet** | ⬜ v1.9 | `TypedThrows.swift` |
 
 ### Foundation Interop
 
@@ -475,6 +489,8 @@ This matrix tracks which Swift features are covered by the test library. Feature
 | UnsafeRawPointer | Supported | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
 | UnsafeMutableRawPointer | Supported | ✅ v1.5 | `UnsafeTypes/RawPointers.swift` |
 | OpaquePointer | Partial | ✅ v1.5 | `UnsafeTypes/OpaquePointer.swift` |
+| Span<T> | **Not Yet** | ⬜ v1.9 | `UnsafeTypes/Span.swift` |
+| RawSpan | **Not Yet** | ⬜ v1.9 | `UnsafeTypes/Span.swift` |
 
 ### Memory Management (Stability Tests)
 
@@ -497,6 +513,13 @@ These Swift features don't appear in ABI JSON and thus don't need test coverage:
 | Parameter packs | Compile-time variadic generics; monomorphized in ABI |
 | Result builders (`@ViewBuilder`) | DSL syntax sugar; desugared before ABI |
 | Property observers (`willSet`/`didSet`) | Internal implementation; not in public ABI |
+| Data-race safety mode | Compiler flag for strict concurrency checking; no ABI impact |
+| Trailing comma syntax | Syntax convenience (Swift 6.1); no ABI representation |
+| Package traits | Swift Package Manager feature (Swift 6.1); no ABI impact |
+| Task naming | Debugging/instrumentation only (Swift 6.2); not in public ABI |
+| Raw identifiers (`#`) | Source-level syntax; mangled names unchanged (mostly Swift Testing) |
+| Simplified TaskGroup syntax | Compiler sugar (Swift 6.1); no ABI change |
+| Java interoperability | Separate language bridge (Swift 6.2); not relevant to C#/.NET bindings |
 
 ---
 
@@ -621,6 +644,16 @@ Based on analysis of real-world library patterns and current blockers:
 | **@MainActor/@Sendable** | Swift concurrency model |
 | **Key Paths / Metatypes** | Advanced generic patterns |
 | **Actors** | Complete concurrency support |
+
+### Tier 5: Swift 6 Language Features
+| Feature | Rationale |
+|---------|-----------|
+| **Typed Throws** | Error type in ABI signature; enables specific catch types in C# |
+| **Noncopyable Types** | Different ABI (no copy witness); requires move-only marshalling |
+| **`consuming`/`borrowing`** | Ownership modifiers in ABI like `inout`; affects parameter passing |
+| **InlineArray** | New fixed-size value type in stdlib; may appear in Apple framework APIs |
+| **Span** | Safe buffer replacement; natural C# `Span<T>` mapping |
+| **`@concurrent`/isolation** | New Swift 6.2 concurrency attributes; may affect function signatures |
 
 ---
 
@@ -802,6 +835,102 @@ public func validate(_ input: String) throws -> String {
 }
 ```
 
+### Typed Throws (Swift 6.0+)
+```swift
+// C# expected: throws specific error type, not generic Error
+// ABI: error type appears in function signature (unlike untyped throws)
+public enum ParseError: Error {
+    case invalidInput
+    case overflow(value: Int)
+}
+
+public func parseNumber(_ input: String) throws(ParseError) -> Int {
+    guard let value = Int(input) else { throw .invalidInput }
+    guard value <= Int32.max else { throw .overflow(value: value) }
+    return value
+}
+
+// Async typed throws
+public func asyncParse(_ input: String) async throws(ParseError) -> Int {
+    return try parseNumber(input)
+}
+```
+
+### Noncopyable Types (Swift 6.0+)
+```swift
+// C# expected: Different marshalling — no copy semantics, unique ownership
+// ABI: ~Copyable inverse conformance, consuming/borrowing ownership modifiers
+public struct UniqueResource: ~Copyable {
+    public let id: Int32
+
+    public init(id: Int32) {
+        self.id = id
+    }
+
+    // consuming — takes ownership, caller can't use value after
+    consuming public func consume() -> Int32 {
+        return id
+    }
+
+    // borrowing — read-only borrow, no ownership transfer
+    borrowing public func inspect() -> Int32 {
+        return id
+    }
+
+    deinit {
+        // Cleanup when ownership ends
+    }
+}
+
+// Free function with ownership modifiers
+public func transferOwnership(_ resource: consuming UniqueResource) -> Int32 {
+    return resource.id
+}
+
+public func borrowResource(_ resource: borrowing UniqueResource) -> Int32 {
+    return resource.id
+}
+```
+
+### Swift 6.2 Isolation Control
+```swift
+// C# expected: @concurrent is an attribute; nonisolated(unsafe) similar to nonisolated
+// ABI: @concurrent appears as function attribute
+
+@concurrent
+public func concurrentWork(input: Int32) async -> Int32 {
+    return input * 2
+}
+
+public class SharedState {
+    nonisolated(unsafe) public var unsafeCounter: Int32 = 0
+
+    public init() {}
+}
+```
+
+### InlineArray (Swift 6.2+)
+```swift
+// C# expected: Fixed-size value type, likely mapped to fixed-size buffer or tuple
+// ABI: InlineArray<N, Element> with compile-time count
+public func sumInlineArray(_ values: InlineArray<4, Int32>) -> Int32 {
+    var total: Int32 = 0
+    for v in values { total += v }
+    return total
+}
+```
+
+### Span (Swift 6.2+)
+```swift
+// C# expected: Safe buffer view, likely mapped to Span<T> or ReadOnlySpan<T> in C#
+// ABI: Span<T> replaces UnsafeBufferPointer in safe APIs
+public func sumSpan(_ values: Span<Int32>) -> Int32 {
+    var total: Int32 = 0
+    for v in values { total += v }
+    return total
+}
+```
+
 ### Non-Frozen Struct (Library Evolution Test)
 ```swift
 // WARNING: Field order may change between library versions
@@ -934,6 +1063,7 @@ The test library should be versioned to track Swift language feature additions:
 | **1.6** ✅ | **+ Tier 4 partial** | **51 files: + ObjC interop (NSObject, @objc, @objcMembers), property wrappers, @MainActor, @Sendable, conditional conformance** |
 | **1.7** ✅ | **+ Key paths, metatypes, PATs, variadic, autoclosures** | **56 files: + key paths (KeyPath, WritableKeyPath), metatypes (T.Type, T.self), protocols with associated types, variadic parameters, @autoclosure** |
 | **1.8** ✅ | **+ Actors, opaque returns, throwing/async closures, selectors, async properties** | **60 files: + actor type, some Protocol opaque returns, throwing closures, async closures, Selector parameter, async computed properties** |
+| **1.9** | **+ Swift 6 language features** | **~65 files: + typed throws, noncopyable types, ownership modifiers, isolation control, InlineArray, Span** |
 | 2.0 | + Full coverage | All remaining gaps |
 
 ### Documentation
@@ -1021,6 +1151,15 @@ The comprehensive test library is successful when:
 28. [x] Add Selector tests (Selector parameter, #selector, responds(to:))
 29. [x] Add async property tests (computed property with async getter)
 
+### Phase 7: Swift 6 Language Features (v1.9)
+30. [ ] Update `Package.swift` swift-tools-version from 5.9 to 6.0 (required for typed throws, noncopyable types)
+31. [ ] Add typed throws tests (`throws(SomeError)` with specific error type, async typed throws, struct with typed throwing method)
+32. [ ] Add noncopyable type tests (`~Copyable` struct, `~Copyable` class, `consuming` parameter, `borrowing` parameter, deinit on noncopyable)
+33. [ ] Add Swift 6.2 isolation control tests (`@concurrent` function, `nonisolated(unsafe)` property/method)
+34. [ ] Add InlineArray tests (InlineArray parameter, InlineArray return, InlineArray property)
+35. [ ] Add Span tests (Span<T> parameter, RawSpan parameter, Span from array)
+36. [ ] Update `generate-coverage-report.sh` FEATURE_MAP and KNOWN_UNSUPPORTED_FEATURES for new files/features
+
 ---
 
 ## See Also
@@ -1064,3 +1203,32 @@ Both models agreed that **Property Setters** and **Protocol Conformance Emission
 - Add ABI evolution tests early (non-frozen layout is high-risk)
 
 **Key insight**: The test library should be a *living compatibility suite*, not a comprehensive catalog of every Swift feature. Start with what blocks real usage, expand incrementally.
+
+### Round 4: Grok + Codex Swift 6.0–6.2 Analysis
+- Grok catalogued all Swift 6.0, 6.1, and 6.2 language features
+- Codex cross-reviewed for binding-generator relevance and accuracy
+
+**ABI-impactful features identified (added as Phase 7 / v1.9):**
+1. **Typed throws** (`throws(SomeError)`) — error type is part of the ABI function signature; current tests only use untyped `throws`
+2. **Noncopyable types** (`~Copyable`) — inverse conformance requirement in ABI; different value witness tables (no copy function); `consuming` and `borrowing` ownership modifiers appear as parameter annotations similar to `inout`
+3. **InlineArray** (Swift 6.2) — new fixed-size inline type `InlineArray<N, Element>` that appears in function signatures; potential C# mapping to fixed-size buffer or ValueTuple
+4. **Span** (Swift 6.2) — safe non-owning buffer view replacing `UnsafeBufferPointer`; natural C# mapping to `Span<T>`/`ReadOnlySpan<T>`
+5. **`@concurrent`** (Swift 6.2) — new function attribute replacing some `nonisolated` usage; appears in ABI JSON
+6. **`nonisolated(unsafe)`** (Swift 6.1) — isolation modifier that may appear in ABI
+
+**Correctly excluded (not ABI-visible):**
+- Data-race safety mode (compiler flag)
+- Trailing commas (syntax sugar, Swift 6.1)
+- Package traits (SPM, Swift 6.1)
+- Simplified TaskGroup syntax (compiler sugar)
+- Child task return type inference (compiler)
+- Task naming (debugging/instrumentation)
+- Raw identifiers (source syntax; Codex correctly noted this is mainly Swift Testing display names, not a broad language feature)
+- Java interoperability (separate language bridge, not relevant to C#/.NET)
+
+**Codex corrections on Grok's report:**
+- Grok listed "Raw identifiers" as broad new identifier syntax — actually tied to Swift Testing display names
+- Grok mixed tooling items (faster macro builds, WebAssembly support) with language features
+- InlineArray/Span were presented as ecosystem context by Codex, but they are actually ABI-visible types that the generator will encounter in Apple framework APIs
+
+**Key insight**: Swift 6's ownership model (`~Copyable`, `consuming`, `borrowing`) is the most architecturally significant addition for binding generation. These types cannot be retained/released like normal Swift types, requiring fundamentally different marshalling strategies. The generator will need to detect inverse conformance requirements in ABI JSON and emit move semantics rather than copy/ARC patterns. `Package.swift` must be updated from swift-tools-version 5.9 to 6.0+ for typed throws and noncopyable features to compile.
