@@ -71,16 +71,20 @@ public class EveryProtocolEmitter
         // Track emitted fields to avoid duplicates
         var emittedFields = new HashSet<string>();
 
-        // Property getters and setters
+        // Property getters and setters (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             EmitPropertyVtableFields(writer, property, protocolDecl, emittedFields);
         }
 
-        // Subscript getters and setters
+        // Subscript getters and setters (skip static subscripts - not part of witness table)
         int subscriptIndex = 0;
         foreach (var subscript in protocolDecl.Subscripts)
         {
+            if (subscript.IsStatic)
+                continue;
             EmitSubscriptVtableFields(writer, subscript, protocolDecl, subscriptIndex, emittedFields);
             subscriptIndex++;
         }
@@ -151,9 +155,11 @@ public class EveryProtocolEmitter
         // Track emitted members to avoid duplicates within this protocol
         var emittedMembers = new HashSet<string>();
 
-        // Emit property implementations
+        // Emit property implementations (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             var swiftSignature = $"var_{property.Name}";
             // Check for global conflicts
             if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(swiftSignature))
@@ -167,10 +173,12 @@ public class EveryProtocolEmitter
             }
         }
 
-        // Emit subscript implementations
+        // Emit subscript implementations (skip static subscripts - not part of witness table)
         int subscriptIndex = 0;
         foreach (var subscript in protocolDecl.Subscripts)
         {
+            if (subscript.IsStatic)
+                continue;
             var subscriptKey = GetSubscriptKey(subscript, subscriptIndex);
             var swiftSignature = $"subscript_{subscriptKey}";
             // Check for global conflicts
@@ -328,13 +336,14 @@ public class EveryProtocolEmitter
             return;
         }
 
-        // Skip protocols with no implementable members
-        var hasImplementableMembers = protocolDecl.Properties.Any() ||
+        // Skip protocols with no implementable instance members
+        // Static members are not part of the witness table, so we only count non-static members
+        var hasImplementableMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
                                       protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
-                                      protocolDecl.Subscripts.Any();
+                                      protocolDecl.Subscripts.Any(s => !s.IsStatic);
         if (!hasImplementableMembers)
         {
-            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: no implementable members");
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: no implementable instance members (may have only static requirements)");
             return;
         }
 

@@ -1,9 +1,9 @@
 # Completed Backlog Items
 
-Archived from `remaining-work.md`. These items were completed during Phases 45-52.
+Archived from `remaining-work.md`. These items were completed during Phases 45-53.
 
 **Starting Point**: Phase 48, 1107 unit tests, TestFramework v2.0 (67 files, 145 features)
-**End Point**: Phase 52, 1216 unit tests, 93/93 must-pass features
+**End Point**: Phase 54, 1238 unit tests, 93/93 must-pass features
 
 ---
 
@@ -145,3 +145,116 @@ For protocol members whose types are all blittable primitives, the generator now
 3. **Return type canonicalization**: `MarshalFromSwift<T>` uses canonical blittable type from `GetBlittableCSharpType`, not the interface-projected type.
 
 Non-dispatchable members gracefully degrade to `NotSupportedException`.
+
+---
+
+## 14. .NET Convenience Methods on Swift Runtime Types (Phase 52)
+
+Added `ToArray()`, `ToList()`, and `ToString()` to `SwiftArray<T>`. Fixed native memory leak in indexer getter — `NativeMemory.Alloc` buffer was never freed after `MarshalFromSwift` copied data out; added try/finally with `NativeMemory.Free`. `SwiftString` already had all needed methods (`ToString()`, implicit conversions). 9 new tests added.
+
+---
+
+## 16. Upstream .NET Runtime Bug Reports (Phase 52)
+
+Drafts complete for three Mono JIT issues with minimal repros:
+1. `!ji->async` JIT assertion crash when calling `swift_getExistentialTypeMetadata`
+2. Non-blittable type support with `CallConvSwift` (feature request)
+3. SafeHandle/SwiftSelf lifetime across async P/Invoke (tracking comment)
+
+Filing deferred until repo goes public. Drafts in `src/docs/upstream-bug-reports-draft.md`.
+
+---
+
+## 19B. Protocol Witness Table Dispatch -- Phase B (Phase 53)
+
+String marshalling and property setters through witness dispatch.
+
+**`SBW_Utf8Slice` bridge struct** — `@frozen` Swift struct + `[StructLayout(Sequential)]` C# struct for ABI-stable UTF-8 transfer across the P/Invoke boundary.
+
+**String property getters** — Swift accessor encodes `String` to `Array(result.utf8)`, allocates `SBW_Utf8Slice`, returns pointer. C# decodes via `Encoding.UTF8.GetString`. Free function deallocates both the buffer and the slice.
+
+**String method returns/params** — Same `SBW_Utf8Slice` bridge. Parameters use `GCHandle.Alloc` pinning with exception-safe cleanup.
+
+**Property setters** — Blittable setters use typed pointee assignment. String setters encode to UTF-8 via `fixed` block and pass `Utf8Slice` pointer. `_swiftContainer` field changed from `readonly` to mutable for write-back.
+
+**Projected-type validation gates** — `IsSwiftStringProjectedType()` validates properties project to `Swift.SwiftString`. `IsIdiomaticStringType()` validates method params/returns project to `string`. Prevents dispatch when TypeDatabase is incomplete.
+
+22 updated/new tests in `WitnessDispatchEmitterTests.cs`, 14 in `ProtocolProxyEmitterTests.cs`.
+
+---
+
+## 20. AnyTypeFallback Investigation (Phase 53)
+
+Investigated and resolved — binding reports were stale (generated before Phases 49-52).
+
+**BlinkID (10 → 0 AnyTypeFallback)**: All 10 skips were generic type parameter properties on `VehicleClassInfo<T>`, `DateResult<T>`, and `DriverLicenseDetailedInfo<T>`. Already fixed by Phase 50 generic improvements.
+
+**Lottie (4 → 1 AnyTypeFallback)**: `Keyframe.value` fixed. `LottieButton.body`/`LottieSwitch.body` (`some View`) now handled by UnsupportedSignature path. `LottieAnimationLayer.animationLayer` remains — `Optional<QuartzCore.CALayer>` requires broader ObjC framework module support.
+
+---
+
+## 21. UnsupportedSignature Triage (Phase 53)
+
+Investigation complete. All 30 skips categorized:
+
+| Category | Count | Root Cause |
+|----------|-------|------------|
+| UIKit touch/event methods | 8 | UITouch, UIEvent, CGPoint references |
+| Foundation.Bundle params | 8 | Bundle type not in TypeDatabase |
+| Placeholder types | 5 | Unresolved generic/internal type params |
+| Logger autoclosures | 4 | `@autoclosure () -> String`, `StaticString` |
+| CALayer content gravity | 2 | QuartzCore type alias |
+| UIControl.State / ClosedRange | 2 | Range types + UIKit |
+| Other | 1 | Unresolved config type |
+
+No low-cost fixable cluster — largest are UIKit (10) and Foundation.Bundle (8), both requiring structural TypeDatabase extensions.
+
+---
+
+## 8. BlinkID Runtime Validation (Phase 53)
+
+15/18 tests pass on iOS Simulator. Test suites: Type Metadata (3/3), Enum Cases (3/4), Enum Raw Values (2/4), Enum FromRawValue (2/2), Static Properties (1/1), Extended Metadata (4/4).
+
+3 failures are all non-blittable types in P/Invoke with Swift calling convention (SwiftString parameter/return on enum raw values). Known Mono JIT limitation. Addressable via `SBW_Utf8Slice` pattern from Phase B.
+
+---
+
+## 12B. Emitter Decomposition -- Phase B (Phase 53)
+
+Partial class split completed:
+
+| File | Before | After | Partial Files |
+|------|--------|-------|---------------|
+| `ClosureEmitter.cs` | ~1,220 LOC | 395 LOC | 5 files |
+| `EnumHandler.cs` | ~1,680 LOC | 299 LOC | 5 files + extracted helper |
+| `ProtocolProxyEmitter.cs` | 1,964 LOC | 106 LOC | 7 files |
+
+Full handler extraction per `emitter-redesign-proposal.md` evaluated and deferred — current imperative architecture is functional and well-tested.
+
+---
+
+## 22. Static Protocol Member Fix (Phase 54)
+
+Fixed protocol conformance compile errors (CS0736) where types emitted static properties but the interface required instance members.
+
+**Root cause**: Swift protocols can have `static var` requirements, but C# interfaces cannot have static members. The generator was emitting static properties as instance members in interfaces while correctly emitting them as static on conforming types, causing a static/instance mismatch.
+
+**Solution**: Skip static properties/subscripts when emitting protocol interfaces and all related proxy code, ensuring vtable layout consistency between C# and Swift sides.
+
+**Files modified**:
+- `ProtocolHandler.cs` — Skip static properties/subscripts in interface emission
+- `ProtocolProxyEmitter.Receivers.cs` — Skip static members in receiver emission
+- `ProtocolProxyEmitter.InterfaceImpl.cs` — Skip static members in interface implementation
+- `ProtocolProxyEmitter.Vtables.cs` — Skip static members in vtable struct emission
+- `ProtocolProxyEmitter.StaticInit.cs` — Skip static members in vtable initialization
+- `WitnessDispatchEmitter.cs` — Skip static property P/Invoke emission
+- `EveryProtocolEmitter.cs` — Skip static members in Swift vtable, updated `hasImplementableMembers` check
+- `ProtocolProxyEmitter.cs` — Updated `hasImplementableMembers` to exclude static-only protocols
+- `BindingReport.cs` — Added `StaticProtocolMember` skip reason
+
+**Impact**:
+- BlinkID: 18 → 0 compile errors ✅
+- TestFramework: 93/93 must-pass features (no regression)
+- Static member skips now properly recorded in binding report
+
+**Note**: Nuke (~42 errors) and Lottie (~39 errors) have a different category of errors (CS0535 missing implementations, CS0738 return type mismatches, CS0111 duplicate definitions) that are unrelated to this fix — tracked separately as P1 in remaining-work.md.

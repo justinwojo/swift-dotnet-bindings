@@ -13,19 +13,23 @@ public partial class ProtocolProxyEmitter
         // Track emitted members to avoid duplicates
         var emittedMembers = new HashSet<string>();
 
-        // Properties
+        // Properties (skip static properties - they're not part of the interface)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             if (emittedMembers.Add($"property:{property.Name}"))
             {
                 EmitPropertyImplementation(writer, property, protocolDecl, dispatchEmitter);
             }
         }
 
-        // Subscripts (as indexers)
+        // Subscripts (as indexers) - skip static subscripts
         int subscriptIndex = 0;
         foreach (var subscript in protocolDecl.Subscripts)
         {
+            if (subscript.IsStatic)
+                continue;
             var key = $"subscript:{subscriptIndex}";
             if (emittedMembers.Add(key))
             {

@@ -92,6 +92,15 @@ namespace BindingsGeneration
             // Emit properties as interface members
             foreach (var propertyDecl in protocolDecl.Properties)
             {
+                // Skip static properties - C# interfaces cannot have static members as requirements
+                // Note: Static properties are still emitted on conforming types, just not in the interface
+                if (propertyDecl.IsStatic)
+                {
+                    _logger.LogDebug($"Skipping static property '{propertyDecl.Name}' in interface {protocolDecl.Name} - static interface members are not supported.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Static protocol members cannot be declared in C# interfaces.");
+                    continue;
+                }
+
                 // Create a unique key for the property (name is sufficient since properties can't be overloaded)
                 var propertyKey = propertyDecl.Name;
                 if (emittedProperties.Contains(propertyKey))
@@ -108,6 +117,15 @@ namespace BindingsGeneration
             // Emit subscripts as interface indexers
             foreach (var subscriptDecl in protocolDecl.Subscripts)
             {
+                // Skip static subscripts - C# interfaces cannot have static members as requirements
+                // Note: Static subscripts are still emitted on conforming types, just not in the interface
+                if (subscriptDecl.IsStatic)
+                {
+                    _logger.LogDebug($"Skipping static subscript in interface {protocolDecl.Name} - static interface members are not supported.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.StaticProtocolMember, "Static protocol members cannot be declared in C# interfaces.");
+                    continue;
+                }
+
                 // Create a unique key for the subscript based on index parameter types
                 var subscriptKey = GetSubscriptSignatureKey(subscriptDecl, env.TypeDatabase, protocolDecl);
                 if (emittedSubscripts.Contains(subscriptKey))
@@ -394,10 +412,12 @@ namespace BindingsGeneration
             if (methodDecl.IsConstructor)
                 return;
 
-            // Skip static methods for now - they can be in C# 8+ interfaces but require implementation
+            // Skip static methods - C# interfaces cannot have static members as requirements
+            // Note: Static methods are still emitted on conforming types, just not in the interface
             if (methodDecl.MethodType == MethodType.Static)
             {
-                _logger.LogDebug($"Skipping static method '{methodDecl.Name}' in interface - static interface members require implementation.");
+                _logger.LogDebug($"Skipping static method '{methodDecl.Name}' in interface {protocolContext?.Name} - static interface members are not supported.");
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolContext, SkipReason.StaticProtocolMember, "Static protocol members cannot be declared in C# interfaces.");
                 return;
             }
 

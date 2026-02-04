@@ -49,13 +49,14 @@ public partial class ProtocolProxyEmitter
             return;
         }
 
-        // Skip protocols with no implementable members
-        var hasImplementableMembers = protocolDecl.Properties.Any() ||
+        // Skip protocols with no implementable instance members
+        // Static members are not part of the witness table, so we only count non-static members
+        var hasImplementableMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
                                       protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
-                                      protocolDecl.Subscripts.Any();
+                                      protocolDecl.Subscripts.Any(s => !s.IsStatic);
         if (!hasImplementableMembers)
         {
-            _logger.LogDebug($"Skipping proxy class for {protocolDecl.Name}: no implementable members");
+            _logger.LogDebug($"Skipping proxy class for {protocolDecl.Name}: no implementable instance members (may have only static requirements)");
             return;
         }
 

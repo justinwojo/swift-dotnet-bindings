@@ -247,8 +247,15 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDispos
         {
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
             void* payload = NativeMemory.Alloc(ElementSize);
-            SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), index, disposable.Buffer, ElementTypeMetadata);
-            return SwiftMarshal.MarshalFromSwift<Element>((IntPtr)payload);
+            try
+            {
+                SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), index, disposable.Buffer, ElementTypeMetadata);
+                return SwiftMarshal.MarshalFromSwift<Element>((IntPtr)payload);
+            }
+            finally
+            {
+                NativeMemory.Free(payload);
+            }
         }
         set
         {
@@ -294,6 +301,38 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IDispos
             array.Append(item);
         }
         return array;
+    }
+
+    /// <summary>
+    /// Copies the elements to a new .NET array.
+    /// </summary>
+    public Element[] ToArray()
+    {
+        int count = Count;
+        var result = new Element[count];
+        for (int i = 0; i < count; i++)
+            result[i] = this[i];
+        return result;
+    }
+
+    /// <summary>
+    /// Copies the elements to a new List.
+    /// </summary>
+    public List<Element> ToList()
+    {
+        int count = Count;
+        var result = new List<Element>(count);
+        for (int i = 0; i < count; i++)
+            result.Add(this[i]);
+        return result;
+    }
+
+    /// <summary>
+    /// Returns a string representation of the array.
+    /// </summary>
+    public override string ToString()
+    {
+        return $"SwiftArray<{typeof(Element).Name}>[{Count}]";
     }
 
     /// <summary>

@@ -140,9 +140,12 @@ public partial class ProtocolProxyEmitter
     {
         var protocolName = protocolDecl.Name;
 
-        // Property getters
+        // Property getters (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
+
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
             if (hasGetter && dispatchEmitter.IsPropertyGetterDispatchable(property))
             {
@@ -166,9 +169,12 @@ public partial class ProtocolProxyEmitter
             }
         }
 
-        // Property setters
+        // Property setters (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
+
             var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
             if (hasSetter && dispatchEmitter.IsPropertySetterDispatchable(property))
             {

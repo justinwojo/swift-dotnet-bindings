@@ -92,6 +92,35 @@ public func getEveryProtocolImageProcessingWitnessTable() -> UnsafeRawPointer {
         }
     }
 }
+// Witness dispatch accessors for ImageProcessing
+@frozen
+public struct SBW_Utf8Slice {
+    public var ptr: UnsafeMutablePointer<UInt8>
+    public var len: Int
+}
+@_silgen_name("SBW_ImageProcessing_get_identifier_0")
+public func SBW_ImageProcessing_get_identifier_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any Nuke.ImageProcessing).self)
+    let result: String = existential.identifier
+    let utf8 = Array(result.utf8)
+    let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
+    if !utf8.isEmpty {
+        utf8.withUnsafeBufferPointer { src in
+            bufferPtr.initialize(from: src.baseAddress!, count: src.count)
+        }
+    }
+    let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)
+    slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))
+    return UnsafeMutableRawPointer(slicePtr)
+}
+@_silgen_name("SBW_ImageProcessing_free_get_identifier_0")
+public func SBW_ImageProcessing_free_get_identifier_0(_ ptr: UnsafeMutableRawPointer) {
+    let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
+    slicePtr.pointee.ptr.deallocate()
+    slicePtr.deinitialize(count: 1)
+    slicePtr.deallocate()
+}
+
 // Vtable for ImageEncoding protocol - stores function pointers to C# implementations
 fileprivate struct ImageEncoding_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -231,6 +260,14 @@ public func getEveryProtocolCancellableWitnessTable() -> UnsafeRawPointer {
         }
     }
 }
+// Witness dispatch accessors for Cancellable
+@_silgen_name("SBW_Cancellable_method_cancel_0")
+public func SBW_Cancellable_method_cancel_0(_ containerPtr: UnsafeRawPointer) {
+    let existential = containerPtr.load(as: (any Nuke.Cancellable).self)
+    existential.cancel()
+}
+
+
 // Vtable for DataCaching protocol - stores function pointers to C# implementations
 fileprivate struct DataCaching_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -307,6 +344,59 @@ public func getEveryProtocolDataCachingWitnessTable() -> UnsafeRawPointer {
         }
     }
 }
+// Witness dispatch accessors for DataCaching
+@frozen
+public struct SBW_Utf8Slice {
+    public var ptr: UnsafeMutablePointer<UInt8>
+    public var len: Int
+}
+@_silgen_name("SBW_DataCaching_method_containsData_1")
+public func SBW_DataCaching_method_containsData_1(_ containerPtr: UnsafeRawPointer, _ arg0Ptr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any Nuke.DataCaching).self)
+    let arg0Slice = arg0Ptr.load(as: SBW_Utf8Slice.self)
+    let arg0: String
+    if arg0Slice.len > 0 {
+        arg0 = String(unsafeUninitializedCapacity: arg0Slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg0Slice.ptr, byteCount: arg0Slice.len)
+            return arg0Slice.len
+        }
+    } else {
+        arg0 = ""
+    }
+    let result = existential.containsData(for: arg0)
+    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+    ptr.initialize(to: result)
+    return UnsafeMutableRawPointer(ptr)
+}
+
+@_silgen_name("SBW_DataCaching_free_method_containsData_1")
+public func SBW_DataCaching_free_method_containsData_1(_ ptr: UnsafeMutableRawPointer) {
+    ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
+    ptr.deallocate()
+}
+@_silgen_name("SBW_DataCaching_method_removeData_3")
+public func SBW_DataCaching_method_removeData_3(_ containerPtr: UnsafeRawPointer, _ arg0Ptr: UnsafeRawPointer) {
+    let existential = containerPtr.load(as: (any Nuke.DataCaching).self)
+    let arg0Slice = arg0Ptr.load(as: SBW_Utf8Slice.self)
+    let arg0: String
+    if arg0Slice.len > 0 {
+        arg0 = String(unsafeUninitializedCapacity: arg0Slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg0Slice.ptr, byteCount: arg0Slice.len)
+            return arg0Slice.len
+        }
+    } else {
+        arg0 = ""
+    }
+    existential.removeData(for: arg0)
+}
+
+@_silgen_name("SBW_DataCaching_method_removeAll_4")
+public func SBW_DataCaching_method_removeAll_4(_ containerPtr: UnsafeRawPointer) {
+    let existential = containerPtr.load(as: (any Nuke.DataCaching).self)
+    existential.removeAll()
+}
+
+
 // Vtable for ImagePipelineDelegate protocol - stores function pointers to C# implementations
 fileprivate struct ImagePipelineDelegate_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -556,6 +646,14 @@ public func getEveryProtocolImageCachingWitnessTable() -> UnsafeRawPointer {
         }
     }
 }
+// Witness dispatch accessors for ImageCaching
+@_silgen_name("SBW_ImageCaching_method_removeAll_0")
+public func SBW_ImageCaching_method_removeAll_0(_ containerPtr: UnsafeRawPointer) {
+    let existential = containerPtr.load(as: (any Nuke.ImageCaching).self)
+    existential.removeAll()
+}
+
+
 // Vtable for ImageDecoding protocol - stores function pointers to C# implementations
 fileprivate struct ImageDecoding_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -618,8 +716,36 @@ public func getEveryProtocolImageDecodingWitnessTable() -> UnsafeRawPointer {
         }
     }
 }
+// Witness dispatch accessors for ImageDecoding
+@_silgen_name("SBW_ImageDecoding_get_isAsynchronous_0")
+public func SBW_ImageDecoding_get_isAsynchronous_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any Nuke.ImageDecoding).self)
+    let result = existential.isAsynchronous
+    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+    ptr.initialize(to: result)
+    return UnsafeMutableRawPointer(ptr)
+}
+@_silgen_name("SBW_ImageDecoding_free_get_isAsynchronous_0")
+public func SBW_ImageDecoding_free_get_isAsynchronous_0(_ ptr: UnsafeMutableRawPointer) {
+    ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
+    ptr.deallocate()
+}
+@_silgen_name("SBW_ImageDecoding_get_isAsynchronous_0")
+public func SBW_ImageDecoding_get_isAsynchronous_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any Nuke.ImageDecoding).self)
+    let result = existential.isAsynchronous
+    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+    ptr.initialize(to: result)
+    return UnsafeMutableRawPointer(ptr)
+}
+@_silgen_name("SBW_ImageDecoding_free_get_isAsynchronous_0")
+public func SBW_ImageDecoding_free_get_isAsynchronous_0(_ ptr: UnsafeMutableRawPointer) {
+    ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
+    ptr.deallocate()
+}
+
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-public func PInvoke_image_2E6949CB(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_00DE0A01(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -639,7 +765,7 @@ public func PInvoke_image_2E6949CB(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-public func PInvoke_image_7ECF6128(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_23381102(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -659,7 +785,7 @@ public func PInvoke_image_7ECF6128(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAA0B7RequestV_tYaKF_async")
-public func PInvoke_data_621EA10D(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_47CC4EA9(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -679,7 +805,7 @@ public func PInvoke_data_621EA10D(callback: @escaping @convention(c) (Foundation
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAF3URLV_tYaKF_async")
-public func PInvoke_data_5E2B056A(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_3DCAA24B(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee

@@ -70,60 +70,6 @@ public func getEveryProtocolInputImageResultProtocolWitnessTable() -> UnsafeRawP
         }
     }
 }
-// Vtable for Pinglet protocol - stores function pointers to C# implementations
-fileprivate struct Pinglet_vtable {
-    var csVTHandle: OpaquePointer? = nil
-    var func_schemaName_get: (@convention(c)(OpaquePointer?, UnsafeRawPointer) -> UnsafeRawPointer)?
-    var func_schemaVersion_get: (@convention(c)(OpaquePointer?, UnsafeRawPointer) -> UnsafeRawPointer)?
-}
-
-private var _pinglet_vtable = Pinglet_vtable()
-
-// EveryProtocol conformance to Pinglet
-extension EveryProtocol: BlinkID.Pinglet {
-    public var schemaName: Swift.String {
-        get {
-            var selfProto: BlinkID.Pinglet = self
-            let resultPtr = _pinglet_vtable.func_schemaName_get!(
-                _pinglet_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
-        }
-    }
-    
-    public var schemaVersion: Swift.String {
-        get {
-            var selfProto: BlinkID.Pinglet = self
-            let resultPtr = _pinglet_vtable.func_schemaVersion_get!(
-                _pinglet_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
-        }
-    }
-    
-}
-
-// Called by C# to register the protocol vtable
-@_silgen_name("SetPinglet_vtable")
-public func setPinglet_vtable(uvt: UnsafeRawPointer) {
-    let vt: UnsafePointer<Pinglet_vtable> = uvt.assumingMemoryBound(to: Pinglet_vtable.self)
-    _pinglet_vtable = vt.pointee
-}
-// Returns the protocol witness table pointer for EveryProtocol conforming to Pinglet.
-// C# calls this via P/Invoke to obtain the witness table for existential container construction.
-@_silgen_name("Get_EveryProtocol_Pinglet_WitnessTable")
-public func getEveryProtocolPingletWitnessTable() -> UnsafeRawPointer {
-    let instance = EveryProtocol()
-    return withExtendedLifetime(instance) {
-        var proto: any BlinkID.Pinglet = instance
-        return withUnsafeBytes(of: &proto) { buffer in
-            // Existential layout for class-bound protocols:
-            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
-            // For a single-protocol existential, witness table is at offset 4 * pointer size
-            let witnessTableOffset = 4 * MemoryLayout<Int>.size
-            return buffer.baseAddress!.advanced(by: witnessTableOffset)
-                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
-        }
-    }
-}
 // Vtable for SdkSettings protocol - stores function pointers to C# implementations
 fileprivate struct SdkSettings_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -295,6 +241,33 @@ public func getEveryProtocolSdkSettingsWitnessTable() -> UnsafeRawPointer {
     }
 }
 // Witness dispatch accessors for SdkSettings
+@frozen
+public struct SBW_Utf8Slice {
+    public var ptr: UnsafeMutablePointer<UInt8>
+    public var len: Int
+}
+@_silgen_name("SBW_SdkSettings_get_licenseKey_0")
+public func SBW_SdkSettings_get_licenseKey_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any BlinkID.SdkSettings).self)
+    let result: String = existential.licenseKey
+    let utf8 = Array(result.utf8)
+    let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
+    if !utf8.isEmpty {
+        utf8.withUnsafeBufferPointer { src in
+            bufferPtr.initialize(from: src.baseAddress!, count: src.count)
+        }
+    }
+    let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)
+    slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))
+    return UnsafeMutableRawPointer(slicePtr)
+}
+@_silgen_name("SBW_SdkSettings_free_get_licenseKey_0")
+public func SBW_SdkSettings_free_get_licenseKey_0(_ ptr: UnsafeMutableRawPointer) {
+    let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
+    slicePtr.pointee.ptr.deallocate()
+    slicePtr.deinitialize(count: 1)
+    slicePtr.deallocate()
+}
 @_silgen_name("SBW_SdkSettings_get_helloLogEnabled_0")
 public func SBW_SdkSettings_get_helloLogEnabled_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
     let existential = containerPtr.load(as: (any BlinkID.SdkSettings).self)
@@ -321,9 +294,118 @@ public func SBW_SdkSettings_free_get_downloadResources_0(_ ptr: UnsafeMutableRaw
     ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
     ptr.deallocate()
 }
+@_silgen_name("SBW_SdkSettings_get_resourceDownloadUrl_0")
+public func SBW_SdkSettings_get_resourceDownloadUrl_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any BlinkID.SdkSettings).self)
+    let result: String = existential.resourceDownloadUrl
+    let utf8 = Array(result.utf8)
+    let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
+    if !utf8.isEmpty {
+        utf8.withUnsafeBufferPointer { src in
+            bufferPtr.initialize(from: src.baseAddress!, count: src.count)
+        }
+    }
+    let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)
+    slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))
+    return UnsafeMutableRawPointer(slicePtr)
+}
+@_silgen_name("SBW_SdkSettings_free_get_resourceDownloadUrl_0")
+public func SBW_SdkSettings_free_get_resourceDownloadUrl_0(_ ptr: UnsafeMutableRawPointer) {
+    let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
+    slicePtr.pointee.ptr.deallocate()
+    slicePtr.deinitialize(count: 1)
+    slicePtr.deallocate()
+}
+@_silgen_name("SBW_SdkSettings_get_resourceLocalFolder_0")
+public func SBW_SdkSettings_get_resourceLocalFolder_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any BlinkID.SdkSettings).self)
+    let result: String = existential.resourceLocalFolder
+    let utf8 = Array(result.utf8)
+    let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
+    if !utf8.isEmpty {
+        utf8.withUnsafeBufferPointer { src in
+            bufferPtr.initialize(from: src.baseAddress!, count: src.count)
+        }
+    }
+    let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)
+    slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))
+    return UnsafeMutableRawPointer(slicePtr)
+}
+@_silgen_name("SBW_SdkSettings_free_get_resourceLocalFolder_0")
+public func SBW_SdkSettings_free_get_resourceLocalFolder_0(_ ptr: UnsafeMutableRawPointer) {
+    let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
+    slicePtr.pointee.ptr.deallocate()
+    slicePtr.deinitialize(count: 1)
+    slicePtr.deallocate()
+}
+@_silgen_name("SBW_SdkSettings_set_licenseKey_0")
+public func SBW_SdkSettings_set_licenseKey_0(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+    let typedPtr = containerPtr.assumingMemoryBound(to: (any BlinkID.SdkSettings).self)
+    var existential = typedPtr.pointee
+    let slice = valuePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    existential.licenseKey = str
+    typedPtr.pointee = existential
+}
+@_silgen_name("SBW_SdkSettings_set_helloLogEnabled_0")
+public func SBW_SdkSettings_set_helloLogEnabled_0(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+    let typedPtr = containerPtr.assumingMemoryBound(to: (any BlinkID.SdkSettings).self)
+    var existential = typedPtr.pointee
+    existential.helloLogEnabled = valuePtr.load(as: Bool.self)
+    typedPtr.pointee = existential
+}
+@_silgen_name("SBW_SdkSettings_set_downloadResources_0")
+public func SBW_SdkSettings_set_downloadResources_0(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+    let typedPtr = containerPtr.assumingMemoryBound(to: (any BlinkID.SdkSettings).self)
+    var existential = typedPtr.pointee
+    existential.downloadResources = valuePtr.load(as: Bool.self)
+    typedPtr.pointee = existential
+}
+@_silgen_name("SBW_SdkSettings_set_resourceDownloadUrl_0")
+public func SBW_SdkSettings_set_resourceDownloadUrl_0(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+    let typedPtr = containerPtr.assumingMemoryBound(to: (any BlinkID.SdkSettings).self)
+    var existential = typedPtr.pointee
+    let slice = valuePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    existential.resourceDownloadUrl = str
+    typedPtr.pointee = existential
+}
+@_silgen_name("SBW_SdkSettings_set_resourceLocalFolder_0")
+public func SBW_SdkSettings_set_resourceLocalFolder_0(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+    let typedPtr = containerPtr.assumingMemoryBound(to: (any BlinkID.SdkSettings).self)
+    var existential = typedPtr.pointee
+    let slice = valuePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    existential.resourceLocalFolder = str
+    typedPtr.pointee = existential
+}
 
 @_silgen_name("$s7BlinkID0A5IDSdkC21createScanningSession15sessionSettingsAA0A9IDSessionCAA0aiH0V_tYaKF_async")
-public func PInvoke_createScanningSession_1777D46E(callback: @escaping @convention(c) (BlinkID.BlinkIDSession, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, sessionSettings: UnsafeRawPointer, _self: OpaquePointer){
+public func PInvoke_createScanningSession_6E1AB16E(callback: @escaping @convention(c) (BlinkID.BlinkIDSession, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, sessionSettings: UnsafeRawPointer, _self: OpaquePointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let sessionSettingsValue = sessionSettings.assumingMemoryBound(to: BlinkID.BlinkIDSessionSettings.self).pointee
@@ -344,7 +426,7 @@ public func PInvoke_createScanningSession_1777D46E(callback: @escaping @conventi
 }
 extension BlinkID.BlinkIDSdk {
     @_silgen_name("$s7BlinkID0A5IDSdkC06createaC012withSettingsAcA0acF0V_tYaKFZ_async")
-    public static func PInvoke_createBlinkIDSdk_37B08B3C(callback: @escaping @convention(c) (BlinkID.BlinkIDSdk, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, withSettings: UnsafeRawPointer){
+    public static func PInvoke_createBlinkIDSdk_1B686A98(callback: @escaping @convention(c) (BlinkID.BlinkIDSdk, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, withSettings: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let withSettingsValue = withSettings.assumingMemoryBound(to: BlinkID.BlinkIDSdkSettings.self).pointee
@@ -365,7 +447,7 @@ extension BlinkID.BlinkIDSdk {
 }
 extension BlinkID.BlinkIDSdk {
     @_silgen_name("$s7BlinkID0A5IDSdkC19refreshLicenseLeaseyyYaKFZ_async")
-    public static func PInvoke_refreshLicenseLease_21E8B358(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
+    public static func PInvoke_refreshLicenseLease_738589CE(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
         
         Task {
             do {
@@ -381,7 +463,7 @@ extension BlinkID.BlinkIDSdk {
     }
 }
 @_silgen_name("$s7BlinkID11PingManagerC10addPinglet7pinglet13sessionNumberyx_SitYaAA0F0RzlF_async")
-public func PInvoke_addPinglet_4EEDF485<P>(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, pinglet: P, sessionNumber: Swift.Int) where P : Pinglet{
+public func PInvoke_addPinglet_4CC1B0A4<P>(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, pinglet: P, sessionNumber: Swift.Int) where P : Pinglet{
     
     // selfInstance is safe - C# called Arc.Retain before invoking this method
     Task {
@@ -397,7 +479,7 @@ public func PInvoke_addPinglet_4EEDF485<P>(callback: @escaping @convention(c) (I
     }
 }
 @_silgen_name("$s7BlinkID11PingManagerC12sendPingletsAA0C6StatusOyYaF_async")
-public func PInvoke_sendPinglets_39711249(callback: @escaping @convention(c) (BlinkID.PingStatus, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
+public func PInvoke_sendPinglets_115ED83E(callback: @escaping @convention(c) (BlinkID.PingStatus, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
     
     // selfInstance is safe - C# called Arc.Retain before invoking this method
     Task {

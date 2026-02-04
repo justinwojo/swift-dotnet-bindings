@@ -113,9 +113,11 @@ public class WitnessDispatchEmitter
         bool anyEmitted = false;
         bool utf8SliceEmitted = false;
 
-        // Property getters
+        // Property getters (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
             if (hasGetter && IsPropertyGetterDispatchable(property))
             {
@@ -133,9 +135,11 @@ public class WitnessDispatchEmitter
             }
         }
 
-        // Property setters
+        // Property setters (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
             if (hasSetter && IsPropertySetterDispatchable(property))
             {
@@ -323,6 +327,8 @@ public class WitnessDispatchEmitter
     {
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             if (IsStringType(property.SwiftTypeSpec))
                 return true;
         }

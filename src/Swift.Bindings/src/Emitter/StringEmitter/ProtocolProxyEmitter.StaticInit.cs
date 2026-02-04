@@ -68,17 +68,21 @@ public partial class ProtocolProxyEmitter
         // Track emitted assignments to prevent duplicates
         var emittedLocalAssignments = new HashSet<string>();
 
-        // Property receivers
+        // Property receivers (skip static properties)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             EmitLocalVtablePropertyAssignment(writer, property, emittedLocalAssignments);
         }
 
-        // Subscript receivers
+        // Subscript receivers (skip static subscripts)
         int subscriptIndex = 0;
         var emittedSubscripts = new HashSet<string>();
         foreach (var subscript in protocolDecl.Subscripts)
         {
+            if (subscript.IsStatic)
+                continue;
             var subscriptKey = $"subscript_{subscriptIndex}";
             if (emittedSubscripts.Add(subscriptKey))
             {
@@ -121,17 +125,21 @@ public partial class ProtocolProxyEmitter
         // Track emitted Swift vtable assignments
         var emittedSwiftAssignments = new HashSet<string>();
 
-        // Property function pointers
+        // Property function pointers (skip static properties)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             EmitSwiftVtablePropertyAssignment(writer, property, emittedSwiftAssignments);
         }
 
-        // Subscript function pointers
+        // Subscript function pointers (skip static subscripts)
         subscriptIndex = 0;
         emittedSubscripts.Clear();
         foreach (var subscript in protocolDecl.Subscripts)
         {
+            if (subscript.IsStatic)
+                continue;
             var subscriptKey = $"subscript_{subscriptIndex}";
             if (emittedSubscripts.Add(subscriptKey))
             {

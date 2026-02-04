@@ -24,16 +24,20 @@ public partial class ProtocolProxyEmitter
         // Track emitted fields to avoid duplicates
         var emittedFields = new HashSet<string>();
 
-        // Property fields
+        // Property fields (skip static properties - they're not part of the vtable)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             EmitPropertyVtableSwiftFields(writer, property, emittedFields);
         }
 
-        // Subscript fields
+        // Subscript fields (skip static subscripts - they're not part of the vtable)
         int subscriptIndex = 0;
         foreach (var subscript in protocolDecl.Subscripts)
         {
+            if (subscript.IsStatic)
+                continue;
             EmitSubscriptVtableSwiftFields(writer, subscript, subscriptIndex, emittedFields);
             subscriptIndex++;
         }
@@ -73,17 +77,21 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
 
-        // Property delegates - track emitted to avoid duplicates
+        // Property delegates - track emitted to avoid duplicates (skip static properties)
         var emittedFields = new HashSet<string>();
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             EmitPropertyLocalVtableFields(writer, property, protocolDecl, emittedFields);
         }
 
-        // Subscript delegates
+        // Subscript delegates (skip static subscripts)
         int subscriptIndex = 0;
         foreach (var subscript in protocolDecl.Subscripts)
         {
+            if (subscript.IsStatic)
+                continue;
             EmitSubscriptLocalVtableFields(writer, subscript, protocolDecl, subscriptIndex, emittedFields);
             subscriptIndex++;
         }

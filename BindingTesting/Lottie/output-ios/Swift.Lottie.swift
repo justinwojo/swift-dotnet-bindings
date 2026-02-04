@@ -152,6 +152,56 @@ public func getEveryProtocolLegacyAnimationTextProviderWitnessTable() -> UnsafeR
         }
     }
 }
+// Witness dispatch accessors for LegacyAnimationTextProvider
+@frozen
+public struct SBW_Utf8Slice {
+    public var ptr: UnsafeMutablePointer<UInt8>
+    public var len: Int
+}
+@_silgen_name("SBW_LegacyAnimationTextProvider_method_textFor_0")
+public func SBW_LegacyAnimationTextProvider_method_textFor_0(_ containerPtr: UnsafeRawPointer, _ arg0Ptr: UnsafeRawPointer, _ arg1Ptr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any Lottie.LegacyAnimationTextProvider).self)
+    let arg0Slice = arg0Ptr.load(as: SBW_Utf8Slice.self)
+    let arg0: String
+    if arg0Slice.len > 0 {
+        arg0 = String(unsafeUninitializedCapacity: arg0Slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg0Slice.ptr, byteCount: arg0Slice.len)
+            return arg0Slice.len
+        }
+    } else {
+        arg0 = ""
+    }
+    let arg1Slice = arg1Ptr.load(as: SBW_Utf8Slice.self)
+    let arg1: String
+    if arg1Slice.len > 0 {
+        arg1 = String(unsafeUninitializedCapacity: arg1Slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg1Slice.ptr, byteCount: arg1Slice.len)
+            return arg1Slice.len
+        }
+    } else {
+        arg1 = ""
+    }
+    let result: String = existential.textFor(keypathName: arg0, sourceText: arg1)
+    let utf8 = Array(result.utf8)
+    let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
+    if !utf8.isEmpty {
+        utf8.withUnsafeBufferPointer { src in
+            bufferPtr.initialize(from: src.baseAddress!, count: src.count)
+        }
+    }
+    let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)
+    slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))
+    return UnsafeMutableRawPointer(slicePtr)
+}
+
+@_silgen_name("SBW_LegacyAnimationTextProvider_free_method_textFor_0")
+public func SBW_LegacyAnimationTextProvider_free_method_textFor_0(_ ptr: UnsafeMutableRawPointer) {
+    let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
+    slicePtr.pointee.ptr.deallocate()
+    slicePtr.deinitialize(count: 1)
+    slicePtr.deallocate()
+}
+
 // Vtable for TextContentsScaleProvider protocol - stores function pointers to C# implementations
 fileprivate struct TextContentsScaleProvider_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -254,6 +304,19 @@ public func getEveryProtocolAnimationCacheProviderWitnessTable() -> UnsafeRawPoi
         }
     }
 }
+// Witness dispatch accessors for AnimationCacheProvider
+@frozen
+public struct SBW_Utf8Slice {
+    public var ptr: UnsafeMutablePointer<UInt8>
+    public var len: Int
+}
+@_silgen_name("SBW_AnimationCacheProvider_method_clearCache_2")
+public func SBW_AnimationCacheProvider_method_clearCache_2(_ containerPtr: UnsafeRawPointer) {
+    let existential = containerPtr.load(as: (any Lottie.AnimationCacheProvider).self)
+    existential.clearCache()
+}
+
+
 // Vtable for ReducedMotionOptionProvider protocol - stores function pointers to C# implementations
 fileprivate struct ReducedMotionOptionProvider_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -414,6 +477,23 @@ public func getEveryProtocolAnyValueProviderWitnessTable() -> UnsafeRawPointer {
         }
     }
 }
+// Witness dispatch accessors for AnyValueProvider
+@_silgen_name("SBW_AnyValueProvider_method_hasUpdate_0")
+public func SBW_AnyValueProvider_method_hasUpdate_0(_ containerPtr: UnsafeRawPointer, _ arg0Ptr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any Lottie.AnyValueProvider).self)
+    let arg0 = arg0Ptr.load(as: Double.self)
+    let result = existential.hasUpdate(frame: arg0)
+    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+    ptr.initialize(to: result)
+    return UnsafeMutableRawPointer(ptr)
+}
+
+@_silgen_name("SBW_AnyValueProvider_free_method_hasUpdate_0")
+public func SBW_AnyValueProvider_free_method_hasUpdate_0(_ ptr: UnsafeMutableRawPointer) {
+    ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
+    ptr.deallocate()
+}
+
 // Vtable for DotLottieCacheProvider protocol - stores function pointers to C# implementations
 fileprivate struct DotLottieCacheProvider_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -467,6 +547,19 @@ public func getEveryProtocolDotLottieCacheProviderWitnessTable() -> UnsafeRawPoi
         }
     }
 }
+// Witness dispatch accessors for DotLottieCacheProvider
+@frozen
+public struct SBW_Utf8Slice {
+    public var ptr: UnsafeMutablePointer<UInt8>
+    public var len: Int
+}
+@_silgen_name("SBW_DotLottieCacheProvider_method_clearCache_2")
+public func SBW_DotLottieCacheProvider_method_clearCache_2(_ containerPtr: UnsafeRawPointer) {
+    let existential = containerPtr.load(as: (any Lottie.DotLottieCacheProvider).self)
+    existential.clearCache()
+}
+
+
 // Vtable for AnimationImageProvider protocol - stores function pointers to C# implementations
 fileprivate struct AnimationImageProvider_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -529,6 +622,34 @@ public func getEveryProtocolAnimationImageProviderWitnessTable() -> UnsafeRawPoi
         }
     }
 }
+// Witness dispatch accessors for AnimationImageProvider
+@_silgen_name("SBW_AnimationImageProvider_get_cacheEligible_0")
+public func SBW_AnimationImageProvider_get_cacheEligible_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any Lottie.AnimationImageProvider).self)
+    let result = existential.cacheEligible
+    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+    ptr.initialize(to: result)
+    return UnsafeMutableRawPointer(ptr)
+}
+@_silgen_name("SBW_AnimationImageProvider_free_get_cacheEligible_0")
+public func SBW_AnimationImageProvider_free_get_cacheEligible_0(_ ptr: UnsafeMutableRawPointer) {
+    ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
+    ptr.deallocate()
+}
+@_silgen_name("SBW_AnimationImageProvider_get_cacheEligible_0")
+public func SBW_AnimationImageProvider_get_cacheEligible_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+    let existential = containerPtr.load(as: (any Lottie.AnimationImageProvider).self)
+    let result = existential.cacheEligible
+    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+    ptr.initialize(to: result)
+    return UnsafeMutableRawPointer(ptr)
+}
+@_silgen_name("SBW_AnimationImageProvider_free_get_cacheEligible_0")
+public func SBW_AnimationImageProvider_free_get_cacheEligible_0(_ ptr: UnsafeMutableRawPointer) {
+    ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
+    ptr.deallocate()
+}
+
 // Vtable for Interpolatable protocol - stores function pointers to C# implementations
 fileprivate struct Interpolatable_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -668,9 +789,21 @@ public func getEveryProtocolAnyInterpolatableWitnessTable() -> UnsafeRawPointer 
         }
     }
 }
+extension Lottie.LottieButton {
+    @_silgen_name("$s6Lottie0A6ButtonV4bodyQrvg_opaque")
+    public var _sb_body: any SwiftUI.View {
+        return self.body
+    }
+}
+extension Lottie.LottieSwitch {
+    @_silgen_name("$s6Lottie0A6SwitchV4bodyQrvg_opaque")
+    public var _sb_body: any SwiftUI.View {
+        return self.body
+    }
+}
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom4data8filename13dispatchQueueAC10Foundation4DataV_SSSo03OS_H6_queueCtYaKFZ_async")
-    public static func PInvoke_loadedFrom_0B143CB1(callback: @escaping @convention(c) (Lottie.DotLottieFile, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_3D1CFB63(callback: @escaping @convention(c) (Lottie.DotLottieFile, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let dispatchQueueValue = dispatchQueue.assumingMemoryBound(to: Dispatch.DispatchQueue.self).pointee

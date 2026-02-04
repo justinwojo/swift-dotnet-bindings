@@ -13,16 +13,20 @@ public partial class ProtocolProxyEmitter
         // Track emitted receivers to avoid duplicates
         var emittedReceivers = new HashSet<string>();
 
-        // Property receivers
+        // Property receivers (skip static properties - they're not part of the interface)
         foreach (var property in protocolDecl.Properties)
         {
+            if (property.IsStatic)
+                continue;
             EmitPropertyReceivers(writer, property, protocolDecl, interfaceName, emittedReceivers);
         }
 
-        // Subscript receivers
+        // Subscript receivers (skip static subscripts - they're not part of the interface)
         int subscriptIndex = 0;
         foreach (var subscript in protocolDecl.Subscripts)
         {
+            if (subscript.IsStatic)
+                continue;
             EmitSubscriptReceivers(writer, subscript, protocolDecl, interfaceName, subscriptIndex, emittedReceivers);
             subscriptIndex++;
         }

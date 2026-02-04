@@ -54,6 +54,7 @@ public enum SkipReason
     UnsupportedAsyncStream,
     DuplicateSignature,
     MissingHandler,
+    StaticProtocolMember,
     Unknown,
 }
 
