@@ -187,17 +187,32 @@ The two largest clusters (UIKit types: 10 skips, Foundation.Bundle: 8 skips) bot
 **Priority**: P3
 **Area**: Generator (emitter)
 
+### Phase B-Prep: Partial Class Split (Complete)
+
+**Status**: ✅ Complete
+
+Decomposed 3 large emitter files into partial classes, reducing per-file cognitive load and preparing for true handler extraction:
+
+| File | Before | After | Partial Files |
+|------|--------|-------|---------------|
+| `ClosureEmitter.cs` | 1,220 LOC | 305 LOC | 5 files (.cs, .IndirectReturn.cs, .Throwing.cs, .StructParams.cs, .Async.cs) |
+| `EnumHandler.cs` | 1,682 LOC | 270 LOC | 5 files + 1 extracted class (.cs, .CaseConstruction.cs, .RawRepresentable.cs, .CaseInspection.cs, .Marshalling.cs, EnumISwiftObjectMethodWriter.cs) |
+| `ProtocolProxyEmitter.cs` | 1,964 LOC | 107 LOC | 7 files (.cs, .Vtables.cs, .StaticInit.cs, .Receivers.cs, .InterfaceImpl.cs, .SwiftObject.cs, .Helpers.cs) |
+
+No behavioral changes — 1238 unit tests pass, generated output unchanged (hash-only differences in PInvoke names).
+
+### Phase B: True Handler Extraction (Remaining)
+
 Phase A (file split) is complete — all files <= 800 LOC. Phase B extracts true handler components per `emitter-redesign-proposal.md`:
 
 1. Split into focused handlers (Constructor, Static/Instance, SwiftError, Generic, Async)
 2. Extract return handlers (IndirectResult, BoundGeneric, Direct, Void)
 3. Extract argument handlers (NonFrozen, Generic, BoundGeneric)
 
-`EnumHandler.cs` (1,715 LOC) and `ProtocolProxyEmitter.cs` (1,964 LOC) are also decomposition candidates.
-
 **Reference**: `src/docs/emitter-redesign-proposal.md`
 
 **Acceptance criteria**:
+- [x] Phase B-Prep: Partial class split complete
 - [ ] Handler responsibilities are clear and focused
 - [ ] No behavioral changes (all tests pass)
 
