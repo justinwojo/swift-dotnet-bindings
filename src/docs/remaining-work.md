@@ -4,7 +4,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 
 **Date**: February 2026
 **Starting Point**: Phase 48 complete, 1107 unit tests, TestFramework v2.0 (67 files, 145 features)
-**Current**: Phase 51 complete, 1151 unit tests, 93/93 must-pass features
+**Current**: Phase 52 complete, 1216 unit tests, 93/93 must-pass features
 
 ---
 
@@ -30,7 +30,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | 16 | Infrastructure | Upstream .NET runtime bug reports with minimal repros | Mono JIT bugs block existentials/async | P3 |
 | 17 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety for lifetime management | P3 |
 | 18 | Research | NativeAOT investigation (`[LibraryImport]` for Mono JIT bypass) | May eliminate known runtime bugs | P4 |
-| 19 | Generator | Protocol witness table dispatch for Swift-backed existentials | Swift-backed proxies can't access members | P3 |
+| 19 | Generator | Protocol witness table dispatch for Swift-backed existentials (Phase A done) | Swift-backed proxies: blittable read-only dispatch works | P3 |
 
 **Generator target**: 93/93 must-pass features passing ✅ (achieved Phase 50)
 
@@ -40,8 +40,9 @@ Items aren't tackled linearly by number. The agreed sequence prioritizes the fas
 
 1. ~~**Item 4** — Existential in bound generic (narrow fix, 92→93/93)~~ ✅ Done
 2. ~~**Items 11 + 13** — Wrapper automation + binding report guidance (removes recurring manual work)~~ ✅ Done
-3. **Item 19** — Protocol witness table dispatch (makes existentials functionally useful)
-4. **Item 16** — Upstream Mono bug reports (in parallel as infra hygiene)
+3. ~~**Item 19 Phase A** — Protocol witness table dispatch, blittable read-only (makes existentials functionally useful for primitives)~~ ✅ Done
+4. **Item 19 Phase B** — Witness dispatch for setters, mutating methods, String marshalling
+5. **Item 16** — Upstream Mono bug reports (in parallel as infra hygiene)
 
 ---
 
@@ -355,17 +356,49 @@ Complement to item 9 (finalizer safety net). A Roslyn analyzer can warn at compi
 **Area**: Generator (emitter + runtime)
 **Source**: Follow-up from item 10 (Phase 47)
 
-When C# receives a protocol-typed value from Swift (e.g., `any Describable`), the proxy is created via the existential container constructor. Currently these proxies throw `NotSupportedException` for all member access. Full support requires generating Swift accessor functions that dispatch through the witness table, plus corresponding P/Invoke declarations.
+When C# receives a protocol-typed value from Swift (e.g., `any Describable`), the proxy is created via the existential container constructor. Full support requires generating Swift accessor functions that dispatch through the witness table, plus corresponding P/Invoke declarations.
+
+### Phase A: Blittable Read-Only Dispatch ✅ Done (Phase 52)
+
+For protocol members whose types are all blittable primitives, the generator now emits Swift `@_silgen_name` accessor functions and C# P/Invoke calls instead of `NotSupportedException`.
+
+**New files**:
+- `WitnessDispatchEmitter.cs` — Generates Swift accessor functions (`SBW_{Protocol}_{kind}_{name}_{index}`) that reconstruct existentials via `containerPtr.load(as: (any Protocol).self)` and dispatch through the witness table. Heap-allocates return values; companion free functions handle cleanup.
+- `SwiftTypeNameHelper.cs` — Shared Swift type name rendering extracted from `EveryProtocolEmitter`, used by both emitters.
+- `WitnessDispatchEmitterTests.cs` — 47 tests covering accessor generation, marshalability checks, naming conventions, overload disambiguation.
+
+**Modified files**:
+- `ProtocolProxyEmitter.cs` — Property getters and methods with blittable signatures now emit `fixed` + P/Invoke dispatch path instead of `NotSupportedException`. P/Invoke declarations added to NativeMethods class. Three-layer projected-type gate ensures dispatch is only enabled when the C#-side projected type is also a blittable primitive (prevents type mismatches when TypeDatabase is incomplete).
+- `EveryProtocolEmitter.cs` — Delegates to `SwiftTypeNameHelper` for type name rendering.
+- `ModuleHandler.cs` — Creates `WitnessDispatchEmitter` and calls `EmitWitnessDispatchFunctions` for each suitable protocol.
+
+**Safety gates** (all three must pass for dispatch):
+1. **Swift-side blittability**: `IsPropertyGetterDispatchable` / `IsMethodDispatchable` — checks Swift type names against known blittable primitives, rejects throws/async methods
+2. **Projected-type blittability**: C#-side projected type (from TypeDatabase) must also be a blittable primitive (`IsBlittablePrimitive`). Prevents type mismatches when projected type diverges (e.g., `Swift.AnyType` from incomplete TypeDatabase).
+3. **Return type canonicalization**: `MarshalFromSwift<T>` uses canonical blittable type from `GetBlittableCSharpType`, not the interface-projected type.
+
+Non-dispatchable members gracefully degrade to `NotSupportedException`.
+
+**Acceptance criteria** (all met):
+- [x] Blittable property getters dispatch through witness table via P/Invoke
+- [x] Non-mutating methods with blittable params/returns dispatch through witness table
+- [x] Void methods with blittable params dispatch (no free function needed)
+- [x] Non-dispatchable members (String, throws, async, setters) keep `NotSupportedException`
+- [x] Projected-type gate prevents type-invalid code when TypeDatabase is incomplete
+- [x] 1216 unit tests pass (65 new), 93/93 must-pass features
+
+### Phase B: Extended Dispatch (Pending)
 
 **What's needed**:
-1. Generate `@_silgen_name` functions in EveryProtocolEmitter that take existential container pointers, cast to `any Protocol`, call member, return result
-2. Generate P/Invoke declarations in ProtocolProxyEmitter's NativeMethods
-3. Replace `NotSupportedException` throws with actual P/Invoke calls
-4. Handle marshalling for each return/parameter type
+1. **Property setters**: Remove `readonly` from `_swiftContainer` to allow write-back after setter dispatch
+2. **Mutating methods**: Same `readonly` constraint as setters
+3. **String parameters/returns**: Dedicated marshalling path — `MarshalFromSwift<T>` uses `Unsafe.Read<T>` which only works for blittable types
+4. **Subscripts**: Index parameter + return value dispatch
+5. **Non-frozen types, closures, generics**: Complex marshalling
 
 **Acceptance criteria**:
-- [ ] At least property getters work through Swift-backed existentials
-- [ ] Method dispatch through witness tables works for simple signatures
+- [ ] Property setters work through Swift-backed existentials
+- [ ] String-returning protocol members dispatch correctly
 - [ ] Tests exercise round-trip: Swift creates existential → C# calls method through proxy
 
 ---

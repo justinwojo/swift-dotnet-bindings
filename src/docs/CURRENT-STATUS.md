@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 49 Complete)
-**Unit Tests**: 1107 passed
+**Last Updated**: February 2026 (Phase 52 Complete)
+**Unit Tests**: 1216 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
 ---
@@ -66,7 +66,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 ## What Doesn't Work
 
 ### Architectural Gaps
-- ❌ **Protocol witness table dispatch** - Swift-backed existential proxies throw `NotSupportedException` for member access (C# implementation path works)
+- ⚠️ **Protocol witness table dispatch** - Phase A (blittable read-only) complete: property getters and non-mutating methods with primitive types dispatch through witness table. Setters, mutating methods, and String marshalling not yet supported.
 - ❌ **Actor isolation enforcement** - Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
@@ -86,7 +86,20 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ---
 
-## Recent Completions (Phase 49)
+## Recent Completions (Phase 52)
+
+### Protocol Witness Table Dispatch — Phase A (Blittable Read-Only)
+- Swift-backed existential proxies can now access protocol members with blittable primitive types
+- `WitnessDispatchEmitter` generates Swift `@_silgen_name` accessor functions that reconstruct existentials via `containerPtr.load(as: (any Protocol).self)` and dispatch through the witness table
+- `ProtocolProxyEmitter` replaces `NotSupportedException` with P/Invoke dispatch for dispatchable members
+- Three-layer safety gate: Swift-side blittability + projected-type blittability + return-type canonicalization
+- Non-dispatchable members (String, throws, async, setters, mutating) gracefully degrade to `NotSupportedException`
+- `SwiftTypeNameHelper` extracted as shared utility for Swift type name rendering
+- 65 new unit tests; 1216 total passing
+
+---
+
+## Previous Completions (Phase 49)
 
 ### Async Concurrency Hook Shared Library
 - Extracted inline `swift_task_enqueueGlobal_hook` from `AsyncTests.swift` into `libSwiftBindingsRuntime.dylib`

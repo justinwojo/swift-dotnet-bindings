@@ -92,11 +92,12 @@ public class ProtocolProxyEmitter
         // Emit constructors
         EmitConstructors(writer, protocolDecl, interfaceNameWithGenerics);
 
-        // Emit interface implementation
-        EmitInterfaceImplementation(writer, protocolDecl, interfaceNameWithGenerics);
+        // Emit interface implementation (with witness dispatch for blittable members)
+        var dispatchEmitter = new WitnessDispatchEmitter(_typeDatabase, _logger, _moduleName);
+        EmitInterfaceImplementation(writer, protocolDecl, interfaceNameWithGenerics, dispatchEmitter);
 
         // Emit ISwiftObject implementation
-        EmitISwiftObjectImplementation(writer, protocolDecl);
+        EmitISwiftObjectImplementation(writer, protocolDecl, dispatchEmitter);
 
         writer.Indent--;
         writer.WriteLine("}");
@@ -862,7 +863,7 @@ public class ProtocolProxyEmitter
 
     #region Interface Implementation
 
-    private void EmitInterfaceImplementation(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)
+    private void EmitInterfaceImplementation(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName, WitnessDispatchEmitter dispatchEmitter)
     {
         writer.WriteLine("#region Interface Implementation");
         writer.WriteLine();
@@ -875,7 +876,7 @@ public class ProtocolProxyEmitter
         {
             if (emittedMembers.Add($"property:{property.Name}"))
             {
-                EmitPropertyImplementation(writer, property, protocolDecl);
+                EmitPropertyImplementation(writer, property, protocolDecl, dispatchEmitter);
             }
         }
 
@@ -892,6 +893,7 @@ public class ProtocolProxyEmitter
         }
 
         // Methods - track by signature to handle overloads
+        int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
         foreach (var method in protocolDecl.Methods)
         {
@@ -901,8 +903,9 @@ public class ProtocolProxyEmitter
             var methodKey = GetMethodKey(method);
             if (!methodIndices.ContainsKey(methodKey))
             {
-                methodIndices[methodKey] = 1;
-                EmitMethodImplementation(writer, method, protocolDecl);
+                var idx = methodIndex++;
+                methodIndices[methodKey] = idx;
+                EmitMethodImplementation(writer, method, protocolDecl, dispatchEmitter, idx);
             }
         }
 
@@ -910,12 +913,21 @@ public class ProtocolProxyEmitter
         writer.WriteLine();
     }
 
-    private void EmitPropertyImplementation(CSharpWriter writer, PropertyDecl property, ProtocolDecl protocolDecl)
+    private void EmitPropertyImplementation(CSharpWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter)
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
         var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
         var propertyName = NameProvider.GetPropertyName(property.Name);
+        var isGetterDispatchable = hasGetter && dispatchEmitter.IsPropertyGetterDispatchable(property);
+
+        // Validate that the projected C# property type is a blittable primitive.
+        // IsPropertyGetterDispatchable checks Swift-side blittability, but if the
+        // projected type diverges (e.g. Swift.AnyType from incomplete TypeDatabase),
+        // returning MarshalFromSwift<nint> from a Swift.AnyType property would be
+        // a type mismatch. Disable dispatch in that case.
+        if (isGetterDispatchable && !WitnessDispatchEmitter.IsBlittablePrimitive(csharpTypeName))
+            isGetterDispatchable = false;
 
         writer.WriteLine($"public {csharpTypeName} {propertyName}");
         writer.WriteLine("{");
@@ -923,20 +935,46 @@ public class ProtocolProxyEmitter
 
         if (hasGetter)
         {
-            writer.WriteLines($$"""
-                get
-                {
-                    if (_csharpImpl != null)
-                        return _csharpImpl.{{propertyName}};
-                    throw new NotSupportedException(
-                        "Cannot get property '{{propertyName}}' on a Swift-backed existential container. " +
-                        "Protocol member access is only supported when wrapping a C# implementation.");
-                }
-                """);
+            if (isGetterDispatchable)
+            {
+                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "get", property.Name, 0);
+                var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "get", property.Name, 0);
+                // Use the dispatch emitter's canonical blittable type for marshalling,
+                // not the interface-projected type which may differ (e.g. Swift.AnyType)
+                var marshalType = dispatchEmitter.GetBlittableCSharpType(property.SwiftTypeSpec) ?? csharpTypeName;
+
+                writer.WriteLines($$"""
+                    get
+                    {
+                        if (_csharpImpl != null)
+                            return _csharpImpl.{{propertyName}};
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                            IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
+                            try { return MarshalFromSwift<{{marshalType}}>(resultPtr); }
+                            finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                        }
+                    }
+                    """);
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                    get
+                    {
+                        if (_csharpImpl != null)
+                            return _csharpImpl.{{propertyName}};
+                        throw new NotSupportedException(
+                            "Cannot get property '{{propertyName}}' on a Swift-backed existential container. " +
+                            "Protocol member access is only supported when wrapping a C# implementation.");
+                    }
+                    """);
+            }
         }
 
         if (hasSetter)
         {
+            // Setters are not dispatchable in Phase A (_swiftContainer is readonly)
             writer.WriteLines($$"""
                 set
                 {
@@ -1016,7 +1054,7 @@ public class ProtocolProxyEmitter
         writer.WriteLine();
     }
 
-    private void EmitMethodImplementation(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl)
+    private void EmitMethodImplementation(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter, int methodIndex)
     {
         var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
@@ -1035,6 +1073,7 @@ public class ProtocolProxyEmitter
         // Build parameter list - apply idiomatic type conversions to match interface
         var parameters = new List<string>();
         var argNames = new List<string>();
+        var projectedParamTypes = new List<string>();
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
@@ -1043,38 +1082,144 @@ public class ProtocolProxyEmitter
             var paramName = string.IsNullOrEmpty(param.Name) ? $"arg{argIndex}" : param.Name;
             parameters.Add($"{paramTypeName} {paramName}");
             argNames.Add(paramName);
+            projectedParamTypes.Add(paramTypeName);
             argIndex++;
         }
         var parametersString = string.Join(", ", parameters);
         var argsString = string.Join(", ", argNames);
 
         var methodName = NameProvider.ToPascalCase(method.Name);
+        var isDispatchable = dispatchEmitter.IsMethodDispatchable(method);
+
+        // Validate that the projected return type is a blittable primitive.
+        // IsMethodDispatchable checks Swift-side blittability, but if the projected
+        // return type diverges (e.g. Swift.AnyType from incomplete TypeDatabase),
+        // returning MarshalFromSwift<canonicalType> from a non-primitive return type
+        // would be a type mismatch. Disable dispatch in that case.
+        if (isDispatchable && hasReturn && !WitnessDispatchEmitter.IsBlittablePrimitive(returnTypeName))
+            isDispatchable = false;
+
+        // Validate that each parameter's projected C# type is a blittable primitive.
+        // The Swift-side blittability is already checked by IsMethodDispatchable().
+        // Here we verify the C# side: if the projected type is non-primitive
+        // (e.g. Swift.AnyType from an incomplete TypeDatabase), the generated
+        // assignment and pointer cast would fail to compile or be semantically wrong.
+        if (isDispatchable)
+        {
+            foreach (var projectedType in projectedParamTypes)
+            {
+                if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedType))
+                {
+                    isDispatchable = false;
+                    break;
+                }
+            }
+        }
+
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
         writer.WriteLine("{");
         writer.Indent++;
 
-        if (hasReturn)
+        if (isDispatchable)
         {
-            writer.WriteLines($$"""
-                if (_csharpImpl != null)
-                    return _csharpImpl.{{methodName}}({{argsString}});
-                throw new NotSupportedException(
-                    "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
-                    "Protocol member access is only supported when wrapping a C# implementation.");
-                """);
+            var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+
+            if (hasReturn)
+            {
+                var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+                // Use the dispatch emitter's canonical blittable type for marshalling,
+                // not the proxy's type resolution which may differ (e.g. Swift.AnyType)
+                var marshalReturnType = dispatchEmitter.GetBlittableCSharpType(returnType!) ?? GetCSharpTypeName(returnType!);
+
+                writer.WriteLines($$"""
+                    if (_csharpImpl != null)
+                        return _csharpImpl.{{methodName}}({{argsString}});
+                    fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                    {
+                    """);
+                writer.Indent++;
+
+                // Pass each parameter by pointer — projected type is validated blittable
+                for (int i = 0; i < argNames.Count; i++)
+                {
+                    writer.WriteLine($"var arg{i}Copy = {argNames[i]};");
+                }
+
+                // Build P/Invoke call with parameter pointers
+                var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
+                for (int i = 0; i < argNames.Count; i++)
+                {
+                    pInvokeArgs.Add($"(IntPtr)(&arg{i}Copy)");
+                }
+                var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+                writer.WriteLines($$"""
+                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    try { return MarshalFromSwift<{{marshalReturnType}}>(resultPtr); }
+                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    """);
+
+                writer.Indent--;
+                writer.WriteLine("}");
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                    if (_csharpImpl != null)
+                    {
+                        _csharpImpl.{{methodName}}({{argsString}});
+                        return;
+                    }
+                    fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                    {
+                    """);
+                writer.Indent++;
+
+                // Pass each parameter by pointer — projected type is validated blittable
+                for (int i = 0; i < argNames.Count; i++)
+                {
+                    writer.WriteLine($"var arg{i}Copy = {argNames[i]};");
+                }
+
+                var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
+                for (int i = 0; i < argNames.Count; i++)
+                {
+                    pInvokeArgs.Add($"(IntPtr)(&arg{i}Copy)");
+                }
+                var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+                writer.WriteLine($"NativeMethods.{accessorSymbol}({pInvokeArgsString});");
+
+                writer.Indent--;
+                writer.WriteLine("}");
+            }
         }
         else
         {
-            writer.WriteLines($$"""
-                if (_csharpImpl != null)
-                {
-                    _csharpImpl.{{methodName}}({{argsString}});
-                    return;
-                }
-                throw new NotSupportedException(
-                    "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
-                    "Protocol member access is only supported when wrapping a C# implementation.");
-                """);
+            // Non-dispatchable: keep NotSupportedException
+            if (hasReturn)
+            {
+                writer.WriteLines($$"""
+                    if (_csharpImpl != null)
+                        return _csharpImpl.{{methodName}}({{argsString}});
+                    throw new NotSupportedException(
+                        "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
+                        "Protocol member access is only supported when wrapping a C# implementation.");
+                    """);
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                    if (_csharpImpl != null)
+                    {
+                        _csharpImpl.{{methodName}}({{argsString}});
+                        return;
+                    }
+                    throw new NotSupportedException(
+                        "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
+                        "Protocol member access is only supported when wrapping a C# implementation.");
+                    """);
+            }
         }
 
         writer.Indent--;
@@ -1086,7 +1231,7 @@ public class ProtocolProxyEmitter
 
     #region ISwiftObject Implementation
 
-    private void EmitISwiftObjectImplementation(CSharpWriter writer, ProtocolDecl protocolDecl)
+    private void EmitISwiftObjectImplementation(CSharpWriter writer, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter)
     {
         var proxyClassName = GetProxyClassName(protocolDecl);
         var witnessTableSymbol = GetWitnessTableSymbol(protocolDecl);
@@ -1183,21 +1328,106 @@ public class ProtocolProxyEmitter
 
             """);
 
-        // Emit NativeMethods for SetVtable
+        // Emit NativeMethods for SetVtable + witness dispatch
         var setVtableName = GetSetVtablePInvokeName(protocolDecl);
         var mangledName = $"Set{protocolDecl.Name}_vtable";
 
         // Note: vtable and witness table functions are in the SwiftBindings wrapper, not the original module
-        writer.WriteLines($$"""
-            private static class NativeMethods
-            {
-                [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{mangledName}}")]
-                public static extern void {{setVtableName}}(IntPtr vtable);
+        writer.WriteLine("private static class NativeMethods");
+        writer.WriteLine("{");
+        writer.Indent++;
 
-                [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Get_EveryProtocol_{{protocolDecl.Name}}_WitnessTable")]
-                public static extern IntPtr GetWitnessTable();
-            }
+        writer.WriteLines($$"""
+            [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{mangledName}}")]
+            public static extern void {{setVtableName}}(IntPtr vtable);
+
+            [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Get_EveryProtocol_{{protocolDecl.Name}}_WitnessTable")]
+            public static extern IntPtr GetWitnessTable();
             """);
+
+        // Emit P/Invoke declarations for witness dispatch accessors
+        EmitWitnessDispatchPInvokes(writer, protocolDecl, dispatchEmitter);
+
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits P/Invoke declarations for witness dispatch accessor and free functions.
+    /// </summary>
+    private void EmitWitnessDispatchPInvokes(CSharpWriter writer, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter)
+    {
+        var protocolName = protocolDecl.Name;
+
+        // Property getters
+        foreach (var property in protocolDecl.Properties)
+        {
+            var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+            if (hasGetter && dispatchEmitter.IsPropertyGetterDispatchable(property))
+            {
+                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
+                var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
+
+                writer.WriteLine();
+                writer.WriteLines($$"""
+                    [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{accessorSymbol}}")]
+                    public static extern IntPtr {{accessorSymbol}}(IntPtr containerPtr);
+
+                    [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{freeSymbol}}")]
+                    public static extern void {{freeSymbol}}(IntPtr ptr);
+                    """);
+            }
+        }
+
+        // Methods
+        int methodIndex = 0;
+        var methodIndices = new Dictionary<string, int>();
+        foreach (var method in protocolDecl.Methods)
+        {
+            if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+
+            var methodKey = GetMethodKey(method);
+            if (methodIndices.ContainsKey(methodKey))
+                continue;
+
+            var idx = methodIndex++;
+            methodIndices[methodKey] = idx;
+
+            if (dispatchEmitter.IsMethodDispatchable(method))
+            {
+                var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+                var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+                var paramCount = method.CSSignature.Count - 1;
+
+                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "method", method.Name, idx);
+
+                // Build parameter list: containerPtr + one IntPtr per param
+                var pInvokeParams = new List<string> { "IntPtr containerPtr" };
+                for (int i = 0; i < paramCount; i++)
+                {
+                    pInvokeParams.Add($"IntPtr arg{i}Ptr");
+                }
+                var pInvokeParamsString = string.Join(", ", pInvokeParams);
+                var returnTypeStr = hasReturn ? "IntPtr" : "void";
+
+                writer.WriteLine();
+                writer.WriteLines($$"""
+                    [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{accessorSymbol}}")]
+                    public static extern {{returnTypeStr}} {{accessorSymbol}}({{pInvokeParamsString}});
+                    """);
+
+                if (hasReturn)
+                {
+                    var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "method", method.Name, idx);
+                    writer.WriteLines($$"""
+
+                        [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{freeSymbol}}")]
+                        public static extern void {{freeSymbol}}(IntPtr ptr);
+                        """);
+                }
+            }
+        }
     }
 
     #endregion

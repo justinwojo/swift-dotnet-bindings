@@ -594,114 +594,11 @@ public class EveryProtocolEmitter
         writer.WriteLine();
     }
 
-    private string GetSwiftTypeName(TypeSpec? typeSpec)
-    {
-        if (typeSpec == null) return "Any";
+    private string GetSwiftTypeName(TypeSpec? typeSpec) =>
+        SwiftTypeNameHelper.GetSwiftTypeName(typeSpec);
 
-        // Handle ProtocolListTypeSpec (protocol composition types)
-        // An empty protocol list represents "Any" in Swift
-        if (typeSpec is ProtocolListTypeSpec protocolList)
-        {
-            if (protocolList.Protocols.Count == 0)
-                return "Any";
-            if (protocolList.Protocols.Count == 1)
-                return $"any {protocolList.Protocols.Keys.First().Name}";
-            // Multiple protocols: any P1 & P2 & P3
-            var protocolNames = string.Join(" & ", protocolList.Protocols.Keys.Select(p => p.Name));
-            return $"any {protocolNames}";
-        }
-
-        if (typeSpec is NamedTypeSpec namedType)
-        {
-            // Check for generic type parameters first (τ_0_0, T, Element, etc.)
-            // These can't be resolved to concrete types, so use Any
-            if (IsGenericTypeParameter(namedType.Name))
-                return "Any";
-
-            // Handle metatype patterns like "any Any.Type" or "Any.Type"
-            if (namedType.Name == "any Any.Type" || namedType.Name == "Any.Type")
-                return "Any.Type";
-
-            // Handle existential types (any Protocol)
-            var anyPrefix = namedType.IsAny ? "any " : "";
-
-            // Check if this is a generic type (has generic parameters)
-            if (namedType.GenericParameters.Count > 0)
-            {
-                var typeArgs = string.Join(", ", namedType.GenericParameters.Select(GetSwiftTypeName));
-
-                // Special case for Optional - use ? syntax
-                // Note: For optionals, the ? goes after the type name, and any prefix goes on inner type
-                if (namedType.Name == "Swift.Optional" && namedType.GenericParameters.Count == 1)
-                {
-                    var innerType = GetSwiftTypeName(namedType.GenericParameters[0]);
-                    return $"({innerType})?";
-                }
-
-                return $"{anyPrefix}{namedType.Name}<{typeArgs}>";
-            }
-            return $"{anyPrefix}{namedType.Name}";
-        }
-
-        if (typeSpec is TupleTypeSpec tupleType)
-        {
-            if (tupleType.IsEmptyTuple)
-                return "Void";
-            var elements = string.Join(", ", tupleType.Elements.Select(GetSwiftTypeName));
-            return $"({elements})";
-        }
-
-        if (typeSpec is ClosureTypeSpec closureType)
-        {
-            // Build closure type string: (Args) -> Return or (Args) throws -> Return
-            var argsString = GetSwiftTypeName(closureType.Arguments);
-            // Ensure args are wrapped in parentheses
-            if (closureType.Arguments is not TupleTypeSpec)
-            {
-                argsString = $"({argsString})";
-            }
-            var returnString = GetSwiftTypeName(closureType.ReturnType);
-            if (closureType.ReturnType.IsEmptyTuple)
-            {
-                returnString = "Void";
-            }
-
-            var throwsKeyword = closureType.Throws ? " throws" : "";
-            var asyncKeyword = closureType.IsAsync ? " async" : "";
-
-            // Build: @escaping (Args) throws -> Return
-            var attributes = closureType.IsEscaping ? "@escaping " : "";
-            return $"{attributes}{argsString}{asyncKeyword}{throwsKeyword} -> {returnString}";
-        }
-
-        return typeSpec.ToString() ?? "Any";
-    }
-
-    /// <summary>
-    /// Checks if a type name represents a generic type parameter.
-    /// Swift generic type parameters appear as τ_0_0, τ_0_1, etc., or as simple names like T, U, Element.
-    /// Delegates to the shared TypeSpecHelpers.IsGenericTypeParameter method.
-    /// </summary>
-    private static bool IsGenericTypeParameter(string typeName) =>
-        TypeSpecHelpers.IsGenericTypeParameter(typeName);
-
-    /// <summary>
-    /// Gets the Swift type name suitable for use with .self metatype access.
-    /// Wraps existential types (any Protocol) in parentheses since Swift requires
-    /// (any Protocol).self instead of any Protocol.self.
-    /// </summary>
-    private string GetSwiftTypeNameForMetatype(TypeSpec? typeSpec)
-    {
-        var typeName = GetSwiftTypeName(typeSpec);
-        // If the type starts with "any ", it needs to be wrapped in parentheses for .self access
-        if (typeName.StartsWith("any ") || typeName.StartsWith("(any "))
-        {
-            // Wrap in parentheses if not already
-            if (!typeName.StartsWith("("))
-                return $"({typeName})";
-        }
-        return typeName;
-    }
+    private string GetSwiftTypeNameForMetatype(TypeSpec? typeSpec) =>
+        SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(typeSpec);
 
     private string BuildArgumentPassList(IReadOnlyList<ArgumentDecl> parameters)
     {

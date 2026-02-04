@@ -383,6 +383,7 @@ namespace BindingsGeneration
                 return;
 
             var emitter = new EveryProtocolEmitter(typeDatabase, _logger, moduleDecl.Name);
+            var dispatchEmitter = new WitnessDispatchEmitter(typeDatabase, _logger, moduleDecl.Name);
 
             // Emit the EveryProtocol class once
             emitter.EmitEveryProtocolClass(swiftWriter);
@@ -391,11 +392,12 @@ namespace BindingsGeneration
             // Key is the Swift method signature (e.g., "removeAll()")
             var globalEmittedSignatures = new HashSet<string>();
 
-            // Emit conformances for each suitable protocol
+            // Emit conformances and witness dispatch accessors for each suitable protocol
             foreach (var protocolDecl in suitableProtocols)
             {
                 _logger.LogDebug($"Emitting EveryProtocol conformance for {protocolDecl.Name}");
                 emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures);
+                dispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
             }
         }
     }
