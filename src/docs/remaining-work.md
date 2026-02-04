@@ -54,7 +54,7 @@ Reassessed February 2026 after Phases 49-52 (binding reports regenerated).
 | 15 | Testing | Deeper protocol runtime tests | Protocol tests are compile checks only | P3 |
 | 16 | Infrastructure | Upstream .NET runtime bug reports | Mono JIT bugs block existentials/async | P3 |
 | 17 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety | P3 |
-| 18 | Research | NativeAOT investigation | May eliminate known runtime bugs | P4 |
+| 18 | Research | NativeAOT investigation | Desk research done — Blocker #1 bypassed, #2 persists, #3 uncertain. Hands-on testing remaining. | P4 |
 
 ### Planned execution order
 
@@ -302,22 +302,33 @@ A Roslyn analyzer can warn at compile time when Swift objects implementing `IDis
 
 ---
 
-## 18. NativeAOT Investigation
+## 18. NativeAOT Investigation — RESEARCH COMPLETE, HANDS-ON TESTING REMAINING
 
 **Priority**: P4
 **Area**: Research
+**Status**: Desk research complete. Hands-on testing not yet started.
+**Details**: `src/docs/nativeaot-investigation.md`
 
-.NET 10's `[LibraryImport]` source generator and NativeAOT compilation may bypass Mono JIT bugs entirely. If NativeAOT works for Swift interop, several known runtime issues (items 6, 16) may disappear.
+### Research findings (Grok + Gemini consultation, Feb 2026)
 
-**What's needed**:
-1. Test existing bindings under NativeAOT compilation
-2. Verify `CallConvSwift` works with `[LibraryImport]` (source-generated marshalling)
-3. Check if existential type metadata and async SafeHandle issues reproduce
+| Blocker | NativeAOT Impact | Confidence |
+|---------|-----------------|------------|
+| #1 `!ji->async` JIT assertion crash | **Bypassed** (no JIT in NativeAOT) | High |
+| #2 Non-blittable types with `CallConvSwift` | **Likely persists** (ILCompiler enforces same restriction) | Medium |
+| #3 SafeHandle across async P/Invoke | **Uncertain** (needs testing) | Low |
+
+NativeAOT eliminates the most severe blocker (existential metadata crash) and is viable for iOS deployment (.NET 9+). The other two blockers likely require the same workarounds we already have.
+
+### Remaining work (hands-on testing)
+1. Build a minimal NativeAOT iOS test app reproducing the three blockers
+2. Test `[LibraryImport]` + `CustomMarshaller` for `SwiftOptional<T>` blittable lowering
+3. Run matrix tests with `[DllImport]` vs `[LibraryImport]` under NativeAOT
 
 **Acceptance criteria**:
-- [ ] NativeAOT feasibility assessed with written findings
-- [ ] If viable, document which known issues are resolved
-- [ ] If not viable, document specific blockers
+- [x] NativeAOT feasibility assessed with written findings
+- [x] Document which known issues are resolved (Blocker #1 bypassed)
+- [x] Document specific blockers (Blocker #2 persists, #3 uncertain)
+- [ ] Hands-on validation with NativeAOT iOS test app
 
 ---
 
