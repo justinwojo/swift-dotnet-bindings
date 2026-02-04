@@ -150,6 +150,13 @@ namespace BindingsGeneration
                 return false;
             }
 
+            // Determine if the containing type is a C# reference type (class) for null guard emission.
+            // Reference types: ClassDecl, EnumDecl, non-frozen structs, frozen structs projected as classes.
+            bool isReferenceType = parentDecl is ClassDecl || parentDecl is EnumDecl ||
+                (parentDecl is StructDecl sd && (!sd.IsFrozen ||
+                (typeDatabase.TryGetTypeRecord(sd.SwiftTypeName, out var structRecord) &&
+                 MarshallingHelpers.IsFrozenStructProjectedAsClass(structRecord!))));
+
             // Create a MethodEnvironment for signature handling, passing the P/Invoke helper context
             var methodEnv = new MethodEnvironment(methodDecl, typeDatabase, pinvokeHelperContext: pinvokeHelperContext);
             var signatureHandler = new SignatureHandler(methodEnv);
@@ -166,7 +173,7 @@ namespace BindingsGeneration
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(parentDecl);
 
             // Emit the operator wrapper and PInvoke
-            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics, pinvokeHelperContext);
+            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics, pinvokeHelperContext, isReferenceType);
             EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext);
             ReportCollector.RecordMemberEmitted(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl);
             csWriter.WriteLine();
@@ -182,7 +189,7 @@ namespace BindingsGeneration
         /// <param name="typeName">The base type name (without generics).</param>
         /// <param name="typeNameWithGenerics">The type name with generic parameters (e.g., "DateResult&lt;T0&gt;").</param>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
-        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext)
+        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, bool isReferenceType)
         {
             var symbol = operatorDecl.OperatorSymbol;
             var csOperator = GetCSharpOperator(symbol)!;
@@ -214,6 +221,22 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({leftType} {leftParam.Name}, {rightType} {rightParam.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+
+                // Emit null guards for equality/inequality operators on reference types.
+                // Without these, `obj == null` or `obj != null` would call .Payload on null and throw NRE.
+                if (isReferenceType && (csOperator == "==" || csOperator == "!="))
+                {
+                    if (csOperator == "==")
+                    {
+                        csWriter.WriteLine($"if ({leftParam.Name} is null) return {rightParam.Name} is null;");
+                        csWriter.WriteLine($"if ({rightParam.Name} is null) return false;");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"if ({leftParam.Name} is null) return {rightParam.Name} is not null;");
+                        csWriter.WriteLine($"if ({rightParam.Name} is null) return true;");
+                    }
+                }
 
                 // Call the PInvoke method (via helper class for generic types)
                 var pinvokeName = GetPInvokeMethodName(symbol);
@@ -328,7 +351,7 @@ namespace BindingsGeneration
         /// <param name="existingOperator">The existing operator that has been defined.</param>
         /// <param name="missingOperator">The paired operator that needs to be synthesized.</param>
         /// <param name="typeName">The name of the containing type.</param>
-        public void EmitSynthesizedPairedOperator(CSharpWriter csWriter, OperatorDecl existingOperator, string missingOperator, string typeName)
+        public void EmitSynthesizedPairedOperator(CSharpWriter csWriter, OperatorDecl existingOperator, string missingOperator, string typeName, bool isReferenceType = false)
         {
             var existingSymbol = existingOperator.OperatorSymbol;
             var methodDecl = existingOperator.UnderlyingMethod;
@@ -349,6 +372,11 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"public static bool operator !=({typeName} left, {typeName} right)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+                if (isReferenceType)
+                {
+                    csWriter.WriteLine("if (left is null) return right is not null;");
+                    csWriter.WriteLine("if (right is null) return true;");
+                }
                 csWriter.WriteLine("return !(left == right);");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -359,6 +387,11 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"public static bool operator ==({typeName} left, {typeName} right)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+                if (isReferenceType)
+                {
+                    csWriter.WriteLine("if (left is null) return right is null;");
+                    csWriter.WriteLine("if (right is null) return false;");
+                }
                 csWriter.WriteLine("return !(left != right);");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -415,7 +448,7 @@ namespace BindingsGeneration
         /// <param name="csWriter">The C# code writer.</param>
         /// <param name="operators">The list of operator declarations.</param>
         /// <param name="typeName">The name of the containing type.</param>
-        public void ValidateAndEmitPairs(CSharpWriter csWriter, List<OperatorDecl> operators, string typeName, ISet<string> emittedSymbols)
+        public void ValidateAndEmitPairs(CSharpWriter csWriter, List<OperatorDecl> operators, string typeName, ISet<string> emittedSymbols, bool isReferenceType = false)
         {
             var definedSymbols = new HashSet<string>(emittedSymbols);
 
@@ -430,7 +463,7 @@ namespace BindingsGeneration
                 {
                     // Need to synthesize the paired operator
                     _logger.LogInformation($"Synthesizing paired operator '{pairedSymbol}' from '{symbol}' for type '{typeName}'.");
-                    EmitSynthesizedPairedOperator(csWriter, op, pairedSymbol, typeName);
+                    EmitSynthesizedPairedOperator(csWriter, op, pairedSymbol, typeName, isReferenceType);
                     ReportCollector.RecordMemberSynthesized(BindingItemKind.Operator, pairedSymbol, op.ParentDecl);
                     // Mark as defined to avoid duplicate synthesis
                     definedSymbols.Add(pairedSymbol);

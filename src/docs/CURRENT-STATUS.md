@@ -1,6 +1,6 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 47 Complete)
+**Last Updated**: February 2026 (Phase 48 Complete)
 **Unit Tests**: 1107 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
@@ -12,7 +12,7 @@
 |---------|------------------|-------------------|
 | **Nuke** | 0 ✅ | Full runtime validation |
 | **BlinkID** | 0 ✅ | Compiles clean (no runtime tests yet) |
-| **Lottie** | 0 ✅ | Runtime validated (8/9 tests pass) |
+| **Lottie** | 0 ✅ | Runtime validated (9/9 tests pass) |
 
 ### Binding Coverage
 
@@ -39,7 +39,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 ### Members
 - ✅ Methods (instance, static, async)
 - ✅ Properties (getters and setters)
-- ✅ Operators (+, -, ==, !=, <, >, etc. with automatic pair synthesis)
+- ✅ Operators (+, -, ==, !=, <, >, etc. with automatic pair synthesis, null-safe equality on reference types)
 - ✅ Constructors (including failable `init?` as `TryCreate()` factory methods)
 - ✅ Inout parameters (emitted as `ref` in C#)
 - ✅ Subscripts (as C# indexers)
@@ -80,14 +80,30 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - ❌ **Async+throwing closures at runtime** - Binding generation works but runtime blocked by existential metadata Mono JIT bug
 
 ### Known Runtime Issues
-- **Lottie**: `LottieConfiguration.Shared` property getter returns non-null object but property access throws `NullReferenceException` (1/9 test failure)
 - **Mono JIT**: `swift_getExistentialTypeMetadata` crash when creating `SwiftArray<ExistentialContainer>` (workaround: Swift wrapper functions)
 - **SafeHandle in async**: .NET runtime doesn't preserve SafeHandle through async P/Invoke (workaround: singleton pattern + IntPtr conversion)
 - See `known-issues-workarounds.md` for full details
 
 ---
 
-## Recent Completions (Phase 47)
+## Recent Completions (Phase 48)
+
+### Generic Tuple Return Marshalling
+- Generic tuple returns (e.g., `pair<T, U>() -> (T, U)`) now emit with correct indirect result marshalling
+- `MarshallingHelpers.MethodRequiresIndirectResult` returns `true` for tuples with generic type parameter elements
+- CSSignatureBuilder and PInvokeSignatureBuilder updated to accept generic-element tuples via GenericContext
+- P/Invoke uses `SwiftIndirectResult` + `void` return; wrapper extracts elements via `SwiftMarshal.MarshalFromSwift<ValueTuple<T0, T1>>`
+- TestFramework: `generic_function` moved from degraded to passing (92/93 must-pass, 1 degraded)
+
+### Null-Safe Equality Operators on Reference Types
+- Generated `==` and `!=` operators on C# reference types (classes, non-frozen structs, enums) now include null guards
+- Without guards, `obj == null` or `obj != null` would call `.Payload` on null and throw `NullReferenceException`
+- Guards emitted for both explicit operators (P/Invoke-backed) and synthesized paired operators
+- Lottie: `LottieConfiguration.Shared` now works correctly — 9/9 runtime tests pass (up from 8/9)
+
+---
+
+## Previous Completions (Phase 47)
 
 ### Protocol Runtime Completion
 - All 7 `NotImplementedException` stubs in `ProtocolProxyEmitter.cs` replaced with descriptive `NotSupportedException` throws
@@ -111,8 +127,8 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - All signature builders thread `GenericContext` through bound generic and tuple translation
 - TestFramework: 91/93 must-pass features (up from 88/93), 672/747 members emitted (up from 658/747)
 - 3 features fixed: `generic_struct`, `generic_class`, `where_clause`
-- `generic_function`: `pair<T,U>()` correctly skipped — generic tuple return marshalling not yet implemented
-- Remaining degraded: `generic_function` (generic tuple returns), `any_protocol_existential` (requires `SwiftArray<ExistentialContainer>`)
+- `generic_function`: `pair<T,U>()` correctly skipped — generic tuple return marshalling deferred to Phase 48
+- Remaining degraded (Phase 46): `generic_function` (fixed in Phase 48), `any_protocol_existential` (requires `SwiftArray<ExistentialContainer>`)
 
 ### Code Review Fixes
 - Fixed `FromMethodInType` duplicate param handling: parser copies type params to accessor methods, so method params that duplicate type-level params are now skipped (prevents τ_0_0 → T0 being overwritten with T1)
@@ -228,7 +244,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ## Development History
 
-47 phases of improvements tracked in git history. Key milestones:
+48 phases of improvements tracked in git history. Key milestones:
 - Phase 1-15: Core infrastructure and Nuke validation
 - Phase 16-29: Type system and runtime fixes
 - Phase 30-33: Generic type improvements
@@ -241,3 +257,4 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - Phase 45: Pointer types, NSObject parameters, finalizer safety net
 - Phase 46: Unbound generic type parameters, code review fixes
 - Phase 47: Protocol runtime completion (NotImplementedException → NotSupportedException)
+- Phase 48: Generic tuple return marshalling, null-safe equality operators, Lottie 9/9

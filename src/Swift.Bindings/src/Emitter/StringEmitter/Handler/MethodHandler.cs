@@ -578,13 +578,11 @@ namespace BindingsGeneration
             if (_env.TupleHandler.IsTuple(argument.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)argument.SwiftTypeSpec;
-                // Tuples with generic type parameter elements cannot be marshalled in return position yet:
-                // P/Invoke returns ValueTuple<IntPtr, IntPtr> but wrapper needs (T0, T1), requiring
-                // per-element indirect result + extraction that isn't implemented. Skip to AnyType fallback.
                 bool hasGenericElements = _env.TupleHandler.HasGenericTypeParameterElements(tupleTypeSpec);
-                if (!hasGenericElements &&
-                    (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
-                     _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext)))
+                // Generic-element tuples (e.g., (T, U)) are accepted when a generic context can resolve them
+                // and the method is not async (async methods skip indirect result, which generic tuples need).
+                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
+                    (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext) && !(hasGenericElements && _env.MethodDecl.IsAsync)))
                     SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext));
                 else
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
@@ -878,18 +876,30 @@ namespace BindingsGeneration
             }
 
             // Handle tuple return types
+            // Generic-element tuples (e.g., (T, U)) fall through to the indirect result check below,
+            // which adds SwiftIndirectResult + void return. This only works for sync methods —
+            // async methods skip indirect result (MarshallingHelpers returns false for async),
+            // so generic-element tuples on async methods are unsupported.
             if (_env.TupleHandler.IsTuple(returnType.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)returnType.SwiftTypeSpec;
-                // Skip generic-element tuples in return position (no marshalling from ValueTuple<IntPtr,...> to (T0,T1))
                 bool hasGenericElements = _env.TupleHandler.HasGenericTypeParameterElements(tupleTypeSpec);
-                if (!hasGenericElements &&
-                    (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
-                     _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext)))
-                    SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext));
-                else
+                if (!hasGenericElements)
+                {
+                    if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
+                        _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
+                        SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext));
+                    else
+                        SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                    return;
+                }
+                if (_env.MethodDecl.IsAsync)
+                {
+                    // Async methods don't use indirect result, so generic-element tuples are unsupported
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
-                return;
+                    return;
+                }
+                // Generic-element tuples (sync): fall through to indirect result handling
             }
 
             // Handle existential return types (any Protocol)

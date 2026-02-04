@@ -3021,6 +3021,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.DefaultFontProvider arg0, Swift.Lottie.DefaultFontProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -3029,6 +3031,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(DefaultFontProvider left, DefaultFontProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -4011,6 +4015,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.FilepathImageProvider arg0, Swift.Lottie.FilepathImageProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -4019,6 +4025,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(FilepathImageProvider left, FilepathImageProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -4776,6 +4784,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.DictionaryTextProvider arg0, Swift.Lottie.DictionaryTextProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -4784,6 +4794,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(DictionaryTextProvider left, DictionaryTextProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -4969,6 +4981,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.DefaultTextProvider arg0, Swift.Lottie.DefaultTextProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -4977,6 +4991,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(DefaultTextProvider left, DefaultTextProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -8162,6 +8178,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.SizeValueProvider arg0, Swift.Lottie.SizeValueProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -8170,6 +8188,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(SizeValueProvider left, SizeValueProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -11294,6 +11314,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.LottieColor arg0, Swift.Lottie.LottieColor arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -11302,6 +11324,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(LottieColor left, LottieColor right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -11622,6 +11646,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.ColorValueProvider arg0, Swift.Lottie.ColorValueProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -11630,6 +11656,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(ColorValueProvider left, ColorValueProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -11943,6 +11971,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.AnimationKeypath arg0, Swift.Lottie.AnimationKeypath arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -11951,6 +11981,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(AnimationKeypath left, AnimationKeypath right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -12491,6 +12523,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.LottieConfiguration arg0, Swift.Lottie.LottieConfiguration arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -12499,6 +12533,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(LottieConfiguration left, LottieConfiguration right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -14875,6 +14911,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.LottieVector2D arg0, Swift.Lottie.LottieVector2D arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -14883,6 +14921,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(LottieVector2D left, LottieVector2D right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -17644,6 +17684,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.LottieVector1D arg0, Swift.Lottie.LottieVector1D arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -17652,6 +17694,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(LottieVector1D left, LottieVector1D right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -18063,6 +18107,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.LottieVector3D arg0, Swift.Lottie.LottieVector3D arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -18071,6 +18117,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(LottieVector3D left, LottieVector3D right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -21591,6 +21639,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.FloatValueProvider arg0, Swift.Lottie.FloatValueProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -21599,6 +21649,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(FloatValueProvider left, FloatValueProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -23726,6 +23778,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.GradientValueProvider arg0, Swift.Lottie.GradientValueProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -23734,6 +23788,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(GradientValueProvider left, GradientValueProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -24521,6 +24577,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.BundleImageProvider arg0, Swift.Lottie.BundleImageProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -24529,6 +24587,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(BundleImageProvider left, BundleImageProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         
@@ -25837,6 +25897,8 @@ namespace Swift.Lottie
         
         public static System.Boolean operator ==(Swift.Lottie.PointValueProvider arg0, Swift.Lottie.PointValueProvider arg1)
         {
+            if (arg0 is null) return arg1 is null;
+            if (arg1 is null) return false;
             return PInvoke_op_Equality(arg0.Payload, arg1.Payload);
         }
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -25845,6 +25907,8 @@ namespace Swift.Lottie
         
         public static bool operator !=(PointValueProvider left, PointValueProvider right)
         {
+            if (left is null) return right is not null;
+            if (right is null) return true;
             return !(left == right);
         }
         

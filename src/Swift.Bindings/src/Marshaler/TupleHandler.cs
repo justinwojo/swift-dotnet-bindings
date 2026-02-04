@@ -83,8 +83,8 @@ public class TupleHandler
     /// <summary>
     /// Checks whether any element of the tuple contains a generic type parameter,
     /// either directly (e.g., τ_0_0) or nested inside a bound generic (e.g., Optional&lt;τ_0_0&gt;).
-    /// Tuples with generic elements require special marshalling (indirect result + per-element extraction)
-    /// that is not yet implemented. Use this to gate return-position acceptance.
+    /// Tuples with generic elements use indirect result (SwiftIndirectResult) in P/Invoke
+    /// and per-element extraction via SwiftMarshal.MarshalFromSwift at runtime.
     /// </summary>
     public bool HasGenericTypeParameterElements(TupleTypeSpec tupleTypeSpec) =>
         tupleTypeSpec.Elements.Any(ContainsGenericTypeParameter);

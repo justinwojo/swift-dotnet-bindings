@@ -3,7 +3,7 @@
 Consolidated backlog of generator gaps, runtime issues, and infrastructure work. Ordered by priority.
 
 **Date**: February 2026
-**Starting Point**: Phase 47 complete, 1107 unit tests, TestFramework v2.0 (67 files, 145 features)
+**Starting Point**: Phase 48 complete, 1107 unit tests, TestFramework v2.0 (67 files, 145 features)
 
 ---
 
@@ -11,13 +11,13 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 
 | # | Area | Description | Impact | Priority |
 |---|------|-------------|--------|----------|
-| 1 | Generator | Generic tuple return marshalling (deferred from Phase 46) | 1 degraded feature, 1 skipped member | P2 |
+| ~~1~~ | ~~Generator~~ | ~~Generic tuple return marshalling (deferred from Phase 46)~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 48)~~ |
 | ~~2~~ | ~~Generator~~ | ~~OpaquePointer in method signatures~~ | ~~2 degraded features, 3 skipped members~~ | ~~Done (Phase 45)~~ |
 | ~~3~~ | ~~Generator~~ | ~~NSObject subclass as method parameter~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 45)~~ |
 | 4 | Generator | Existential type argument in bound generic | 1 degraded feature, 1 skipped member | P3 |
 | 5 | Runtime | Formalize async concurrency hook as shared library | Async init is copy-pasted per test; no reusable runtime | P2 |
 | 6 | Runtime | Fix async callback marshalling (Array, String) | 2 async tests blocked | P3 |
-| 7 | Validation | Lottie 9/9 — fix `LottieConfiguration.Shared` getter | 1 runtime test failure | P2 |
+| ~~7~~ | ~~Validation~~ | ~~Lottie 9/9 — fix `LottieConfiguration.Shared` getter~~ | ~~1 runtime test failure~~ | ~~Done (Phase 48)~~ |
 | 8 | Validation | BlinkID runtime validation test app | Compiles but never runtime tested | P3 |
 | ~~9~~ | ~~Runtime~~ | ~~Add finalizer safety net to `SwiftSafeHandle`~~ | ~~Memory leaks if users forget `Dispose()`~~ | ~~Done (Phase 45)~~ |
 | ~~10~~ | ~~Generator~~ | ~~Protocol runtime completion (remove `NotImplementedException` stubs)~~ | ~~Blocks real protocol usage from C#~~ | ~~Done (Phase 47)~~ |
@@ -31,41 +31,19 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | 18 | Research | NativeAOT investigation (`[LibraryImport]` for Mono JIT bypass) | May eliminate known runtime bugs | P4 |
 | 19 | Generator | Protocol witness table dispatch for Swift-backed existentials | Swift-backed proxies can't access members | P3 |
 
-**Generator target**: 93/93 must-pass features passing (currently 91, 2 degraded)
+**Generator target**: 93/93 must-pass features passing (currently 92, 1 degraded)
 
 ---
 
-## 1. Generic Tuple Return Marshalling
+## 1. ~~Generic Tuple Return Marshalling~~ ✅ Done (Phase 48)
 
-**Priority**: P2 — 1 remaining degraded feature (`generic_function`)
-**Area**: Generator (emitter return marshalling)
-**Status**: Intentionally deferred (Phase 46)
+Generic tuple returns (e.g., `pair<T, U>() -> (T, U)`) now emit correctly. Generator changes:
+1. `MarshallingHelpers.MethodRequiresIndirectResult` returns `true` for tuples with generic elements
+2. `CSSignatureBuilder.HandleReturnType` accepts generic-element tuples via `GenericContext`
+3. `PInvokeSignatureBuilder.HandleReturnType` lets generic-element tuples fall through to indirect result handling
+4. Both signature builders reject generic-element tuples on async methods (async skips indirect result, so the required sret path is unavailable)
 
-`pair<T, U>(x: T, y: U) -> (T, U)` is correctly skipped with `UnsupportedSignature`. The wrapper signature resolves to `(T0, T1)` but the P/Invoke returns `ValueTuple<IntPtr, IntPtr>`. Returning the raw P/Invoke result would be a type mismatch — per-element marshalling from `IntPtr` back to generic `T0`/`T1` is needed but not yet implemented.
-
-**What was fixed in Phase 46** (3 of 4 originally degraded features now pass):
-- [x] `generic_struct` — `Wrapper<T>`, `GenericPair<T, U>` properties, constructors, methods
-- [x] `generic_class` — `GenericClass<T>` property, constructor
-- [x] `where_clause` — `ConstrainedBox<T>` property, constructor
-
-**What remains**:
-
-| Feature | File | Skipped Member | Reason |
-|---------|------|----------------|--------|
-| `generic_function` | `Generics/Functions.swift` | `pair` | Returns `(T, U)` — generic tuple return marshalling not implemented |
-
-**Why this is intentionally deferred**: Implementing generic tuple return marshalling requires indirect result allocation with per-element TypeMetadata-based size/alignment computation and `SwiftMarshal.MarshalFromSwift<T>` extraction at computed offsets. This is ABI-sensitive layout math that should be done in a targeted follow-up with its own tests. Skipping produces correct behavior (the member is marked `[UnsupportedSwiftType]`); the previous emit produced code that would not compile.
-
-**Implementation path** (when ready):
-1. `MarshallingHelpers.MethodRequiresIndirectResult` — return `true` for tuples with generic elements
-2. Allocate buffer sized by summing element `TypeMetadata.Size` with alignment padding
-3. Pass as `SwiftIndirectResult` to P/Invoke
-4. Extract elements at computed offsets: `SwiftMarshal.MarshalFromSwift<Ti>(ptr + offset_i)`
-5. Return `(elem0, elem1)` tuple
-
-**Acceptance criteria**:
-- [ ] `pair<T, U>()` emits with correct return marshalling
-- [ ] Coverage report: `generic_function` shows `passing`
+The runtime already supported tuple metadata (`TryGetTupleTypeMetadata`) and per-element extraction (`MarshalTupleFromSwift`) — only the generator needed changes. TestFramework: `generic_function` moved from degraded to passing (92/93 must-pass).
 
 ---
 
@@ -145,18 +123,11 @@ The Swift concurrency hook (`swift_task_enqueueGlobal_hook` → GCD redirect) is
 
 ---
 
-## 7. Lottie 9/9 — LottieConfiguration.Shared
+## 7. ~~Lottie 9/9 — LottieConfiguration.Shared~~ ✅ Done (Phase 48)
 
-**Priority**: P2
-**Area**: Runtime validation
+Root cause: Generated `==` and `!=` operators on reference types accessed `.Payload` without null checks. When C# code did `config != null`, it invoked the overloaded `!=` operator which delegated to `==`, passing `null` as the second argument. `arg1.Payload` threw `NullReferenceException`.
 
-`LottieConfiguration.Shared` returns a non-null object but property access throws `NullReferenceException`. This is the only failing test in the Lottie runtime suite (8/9 pass).
-
-**Investigation**: Check static property getter P/Invoke marshalling — compare with working property getters (e.g., LottieColor).
-
-**Acceptance criteria**:
-- [ ] Root cause identified
-- [ ] `./validate-sim.sh 30` exits 0 (9/9 tests pass)
+Fix: `OperatorHandler.cs` now emits null guards (`if (arg0 is null) return arg1 is null;`) for equality/inequality operators when the containing type is a C# reference type (ClassDecl, EnumDecl, non-frozen StructDecl, frozen-struct-projected-as-class). Guards are emitted for both explicit operators and synthesized paired operators. Lottie: 9/9 runtime tests pass.
 
 ---
 

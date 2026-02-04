@@ -26,9 +26,16 @@ namespace BindingsGeneration
             if (env.ExistentialHandler.IsExistential(returnType.SwiftTypeSpec))
                 return false;
 
-            // Tuple return types are handled by TupleHandler, not via indirect result
+            // Non-generic tuple return types are handled by TupleHandler, not via indirect result.
+            // Tuples with generic type parameter elements require indirect result because
+            // element sizes are unknown at compile time — the Swift ABI mandates sret for these.
             if (returnType.SwiftTypeSpec is TupleTypeSpec tupleSpec && !tupleSpec.IsEmptyTuple)
+            {
+                var tupleHandler = new TupleHandler(env.TypeDatabase);
+                if (tupleHandler.HasGenericTypeParameterElements(tupleSpec))
+                    return true;
                 return false;
+            }
 
             // Bound generics that require marshalling (SwiftArray, SwiftOptional, etc.) return IntPtr directly
             // from PInvoke and don't need indirect result handling. They're marshalled via SwiftMarshal.MarshalFromSwift.
