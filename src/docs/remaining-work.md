@@ -22,7 +22,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | ~~9~~ | ~~Runtime~~ | ~~Add finalizer safety net to `SwiftSafeHandle`~~ | ~~Memory leaks if users forget `Dispose()`~~ | ~~Done (Phase 45)~~ |
 | ~~10~~ | ~~Generator~~ | ~~Protocol runtime completion (remove `NotImplementedException` stubs)~~ | ~~Blocks real protocol usage from C#~~ | ~~Done (Phase 47)~~ |
 | 11 | Generator | Wrapper automation for known-problematic patterns | Manual per-library patches don't scale | P2 |
-| 12 | Generator | Emitter decomposition — split MethodHandler (3,361 LOC) | Blocks maintainability and onboarding | P2 |
+| 12 | Generator | Emitter decomposition — split MethodHandler (Phase A done, Phase B pending) | Blocks maintainability and onboarding | P2 |
 | 13 | Generator | Improve binding report with workaround recommendations | Consumers don't know what to do about gaps | P2 |
 | 14 | Runtime | .NET convenience methods on Swift runtime types | DX friction with unfamiliar Swift types | P3 |
 | 15 | Testing | Deeper protocol runtime tests | Protocol tests are compile checks, not runtime behavior | P3 |
@@ -182,23 +182,39 @@ The Swift wrapper fallback pattern (C# → P/Invoke → Swift wrapper → Swift 
 **Area**: Generator (emitter)
 **Source**: Comprehensive architecture review (all reviewers)
 
-`MethodHandler.cs` is 3,361 lines with 7 nested classes, violating SRP. `EnumHandler.cs` (1,715 lines) and `ProtocolProxyEmitter.cs` (1,403 lines) are also oversized. The existing `emitter-redesign-proposal.md` outlines the target architecture.
+### Phase A: File Split (Complete)
 
-**Target files**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` (3,361 LOC)
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EnumHandler.cs` (1,715 LOC)
+The original `MethodHandler.cs` (3,827 LOC) has been split into 7 files with no behavioral changes:
 
-**What's needed**:
-1. Split MethodHandler into focused handlers per the redesign proposal (Constructor, Static/Instance, SwiftError, Generic, Async)
+| File | Lines | Contents |
+|------|-------|----------|
+| `MethodHandler.cs` | 369 | Handler factories + handlers (public API) |
+| `MethodSignature.cs` | 517 | Parameter, Signature, SignatureBuilderBase, WrapperSignatureBuilder, SignatureHandler |
+| `PInvokeEmitter.cs` | 535 | PInvokeSignatureBuilder, PInvokeEmitter |
+| `WrapperEmitter.cs` | 692 | Core orchestration, constructor emission, structural helpers |
+| `WrapperEmitter.Async.cs` | 779 | Async emission pipeline |
+| `WrapperEmitter.Marshalling.cs` | 546 | Argument marshalling, closures, SafeHandle, generics |
+| `WrapperEmitter.Return.cs` | 444 | Return handling, tuple element helpers |
+
+All files ≤800 LOC. All 1107 unit tests pass. TestFramework coverage unchanged (92/93 must-pass).
+
+### Phase B: Handler Extraction (Pending)
+
+Extract true handler components per `emitter-redesign-proposal.md`:
+1. Split into focused handlers (Constructor, Static/Instance, SwiftError, Generic, Async)
 2. Extract return handlers (IndirectResult, BoundGeneric, Direct, Void)
 3. Extract argument handlers (NonFrozen, Generic, BoundGeneric)
+
+Phase A is a prerequisite: the code must be navigable before it can be restructured.
+
+`EnumHandler.cs` (1,715 LOC) and `ProtocolProxyEmitter.cs` (1,403 LOC) are also candidates for decomposition.
 
 **Reference**: `src/docs/emitter-redesign-proposal.md`
 
 **Acceptance criteria**:
-- [ ] No single handler file exceeds ~800 lines
-- [ ] Existing unit tests still pass with no behavioral changes
-- [ ] Handler responsibilities are clear and focused
+- [x] No single handler file exceeds ~800 lines (Phase A)
+- [x] Existing unit tests still pass with no behavioral changes (Phase A)
+- [ ] Handler responsibilities are clear and focused (Phase B)
 
 ---
 

@@ -1,0 +1,546 @@
+// Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using System.CodeDom.Compiler;
+
+namespace BindingsGeneration
+{
+    internal partial class WrapperEmitter
+    {
+        /// <summary>
+        /// Emits a Swift wrapper for methods returning opaque types (some Protocol).
+        /// The wrapper calls the original function and boxes the return value into an
+        /// existential container (any Protocol) that matches the C# ExistentialContainer type.
+        /// </summary>
+        private void EmitOpaqueReturnWrapper(SwiftWriter swiftWriter)
+        {
+            if (!_requiresOpaqueReturnWrapper)
+                return;
+
+            var returnTypeSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec as ProtocolListTypeSpec;
+            if (returnTypeSpec == null)
+                return;
+
+            // Build the "any Protocol1 & Protocol2" return type string
+            var anyReturnType = "any " + string.Join(" & ", returnTypeSpec.Protocols.Keys.Select(p => p.Name));
+
+            var parentTypeName = (_env.ParentDecl as TypeDecl)?.SwiftTypeName;
+            bool isInstanceMethod = _env.MethodDecl.MethodType != MethodType.Static;
+            bool isAccessor = _env.MethodDecl.IsAccessor;
+
+            // Build Swift parameter list (matching the original function's signature)
+            var methodParams = _env.MethodDecl.CSSignature
+                .Skip(1)
+                .Select(p => $"{p.Name}: {(p.IsGeneric ? _env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName : p.SwiftTypeSpec)}");
+
+            string parameters = string.Join(", ", methodParams);
+
+            // Build the argument forwarding list
+            var methodCallArgs = string.Join(", ", _env.MethodDecl.CSSignature.Skip(1)
+                .Select(p => p.Name switch
+                {
+                    var n when n.StartsWith("arg") => n,
+                    var n when n.StartsWith("_") => $"{n.Substring(1)}: {n}",
+                    var n => $"{n}: {n}"
+                }));
+
+            var genericParams = _env.MethodDecl.IsGeneric
+                ? $"<{string.Join(", ", _env.MethodDecl.GenericParameters.Select(p => p.SugaredTypeName))}>"
+                : "";
+
+            var whereClause = (_env.MethodDecl.IsGeneric && _env.MethodDecl.GenericParameters.Any(p => p.GenericConformances.Any() || p.AssosiatedTypeConformances.Any()))
+                ? " where " + string.Join(", ", _env.MethodDecl.GenericParameters.Select(p =>
+                {
+                    var genericConformances = p.GenericConformances
+                        .Select(gc => $"{p.SugaredTypeName} : {gc.ConformanceTarget.Name}");
+                    var typeConformances = p.AssosiatedTypeConformances
+                        .Select(tc => $"{p.SugaredTypeName}.{string.Join(".", tc.Path.Skip(1))} == {tc.ConformanceTarget.Name}");
+                    return string.Join(", ", genericConformances.Concat(typeConformances));
+                }))
+                : "";
+
+            if (parentTypeName != null)
+            {
+                if (isAccessor)
+                {
+                    // Property getter wrapper - strip the _Get/_Set suffix to get the Swift property name
+                    var propertyName = _env.MethodDecl.Name;
+                    if (propertyName.EndsWith("_Get")) propertyName = propertyName.Substring(0, propertyName.Length - 4);
+                    else if (propertyName.EndsWith("_Set")) propertyName = propertyName.Substring(0, propertyName.Length - 4);
+                    var staticModifier = !isInstanceMethod ? "static " : "";
+                    swiftWriter.WriteLine($$"""
+            extension {{parentTypeName.ModuleQualifiedName}} {
+                @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+                public {{staticModifier}}var _sb_{{propertyName}}: {{anyReturnType}} {
+                    return {{(!isInstanceMethod ? parentTypeName.ModuleQualifiedName + "." : "self.")}}{{propertyName}}
+                }
+            }
+            """);
+                }
+                else
+                {
+                    // Method wrapper
+                    var staticModifier = !isInstanceMethod ? "static " : "";
+                    var callPrefix = !isInstanceMethod ? $"{parentTypeName.ModuleQualifiedName}." : "self.";
+                    swiftWriter.WriteLine($$"""
+            extension {{parentTypeName.ModuleQualifiedName}} {
+                @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+                public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
+                    return {{callPrefix}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
+                }
+            }
+            """);
+                }
+            }
+            else
+            {
+                // Free function wrapper (module-level)
+                var moduleName = _env.MethodDecl.ModuleDecl?.Name ?? "";
+                swiftWriter.WriteLine($$"""
+            @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+            public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
+                return {{(moduleName.Length > 0 ? moduleName + "." : "")}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
+            }
+            """);
+            }
+        }
+
+        /// <summary>
+        /// Emits bound generic argument marshalling.
+        /// Skips arguments that have type conversion (those are handled by EmitTypeConversions).
+        /// </summary>
+        private void EmitBoundGenericArguments(CSharpWriter csWriter)
+        {
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.BoundGenericsHandler.IsBoundGeneric))
+            {
+                // Skip if this argument uses type conversion (already handled in EmitTypeConversions)
+                // But for property accessors, type conversion is disabled so don't skip
+                if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(argumentDecl.SwiftTypeSpec))
+                    continue;
+
+                if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
+                {
+                    var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
+                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
+                    csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Emits closure argument marshalling.
+        /// For @convention(c) closures, converts C# delegates to unmanaged function pointers.
+        /// For escaping closures, creates closure data with a thunk and GCHandle context.
+        /// For optional closures, handles null by creating a zero-initialized SwiftClosureData.
+        /// </summary>
+        private void EmitClosureMarshalling(CSharpWriter csWriter)
+        {
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
+            {
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
+                if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    continue;
+
+                bool isOptional = _env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec);
+
+                if (_env.ClosureHandler.IsConventionC(closureTypeSpec))
+                {
+                    // For @convention(c) closures, convert delegate to function pointer
+                    var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
+
+                    if (isOptional)
+                    {
+                        // Optional @convention(c) closure - handle null case
+                        csWriter.WriteLines($"""
+                            var {argumentDecl.Name}FuncPtr = {argumentDecl.Name} != null
+                                ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({argumentDecl.Name})
+                                : ({funcPtrType})IntPtr.Zero;
+                            """);
+                    }
+                    else
+                    {
+                        // Marshal.GetFunctionPointerForDelegate returns IntPtr, cast to the proper function pointer type
+                        csWriter.WriteLine($"var {argumentDecl.Name}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({argumentDecl.Name});");
+                    }
+                }
+                else if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                {
+                    // Async+throwing closures use a special pattern with AsyncThrowingClosureState
+                    // The state holds the user's async delegate, and we pass context + start function to Swift
+                    ClosureEmitter.EmitAsyncThrowingClosureMarshallingSetup(
+                        csWriter,
+                        _env.MethodDecl.Name,
+                        argumentDecl.Name,
+                        closureTypeSpec,
+                        _env.ClosureHandler,
+                        _env.MethodDecl.MangledName);
+                }
+                else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                {
+                    // For escaping closures, create a SwiftClosureData struct with thunk pointer and delegate in context
+                    var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
+
+                    if (isOptional)
+                    {
+                        // Optional escaping closure - handle null case with zero-initialized SwiftClosureData
+                        csWriter.WriteLine($"SwiftClosureData {argumentDecl.Name}Closure;");
+                        csWriter.WriteLine($"if ({argumentDecl.Name} != null)");
+                        csWriter.WriteLine("{");
+                        csWriter.Indent++;
+                        csWriter.WriteLine($"{argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});");
+                        csWriter.WriteLine($"{argumentDecl.Name}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({argumentDecl.Name}Handle));");
+                        csWriter.Indent--;
+                        csWriter.WriteLine("}");
+                        csWriter.WriteLine("else");
+                        csWriter.WriteLine("{");
+                        csWriter.Indent++;
+                        csWriter.WriteLine($"{argumentDecl.Name}Closure = default; // Zero-initialized = nil in Swift");
+                        csWriter.Indent--;
+                        csWriter.WriteLine("}");
+                    }
+                    else
+                    {
+                        csWriter.WriteLines($"""
+                            {argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});
+                            var {argumentDecl.Name}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({argumentDecl.Name}Handle));
+                            """);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Emits type conversions for parameters that use idiomatic .NET types.
+        /// Converts string -> SwiftString, IEnumerable&lt;T&gt; -> SwiftArray&lt;T&gt;, T? -> SwiftOptional&lt;T&gt;.
+        /// Also handles payload buffer creation for bound generic types that have been type-converted.
+        /// </summary>
+        private void EmitTypeConversions(CSharpWriter csWriter)
+        {
+            // Skip type conversions for property accessors
+            if (_env.MethodDecl.IsAccessor)
+                return;
+
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (_env.TypeConversionHandler.IsSwiftString(argumentDecl.SwiftTypeSpec))
+                {
+                    // string -> SwiftString (using pattern for automatic disposal)
+                    csWriter.WriteLine($"using var {argumentDecl.Name}Swift = new SwiftString({argumentDecl.Name});");
+                    csWriter.WriteLine($"using PayloadBuffer<SwiftString.Buffer> {argumentDecl.Name}Disposable = {argumentDecl.Name}Swift.PayloadBuffer;");
+                }
+                else if (_env.TypeConversionHandler.IsSwiftArray(argumentDecl.SwiftTypeSpec))
+                {
+                    // IEnumerable<T> -> SwiftArray<T>
+                    var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
+                        argumentDecl.SwiftTypeSpec,
+                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                    csWriter.WriteLine($"using var {argumentDecl.Name}Swift = {swiftType}.FromEnumerable({argumentDecl.Name});");
+                    // Create payload buffer for P/Invoke (same as bound generic handling)
+                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}Swift.PayloadBuffer;");
+                    var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
+                    csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                }
+                else if (_env.TypeConversionHandler.IsSwiftOptional(argumentDecl.SwiftTypeSpec) &&
+                         !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
+                {
+                    // T? -> SwiftOptional<T> (but not for optional closures - those are handled by EmitClosureSetup)
+                    // Use pattern matching which works for both nullable value types and reference types
+                    var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
+                        argumentDecl.SwiftTypeSpec,
+                        typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                    csWriter.WriteLine($"using var {argumentDecl.Name}Swift = {argumentDecl.Name} is {{}} {argumentDecl.Name}Value ? {swiftType}.NewSome({argumentDecl.Name}Value) : {swiftType}.NewNone();");
+                    // Create payload buffer for P/Invoke (same as bound generic handling)
+                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}Swift.PayloadBuffer;");
+                    var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
+                    csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                }
+                else if (_env.TypeConversionHandler.HasNativeTypeRemapping(argumentDecl.SwiftTypeSpec))
+                {
+                    // Native type remapping: Foundation.NSUrl -> Swift.URL, Foundation.NSData -> Swift.Data
+                    var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(argumentDecl.Name, argumentDecl.SwiftTypeSpec);
+                    if (conversion != null)
+                    {
+                        if (_env.TypeConversionHandler.IsFoundationURL(argumentDecl.SwiftTypeSpec))
+                        {
+                            // URL is non-frozen and requires disposal
+                            csWriter.WriteLine($"using var {argumentDecl.Name}Swift = {conversion};");
+                        }
+                        else
+                        {
+                            // Data is a frozen struct
+                            csWriter.WriteLine($"var {argumentDecl.Name}Swift = {conversion};");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Translates a TypeSpec to C# type name for use in type conversion handlers.
+        /// Handles generic types by translating their type parameters.
+        /// </summary>
+        private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
+        {
+            // Handle existential types (ProtocolListTypeSpec and NamedTypeSpec with IsAny)
+            if (_env.ExistentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null && _env.ExistentialHandler.IsSupportedExistential(protocolList))
+                    return _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+            }
+
+            if (typeSpec is NamedTypeSpec namedTypeSpec)
+            {
+                // Check if this is a generic type parameter that can be resolved
+                if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeSpec.Name) &&
+                    _genericContext.TryResolve(namedTypeSpec.Name, out var csName))
+                {
+                    return csName;
+                }
+
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
+
+                // If the type falls back to AnyType, don't append generic parameters
+                if (typeRecord == TypeDatabaseExtensions.AnyType)
+                {
+                    return typeRecord.CSharpTypeName.FullyQualifiedName;
+                }
+
+                // Handle generic parameters
+                if (namedTypeSpec.GenericParameters.Count > 0)
+                {
+                    var translatedParams = namedTypeSpec.GenericParameters
+                        .Select(p => TranslateTypeSpecForConversion(p))
+                        .ToList();
+                    return $"{typeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>";
+                }
+
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+            }
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
+        /// Emits callback functions and pointers for escaping closures.
+        /// </summary>
+        private void EmitClosureCallbacks(CSharpWriter csWriter)
+        {
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
+            {
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
+                if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    continue;
+
+                if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                {
+                    // Check if this is an async+throwing closure (must check before throwing-only)
+                    if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                    {
+                        // Async+throwing closures use a special "start" callback pattern
+                        // The start function is synchronous and spawns Task.Run
+                        ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitAsyncThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    }
+                    // Check if this is a throwing closure (but not async+throwing)
+                    else if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
+                    {
+                        // Throwing closures need special callback that handles SwiftError
+                        ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    }
+                    // Check if this closure needs indirect return marshalling
+                    else if (_env.ClosureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec))
+                    {
+                        ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    }
+                    else
+                    {
+                        ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                    }
+                    csWriter.WriteLine();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Emits the SafeHandle add reference.
+        /// Frozen structs are passed as lowered buffers, so explicit retain is needed.
+        /// Non-frozen structs are passed as SafeHandle, so reference counting is managed automatically.
+        /// Generics are copied prior to the call via MarshalToSwift, no ref counting is needed on a copy. InitWithCopy is called to create a copy.
+        /// </summary>
+        private void EmitSafeHandleAddRef(CSharpWriter csWriter)
+        {
+            if (_env.MethodDecl.MethodType != MethodType.Static && !_env.MethodDecl.IsConstructor)
+            {
+                if (_env.ParentDecl is StructDecl structDecl)
+                {
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                    if (MarshallingHelpers.RequiresMemoryManagement(typeRecord) || !MarshallingHelpers.IsTypeFrozen(typeRecord))
+                    {
+                        csWriter.WriteLine($"var success = false;");
+                        csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                    }
+                }
+                else if (_env.ParentDecl is ClassDecl)
+                {
+                    // Swift classes always need ref counting - they use _payload SafeHandle
+                    csWriter.WriteLine($"var success = false;");
+                    csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                }
+            }
+
+            // For property accessors, don't skip convertible types since type conversion is not applied
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a) && !_env.ExistentialHandler.IsExistential(a) && (_env.MethodDecl.IsAccessor || !_env.TypeConversionHandler.IsConvertibleType(a.SwiftTypeSpec))))
+            {
+                TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
+
+                // ObjC bridged types: extract Handle from .NET iOS binding object
+                if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                {
+                    csWriter.WriteLine($"IntPtr {argumentDecl.Name}Handle = {argumentDecl.Name}?.Handle ?? IntPtr.Zero;");
+                    continue;
+                }
+
+                if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+                {
+                    csWriter.WriteLine($"using PayloadBuffer<{typeRecord.CSharpTypeName}.Buffer> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
+                }
+            }
+
+            // NOTE: For async methods, non-frozen parameter copy buffers are created in EmitAsync
+            // (before the GCHandle holder) using InitializeWithCopy. The {param}Handle and
+            // {param}CopyBuffer variables are already declared there. Nothing more to do here.
+        }
+
+        /// <summary>
+        /// Emits the SafeHandle release.
+        /// Frozen structs are passed as lowered buffers, so explicit release is needed.
+        /// Non-frozen structs are passed as SafeHandle, so reference counting is managed automatically.
+        /// Generics are copied prior to the call via MarshalToSwift, no ref counting is needed on a copy; Destroy is called on the copy.
+        ///
+        /// For async instance methods, DangerousRelease is deferred until the async callback fires.
+        /// This prevents the SafeHandle from being released while the Swift async Task is still running.
+        /// </summary>
+        private void EmitSafeHandleRelease(CSharpWriter csWriter)
+        {
+            // For async instance methods, skip immediate release - the callback will handle it
+            // via DeferredSafeHandleRelease stored in the async holder
+            if (_env.MethodDecl.IsAsync && _env.MethodDecl.MethodType != MethodType.Static && !_env.MethodDecl.IsConstructor)
+            {
+                // Async instance methods defer release to callback
+                return;
+            }
+
+            if (_env.MethodDecl.MethodType != MethodType.Static && !_env.MethodDecl.IsConstructor)
+            {
+                if (_env.ParentDecl is StructDecl structDecl)
+                {
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                    if (MarshallingHelpers.RequiresMemoryManagement(typeRecord) || !MarshallingHelpers.IsTypeFrozen(typeRecord))
+                    {
+                        csWriter.WriteLine($"if (success)");
+                        csWriter.WriteLine($"   _payload.DangerousRelease();");
+                    }
+                }
+                else if (_env.ParentDecl is ClassDecl)
+                {
+                    // Swift classes always need ref counting - they use _payload SafeHandle
+                    csWriter.WriteLine($"if (success)");
+                    csWriter.WriteLine($"   _payload.DangerousRelease();");
+                }
+            }
+
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (argumentDecl.IsGeneric)
+                {
+                    var csTypeParamName = _env.GenericTypeMapping[argumentDecl.SwiftTypeSpec.ToString()].TypeParameter;
+                    var metadataName = NameProvider.GetMetadataName(csTypeParamName);
+                    var payloadName = NameProvider.GetPayloadName(argumentDecl.Name);
+                    csWriter.WriteLine($"{metadataName}.ValueWitnessTable->Destroy((void *){payloadName}, {metadataName});");
+                    continue;
+                }
+
+                // Free GCHandle for escaping closures
+                // Note: Async+throwing closures free their GCHandle inside Task.Run's finally block
+                if (_env.ClosureHandler.IsClosure(argumentDecl))
+                {
+                    var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
+                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
+                        _env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
+                        !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                    {
+                        csWriter.WriteLine($"if ({argumentDecl.Name}Handle.IsAllocated) {argumentDecl.Name}Handle.Free();");
+                    }
+                }
+            }
+
+            // NOTE: Async non-frozen parameters are NOT released here.
+            // They are kept alive by the GCHandle (in the object[] holder) until the callback fires.
+            // This prevents SIGSEGV crashes caused by GC finalizing the parameter while Swift's
+            // async Task is still pending and may access copy-on-write shared storage.
+        }
+
+        /// <summary>
+        /// Emits the generic arguments setup.
+        /// </summary>
+        private void EmitGenericArguments(CSharpWriter csWriter)
+        {
+            foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
+            {
+                var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
+                var metadataName = NameProvider.GetMetadataName(csTypeParamName);
+                var payloadName = NameProvider.GetPayloadName(argument.Name);
+
+                var text = $$"""
+                Span<byte> {{payloadName}}Span = stackalloc byte[(int){{metadataName}}.Size];
+                {{payloadName}} = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference({{payloadName}}Span));
+                SwiftMarshal.MarshalToSwift({{argument.Name}}, ref {{payloadName}}Span);
+                """;
+                csWriter.WriteLines(text);
+            }
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// After a P/Invoke call, writes back modified generic inout payloads to the caller's ref parameters.
+        /// Without this, mutations made by Swift to ref generic parameters would be lost.
+        /// </summary>
+        private void EmitGenericInoutWriteback(CSharpWriter csWriter)
+        {
+            foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric && a.IsInOut))
+            {
+                var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
+                var payloadName = NameProvider.GetPayloadName(argument.Name);
+
+                csWriter.WriteLine($"// Write back modified inout generic parameter");
+                csWriter.WriteLine($"{argument.Name} = SwiftMarshal.MarshalFromSwift<{csTypeParamName}>({payloadName});");
+            }
+        }
+
+        private void EmitProtocolWitnessTables(CSharpWriter csWriter)
+        {
+            foreach (var genericParameter in _env.MethodDecl.GenericParameters)
+            {
+                var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
+                var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);
+                foreach (var conformance in conformances)
+                {
+                    // Skip unknown protocols and protocols with associated types
+                    // (protocols with associated types generate generic interfaces which can't be used here)
+                    if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget))
+                        continue;
+
+                    var pwtName = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ConformanceTarget.Name);
+                    var protocolName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name);
+                    csWriter.WriteLine($"var {pwtName} = ProtocolWitnessTable.GetOrThrow<{csTypeParamName}, {protocolName}>();");
+                }
+            }
+            csWriter.WriteLine();
+        }
+    }
+}
