@@ -262,3 +262,25 @@ When documenting a new major issue, include:
 7. **Workarounds** - How to avoid the issue
 8. **Long-Term Fix** - What would properly resolve it
 9. **Related Files** - Where the workarounds live
+
+---
+
+## Upstream Bug Report Status
+
+**Date**: February 2026
+**Draft location**: `src/docs/upstream-bug-reports-draft.md`
+
+Three Mono runtime issues have been documented with minimal reproduction cases, ready to file on [dotnet/runtime](https://github.com/dotnet/runtime). No existing reports were found for any of these (searched Feb 2026).
+
+| # | Issue | Filing Strategy | Existing Issue? | Status |
+|---|-------|-----------------|-----------------|--------|
+| 1 | `swift_getExistentialTypeMetadata` JIT assertion crash | **Bug report** — clear-cut JIT defect with assertion failure | None found | Draft ready |
+| 2 | Non-blittable types rejected with `CallConvSwift` | **Feature request** — likely intentional scope limitation, not a bug | None found | Draft ready |
+| 3 | SafeHandle not preserved across async P/Invoke | **Comment on tracking issue** — unclear if this is a supported scenario | None found | Draft ready |
+
+**Related dotnet/runtime tracking issues**:
+- [#93631](https://github.com/dotnet/runtime/issues/93631) — Runtime support for Swift Interop in .NET 9
+- [#108662](https://github.com/dotnet/runtime/issues/108662) — Runtime support for Swift Interop in .NET 10
+- [#64215](https://github.com/dotnet/runtime/issues/64215) — Introduce `CallConvSwift`
+
+**Next step**: File after swift-bindings repo is public (so issues can link to concrete repro code). Re-review drafts against current repo state and re-search dotnet/runtime for duplicates before submitting.
