@@ -235,6 +235,84 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
     [Fact] public void ArrayTestBool() => PrimitiveArrayTest<bool>(true, false, true);
 
     [Fact]
+    public void ToArray_Empty_ReturnsEmptyArray()
+    {
+        var array = new SwiftArray<int>();
+        var result = array.ToArray();
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ToArray_PreservesOrderAndValues()
+    {
+        var array = new SwiftArray<int>();
+        array.Append(10);
+        array.Append(20);
+        array.Append(30);
+        Assert.Equal(new[] { 10, 20, 30 }, array.ToArray());
+    }
+
+    [Fact]
+    public void ToList_Empty_ReturnsEmptyList()
+    {
+        var array = new SwiftArray<int>();
+        var result = array.ToList();
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ToList_PreservesOrderAndValues()
+    {
+        var array = new SwiftArray<int>();
+        array.Append(5);
+        array.Append(15);
+        array.Append(25);
+        Assert.Equal(new List<int> { 5, 15, 25 }, array.ToList());
+    }
+
+    [Fact]
+    public void ToString_Empty_ReturnsFormattedString()
+    {
+        var array = new SwiftArray<int>();
+        Assert.Equal("SwiftArray<Int32>[0]", array.ToString());
+    }
+
+    [Fact]
+    public void ToString_NonEmpty_ReturnsFormattedString()
+    {
+        var array = new SwiftArray<int>();
+        array.Append(1);
+        array.Append(2);
+        Assert.Equal("SwiftArray<Int32>[2]", array.ToString());
+    }
+
+    [Fact]
+    public void ToArray_WithSwiftString_PreservesValues()
+    {
+        var array = new SwiftArray<SwiftString>();
+        array.Append(new SwiftString("Hello"));
+        array.Append(new SwiftString("World"));
+
+        var result = array.ToArray();
+        Assert.Equal(2, result.Length);
+        Assert.Equal("Hello", result[0].ToString());
+        Assert.Equal("World", result[1].ToString());
+    }
+
+    [Fact]
+    public void ToList_WithSwiftString_PreservesValues()
+    {
+        var array = new SwiftArray<SwiftString>();
+        array.Append(new SwiftString("Foo"));
+        array.Append(new SwiftString("Bar"));
+
+        var result = array.ToList();
+        Assert.Equal(2, result.Count);
+        Assert.Equal("Foo", result[0].ToString());
+        Assert.Equal("Bar", result[1].ToString());
+    }
+
+    [Fact]
     public void ArrayTestString()
     {
         var value1 = new SwiftString("Hello");

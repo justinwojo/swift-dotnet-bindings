@@ -216,32 +216,39 @@ Phase A (file split) is complete — all files <= 800 LOC. Phase B extracts true
 
 ---
 
-## 14. .NET Convenience Methods on Swift Runtime Types
+## 14. .NET Convenience Methods on Swift Runtime Types ✅
 
 **Priority**: P3
 **Area**: Runtime (DX)
+**Status**: Complete
 
 C# developers encounter unfamiliar types (`SwiftArray<T>`, `SwiftString`, `SwiftOptional<T>`). Adding .NET-idiomatic convenience methods preserves zero-copy performance while improving developer experience.
 
-**Target files**:
-- `src/Swift.Runtime/src/Swift/SwiftArray.cs`
-- `src/Swift.Runtime/src/Swift/SwiftString.cs`
+**What was implemented**:
 
-**What's needed**:
-```csharp
-// SwiftArray<T>
-public List<T> ToList() => new List<T>(this);
-public T[] ToArray() => AsSpan().ToArray();
+`SwiftArray<T>` (`src/Swift.Runtime/src/Swift/SwiftArray.cs`):
+- `ToArray()` — copies elements to a new .NET array using indexer
+- `ToList()` — copies elements to a new `List<Element>` using indexer
+- `ToString()` — returns `"SwiftArray<ElementType>[Count]"`
+- Fixed native memory leak in indexer getter — `NativeMemory.Alloc` buffer was never freed after `MarshalFromSwift` copied data out; added try/finally with `NativeMemory.Free`
 
-// SwiftString
-public static implicit operator string(SwiftString s) => s.ToString();
-public override string ToString() => Encoding.UTF8.GetString(Utf8Span);
-```
+`SwiftString` (`src/Swift.Runtime/src/Swift/SwiftString.cs`) — already had all needed methods:
+- `ToString()` (line 141)
+- `implicit operator string` (line 207)
+- `implicit operator SwiftString` (line 197)
+
+No changes needed to SwiftString.
+
+Tests (`src/Swift.Runtime/tests/LibraryTests/SwiftArrayTests.cs`):
+- 9 new tests covering `ToArray()`, `ToList()`, `ToString()` for empty/non-empty arrays and SwiftString element type
 
 **Acceptance criteria**:
-- [ ] `SwiftArray<T>` has `ToList()` and `ToArray()` convenience methods
-- [ ] `SwiftString` has implicit conversion to `string`
-- [ ] Zero-copy paths (`AsSpan()`, `Utf8Span`) remain unchanged
+- [x] `SwiftArray<T>` has `ToList()` and `ToArray()` convenience methods
+- [x] `SwiftArray<T>` has `ToString()` override
+- [x] `SwiftArray<T>` indexer getter frees temporary native buffer
+- [x] New convenience methods have test coverage
+- [x] `SwiftString` has implicit conversion to `string` (already existed)
+- [x] `SwiftString` has `ToString()` override (already existed)
 
 ---
 
