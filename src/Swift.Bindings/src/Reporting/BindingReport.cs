@@ -21,6 +21,7 @@ public sealed class BindingReport
     public int SynthesizedMembers { get; set; }
 
     public List<SkippedItem> SkippedItems { get; } = new();
+    public List<WrappedItem> WrappedItems { get; } = new();
 }
 
 /// <summary>
@@ -65,5 +66,19 @@ public sealed class SkippedItem
     public required string Name { get; init; }
     public string? ContainingType { get; init; }
     public required SkipReason Reason { get; init; }
+    public string? Details { get; init; }
+    public string? RecommendedWorkaround { get; init; }
+}
+
+/// <summary>
+/// A member that was auto-wrapped with a generated Swift wrapper + C# factory.
+/// </summary>
+public sealed class WrappedItem
+{
+    public required BindingItemKind Kind { get; init; }
+    public required string Name { get; init; }
+    public string? MangledName { get; init; }
+    public string? ContainingType { get; init; }
+    public required string WrapperKind { get; init; }
     public string? Details { get; init; }
 }

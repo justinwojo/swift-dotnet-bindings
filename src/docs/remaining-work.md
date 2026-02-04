@@ -4,6 +4,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 
 **Date**: February 2026
 **Starting Point**: Phase 48 complete, 1107 unit tests, TestFramework v2.0 (67 files, 145 features)
+**Current**: Phase 51 complete, 1151 unit tests, 93/93 must-pass features
 
 ---
 
@@ -21,9 +22,9 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | 8 | Validation | BlinkID runtime validation test app | Compiles but never runtime tested | P3 |
 | ~~9~~ | ~~Runtime~~ | ~~Add finalizer safety net to `SwiftSafeHandle`~~ | ~~Memory leaks if users forget `Dispose()`~~ | ~~Done (Phase 45)~~ |
 | ~~10~~ | ~~Generator~~ | ~~Protocol runtime completion (remove `NotImplementedException` stubs)~~ | ~~Blocks real protocol usage from C#~~ | ~~Done (Phase 47)~~ |
-| 11 | Generator | Wrapper automation for known-problematic patterns | Manual per-library patches don't scale | P2 |
+| ~~11~~ | ~~Generator~~ | ~~Wrapper automation for known-problematic patterns~~ | ~~Manual per-library patches don't scale~~ | ~~Done (Phase 51)~~ |
 | 12 | Generator | Emitter decomposition — split MethodHandler (Phase A done, Phase B pending) | Blocks maintainability and onboarding | P2 |
-| 13 | Generator | Improve binding report with workaround recommendations | Consumers don't know what to do about gaps | P2 |
+| ~~13~~ | ~~Generator~~ | ~~Improve binding report with workaround recommendations~~ | ~~Consumers don't know what to do about gaps~~ | ~~Done (Phase 51)~~ |
 | 14 | Runtime | .NET convenience methods on Swift runtime types | DX friction with unfamiliar Swift types | P3 |
 | 15 | Testing | Deeper protocol runtime tests | Protocol tests are compile checks, not runtime behavior | P3 |
 | 16 | Infrastructure | Upstream .NET runtime bug reports with minimal repros | Mono JIT bugs block existentials/async | P3 |
@@ -38,7 +39,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 Items aren't tackled linearly by number. The agreed sequence prioritizes the fastest coverage win, then long-term leverage:
 
 1. ~~**Item 4** — Existential in bound generic (narrow fix, 92→93/93)~~ ✅ Done
-2. **Items 11 + 13** — Wrapper automation + binding report guidance (removes recurring manual work)
+2. ~~**Items 11 + 13** — Wrapper automation + binding report guidance (removes recurring manual work)~~ ✅ Done
 3. **Item 19** — Protocol witness table dispatch (makes existentials functionally useful)
 4. **Item 16** — Upstream Mono bug reports (in parallel as infra hygiene)
 
@@ -155,28 +156,27 @@ All `TODO` comments removed. XML documentation on the existential container cons
 
 ---
 
-## 11. Wrapper Automation for Known-Problematic Patterns
+## 11. ~~Wrapper Automation for Known-Problematic Patterns~~ ✅ Done (Phase 51)
 
-**Priority**: P2 — architecture review top-4 blocker
-**Area**: Generator (emitter)
-**Source**: Comprehensive architecture review (external AI consensus)
+First-cut automation for existential-in-bound-generic constructors via `ExistentialBypassEmitter`. When a struct constructor has bound generic params containing existential type arguments and all such params have `HasDefaultArg == true`, the generator auto-emits:
 
-The Swift wrapper fallback pattern (C# → P/Invoke → Swift wrapper → Swift dylib) is validated and endorsed, but it's applied manually per-library. The generator should detect patterns known to fail at runtime and automatically emit Swift wrappers.
+1. **Swift wrapper**: `@_silgen_name` function that omits existential params (Swift fills defaults), heap-allocates the result, and returns `UnsafeMutableRawPointer`. Companion free function for cleanup.
+2. **C# factory**: Static `Create_{hash}` method with try/finally cleanup, P/Invoke declarations (inline or via `PInvokeHelperContext` for generic types), frozen/non-frozen copy strategies.
+3. **Binding report**: `WrappedItems` list with `WrapperKind`, `MangledName` (for overload disambiguation), and details.
 
-**Known-problematic patterns**:
-- Existential types in arrays (`[any Protocol]`)
-- Async methods with SafeHandle return types
-- `swift_getExistentialTypeMetadata` crashes (Mono JIT bug)
+**Safety gates** (return false → falls back to skip):
+- Parent must be a StructDecl; failable/throwing constructors rejected
+- All existential params must have `HasDefaultArg == true`
+- Passthrough params with `IsGeneric == true` rejected (no GenericTypeMapping for reduced method)
+- Reduced signature must have no placeholders
+- Wrapper and P/Invoke parameter signatures must match exactly (rejects types needing marshalling setup: SafeHandle, idiomatic conversions, indirect results)
 
-**What's needed**:
-1. Generator detects problematic patterns during marshalling
-2. Automatically emits Swift wrapper functions + corresponding C# P/Invoke
-3. Binding report documents: "Uses wrapper due to runtime limitation"
+**Scope limitation**: Handles constructors only, existential-in-bound-generic pattern only. Async SafeHandle and non-blittable CallConvSwift patterns are deferred.
 
-**Acceptance criteria**:
-- [ ] Generator auto-generates Swift wrappers for at least one known-problematic pattern
-- [ ] Binding report includes wrapper usage annotation
-- [ ] No manual per-library wrapper patches needed for detected patterns
+**Acceptance criteria** (all met):
+- [x] Generator auto-generates Swift wrappers for existential-in-bound-generic constructors
+- [x] Binding report includes `WrappedItems` annotation with wrapper kind and mangled name
+- [x] 1151 unit tests pass (20 new ExistentialBypassEmitter tests)
 
 ---
 
@@ -222,23 +222,20 @@ Phase A is a prerequisite: the code must be navigable before it can be restructu
 
 ---
 
-## 13. Improve Binding Report with Workaround Recommendations
+## 13. ~~Improve Binding Report with Workaround Recommendations~~ ✅ Done (Phase 51)
 
-**Priority**: P2
-**Area**: Generator (reporting)
-**Source**: Comprehensive architecture review
+Added `RecommendedWorkaround` field to `SkippedItem` in the binding report data model. `WorkaroundRecommendations.GetRecommendation(SkipReason)` maps all 14 skip reasons to actionable guidance text. Wired into both `RecordTypeSkipped` and `RecordMemberSkipped` in `ReportCollector`. JSON serialization picks it up automatically.
 
-When the binding report lists skipped items, consumers have no guidance on what to do. Adding a "recommended workaround" field would help adopters understand their options.
+**Files**:
+- `BindingReport.cs` — added `RecommendedWorkaround` property to `SkippedItem`
+- `WorkaroundRecommendations.cs` — static mapping for all 14 `SkipReason` values
+- `ReportCollector.cs` — populates workaround on skip recording
+- `ReportEmitter.cs` — wrapper count in console summary
 
-**Target file**: Binding report emission in the generator output (`binding-report.json`)
-
-**What's needed**:
-1. Add `recommendedWorkaround` field to skipped items in `binding-report.json`
-2. Map common skip reasons to workarounds (e.g., `UnsupportedExistential` → "Use Swift wrapper function", `AnyTypeFallback` → "Use concrete bound generic instead")
-
-**Acceptance criteria**:
-- [ ] `binding-report.json` includes workaround guidance for skipped items
-- [ ] At least the top 5 skip reasons have mapped workarounds
+**Acceptance criteria** (all met):
+- [x] `binding-report.json` includes workaround guidance for all skipped items
+- [x] All 14 skip reasons have mapped workarounds
+- [x] 4 new WorkaroundRecommendationsTests + 6 new ReportCollectorTests
 
 ---
 

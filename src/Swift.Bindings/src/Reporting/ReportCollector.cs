@@ -106,6 +106,7 @@ public static class ReportCollector
                 ContainingType = typeDecl.ParentDecl is TypeDecl parentType ? parentType.SwiftTypeName.ModuleQualifiedName : null,
                 Reason = reason,
                 Details = details,
+                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
             });
         }
     }
@@ -148,6 +149,37 @@ public static class ReportCollector
                 Name = name,
                 ContainingType = GetContainingTypeName(containingDecl),
                 Reason = reason,
+                Details = details,
+                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
+            });
+        }
+    }
+
+    public static void RecordMemberWrapped(
+        BindingItemKind kind, string name, string? mangledName,
+        BaseDecl? containingDecl, string wrapperKind, string? details = null)
+    {
+        if (!SessionActive.Value || _report == null)
+            return;
+
+        lock (Sync)
+        {
+            if (_report == null)
+                return;
+
+            // Use mangled name in key to distinguish overloaded init methods
+            var key = mangledName != null
+                ? $"{kind}:{GetContainingTypeName(containingDecl)}:{name}:{mangledName}"
+                : GetMemberKey(kind, name, containingDecl);
+            EmittedMemberKeys.Add(key);
+
+            _report.WrappedItems.Add(new WrappedItem
+            {
+                Kind = kind,
+                Name = name,
+                MangledName = mangledName,
+                ContainingType = GetContainingTypeName(containingDecl),
+                WrapperKind = wrapperKind,
                 Details = details,
             });
         }

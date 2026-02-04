@@ -95,6 +95,9 @@ namespace BindingsGeneration
 
             var isAccessor = methodEnv.MethodDecl.IsAccessor;
 
+            bool hasExistentialArg = false;
+            string? firstExistentialType = null;
+
             foreach (var argument in methodEnv.MethodDecl.CSSignature)
             {
                 if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
@@ -116,15 +119,35 @@ namespace BindingsGeneration
 
                 if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
                 {
-                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{existentialType}'.");
-                    ReportCollector.RecordMemberSkipped(
+                    hasExistentialArg = true;
+                    firstExistentialType ??= existentialType;
+                }
+            }
+
+            if (hasExistentialArg)
+            {
+                // Try to generate a bypass wrapper instead of skipping
+                if (ExistentialBypassEmitter.TryEmitConstructorBypass(csWriter, swiftWriter, methodEnv, _logger))
+                {
+                    ReportCollector.RecordMemberWrapped(
                         BindingItemKind.Method,
                         methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.MangledName,
                         methodEnv.MethodDecl.ParentDecl,
-                        SkipReason.UnsupportedExistential,
-                        $"Constructor bound generic contains existential type argument '{existentialType}'.");
+                        "ExistentialBypass",
+                        $"Existential parameter(s) omitted; Swift defaults used.");
                     return;
                 }
+
+                // Fallback: skip as before
+                _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{firstExistentialType}'.");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.ParentDecl,
+                    SkipReason.UnsupportedExistential,
+                    $"Constructor bound generic contains existential type argument '{firstExistentialType}'.");
+                return;
             }
 
             // C# does not support generic constructors. If the constructor has method-own

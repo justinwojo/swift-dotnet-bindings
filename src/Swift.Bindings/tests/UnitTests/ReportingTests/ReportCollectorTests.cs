@@ -67,6 +67,129 @@ public class ReportCollectorTests
     }
 
     [Fact]
+    public void RecordMemberSkipped_PopulatesRecommendedWorkaround()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, "Fetch", classDecl, SkipReason.UnsupportedExistential, "test");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Single(report.SkippedItems);
+        Assert.NotNull(report.SkippedItems[0].RecommendedWorkaround);
+        Assert.Contains("Swift wrapper", report.SkippedItems[0].RecommendedWorkaround);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberWrapped_IncrementsEmittedCountAndPopulatesWrappedItems()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberWrapped(
+            BindingItemKind.Method, "init", "$s10TestModule6LoaderCACycfc",
+            classDecl, "ExistentialBypass", "Existential parameter(s) omitted.");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(1, report.EmittedMembers);
+        Assert.Single(report.WrappedItems);
+        Assert.Equal("init", report.WrappedItems[0].Name);
+        Assert.Equal("$s10TestModule6LoaderCACycfc", report.WrappedItems[0].MangledName);
+        Assert.Equal("ExistentialBypass", report.WrappedItems[0].WrapperKind);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberWrapped_OverloadedInits_GetDistinctEntries()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberWrapped(
+            BindingItemKind.Method, "init", "$s10TestModule6LoaderCACycfc",
+            classDecl, "ExistentialBypass");
+        ReportCollector.RecordMemberWrapped(
+            BindingItemKind.Method, "init", "$s10TestModule6LoaderCACSi_tcfc",
+            classDecl, "ExistentialBypass");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(2, report.EmittedMembers);
+        Assert.Equal(2, report.WrappedItems.Count);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void ReportEmitter_WritesJsonWithRecommendedWorkaround()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, "Fetch", classDecl, SkipReason.AsyncProperty, "test");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"swift-bindings-report-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+
+        try
+        {
+            ReportEmitter.Emit(report, outputDir, NullLogger.Instance);
+            var text = File.ReadAllText(Path.Combine(outputDir, "binding-report.json"));
+            Assert.Contains("RecommendedWorkaround", text);
+            Assert.Contains("async method", text);
+        }
+        finally
+        {
+            Directory.Delete(outputDir, true);
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ReportEmitter_WritesJsonWithWrappedItems()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberWrapped(
+            BindingItemKind.Method, "init", "$s10TestModule6LoaderCACycfc",
+            classDecl, "ExistentialBypass", "details");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"swift-bindings-report-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+
+        try
+        {
+            ReportEmitter.Emit(report, outputDir, NullLogger.Instance);
+            var text = File.ReadAllText(Path.Combine(outputDir, "binding-report.json"));
+            Assert.Contains("WrappedItems", text);
+            Assert.Contains("ExistentialBypass", text);
+            Assert.Contains("MangledName", text);
+        }
+        finally
+        {
+            Directory.Delete(outputDir, true);
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
     public void RecordMemberSynthesized_IncrementsSynthesizedCountOnly()
     {
         var moduleDecl = CreateModuleDecl();

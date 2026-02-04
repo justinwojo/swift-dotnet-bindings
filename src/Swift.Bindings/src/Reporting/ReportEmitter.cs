@@ -35,6 +35,11 @@ public static class ReportEmitter
         logger.LogInformation("Members: {Emitted} emitted, {Skipped} skipped, {Synthesized} synthesized ({Coverage:P1} coverage)",
             report.EmittedMembers, report.SkippedMembers, report.SynthesizedMembers, memberCoverage);
 
+        if (report.WrappedItems.Count > 0)
+        {
+            logger.LogInformation("Wrapped items: {Count} (Swift wrappers auto-generated)", report.WrappedItems.Count);
+        }
+
         if (report.SkippedItems.Count > 0)
         {
             logger.LogInformation("Skipped items by reason:");
