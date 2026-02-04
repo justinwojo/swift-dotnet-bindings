@@ -724,6 +724,21 @@ namespace BindingsGeneration
             // for this accessor's mangled name. The ABI JSON doesn't mark accessors as async directly.
             var isAsync = _demangledTbd.AllSymbols.Contains(accessor.MangledName + "Tu");
 
+            // Build generic parameters for the accessor method.
+            // If the accessor has its own GenericSig, parse it. Otherwise, if the parent type is generic,
+            // copy the type's generic parameters so the accessor method has the correct generic context.
+            var genericParameters = new List<GenericArgumentDecl>();
+            if (!string.IsNullOrEmpty(accessor.GenericSig))
+            {
+                genericParameters = GenericSignatureParser.ParseGenericSignature(accessor.GenericSig, accessor.sugared_genericSig);
+            }
+            else if (parentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
+            {
+                genericParameters = new List<GenericArgumentDecl>(typeDecl.GenericParameters);
+            }
+
+            var returnTypeSpec = CreateTypeSpec(accessor.Children.ElementAt(0));
+
             var methodDecl = new MethodDecl
             {
                 Name = $"{fieldName}_Get",
@@ -734,16 +749,16 @@ namespace BindingsGeneration
                 {
                     new ArgumentDecl
                     {
-                        SwiftTypeSpec = CreateTypeSpec(accessor.Children.ElementAt(0)),
+                        SwiftTypeSpec = returnTypeSpec,
                         Name = string.Empty,
                         PrivateName = string.Empty,
                         IsInOut = false,
-                        IsGeneric = false,
+                        IsGeneric = TypeSpecHelpers.IsGenericTypeParameter(returnTypeSpec),
                         ParentDecl = parentDecl,
                         ModuleDecl = moduleDecl
                     }
                 },
-                GenericParameters = new List<GenericArgumentDecl>(),
+                GenericParameters = genericParameters,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = false,
@@ -756,9 +771,22 @@ namespace BindingsGeneration
 
         private SetAccessorDecl CreateSetAccessor(Node accessor, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
+            // Build generic parameters for the accessor method (same logic as CreateGetAccessor).
+            var genericParameters = new List<GenericArgumentDecl>();
+            if (!string.IsNullOrEmpty(accessor.GenericSig))
+            {
+                genericParameters = GenericSignatureParser.ParseGenericSignature(accessor.GenericSig, accessor.sugared_genericSig);
+            }
+            else if (parentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
+            {
+                genericParameters = new List<GenericArgumentDecl>(typeDecl.GenericParameters);
+            }
+
             // The setter has two children:
             // - Index 0: Void (return type)
             // - Index 1: The parameter type (value to set)
+            var valueTypeSpec = CreateTypeSpec(accessor.Children.ElementAt(1));
+
             var methodDecl = new MethodDecl
             {
                 Name = $"{fieldName}_Set",
@@ -781,16 +809,16 @@ namespace BindingsGeneration
                     // Parameter (value) - at index 1, after the void return type
                     new ArgumentDecl
                     {
-                        SwiftTypeSpec = CreateTypeSpec(accessor.Children.ElementAt(1)),
+                        SwiftTypeSpec = valueTypeSpec,
                         Name = "value",
                         PrivateName = string.Empty,
                         IsInOut = false,
-                        IsGeneric = false,
+                        IsGeneric = TypeSpecHelpers.IsGenericTypeParameter(valueTypeSpec),
                         ParentDecl = parentDecl,
                         ModuleDecl = moduleDecl
                     }
                 },
-                GenericParameters = new List<GenericArgumentDecl>(),
+                GenericParameters = genericParameters,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = false,

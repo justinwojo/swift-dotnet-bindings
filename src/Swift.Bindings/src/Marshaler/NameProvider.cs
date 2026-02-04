@@ -12,6 +12,83 @@ namespace BindingsGeneration;
 public record struct GenericParameterCSName(string TypeParameter);
 
 /// <summary>
+/// Provides a merged generic context combining type-level and method-level generic parameters.
+/// This avoids C# name collisions when a method inside a generic type also has its own generic params.
+/// Swift uses depth-indexed names (τ_0_0 = type-level, τ_1_0 = method-level) so dictionary keys don't collide,
+/// but without an offset the C# output names would both be T0.
+/// </summary>
+public sealed class GenericContext
+{
+    public Dictionary<string, GenericParameterCSName> Mapping { get; }
+
+    public GenericContext(Dictionary<string, GenericParameterCSName> mapping)
+    {
+        Mapping = mapping;
+    }
+
+    public static GenericContext Empty { get; } = new(new());
+
+    /// <summary>
+    /// Build from a method (uses method's own GenericParameters).
+    /// </summary>
+    public static GenericContext FromMethod(MethodDecl methodDecl) =>
+        new(NameProvider.GetGenericTypeMapping(methodDecl));
+
+    /// <summary>
+    /// Build from a type (uses type's GenericParameters).
+    /// </summary>
+    public static GenericContext FromType(TypeDecl typeDecl) =>
+        new(NameProvider.GetGenericTypeMappingForType(typeDecl));
+
+    /// <summary>
+    /// Build merged context: type params + method params with offset C# names.
+    /// Type params get T0, T1, ...; method-only params continue at T{N}, T{N+1}, ...
+    /// Method params that duplicate type params (e.g., when parser copies type params to accessor methods)
+    /// are skipped — the type-level mapping takes precedence.
+    /// </summary>
+    public static GenericContext FromMethodInType(MethodDecl methodDecl, TypeDecl? typeDecl)
+    {
+        var merged = new Dictionary<string, GenericParameterCSName>();
+        int offset = 0;
+        if (typeDecl?.IsGeneric == true)
+        {
+            foreach (var kvp in NameProvider.GetGenericTypeMappingForType(typeDecl))
+                merged[kvp.Key] = kvp.Value;
+            offset = typeDecl.GenericParameters.Count;
+        }
+        // Only add method params that are genuinely method-level (not duplicates of type params).
+        // The parser copies type generic params to accessor methods, so we must skip those
+        // to avoid overwriting τ_0_0 → T0 with τ_0_0 → T1.
+        int methodOnlyIndex = 0;
+        foreach (var param in methodDecl.GenericParameters)
+        {
+            if (!merged.ContainsKey(param.TypeName))
+            {
+                merged[param.TypeName] = new GenericParameterCSName(TypeParameter: $"T{offset + methodOnlyIndex}");
+                methodOnlyIndex++;
+            }
+        }
+        return new(merged);
+    }
+
+    /// <summary>
+    /// Tries to resolve a Swift generic parameter name to its C# type name.
+    /// </summary>
+    public bool TryResolve(string swiftParamName, out string csTypeName)
+    {
+        if (Mapping.TryGetValue(swiftParamName, out var csName))
+        {
+            csTypeName = csName.TypeParameter;
+            return true;
+        }
+        csTypeName = "";
+        return false;
+    }
+
+    public bool IsEmpty => Mapping.Count == 0;
+}
+
+/// <summary>
 /// Provides methods for generating names.
 /// <summary>
 ///

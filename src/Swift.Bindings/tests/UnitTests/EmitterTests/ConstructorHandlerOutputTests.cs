@@ -13,8 +13,10 @@ namespace BindingsGeneration.Tests;
 public class ConstructorHandlerOutputTests
 {
     [Fact]
-    public void Emit_GenericConstructor_EmitsGenericSignatureAndConstraint()
+    public void Emit_GenericConstructor_SkippedBecauseCSharpDoesNotSupportGenericConstructors()
     {
+        // C# does not allow generic constructors. A Swift init<T: Loadable>() on a
+        // non-generic type has method-own generic params that can't be represented.
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.Loadable", TypeRecordFlags.None);
 
@@ -31,8 +33,8 @@ public class ConstructorHandlerOutputTests
 
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Contains("public unsafe Point<T0>()", csOutput);
-        Assert.Contains("where T0 : ISwiftObject, ISwiftLoadable", csOutput);
+        // Constructor is skipped — no output emitted
+        Assert.Equal(string.Empty, csOutput);
     }
 
     [Fact]

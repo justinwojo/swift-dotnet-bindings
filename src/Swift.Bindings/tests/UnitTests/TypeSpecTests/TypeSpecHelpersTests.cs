@@ -44,9 +44,11 @@ public class TypeSpecHelpersTests
     [InlineData("Result")]
     [InlineData("Failure")]
     [InlineData("Success")]
-    public void IsGenericTypeParameter_CommonNamedParams_ReturnsTrue(string typeName)
+    public void IsGenericTypeParameter_CommonNamedTypes_ReturnsFalse(string typeName)
     {
-        Assert.True(TypeSpecHelpers.IsGenericTypeParameter(typeName));
+        // These names can be concrete Swift types, not just generic parameters.
+        // Swift ABI JSON always uses τ_X_Y notation for actual generic type parameters.
+        Assert.False(TypeSpecHelpers.IsGenericTypeParameter(typeName));
     }
 
     [Theory]

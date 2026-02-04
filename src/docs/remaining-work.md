@@ -34,37 +34,37 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 
 ---
 
-## 1. Unbound Generic Type Parameters
+## 1. Generic Tuple Return Marshalling
 
-**Priority**: P1 — fixes 4 degraded features, 12 skipped members
-**Area**: Generator (marshaler/emitter)
+**Priority**: P2 — 1 remaining degraded feature (`generic_function`)
+**Area**: Generator (emitter return marshalling)
+**Status**: Intentionally deferred (Phase 46)
 
-Generic structs, classes, and functions with unbound type parameters have their properties and methods skipped. The marshaler resolves generic type parameters to `Swift.AnyType` and the emitter rejects them as `AnyTypeFallback` or `UnsupportedSignature`.
+`pair<T, U>(x: T, y: U) -> (T, U)` is correctly skipped with `UnsupportedSignature`. The wrapper signature resolves to `(T0, T1)` but the P/Invoke returns `ValueTuple<IntPtr, IntPtr>`. Returning the raw P/Invoke result would be a type mismatch — per-element marshalling from `IntPtr` back to generic `T0`/`T1` is needed but not yet implemented.
 
-**Affected features**:
+**What was fixed in Phase 46** (3 of 4 originally degraded features now pass):
+- [x] `generic_struct` — `Wrapper<T>`, `GenericPair<T, U>` properties, constructors, methods
+- [x] `generic_class` — `GenericClass<T>` property, constructor
+- [x] `where_clause` — `ConstrainedBox<T>` property, constructor
 
-| Feature | File | Skipped Members |
-|---------|------|-----------------|
-| `generic_function` | `Generics/Functions.swift` | `pair` (returns generic tuple) |
-| `generic_struct` | `Generics/Types.swift` | `Wrapper.wrapped`, `Wrapper.init`, `GenericPair.first`, `.second`, `.init`, `.swapped` |
-| `generic_class` | `Generics/Types.swift` | `GenericClass.value`, `GenericClass.init` |
-| `where_clause` | `Generics/Constraints.swift` | `ConstrainedBox.item`, `ConstrainedBox.init` |
+**What remains**:
 
-**Skip reasons**:
-- `AnyTypeFallback` — property type resolved to `AnyType` (no C# mapping)
-- `UnsupportedSignature` — constructor/method contains unresolved placeholder type
+| Feature | File | Skipped Member | Reason |
+|---------|------|----------------|--------|
+| `generic_function` | `Generics/Functions.swift` | `pair` | Returns `(T, U)` — generic tuple return marshalling not implemented |
 
-**Investigation areas**:
-- `src/Swift.Bindings/src/Marshaler/Conductor.cs` — generic type parameter resolution
-- `src/Swift.Bindings/src/TypeDatabase/TypeDatabase.cs` — whether unbound params are registered
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` — `AnyTypeFallback` rejection
-- Compare with **bound** generics (e.g., `BoundIntPair`) which work because the type parameter is concretized
+**Why this is intentionally deferred**: Implementing generic tuple return marshalling requires indirect result allocation with per-element TypeMetadata-based size/alignment computation and `SwiftMarshal.MarshalFromSwift<T>` extraction at computed offsets. This is ABI-sensitive layout math that should be done in a targeted follow-up with its own tests. Skipping produces correct behavior (the member is marked `[UnsupportedSwiftType]`); the previous emit produced code that would not compile.
+
+**Implementation path** (when ready):
+1. `MarshallingHelpers.MethodRequiresIndirectResult` — return `true` for tuples with generic elements
+2. Allocate buffer sized by summing element `TypeMetadata.Size` with alignment padding
+3. Pass as `SwiftIndirectResult` to P/Invoke
+4. Extract elements at computed offsets: `SwiftMarshal.MarshalFromSwift<Ti>(ptr + offset_i)`
+5. Return `(elem0, elem1)` tuple
 
 **Acceptance criteria**:
-- [ ] `Wrapper<T>`, `GenericPair<T, U>`, `GenericClass<T>`, `ConstrainedBox<T>` emit properties and constructors
-- [ ] `pair<T>()` function emits
-- [ ] Coverage report: all 4 features show `passing`
-- [ ] Existing unit tests still pass
+- [ ] `pair<T, U>()` emits with correct return marshalling
+- [ ] Coverage report: `generic_function` shows `passing`
 
 ---
 

@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 45 Complete)
-**Unit Tests**: 1078 passed
+**Last Updated**: February 2026 (Phase 46 Complete)
+**Unit Tests**: 1099 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
 ---
@@ -33,7 +33,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - ✅ Structs (frozen and non-frozen)
 - ✅ Enums (with associated values, raw representable, runtime enum case construction)
 - ✅ Protocols (interface + proxy generation + conformance emission)
-- ✅ Generics (bound generics, generic enums, generic classes)
+- ✅ Generics (bound generics, generic enums, generic classes, unbound generic type parameters in properties/methods)
 - ✅ Actors (detected via Actor protocol conformance, emitted as classes with actor comment)
 
 ### Members
@@ -87,7 +87,35 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ---
 
-## Recent Completions (Phase 45)
+## Recent Completions (Phase 46)
+
+### Unbound Generic Type Parameter Support
+- Generic type parameters (`τ_0_0`, `τ_0_1`) in properties, methods, and constructors of generic types now resolve correctly
+- `GenericContext` helper merges type-level + method-level generic mappings with offset C# names to avoid collisions
+- Parser propagates parent type's generic parameters to property accessor methods (getter/setter)
+- `PropertyHandler` resolves generic type param properties (e.g., `Wrapper<T>.wrapped` → `T0`)
+- `BoundGenericsHandler` accepts explicit `GenericContext` for resolving args like `Optional<τ_0_0>` → `SwiftOptional<T0>`
+- `TupleHandler` supports generic type parameter elements when context available
+- All signature builders thread `GenericContext` through bound generic and tuple translation
+- TestFramework: 91/93 must-pass features (up from 88/93), 672/747 members emitted (up from 658/747)
+- 3 features fixed: `generic_struct`, `generic_class`, `where_clause`
+- `generic_function`: `pair<T,U>()` correctly skipped — generic tuple return marshalling not yet implemented
+- Remaining degraded: `generic_function` (generic tuple returns), `any_protocol_existential` (requires `SwiftArray<ExistentialContainer>`)
+
+### Code Review Fixes
+- Fixed `FromMethodInType` duplicate param handling: parser copies type params to accessor methods, so method params that duplicate type-level params are now skipped (prevents τ_0_0 → T0 being overwritten with T1)
+- Fixed `EmitSignatureMethod` to not emit `<T0>` generic param declarations on accessor methods
+- Fixed `BuildWhereClause` to skip accessor methods (accessors inherit constraints from parent type)
+- Generic tuple returns (`pair<T,U>() -> (T, U)`) explicitly skipped: wrapper would need per-element marshalling from `ValueTuple<IntPtr, IntPtr>` → `(T0, T1)` which requires indirect result + element extraction (deferred)
+- Narrowed `IsGenericTypeParameter` to only match `τ_X_Y` notation, single-letter params, and numbered params (T0, T1) — removed overly broad named matches ("Element", "Key", "Value", "Result", etc.) that could misclassify concrete types
+- Added null safety in `PropertyHandler` for `typeRecord` dereference when type resolution fails
+- Fixed `EmitSignatureMethod` and `EmitSignatureConstructor` to only declare method-own generic params, not type-inherited ones (methods inside generic types were redundantly redeclaring `<T0, T1>`)
+- Made `HasGenericTypeParameterElements` recursive: now catches nested generic params like `(Optional<τ_0_0>, Int)`, not just direct generic param elements
+- Added 21 regression tests for `GenericContext`, `TupleHandler`, and `BoundGenericsHandler` generic behavior
+
+---
+
+## Previous Completions (Phase 45)
 
 ### Swift Pointer Type Support
 - `OpaquePointer`, `UnsafePointer`, `UnsafeMutablePointer`, `UnsafeRawPointer`, `UnsafeMutableRawPointer`, `Builtin.RawPointer` → `System.IntPtr`

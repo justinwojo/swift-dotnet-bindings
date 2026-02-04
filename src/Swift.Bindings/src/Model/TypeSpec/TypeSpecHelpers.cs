@@ -19,23 +19,20 @@ public static class TypeSpecHelpers
     public static bool IsGenericTypeParameter(string typeName)
     {
         // Swift internal generic parameter notation: τ_0_0, τ_0_1, τ_1_0, etc.
+        // This is the canonical form in Swift ABI JSON for generic type parameters.
         if (typeName.StartsWith("τ_"))
             return true;
 
-        // Check for simple generic parameter names (single letters or common names without module qualifier)
-        // These would not have a dot in them and would typically be short
-        if (!typeName.Contains('.') && typeName.Length <= 10)
+        // Check for simple generic parameter names without module qualifier
+        if (!typeName.Contains('.') && typeName.Length <= 3)
         {
-            // Common single-letter generic parameters
+            // Common single-letter generic parameters (T, U, V, etc.)
             if (typeName is "T" or "U" or "V" or "W" or "E" or "K" or "R" or "S")
                 return true;
 
-            // Common named generic parameters
-            if (typeName is "Element" or "Key" or "Value" or "Index" or "Result" or "Failure" or "Success")
-                return true;
-
             // Type parameters often follow naming patterns like T0, T1, T2
-            if (typeName.Length >= 2 && typeName.Length <= 3 &&
+            // These appear in generated C# output names from GenericContext.
+            if (typeName.Length >= 2 &&
                 char.IsUpper(typeName[0]) && typeName.Skip(1).All(char.IsDigit))
                 return true;
         }

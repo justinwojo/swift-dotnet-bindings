@@ -81,10 +81,100 @@ public class TupleHandler
     }
 
     /// <summary>
+    /// Checks whether any element of the tuple contains a generic type parameter,
+    /// either directly (e.g., τ_0_0) or nested inside a bound generic (e.g., Optional&lt;τ_0_0&gt;).
+    /// Tuples with generic elements require special marshalling (indirect result + per-element extraction)
+    /// that is not yet implemented. Use this to gate return-position acceptance.
+    /// </summary>
+    public bool HasGenericTypeParameterElements(TupleTypeSpec tupleTypeSpec) =>
+        tupleTypeSpec.Elements.Any(ContainsGenericTypeParameter);
+
+    /// <summary>
+    /// Recursively checks whether a TypeSpec contains a generic type parameter,
+    /// either directly or nested inside bound generic arguments.
+    /// </summary>
+    private static bool ContainsGenericTypeParameter(TypeSpec typeSpec)
+    {
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec))
+            return true;
+
+        if (typeSpec is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
+            return namedType.GenericParameters.Any(ContainsGenericTypeParameter);
+
+        if (typeSpec is TupleTypeSpec tupleType)
+            return tupleType.Elements.Any(ContainsGenericTypeParameter);
+
+        return false;
+    }
+
+    /// <summary>
+    /// Determines whether the tuple is supported when a generic context is available.
+    /// Generic type parameter elements are allowed when a context can resolve them.
+    /// </summary>
+    public bool IsSupportedTuple(TupleTypeSpec tupleTypeSpec, GenericContext genericContext)
+    {
+        if (tupleTypeSpec.IsEmptyTuple)
+            return false;
+        if (tupleTypeSpec.Elements.Count > MaxSupportedTupleElements)
+            return false;
+        foreach (var element in tupleTypeSpec.Elements)
+        {
+            if (!IsSupportedTupleElementType(element, genericContext))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Translates a Swift tuple type to a C# tuple type string, resolving generic type parameters
+    /// via the provided generic context.
+    /// </summary>
+    public string GetCSharpTupleType(TupleTypeSpec tupleTypeSpec, GenericContext genericContext)
+    {
+        return GetCSharpTupleType(tupleTypeSpec, typeSpec =>
+        {
+            if (typeSpec is NamedTypeSpec namedType &&
+                TypeSpecHelpers.IsGenericTypeParameter(namedType.Name) &&
+                genericContext.TryResolve(namedType.Name, out var csName))
+            {
+                return csName;
+            }
+            return TranslateElementTypeToCSharp(typeSpec);
+        });
+    }
+
+    /// <summary>
+    /// Gets the P/Invoke tuple type, resolving generic type parameters to IntPtr.
+    /// </summary>
+    public string GetPInvokeTupleType(TupleTypeSpec tupleTypeSpec, GenericContext genericContext)
+    {
+        return GetPInvokeTupleType(tupleTypeSpec, typeSpec =>
+        {
+            if (typeSpec is NamedTypeSpec namedType &&
+                TypeSpecHelpers.IsGenericTypeParameter(namedType.Name) &&
+                genericContext.TryResolve(namedType.Name, out _))
+            {
+                return "IntPtr";
+            }
+            return TranslateElementTypeToPInvoke(typeSpec);
+        });
+    }
+
+    /// <summary>
     /// Checks if a type is supported as a tuple element.
     /// </summary>
-    private bool IsSupportedTupleElementType(TypeSpec typeSpec)
+    private bool IsSupportedTupleElementType(TypeSpec typeSpec) =>
+        IsSupportedTupleElementType(typeSpec, GenericContext.Empty);
+
+    /// <summary>
+    /// Checks if a type is supported as a tuple element, with optional generic context.
+    /// </summary>
+    private bool IsSupportedTupleElementType(TypeSpec typeSpec, GenericContext genericContext)
     {
+        // Generic type parameters are valid tuple elements when a mapping is available
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec) && !genericContext.IsEmpty)
+            return true;
+
         // Nested tuples are not supported yet
         if (typeSpec is TupleTypeSpec)
             return false;

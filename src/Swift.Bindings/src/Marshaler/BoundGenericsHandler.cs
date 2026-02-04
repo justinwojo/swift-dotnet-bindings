@@ -97,11 +97,20 @@ public class BoundGenericsHandler
     /// <exception cref="NotSupportedException">Thrown when the property is not bound generic.</exception>
     public string TranslateBoundGenericTypeToCSharp(PropertyDecl propertyDecl)
     {
+        return TranslateBoundGenericTypeToCSharp(propertyDecl, GenericContext.Empty);
+    }
+
+    /// <summary>
+    /// Translates the Swift generic type of the given property declaration into a C# type name,
+    /// using a generic context to resolve type parameters.
+    /// </summary>
+    public string TranslateBoundGenericTypeToCSharp(PropertyDecl propertyDecl, GenericContext genericContext)
+    {
         if (!IsBoundGeneric(propertyDecl))
             throw new NotSupportedException(
                 $"Attempted to translate to C# name for a non-bound generic property {propertyDecl.Name}");
         var namedTypeSpec = (NamedTypeSpec)propertyDecl.SwiftTypeSpec;
-        return TranslateBoundGenericTypeToCSharp(namedTypeSpec);
+        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext);
     }
 
     /// <summary>
@@ -112,11 +121,20 @@ public class BoundGenericsHandler
     /// <exception cref="NotSupportedException">Thrown when the argument is not bound generic.</exception>
     public string TranslateBoundGenericTypeToCSharp(ArgumentDecl argumentDecl)
     {
+        return TranslateBoundGenericTypeToCSharp(argumentDecl, GenericContext.Empty);
+    }
+
+    /// <summary>
+    /// Translates the Swift generic type of the given argument declaration into a C# type name,
+    /// using a generic context to resolve type parameters.
+    /// </summary>
+    public string TranslateBoundGenericTypeToCSharp(ArgumentDecl argumentDecl, GenericContext genericContext)
+    {
         if (!IsBoundGeneric(argumentDecl))
             throw new NotSupportedException(
                 $"Attempted to translate to C# name for a non-bound generic argument {argumentDecl.Name}");
         var namedTypeSpec = (NamedTypeSpec)argumentDecl.SwiftTypeSpec;
-        return TranslateBoundGenericTypeToCSharp(namedTypeSpec);
+        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext);
     }
 
     /// <summary>
@@ -193,8 +211,22 @@ public class BoundGenericsHandler
     /// </summary>
     /// <param name="namedTypeSpec">The named type specification.</param>
     /// <returns>The C# type name string.</returns>
-    private string TranslateBoundGenericTypeToCSharp(NamedTypeSpec namedTypeSpec)
+    private string TranslateBoundGenericTypeToCSharp(NamedTypeSpec namedTypeSpec) =>
+        TranslateBoundGenericTypeToCSharp(namedTypeSpec, GenericContext.Empty);
+
+    /// <summary>
+    /// Helper method to convert a Swift <see cref="NamedTypeSpec"/> into its corresponding C# type name,
+    /// using a generic context to resolve type parameters within generic arguments.
+    /// </summary>
+    private string TranslateBoundGenericTypeToCSharp(NamedTypeSpec namedTypeSpec, GenericContext genericContext)
     {
+        // Check if this named type is itself a generic type parameter (e.g., τ_0_0)
+        if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeSpec.Name) &&
+            genericContext.TryResolve(namedTypeSpec.Name, out var resolvedName))
+        {
+            return resolvedName;
+        }
+
         var typeReference = _typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec); // TODO: consider throwing an exception instead
 
         // If the type falls back to AnyType, don't append generic parameters
@@ -207,7 +239,7 @@ public class BoundGenericsHandler
         List<string> translatedGenericParameters = new();
         foreach (var genericParameter in namedTypeSpec.GenericParameters)
         {
-            translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter));
+            translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter, genericContext));
         }
 
         return typeReference.CSharpTypeName.FullyQualifiedName +
@@ -225,7 +257,13 @@ public class BoundGenericsHandler
     /// <exception cref="NotSupportedException">
     /// Thrown when the type specification is not supported.
     /// </exception>
-    private string TranslateTypeSpecToCSharp(TypeSpec typeSpec)
+    private string TranslateTypeSpecToCSharp(TypeSpec typeSpec) =>
+        TranslateTypeSpecToCSharp(typeSpec, GenericContext.Empty);
+
+    /// <summary>
+    /// Translates any TypeSpec to its C# equivalent, using a generic context to resolve type parameters.
+    /// </summary>
+    private string TranslateTypeSpecToCSharp(TypeSpec typeSpec, GenericContext genericContext)
     {
         // Handle existential types (including bare 'Any' with 0 protocols and 'any Protocol' syntax)
         if (_existentialHandler.IsExistential(typeSpec))
@@ -235,11 +273,20 @@ public class BoundGenericsHandler
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 
+        // Check if the type is a generic type parameter before other dispatch
+        if (typeSpec is NamedTypeSpec namedSpec &&
+            TypeSpecHelpers.IsGenericTypeParameter(namedSpec.Name) &&
+            genericContext.TryResolve(namedSpec.Name, out var csName))
+        {
+            return csName;
+        }
+
         return typeSpec switch
         {
-            NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec),
+            NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext),
             ClosureTypeSpec closureTypeSpec => TranslateClosureTypeToCSharp(closureTypeSpec),
-            TupleTypeSpec tupleTypeSpec => _tupleHandler.GetCSharpTupleType(tupleTypeSpec, TranslateTypeSpecToCSharp),
+            TupleTypeSpec tupleTypeSpec => _tupleHandler.GetCSharpTupleType(tupleTypeSpec,
+                ts => TranslateTypeSpecToCSharp(ts, genericContext)),
             _ => throw new NotSupportedException(
                 $"Type spec {typeSpec.GetType().Name} ({typeSpec}) is not supported as a generic parameter")
         };

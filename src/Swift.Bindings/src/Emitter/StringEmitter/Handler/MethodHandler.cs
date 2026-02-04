@@ -127,6 +127,28 @@ namespace BindingsGeneration
                 }
             }
 
+            // C# does not support generic constructors. If the constructor has method-own
+            // generic parameters (not inherited from the parent type), skip it.
+            if (methodEnv.MethodDecl.IsGeneric)
+            {
+                var typeParamNames = methodEnv.ParentDecl is TypeDecl td2 && td2.IsGeneric
+                    ? new HashSet<string>(td2.GenericParameters.Select(p => p.TypeName))
+                    : new HashSet<string>();
+                bool hasMethodOwnGenericParams = methodEnv.MethodDecl.GenericParameters
+                    .Any(p => !typeParamNames.Contains(p.TypeName));
+                if (hasMethodOwnGenericParams)
+                {
+                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: C# does not support generic constructors.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.ParentDecl,
+                        SkipReason.UnsupportedSignature,
+                        "C# does not support generic constructors with method-own type parameters.");
+                    return;
+                }
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -446,6 +468,9 @@ namespace BindingsGeneration
         /// <summary>The method environment.</summary>
         protected readonly MethodEnvironment _env;
 
+        /// <summary>Merged generic context for resolving type-level + method-level generic parameters.</summary>
+        protected readonly GenericContext _genericContext;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="SignatureBuilderBase"/> class.
         /// </summary>
@@ -453,6 +478,9 @@ namespace BindingsGeneration
         protected SignatureBuilderBase(MethodEnvironment env)
         {
             _env = env;
+            _genericContext = env.ParentDecl is TypeDecl parentType
+                ? GenericContext.FromMethodInType(env.MethodDecl, parentType)
+                : GenericContext.FromMethod(env.MethodDecl);
         }
 
         /// <summary>
@@ -522,7 +550,7 @@ namespace BindingsGeneration
 
             if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
             {
-                var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument);
+                var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext);
                 SetReturnType(csTypeParam);
                 return;
             }
@@ -550,8 +578,14 @@ namespace BindingsGeneration
             if (_env.TupleHandler.IsTuple(argument.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)argument.SwiftTypeSpec;
-                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
-                    SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec));
+                // Tuples with generic type parameter elements cannot be marshalled in return position yet:
+                // P/Invoke returns ValueTuple<IntPtr, IntPtr> but wrapper needs (T0, T1), requiring
+                // per-element indirect result + extraction that isn't implemented. Skip to AnyType fallback.
+                bool hasGenericElements = _env.TupleHandler.HasGenericTypeParameterElements(tupleTypeSpec);
+                if (!hasGenericElements &&
+                    (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
+                     _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext)))
+                    SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext));
                 else
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
                 return;
@@ -642,7 +676,7 @@ namespace BindingsGeneration
 
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
                 {
-                    var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument);
+                    var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext);
                     AddParameter(csTypeParam, argument.Name);
                     continue;
                 }
@@ -671,8 +705,9 @@ namespace BindingsGeneration
                 if (_env.TupleHandler.IsTuple(argument))
                 {
                     var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(argument)!;
-                    if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
-                        AddParameter(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec), argument.Name);
+                    if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
+                        _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
+                        AddParameter(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext), argument.Name);
                     else
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
                     continue;
@@ -761,6 +796,13 @@ namespace BindingsGeneration
 
             if (typeSpec is NamedTypeSpec namedTypeSpec)
             {
+                // Check if this is a generic type parameter that can be resolved
+                if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeSpec.Name) &&
+                    _genericContext.TryResolve(namedTypeSpec.Name, out var csName))
+                {
+                    return csName;
+                }
+
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
 
                 // If the type falls back to AnyType, don't append generic parameters
@@ -812,7 +854,7 @@ namespace BindingsGeneration
                 var csTypeParam = _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType) switch
                 {
                     true => _env.BoundGenericsHandler.GetBufferType(returnType),
-                    false => _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnType)
+                    false => _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnType, _genericContext)
                 };
                 SetReturnType(csTypeParam);
                 return;
@@ -839,8 +881,12 @@ namespace BindingsGeneration
             if (_env.TupleHandler.IsTuple(returnType.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)returnType.SwiftTypeSpec;
-                if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
-                    SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec));
+                // Skip generic-element tuples in return position (no marshalling from ValueTuple<IntPtr,...> to (T0,T1))
+                bool hasGenericElements = _env.TupleHandler.HasGenericTypeParameterElements(tupleTypeSpec);
+                if (!hasGenericElements &&
+                    (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
+                     _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext)))
+                    SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext));
                 else
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
                 return;
@@ -942,7 +988,7 @@ namespace BindingsGeneration
                     var (csTypeParam, csTypeName) = _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argument) switch
                     {
                         true => (_env.BoundGenericsHandler.GetBufferType(argument), NameProvider.GetBoundGenericBufferName(argument.Name)),
-                        false => (_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument), argument.Name)
+                        false => (_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext), argument.Name)
                     };
 
                     AddParameter(csTypeParam, csTypeName);
@@ -993,8 +1039,9 @@ namespace BindingsGeneration
                 if (_env.TupleHandler.IsTuple(argument))
                 {
                     var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(argument)!;
-                    if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec))
-                        AddParameter(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec), argument.Name);
+                    if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
+                        _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
+                        AddParameter(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext), argument.Name);
                     else
                         AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
                     continue;
@@ -1353,6 +1400,7 @@ namespace BindingsGeneration
     internal class WrapperEmitter
     {
         private readonly MethodEnvironment _env;
+        private readonly GenericContext _genericContext;
         private readonly Signature _wrapperSignature;
         private readonly Signature _pInvokeSignature;
         private readonly bool _requiresIndirectResult;
@@ -1370,6 +1418,9 @@ namespace BindingsGeneration
         {
             _env = methodEnv;
             _fallbackInfo = fallbackInfo;
+            _genericContext = methodEnv.ParentDecl is TypeDecl parentType
+                ? GenericContext.FromMethodInType(methodEnv.MethodDecl, parentType)
+                : GenericContext.FromMethod(methodEnv.MethodDecl);
 
             _wrapperSignature = signatureHandler.GetWrapperSignature();
             _pInvokeSignature = signatureHandler.GetPInvokeSignature();
@@ -2533,6 +2584,13 @@ namespace BindingsGeneration
 
             if (typeSpec is NamedTypeSpec namedTypeSpec)
             {
+                // Check if this is a generic type parameter that can be resolved
+                if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeSpec.Name) &&
+                    _genericContext.TryResolve(namedTypeSpec.Name, out var csName))
+                {
+                    return csName;
+                }
+
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
 
                 // If the type falls back to AnyType, don't append generic parameters
@@ -2915,7 +2973,7 @@ namespace BindingsGeneration
             // Bound generics that return IntPtr directly (not via indirect result)
             if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
             {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg)}>(new IntPtr(&result));");
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext)}>(new IntPtr(&result));");
                 return;
             }
 
@@ -3060,14 +3118,14 @@ namespace BindingsGeneration
             {
                 // SwiftArray<T> -> IReadOnlyList<T>
                 // SwiftArray already implements IReadOnlyList, so marshal and return directly
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg);
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(&result));");
             }
             else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
             {
                 // SwiftOptional<T> -> T?
                 // Marshal to SwiftOptional, then convert to nullable
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg);
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
                 csWriter.WriteLines($$"""
                     var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -3092,13 +3150,13 @@ namespace BindingsGeneration
             else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
             {
                 // SwiftArray<T> -> IReadOnlyList<T> via indirect result
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg);
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(swiftIndirectResult.Value));");
             }
             else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
             {
                 // SwiftOptional<T> -> T? via indirect result
-                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg);
+                var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
                 csWriter.WriteLines($$"""
                     var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(swiftIndirectResult.Value));
                     return swiftResult.ToNullable();
@@ -3107,17 +3165,47 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Returns only the method-own generic parameters (excluding those inherited from the parent type).
+        /// Methods inside generic types have their parent type's generic params copied into GenericParameters
+        /// by the parser. These should not be redeclared on the method/constructor signature because:
+        /// - For methods: it shadows the type's params (CS0693 warning, semantically wrong)
+        /// - For constructors: C# doesn't support generic constructors
+        /// </summary>
+        private List<GenericArgumentDecl> GetMethodOwnGenericParams()
+        {
+            if (!_env.MethodDecl.IsGeneric)
+                return new List<GenericArgumentDecl>();
+
+            // Accessor methods never have their own generic params
+            if (_env.MethodDecl.IsAccessor)
+                return new List<GenericArgumentDecl>();
+
+            // If parent is not a generic type, all params are method-own
+            if (_env.ParentDecl is not TypeDecl typeDecl || !typeDecl.IsGeneric)
+                return _env.MethodDecl.GenericParameters;
+
+            // Filter out params that match the parent type's generic params
+            var typeParamNames = new HashSet<string>(typeDecl.GenericParameters.Select(p => p.TypeName));
+            return _env.MethodDecl.GenericParameters
+                .Where(p => !typeParamNames.Contains(p.TypeName))
+                .ToList();
+        }
+
+        /// <summary>
         /// Builds the where clause for generic constraints.
+        /// Only emits constraints for method-own generic parameters (not type-inherited ones).
+        /// Type-level constraints are already declared on the containing type.
         /// </summary>
         /// <returns>The where clause string, or empty string if no constraints.</returns>
         private string BuildWhereClause()
         {
-            if (!_env.MethodDecl.IsGeneric)
+            var methodOwnParams = GetMethodOwnGenericParams();
+            if (methodOwnParams.Count == 0)
                 return "";
 
             var constraints = new List<string>();
 
-            foreach (var param in _env.MethodDecl.GenericParameters)
+            foreach (var param in methodOwnParams)
             {
                 if (!_env.GenericTypeMapping.TryGetValue(param.TypeName, out var csNameInfo))
                     continue;
@@ -3169,18 +3257,10 @@ namespace BindingsGeneration
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
         private void EmitSignatureConstructor(CSharpWriter csWriter)
         {
-            var genericParams = _env.MethodDecl.IsGeneric switch
-            {
-                true => $"<{string.Join(", ", _env.MethodDecl.GenericParameters.Select(p => _env.GenericTypeMapping[p.TypeName].TypeParameter))}>",
-                false => ""
-            };
+            // C# does not support generic constructors — never emit <...> on a constructor.
+            // Type-level generic params are already declared on the containing type.
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} unsafe {_env.ParentDecl.Name}{genericParams}({_wrapperSignature.ParametersString()})");
-
-            // Emit where clauses for generic constraints
-            var whereClause = BuildWhereClause();
-            if (!string.IsNullOrEmpty(whereClause))
-                csWriter.WriteLines(whereClause);
+            csWriter.WriteLine($"{accessModifier} unsafe {_env.ParentDecl.Name}({_wrapperSignature.ParametersString()})");
         }
 
         /// <summary>
@@ -3189,16 +3269,17 @@ namespace BindingsGeneration
         /// <param name="writer">The IndentedTextWriter instance.</param>
         private void EmitSignatureMethod(CSharpWriter csWriter)
         {
-            var genericParams = _env.MethodDecl.IsGeneric switch
-            {
-                true => $"<{string.Join(", ", _env.MethodDecl.GenericParameters.Select(p => _env.GenericTypeMapping[p.TypeName].TypeParameter))}>",
-                false => ""
-            };
+            // Only emit <T0, T1, ...> for method-own generic params.
+            // Type-level params are already declared on the containing type and must not be redeclared.
+            var methodOwnParams = GetMethodOwnGenericParams();
+            var genericParams = methodOwnParams.Count > 0
+                ? $"<{string.Join(", ", methodOwnParams.Select(p => _env.GenericTypeMapping[p.TypeName].TypeParameter))}>"
+                : "";
 
             bool containsBoundGenerics = _env.MethodDecl.CSSignature.Any(_env.BoundGenericsHandler.IsBoundGeneric);
 
             var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl ? "static " : "";
-            var unsafeKeyword = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _env.MethodDecl.IsGeneric || containsBoundGenerics ? "unsafe " : "";
+            var unsafeKeyword = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || methodOwnParams.Count > 0 || containsBoundGenerics ? "unsafe " : "";
 
             var returnType = _wrapperSignature.ReturnType;
             if (_requiresSwiftAsync)

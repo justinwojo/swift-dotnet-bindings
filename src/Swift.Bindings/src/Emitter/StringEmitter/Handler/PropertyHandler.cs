@@ -137,8 +137,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         bool processed = propertyEnv.TypeDatabase.TryGetTypeRecord(propertyDecl.SwiftTypeSpec, out var typeRecord);
 
-        // Only skip if not an existential, Optional-existential, or closure (these don't have type records in the database)
-        if (!processed && !isExistential && !isOptionalExistential && !isClosure)
+        // Generic type parameters (τ_0_0 etc.) and bound generics (Optional<T>) won't have type records in the database
+        bool isGenericTypeParam = TypeSpecHelpers.IsGenericTypeParameter(propertyDecl.SwiftTypeSpec) &&
+                                  propertyDecl.ParentDecl is TypeDecl gtParent && gtParent.IsGeneric;
+        bool isBoundGeneric = propertyEnv.BoundGenericsHandler.IsBoundGeneric(propertyDecl);
+
+        // Only skip if not an existential, Optional-existential, closure, generic type param, or bound generic
+        if (!processed && !isExistential && !isOptionalExistential && !isClosure && !isGenericTypeParam && !isBoundGeneric)
         {
             _logger.LogWarning($"PropertyHandler: Couldn't process property {propertyDecl.Name} of type {propertyDecl.SwiftTypeSpec}. Skipping.");
             SkipProperty(SkipReason.UnsupportedType, $"Type resolution failed for property type '{propertyDecl.SwiftTypeSpec}'.");
@@ -188,11 +193,38 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 return;
             }
 
-            csTypeName = propertyEnv.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl);
+            // Build a generic context from the parent type so bound generic args like Optional<τ_0_0> resolve correctly
+            var boundGenericContext = propertyDecl.ParentDecl is TypeDecl boundParentType && boundParentType.IsGeneric
+                ? GenericContext.FromType(boundParentType)
+                : GenericContext.Empty;
+            csTypeName = propertyEnv.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl, boundGenericContext);
+        }
+        else if (TypeSpecHelpers.IsGenericTypeParameter(propertyDecl.SwiftTypeSpec) &&
+                 propertyDecl.ParentDecl is TypeDecl genericParentType && genericParentType.IsGeneric)
+        {
+            // Property type is a generic type parameter (e.g., T in Wrapper<T>)
+            var context = GenericContext.FromType(genericParentType);
+            var typeName = (propertyDecl.SwiftTypeSpec as NamedTypeSpec)?.Name;
+            if (typeName != null && context.TryResolve(typeName, out var resolved))
+                csTypeName = resolved;
+            else if (typeRecord != null)
+                csTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
+            else
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} - generic param not resolvable and no type record.");
+                SkipProperty(SkipReason.AnyTypeFallback, $"Generic type parameter not resolvable for property {propertyDecl.Name}.");
+                return;
+            }
+        }
+        else if (typeRecord != null)
+        {
+            csTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
         }
         else
         {
-            csTypeName = typeRecord!.CSharpTypeName.FullyQualifiedName;
+            _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} - type not resolved.");
+            SkipProperty(SkipReason.UnsupportedType, $"Property type not resolved for {propertyDecl.Name}.");
+            return;
         }
 
         // Skip properties with AnyType - the accessor methods will be skipped due to unsupported types

@@ -163,8 +163,8 @@ Output: NuGet package with C# bindings
 
 ## Current Capabilities
 
-**Status** (February 2026 - Phase 45):
-- **Unit Tests**: 1078 passed
+**Status** (February 2026 - Phase 46):
+- **Unit Tests**: 1099 passed
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅
 - **Lottie**: 0 errors ✅ (runtime validated, 8/9 tests pass)
@@ -174,7 +174,7 @@ Output: NuGet package with C# bindings
 - Instance and static methods, properties (getters and setters)
 - Async methods (via Swift wrapper generation)
 - Protocols (interfaces + proxy generation for C# implementations)
-- Generics (bound generics, generic enums, generic classes with DllImport)
+- Generics (bound generics, generic enums, generic classes with DllImport, unbound generic type parameters)
 - SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>
 - Closures (`@convention(c)` and `@escaping` with frozen types)
 - Tuples (1-7 elements with frozen types)
@@ -509,25 +509,20 @@ When a member is skipped, the binding report records a `SkipReason`. These are d
 - This means you accidentally (or intentionally) enabled a new feature
 - Consider promoting it: remove it from `KNOWN_UNSUPPORTED_FEATURES` in `generate-coverage-report.sh` to make it a must_pass feature going forward
 
-### Current Baseline (Phase 45)
+### Current Baseline (Phase 46)
 
 | Metric | Value |
 |--------|-------|
 | Must-pass features | 93 total |
-| Passing | 88 (94.6%) |
-| Degraded | 5 |
+| Passing | 91 (97.8%) |
+| Degraded | 2 |
 | Known-unsupported | 52 |
 | Types emitted | 151/168 (89.9%) |
-| Members emitted | 658/747 (88.1%) |
+| Members emitted | 672/747 (90.0%) |
 
-**Remaining degraded features** (all related to unbound generics or existentials):
-- `generic_function` — 1 skip (UnsupportedSignature)
-- `generic_struct` — 6 skips (AnyTypeFallback, UnsupportedSignature)
-- `generic_class` — 2 skips (AnyTypeFallback, UnsupportedSignature)
-- `where_clause` — 2 skips (AnyTypeFallback, UnsupportedSignature)
-- `any_protocol_existential` — 1 skip (UnsupportedExistential)
-
-These represent the frontier of unbound generic type support — the next major capability gap to close.
+**Remaining degraded features**:
+- `generic_function` — 1 skip (UnsupportedSignature: `pair<T,U>()` returns generic tuple, requires per-element indirect result marshalling)
+- `any_protocol_existential` — 1 skip (UnsupportedExistential: `describeAll([any Describable])` requires `SwiftArray<ExistentialContainer>` runtime support)
 
 ### Investigating a Specific Degraded Feature
 
