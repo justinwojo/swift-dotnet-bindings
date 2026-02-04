@@ -15,7 +15,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | ~~2~~ | ~~Generator~~ | ~~OpaquePointer in method signatures~~ | ~~2 degraded features, 3 skipped members~~ | ~~Done (Phase 45)~~ |
 | ~~3~~ | ~~Generator~~ | ~~NSObject subclass as method parameter~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 45)~~ |
 | 4 | Generator | Existential type argument in bound generic | 1 degraded feature, 1 skipped member | P3 |
-| 5 | Runtime | Formalize async concurrency hook as shared library | Async init is copy-pasted per test; no reusable runtime | P2 |
+| ~~5~~ | ~~Runtime~~ | ~~Formalize async concurrency hook as shared library~~ | ~~Async init is copy-pasted per test; no reusable runtime~~ | ~~Done (Phase 49)~~ |
 | 6 | Runtime | Fix async callback marshalling (Array, String) | 2 async tests blocked | P3 |
 | ~~7~~ | ~~Validation~~ | ~~Lottie 9/9 — fix `LottieConfiguration.Shared` getter~~ | ~~1 runtime test failure~~ | ~~Done (Phase 48)~~ |
 | 8 | Validation | BlinkID runtime validation test app | Compiles but never runtime tested | P3 |
@@ -80,33 +80,20 @@ Methods with a bound generic containing an existential type argument (e.g., `[an
 
 ---
 
-## 5. Formalize Async Concurrency Hook
+## 5. ~~Formalize Async Concurrency Hook~~ ✅ Done (Phase 49)
 
-**Priority**: P2
-**Area**: Runtime infrastructure
+Extracted the inline concurrency hook from `AsyncTests.swift` into a proper shared library:
 
-The Swift concurrency hook (`swift_task_enqueueGlobal_hook` → GCD redirect) is validated and working but lives inline in `AsyncTests.swift`. It needs to be a proper shared library so consuming apps can initialize it without copy-pasting.
+1. `src/Swift.Runtime/swift/SwiftBindingsRuntime.swift` — GCDExecutor + `dlsym`-based hook, exported as `SwiftBindings_InitializeConcurrency` and `SwiftBindings_IsConcurrencyInitialized` via `@_cdecl`
+2. `src/Swift.Runtime/swift/build-runtime.sh` — Builds `libSwiftBindingsRuntime.dylib` for macOS, iOS device, and iOS Simulator targets
+3. `src/Swift.Runtime/src/Swift/Runtime/SwiftConcurrency.cs` — Thread-safe `SwiftConcurrency.Initialize()` with double-checked locking, `IsInitialized` property, XML documentation of limitations
+4. `Swift.Runtime.csproj` updated to include native library per platform target
+5. `AsyncTests.cs` updated to use `SwiftConcurrency.Initialize()` instead of test-specific P/Invoke; inline hook removed from `AsyncTests.swift`
 
-**What exists**: Working hook in `src/Swift.Bindings/tests/IntegrationTests/FunctionalTests/AsyncTests/AsyncTests.swift` using `dlsym` + custom `SerialExecutor` + GCD dispatch.
-
-**What's needed**:
-1. Create `src/Swift.Runtime/swift/SwiftBindingsRuntime.swift` with the hook code
-2. Create `src/Swift.Runtime/swift/build-runtime.sh` to compile `libSwiftBindingsRuntime.dylib`
-3. Create `src/Swift.Runtime/src/Swift/Runtime/SwiftConcurrency.cs` with `SwiftConcurrency.Initialize()` P/Invoke wrapper
-4. Update `Swift.Runtime.csproj` to include native library in package
-5. Wire consuming apps (Nuke, Lottie test apps) to call `SwiftConcurrency.Initialize()` at startup
-
-**Known limitations** (document, don't fix):
-- `@MainActor` tasks are NOT intercepted (`swift_task_enqueueMainExecutor_hook` is buggy in Swift 5.5–6.0)
-- Task cancellation does not propagate through GCD dispatch
-- Custom actor executors are not intercepted
-
-**Full design**: `src/docs/CompletedPhases/swift-concurrency-interop-plan.md`
-
-**Acceptance criteria**:
-- [ ] `SwiftConcurrency.Initialize()` callable from any .NET app
-- [ ] Nuke and Lottie test apps use shared library instead of inline hook
-- [ ] `TestInstanceMethods` and `TestStaticMethods` still pass
+**Acceptance criteria** (all met):
+- [x] `SwiftConcurrency.Initialize()` callable from any .NET app
+- [x] AsyncTests use shared library instead of inline hook
+- [x] `TestInstanceMethods` and `TestStaticMethods` still pass
 
 ---
 

@@ -26,4 +26,30 @@
     </Content>
   </ItemGroup>
 
+  <!-- Include pre-built native runtime library when available.
+       iOS device vs simulator is distinguished by RuntimeIdentifier, not TargetFramework
+       (both use net10.0-ios). Device condition excludes simulator RIDs to prevent
+       duplicate content items. -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib"
+             Condition="!$(TargetFramework.Contains('ios')) AND !$(TargetFramework.Contains('maccatalyst'))">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib"
+             Condition="$(TargetFramework.Contains('ios')) AND !$(RuntimeIdentifier.Contains('simulator'))">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib"
+             Condition="$(TargetFramework.Contains('ios')) AND $(RuntimeIdentifier.Contains('simulator'))">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+
 </Project>

@@ -1,6 +1,6 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 48 Complete)
+**Last Updated**: February 2026 (Phase 49 Complete)
 **Unit Tests**: 1107 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
@@ -86,7 +86,20 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ---
 
-## Recent Completions (Phase 48)
+## Recent Completions (Phase 49)
+
+### Async Concurrency Hook Shared Library
+- Extracted inline `swift_task_enqueueGlobal_hook` from `AsyncTests.swift` into `libSwiftBindingsRuntime.dylib`
+- `SwiftBindingsRuntime.swift`: GCDExecutor + `dlsym`-based hook, exported via `@_cdecl`
+- `build-runtime.sh`: Builds universal binaries (arm64 + x86_64) for macOS, iOS device, and iOS Simulator
+- `SwiftConcurrency.cs`: Thread-safe `SwiftConcurrency.Initialize()` with double-checked locking; verifies hook was installed via native callback; throws `InvalidOperationException` on failure
+- `Swift.Runtime.csproj`: Includes platform-specific native dylib via `RuntimeIdentifier`-based conditions
+- `AsyncTests.cs` updated to use `SwiftConcurrency.Initialize()` instead of test-specific P/Invoke
+- Any .NET app can now initialize Swift async interop with: `SwiftConcurrency.Initialize()`
+
+---
+
+## Previous Completions (Phase 48)
 
 ### Generic Tuple Return Marshalling
 - Generic tuple returns (e.g., `pair<T, U>() -> (T, U)`) now emit with correct indirect result marshalling
@@ -238,13 +251,13 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 | `comprehensive-architecture-review.md` | Strategic direction and priorities |
 | `emitter-redesign-proposal.md` | Future architecture improvement plan |
 | `known-issues-workarounds.md` | Runtime issues and workarounds |
-| `CompletedPhases/swift-concurrency-interop-plan.md` | Async concurrency design (Phase 0 done, remaining work in `remaining-work.md` items 5-6) |
+| `CompletedPhases/swift-concurrency-interop-plan.md` | Async concurrency design (fully implemented, remaining work in `remaining-work.md` item 6 for callback marshalling) |
 
 ---
 
 ## Development History
 
-48 phases of improvements tracked in git history. Key milestones:
+49 phases of improvements tracked in git history. Key milestones:
 - Phase 1-15: Core infrastructure and Nuke validation
 - Phase 16-29: Type system and runtime fixes
 - Phase 30-33: Generic type improvements
@@ -258,3 +271,4 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - Phase 46: Unbound generic type parameters, code review fixes
 - Phase 47: Protocol runtime completion (NotImplementedException → NotSupportedException)
 - Phase 48: Generic tuple return marshalling, null-safe equality operators, Lottie 9/9
+- Phase 49: Async concurrency hook shared library (SwiftConcurrency.Initialize)

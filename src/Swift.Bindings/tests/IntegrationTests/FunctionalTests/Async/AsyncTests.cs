@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Diagnostics;
@@ -33,13 +34,10 @@ namespace BindingsGeneration.FunctionalTests
                 InitializeResources();
             }
 
-            [DllImport("Async/libAsyncTests.dylib", CallingConvention = CallingConvention.Cdecl)]
-            private static extern void AsyncTests_InitializeConcurrency();
-
             private static void InitializeResources()
             {
-                // Initialize Swift concurrency hook to enable async interop
-                AsyncTests_InitializeConcurrency();
+                // Initialize Swift concurrency via shared runtime library
+                SwiftConcurrency.Initialize();
             }
         }
 
