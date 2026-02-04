@@ -195,11 +195,11 @@ Decomposed 3 large emitter files into partial classes, reducing per-file cogniti
 
 | File | Before | After | Partial Files |
 |------|--------|-------|---------------|
-| `ClosureEmitter.cs` | 1,220 LOC | 305 LOC | 5 files (.cs, .IndirectReturn.cs, .Throwing.cs, .StructParams.cs, .Async.cs) |
-| `EnumHandler.cs` | 1,682 LOC | 270 LOC | 5 files + 1 extracted class (.cs, .CaseConstruction.cs, .RawRepresentable.cs, .CaseInspection.cs, .Marshalling.cs, EnumISwiftObjectMethodWriter.cs) |
-| `ProtocolProxyEmitter.cs` | 1,964 LOC | 107 LOC | 7 files (.cs, .Vtables.cs, .StaticInit.cs, .Receivers.cs, .InterfaceImpl.cs, .SwiftObject.cs, .Helpers.cs) |
+| `ClosureEmitter.cs` | ~1,220 LOC | 395 LOC | 5 files (.cs, .IndirectReturn.cs, .Throwing.cs, .StructParams.cs, .Async.cs) |
+| `EnumHandler.cs` | ~1,680 LOC | 299 LOC | 5 files + 1 extracted class (.cs, .CaseConstruction.cs, .RawRepresentable.cs, .CaseInspection.cs, .Marshalling.cs, EnumISwiftObjectMethodWriter.cs) |
+| `ProtocolProxyEmitter.cs` | 1,964 LOC | 106 LOC | 7 files (.cs, .Vtables.cs, .StaticInit.cs, .Receivers.cs, .InterfaceImpl.cs, .SwiftObject.cs, .Helpers.cs) |
 
-No behavioral changes — 1238 unit tests pass, generated output unchanged (hash-only differences in PInvoke names).
+No behavioral changes — 1238 unit tests pass, generated output semantically unchanged (deterministic hash suffixes in PInvoke names differed).
 
 ### Phase B: True Handler Extraction (Remaining)
 
