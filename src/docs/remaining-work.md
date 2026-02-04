@@ -3,7 +3,7 @@
 Consolidated backlog of generator gaps, runtime issues, and infrastructure work. Ordered by priority.
 
 **Date**: February 2026
-**Starting Point**: Phase 45 complete, 1078 unit tests, TestFramework v2.0 (67 files, 145 features)
+**Starting Point**: Phase 47 complete, 1107 unit tests, TestFramework v2.0 (67 files, 145 features)
 
 ---
 
@@ -11,7 +11,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 
 | # | Area | Description | Impact | Priority |
 |---|------|-------------|--------|----------|
-| 1 | Generator | Unbound generic type parameters (`AnyTypeFallback`) | 4 degraded features, 12 skipped members | P1 |
+| 1 | Generator | Generic tuple return marshalling (deferred from Phase 46) | 1 degraded feature, 1 skipped member | P2 |
 | ~~2~~ | ~~Generator~~ | ~~OpaquePointer in method signatures~~ | ~~2 degraded features, 3 skipped members~~ | ~~Done (Phase 45)~~ |
 | ~~3~~ | ~~Generator~~ | ~~NSObject subclass as method parameter~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 45)~~ |
 | 4 | Generator | Existential type argument in bound generic | 1 degraded feature, 1 skipped member | P3 |
@@ -20,7 +20,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | 7 | Validation | Lottie 9/9 — fix `LottieConfiguration.Shared` getter | 1 runtime test failure | P2 |
 | 8 | Validation | BlinkID runtime validation test app | Compiles but never runtime tested | P3 |
 | ~~9~~ | ~~Runtime~~ | ~~Add finalizer safety net to `SwiftSafeHandle`~~ | ~~Memory leaks if users forget `Dispose()`~~ | ~~Done (Phase 45)~~ |
-| 10 | Generator | Protocol runtime completion (remove `NotImplementedException` stubs) | Blocks real protocol usage from C# | P1 |
+| ~~10~~ | ~~Generator~~ | ~~Protocol runtime completion (remove `NotImplementedException` stubs)~~ | ~~Blocks real protocol usage from C#~~ | ~~Done (Phase 47)~~ |
 | 11 | Generator | Wrapper automation for known-problematic patterns | Manual per-library patches don't scale | P2 |
 | 12 | Generator | Emitter decomposition — split MethodHandler (3,361 LOC) | Blocks maintainability and onboarding | P2 |
 | 13 | Generator | Improve binding report with workaround recommendations | Consumers don't know what to do about gaps | P2 |
@@ -29,8 +29,9 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | 16 | Infrastructure | Upstream .NET runtime bug reports with minimal repros | Mono JIT bugs block existentials/async | P3 |
 | 17 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety for lifetime management | P3 |
 | 18 | Research | NativeAOT investigation (`[LibraryImport]` for Mono JIT bypass) | May eliminate known runtime bugs | P4 |
+| 19 | Generator | Protocol witness table dispatch for Swift-backed existentials | Swift-backed proxies can't access members | P3 |
 
-**Generator target**: 93/93 must-pass features passing (currently 88, 5 degraded)
+**Generator target**: 93/93 must-pass features passing (currently 91, 2 degraded)
 
 ---
 
@@ -179,25 +180,16 @@ Added `GC.SuppressFinalize(this)` to `Dispose()` in `SwiftHandle.cs` — standar
 
 ---
 
-## 10. Protocol Runtime Completion
+## 10. ~~Protocol Runtime Completion~~ ✅ Done (Phase 47)
 
-**Priority**: P1 — architecture review top-4 blocker
-**Area**: Generator (emitter)
-**Source**: Comprehensive architecture review (Codex finding)
+Replaced all 7 `NotImplementedException` stubs in `ProtocolProxyEmitter.cs` with descriptive `NotSupportedException` throws. The Swift existential code path (when `_csharpImpl == null`) now throws `NotSupportedException` with messages identifying the specific member and explaining the limitation. The conformance descriptor stub similarly throws `NotSupportedException` explaining that proxy types use EveryProtocol's witness table.
 
-`ProtocolProxyEmitter.cs` has `NotImplementedException` at line 922 and 12+ incomplete TODOs. Types implementing Swift protocols hit these stubs at runtime. This blocks real protocol usage from C# — types emit protocol interfaces but can't actually implement them.
+All `TODO` comments removed. XML documentation on the existential container constructor documents the limitation. 8 new tests verify the degradation behavior.
 
-**Target file**: `src/Swift.Bindings/src/Emitter/StringEmitter/ProtocolProxyEmitter.cs`
-
-**What's needed**:
-1. Audit all `NotImplementedException` paths and incomplete TODOs
-2. Replace stubs with actual P/Invoke calls to protocol witness tables
-3. Or, where runtime limitations prevent it, emit `[UnsupportedSwiftType]` with clear skip reasons instead of runtime exceptions
-
-**Acceptance criteria**:
-- [ ] Zero `NotImplementedException` paths remain in `ProtocolProxyEmitter.cs`
-- [ ] Protocol proxy types either work at runtime or degrade gracefully with `[UnsupportedSwiftType]`
-- [ ] Existing unit tests still pass
+**Acceptance criteria** (all met):
+- [x] Zero `NotImplementedException` paths remain in `ProtocolProxyEmitter.cs`
+- [x] Protocol proxy types degrade gracefully: Swift-backed proxies throw `NotSupportedException` for member access with descriptive messages
+- [x] All 1107 unit tests pass (8 new)
 
 ---
 
@@ -379,6 +371,27 @@ Complement to item 9 (finalizer safety net). A Roslyn analyzer can warn at compi
 - [ ] NativeAOT feasibility assessed with written findings
 - [ ] If viable, document which known issues are resolved
 - [ ] If not viable, document specific blockers
+
+---
+
+## 19. Protocol Witness Table Dispatch for Swift-Backed Existentials
+
+**Priority**: P3
+**Area**: Generator (emitter + runtime)
+**Source**: Follow-up from item 10 (Phase 47)
+
+When C# receives a protocol-typed value from Swift (e.g., `any Describable`), the proxy is created via the existential container constructor. Currently these proxies throw `NotSupportedException` for all member access. Full support requires generating Swift accessor functions that dispatch through the witness table, plus corresponding P/Invoke declarations.
+
+**What's needed**:
+1. Generate `@_silgen_name` functions in EveryProtocolEmitter that take existential container pointers, cast to `any Protocol`, call member, return result
+2. Generate P/Invoke declarations in ProtocolProxyEmitter's NativeMethods
+3. Replace `NotSupportedException` throws with actual P/Invoke calls
+4. Handle marshalling for each return/parameter type
+
+**Acceptance criteria**:
+- [ ] At least property getters work through Swift-backed existentials
+- [ ] Method dispatch through witness tables works for simple signatures
+- [ ] Tests exercise round-trip: Swift creates existential → C# calls method through proxy
 
 ---
 

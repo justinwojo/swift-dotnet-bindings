@@ -38,11 +38,11 @@ public class ProtocolProxyEmitter
             return;
         }
 
-        // Skip protocols with associated types (would create generic proxy classes)
+        // Skip protocols with associated types (would create generic proxy classes).
         // C# doesn't allow [UnmanagedCallersOnly] or [DllImport] in generic types,
         // and nested classes inside generic types inherit this restriction.
-        // TODO: Implement a more sophisticated approach for generic protocol proxies
-        // (e.g., using runtime code generation or non-generic base classes)
+        // Future approaches: Reflection.Emit at runtime, non-generic base class with
+        // object-typed dispatch, or source-generated specializations per concrete type.
         if (protocolDecl.AssociatedTypes.Count > 0)
         {
             _logger.LogWarning($"Skipping proxy class for {protocolDecl.Name}: protocols with associated types are not yet supported for proxy generation (would require [UnmanagedCallersOnly] in generic type)");
@@ -842,6 +842,11 @@ public class ProtocolProxyEmitter
             /// Creates a proxy from an existing Swift existential container.
             /// Use this when receiving protocol values from Swift code.
             /// </summary>
+            /// <remarks>
+            /// Swift-backed proxies created with this constructor throw
+            /// <see cref="NotSupportedException"/> for all protocol member access.
+            /// To call protocol members, use the constructor that takes a C# implementation instead.
+            /// </remarks>
             /// <param name="container">The Swift existential container.</param>
             public {{proxyClassName}}(ExistentialContainer1 container)
             {
@@ -923,8 +928,9 @@ public class ProtocolProxyEmitter
                 {
                     if (_csharpImpl != null)
                         return _csharpImpl.{{propertyName}};
-                    // TODO: Call Swift via P/Invoke for Swift implementation
-                    throw new NotImplementedException("Swift implementation not yet supported");
+                    throw new NotSupportedException(
+                        "Cannot get property '{{propertyName}}' on a Swift-backed existential container. " +
+                        "Protocol member access is only supported when wrapping a C# implementation.");
                 }
                 """);
         }
@@ -939,8 +945,9 @@ public class ProtocolProxyEmitter
                         _csharpImpl.{{propertyName}} = value;
                         return;
                     }
-                    // TODO: Call Swift via P/Invoke for Swift implementation
-                    throw new NotImplementedException("Swift implementation not yet supported");
+                    throw new NotSupportedException(
+                        "Cannot set property '{{propertyName}}' on a Swift-backed existential container. " +
+                        "Protocol member access is only supported when wrapping a C# implementation.");
                 }
                 """);
         }
@@ -980,8 +987,9 @@ public class ProtocolProxyEmitter
                 {
                     if (_csharpImpl != null)
                         return _csharpImpl[{{argsString}}];
-                    // TODO: Call Swift via P/Invoke for Swift implementation
-                    throw new NotImplementedException("Swift implementation not yet supported");
+                    throw new NotSupportedException(
+                        "Cannot get subscript on a Swift-backed existential container. " +
+                        "Protocol member access is only supported when wrapping a C# implementation.");
                 }
                 """);
         }
@@ -996,8 +1004,9 @@ public class ProtocolProxyEmitter
                         _csharpImpl[{{argsString}}] = value;
                         return;
                     }
-                    // TODO: Call Swift via P/Invoke for Swift implementation
-                    throw new NotImplementedException("Swift implementation not yet supported");
+                    throw new NotSupportedException(
+                        "Cannot set subscript on a Swift-backed existential container. " +
+                        "Protocol member access is only supported when wrapping a C# implementation.");
                 }
                 """);
         }
@@ -1049,8 +1058,9 @@ public class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 if (_csharpImpl != null)
                     return _csharpImpl.{{methodName}}({{argsString}});
-                // TODO: Call Swift via P/Invoke for Swift implementation
-                throw new NotImplementedException("Swift implementation not yet supported");
+                throw new NotSupportedException(
+                    "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
+                    "Protocol member access is only supported when wrapping a C# implementation.");
                 """);
         }
         else
@@ -1061,8 +1071,9 @@ public class ProtocolProxyEmitter
                     _csharpImpl.{{methodName}}({{argsString}});
                     return;
                 }
-                // TODO: Call Swift via P/Invoke for Swift implementation
-                throw new NotImplementedException("Swift implementation not yet supported");
+                throw new NotSupportedException(
+                    "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
+                    "Protocol member access is only supported when wrapping a C# implementation.");
                 """);
         }
 
@@ -1143,7 +1154,9 @@ public class ProtocolProxyEmitter
 
             public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
             {
-                throw new NotImplementedException("Protocol conformance descriptor not available for proxy types");
+                throw new NotSupportedException(
+                    "Protocol conformance descriptor is not available for proxy types. " +
+                    "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
             }
 
             #endregion

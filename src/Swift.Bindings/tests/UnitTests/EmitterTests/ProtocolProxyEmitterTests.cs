@@ -624,6 +624,144 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region Swift Existential Degradation Tests
+
+    [Fact]
+    public void EmitProxyClass_PropertyGetter_EmitsNotSupportedException()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("throw new NotSupportedException(", output);
+        Assert.Contains("Cannot get property 'Value'", output);
+        Assert.Contains("Swift-backed existential container", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertySetter_EmitsNotSupportedException()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Cannot set property 'Value'", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodWithReturn_EmitsNotSupportedException()
+    {
+        var protocolDecl = CreateSimpleProtocol("TestProtocol");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "getValue",
+            MangledName = "$sgetValue",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Cannot call method 'GetValue'", output);
+        Assert.Contains("Swift-backed existential container", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_VoidMethod_EmitsNotSupportedException()
+    {
+        var protocolDecl = CreateProtocolWithMethod("TestProtocol", "doSomething");
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Cannot call method 'DoSomething'", output);
+        Assert.Contains("Swift-backed existential container", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SubscriptGetterSetter_EmitsNotSupportedException()
+    {
+        var protocolDecl = CreateSimpleProtocol("IndexedProtocol");
+        protocolDecl.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s7IndexedP9subscriptS2icig",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = "index",
+                    PrivateName = "index",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("subscript_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Cannot get subscript", output);
+        Assert.Contains("Cannot set subscript", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ConformanceDescriptor_EmitsNotSupportedException()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("throw new NotSupportedException(", output);
+        Assert.Contains("Protocol conformance descriptor is not available for proxy types", output);
+        Assert.Contains("EveryProtocol's witness table", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ZeroNotImplementedExceptions()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.DoesNotContain("NotImplementedException", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ExistentialConstructorXmlDoc_MentionsLimitation()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("<remarks>", output);
+        Assert.Contains("NotSupportedException", output);
+        Assert.Contains("C# implementation instead", output);
+    }
+
+    #endregion
+
     #region Witness Table Lookup Tests
 
     [Fact]

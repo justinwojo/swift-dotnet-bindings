@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 46 Complete)
-**Unit Tests**: 1099 passed
+**Last Updated**: February 2026 (Phase 47 Complete)
+**Unit Tests**: 1107 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
 ---
@@ -66,7 +66,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 ## What Doesn't Work
 
 ### Architectural Gaps
-- ❌ **Protocol witness tables** - Full witness table handling
+- ❌ **Protocol witness table dispatch** - Swift-backed existential proxies throw `NotSupportedException` for member access (C# implementation path works)
 - ❌ **Actor isolation enforcement** - Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
@@ -87,7 +87,19 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ---
 
-## Recent Completions (Phase 46)
+## Recent Completions (Phase 47)
+
+### Protocol Runtime Completion
+- All 7 `NotImplementedException` stubs in `ProtocolProxyEmitter.cs` replaced with descriptive `NotSupportedException` throws
+- Swift-backed existential proxies now degrade gracefully: property get/set, method calls, subscript access, and conformance descriptor all throw `NotSupportedException` with messages identifying the specific member
+- All `TODO` comments removed from the emitter
+- XML documentation on existential container constructor documents the limitation
+- 8 new unit tests verify the degradation behavior
+- Unit tests: 1107 (up from 1099)
+
+---
+
+## Previous Completions (Phase 46)
 
 ### Unbound Generic Type Parameter Support
 - Generic type parameters (`τ_0_0`, `τ_0_1`) in properties, methods, and constructors of generic types now resolve correctly
@@ -216,7 +228,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ## Development History
 
-45 phases of improvements tracked in git history. Key milestones:
+47 phases of improvements tracked in git history. Key milestones:
 - Phase 1-15: Core infrastructure and Nuke validation
 - Phase 16-29: Type system and runtime fixes
 - Phase 30-33: Generic type improvements
@@ -227,3 +239,5 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - Phase 43: Protocol conformance emission, opaque returns, async properties, actors
 - Phase 44: Inout parameters, failable initializers
 - Phase 45: Pointer types, NSObject parameters, finalizer safety net
+- Phase 46: Unbound generic type parameters, code review fixes
+- Phase 47: Protocol runtime completion (NotImplementedException → NotSupportedException)
