@@ -355,7 +355,7 @@ public class ProtocolProxyEmitter
         writer.WriteLines($"""
             private readonly {interfaceName}? _csharpImpl;
             private readonly EveryProtocol? _everyProtocol;
-            private readonly ExistentialContainer1 _swiftContainer;
+            private ExistentialContainer1 _swiftContainer;
 
             """);
     }
@@ -844,9 +844,9 @@ public class ProtocolProxyEmitter
             /// Use this when receiving protocol values from Swift code.
             /// </summary>
             /// <remarks>
-            /// Swift-backed proxies created with this constructor throw
-            /// <see cref="NotSupportedException"/> for all protocol member access.
-            /// To call protocol members, use the constructor that takes a C# implementation instead.
+            /// Swift-backed proxies created with this constructor dispatch blittable and String
+            /// protocol members through witness table accessors. Non-dispatchable members
+            /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
             /// </remarks>
             /// <param name="container">The Swift existential container.</param>
             public {{proxyClassName}}(ExistentialContainer1 container)
@@ -920,14 +920,39 @@ public class ProtocolProxyEmitter
         var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
         var propertyName = NameProvider.GetPropertyName(property.Name);
         var isGetterDispatchable = hasGetter && dispatchEmitter.IsPropertyGetterDispatchable(property);
+        var isSetterDispatchable = hasSetter && dispatchEmitter.IsPropertySetterDispatchable(property);
+        var isStringProperty = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);
 
-        // Validate that the projected C# property type is a blittable primitive.
-        // IsPropertyGetterDispatchable checks Swift-side blittability, but if the
+        // Validate that the projected C# property type matches the dispatch strategy.
+        // IsPropertyGetterDispatchable checks Swift-side dispatchability, but if the
         // projected type diverges (e.g. Swift.AnyType from incomplete TypeDatabase),
-        // returning MarshalFromSwift<nint> from a Swift.AnyType property would be
-        // a type mismatch. Disable dispatch in that case.
-        if (isGetterDispatchable && !WitnessDispatchEmitter.IsBlittablePrimitive(csharpTypeName))
-            isGetterDispatchable = false;
+        // the generated return statement would be type-incompatible. Disable dispatch.
+        // For blittable types: projected type must be a blittable primitive.
+        // For String types: projected type must be SwiftString (not AnyType).
+        if (isGetterDispatchable)
+        {
+            if (isStringProperty)
+            {
+                if (!IsSwiftStringProjectedType(csharpTypeName))
+                    isGetterDispatchable = false;
+            }
+            else if (!WitnessDispatchEmitter.IsBlittablePrimitive(csharpTypeName))
+            {
+                isGetterDispatchable = false;
+            }
+        }
+        if (isSetterDispatchable)
+        {
+            if (isStringProperty)
+            {
+                if (!IsSwiftStringProjectedType(csharpTypeName))
+                    isSetterDispatchable = false;
+            }
+            else if (!WitnessDispatchEmitter.IsBlittablePrimitive(csharpTypeName))
+            {
+                isSetterDispatchable = false;
+            }
+        }
 
         writer.WriteLine($"public {csharpTypeName} {propertyName}");
         writer.WriteLine("{");
@@ -935,10 +960,36 @@ public class ProtocolProxyEmitter
 
         if (hasGetter)
         {
-            if (isGetterDispatchable)
+            var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "get", property.Name, 0);
+            var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "get", property.Name, 0);
+
+            if (isGetterDispatchable && isStringProperty)
             {
-                var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "get", property.Name, 0);
-                var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "get", property.Name, 0);
+                // String getter: decode SBW_Utf8Slice → SwiftString
+                writer.WriteLines($$"""
+                    get
+                    {
+                        if (_csharpImpl != null)
+                            return _csharpImpl.{{propertyName}};
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                            IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
+                            try
+                            {
+                                var slice = *(Utf8Slice*)resultPtr;
+                                var str = slice.Len > 0
+                                    ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                                    : string.Empty;
+                                return new Swift.SwiftString(str);
+                            }
+                            finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                        }
+                    }
+                    """);
+            }
+            else if (isGetterDispatchable)
+            {
+                // Blittable getter: existing MarshalFromSwift path
                 // Use the dispatch emitter's canonical blittable type for marshalling,
                 // not the interface-projected type which may differ (e.g. Swift.AnyType)
                 var marshalType = dispatchEmitter.GetBlittableCSharpType(property.SwiftTypeSpec) ?? csharpTypeName;
@@ -974,20 +1025,69 @@ public class ProtocolProxyEmitter
 
         if (hasSetter)
         {
-            // Setters are not dispatchable in Phase A (_swiftContainer is readonly)
-            writer.WriteLines($$"""
-                set
-                {
-                    if (_csharpImpl != null)
+            var setterSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "set", property.Name, 0);
+
+            if (isSetterDispatchable && isStringProperty)
+            {
+                // String setter: encode to UTF-8, pass SBW_Utf8Slice to Swift
+                writer.WriteLines($$"""
+                    set
                     {
-                        _csharpImpl.{{propertyName}} = value;
-                        return;
+                        if (_csharpImpl != null)
+                        {
+                            _csharpImpl.{{propertyName}} = value;
+                            return;
+                        }
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                            var str = value?.ToString() ?? string.Empty;
+                            var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(str);
+                            fixed (byte* utf8Ptr = utf8Bytes)
+                            {
+                                var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };
+                                NativeMethods.{{setterSymbol}}((IntPtr)containerPtr, (IntPtr)(&slice));
+                            }
+                        }
                     }
-                    throw new NotSupportedException(
-                        "Cannot set property '{{propertyName}}' on a Swift-backed existential container. " +
-                        "Protocol member access is only supported when wrapping a C# implementation.");
-                }
-                """);
+                    """);
+            }
+            else if (isSetterDispatchable)
+            {
+                // Blittable setter: pass value by pointer
+                var marshalType = dispatchEmitter.GetBlittableCSharpType(property.SwiftTypeSpec) ?? csharpTypeName;
+
+                writer.WriteLines($$"""
+                    set
+                    {
+                        if (_csharpImpl != null)
+                        {
+                            _csharpImpl.{{propertyName}} = value;
+                            return;
+                        }
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                            var valueCopy = ({{marshalType}})value;
+                            NativeMethods.{{setterSymbol}}((IntPtr)containerPtr, (IntPtr)(&valueCopy));
+                        }
+                    }
+                    """);
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                    set
+                    {
+                        if (_csharpImpl != null)
+                        {
+                            _csharpImpl.{{propertyName}} = value;
+                            return;
+                        }
+                        throw new NotSupportedException(
+                            "Cannot set property '{{propertyName}}' on a Swift-backed existential container. " +
+                            "Protocol member access is only supported when wrapping a C# implementation.");
+                    }
+                    """);
+            }
         }
 
         writer.Indent--;
@@ -1059,6 +1159,7 @@ public class ProtocolProxyEmitter
         var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        var isStringReturn = hasReturn && WitnessDispatchEmitter.IsStringDispatchType(returnType!);
         string returnTypeName;
         if (hasReturn)
         {
@@ -1074,6 +1175,7 @@ public class ProtocolProxyEmitter
         var parameters = new List<string>();
         var argNames = new List<string>();
         var projectedParamTypes = new List<string>();
+        var paramSwiftTypeSpecs = new List<TypeSpec?>();
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
@@ -1083,6 +1185,7 @@ public class ProtocolProxyEmitter
             parameters.Add($"{paramTypeName} {paramName}");
             argNames.Add(paramName);
             projectedParamTypes.Add(paramTypeName);
+            paramSwiftTypeSpecs.Add(param.SwiftTypeSpec);
             argIndex++;
         }
         var parametersString = string.Join(", ", parameters);
@@ -1091,24 +1194,42 @@ public class ProtocolProxyEmitter
         var methodName = NameProvider.ToPascalCase(method.Name);
         var isDispatchable = dispatchEmitter.IsMethodDispatchable(method);
 
-        // Validate that the projected return type is a blittable primitive.
-        // IsMethodDispatchable checks Swift-side blittability, but if the projected
+        // Validate that the projected return type matches the dispatch strategy.
+        // IsMethodDispatchable checks Swift-side dispatchability, but if the projected
         // return type diverges (e.g. Swift.AnyType from incomplete TypeDatabase),
-        // returning MarshalFromSwift<canonicalType> from a non-primitive return type
-        // would be a type mismatch. Disable dispatch in that case.
-        if (isDispatchable && hasReturn && !WitnessDispatchEmitter.IsBlittablePrimitive(returnTypeName))
-            isDispatchable = false;
+        // the generated code would have a type mismatch. Disable dispatch.
+        if (isDispatchable && hasReturn)
+        {
+            if (isStringReturn)
+            {
+                // String return: projected type must be idiomatic "string" (from TypeConversionHandler)
+                if (!IsIdiomaticStringType(returnTypeName))
+                    isDispatchable = false;
+            }
+            else if (!WitnessDispatchEmitter.IsBlittablePrimitive(returnTypeName))
+            {
+                isDispatchable = false;
+            }
+        }
 
-        // Validate that each parameter's projected C# type is a blittable primitive.
-        // The Swift-side blittability is already checked by IsMethodDispatchable().
-        // Here we verify the C# side: if the projected type is non-primitive
-        // (e.g. Swift.AnyType from an incomplete TypeDatabase), the generated
-        // assignment and pointer cast would fail to compile or be semantically wrong.
+        // Validate that each parameter's projected C# type matches the dispatch strategy.
+        // The Swift-side dispatchability is already checked by IsMethodDispatchable().
+        // Here we verify the C# side: if the projected type doesn't match what the
+        // marshalling code expects, the generated code would fail to compile.
         if (isDispatchable)
         {
-            foreach (var projectedType in projectedParamTypes)
+            for (int i = 0; i < projectedParamTypes.Count; i++)
             {
-                if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedType))
+                var isStringParam = WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]);
+                if (isStringParam)
+                {
+                    if (!IsIdiomaticStringType(projectedParamTypes[i]))
+                    {
+                        isDispatchable = false;
+                        break;
+                    }
+                }
+                else if (!WitnessDispatchEmitter.IsBlittablePrimitive(projectedParamTypes[i]))
                 {
                     isDispatchable = false;
                     break;
@@ -1127,9 +1248,6 @@ public class ProtocolProxyEmitter
             if (hasReturn)
             {
                 var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
-                // Use the dispatch emitter's canonical blittable type for marshalling,
-                // not the proxy's type resolution which may differ (e.g. Swift.AnyType)
-                var marshalReturnType = dispatchEmitter.GetBlittableCSharpType(returnType!) ?? GetCSharpTypeName(returnType!);
 
                 writer.WriteLines($$"""
                     if (_csharpImpl != null)
@@ -1139,25 +1257,72 @@ public class ProtocolProxyEmitter
                     """);
                 writer.Indent++;
 
-                // Pass each parameter by pointer — projected type is validated blittable
-                for (int i = 0; i < argNames.Count; i++)
+                // Declare pin handles before try for exception-safe cleanup
+                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+                bool needsOuterTry = pinHandles.Count > 0;
+
+                if (needsOuterTry)
                 {
-                    writer.WriteLine($"var arg{i}Copy = {argNames[i]};");
+                    writer.WriteLine("try");
+                    writer.WriteLine("{");
+                    writer.Indent++;
                 }
 
-                // Build P/Invoke call with parameter pointers
+                // Marshal each parameter — String via GCHandle-pinned Utf8Slice, blittable via copy
+                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
+
+                // Build P/Invoke call
                 var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
                 for (int i = 0; i < argNames.Count; i++)
                 {
-                    pInvokeArgs.Add($"(IntPtr)(&arg{i}Copy)");
+                    pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
                 }
                 var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
-                writer.WriteLines($$"""
-                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                    try { return MarshalFromSwift<{{marshalReturnType}}>(resultPtr); }
-                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
-                    """);
+                if (isStringReturn)
+                {
+                    // String return: decode SBW_Utf8Slice → string
+                    writer.WriteLines($$"""
+                        IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                        try
+                        {
+                            var slice = *(Utf8Slice*)resultPtr;
+                            return slice.Len > 0
+                                ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                                : string.Empty;
+                        }
+                        finally
+                        {
+                            NativeMethods.{{freeSymbol}}(resultPtr);
+                        }
+                        """);
+                }
+                else
+                {
+                    // Blittable return: existing MarshalFromSwift path
+                    var marshalReturnType = dispatchEmitter.GetBlittableCSharpType(returnType!) ?? GetCSharpTypeName(returnType!);
+
+                    writer.WriteLines($$"""
+                        IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                        try { return MarshalFromSwift<{{marshalReturnType}}>(resultPtr); }
+                        finally
+                        {
+                            NativeMethods.{{freeSymbol}}(resultPtr);
+                        }
+                        """);
+                }
+
+                if (needsOuterTry)
+                {
+                    writer.Indent--;
+                    writer.WriteLine("}");
+                    writer.WriteLine("finally");
+                    writer.WriteLine("{");
+                    writer.Indent++;
+                    EmitPinHandleCleanup(writer, pinHandles);
+                    writer.Indent--;
+                    writer.WriteLine("}");
+                }
 
                 writer.Indent--;
                 writer.WriteLine("}");
@@ -1175,20 +1340,40 @@ public class ProtocolProxyEmitter
                     """);
                 writer.Indent++;
 
-                // Pass each parameter by pointer — projected type is validated blittable
-                for (int i = 0; i < argNames.Count; i++)
+                // Declare pin handles before try for exception-safe cleanup
+                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+                bool needsOuterTry = pinHandles.Count > 0;
+
+                if (needsOuterTry)
                 {
-                    writer.WriteLine($"var arg{i}Copy = {argNames[i]};");
+                    writer.WriteLine("try");
+                    writer.WriteLine("{");
+                    writer.Indent++;
                 }
+
+                // Marshal each parameter — String via GCHandle-pinned Utf8Slice, blittable via copy
+                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs);
 
                 var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
                 for (int i = 0; i < argNames.Count; i++)
                 {
-                    pInvokeArgs.Add($"(IntPtr)(&arg{i}Copy)");
+                    pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
                 }
                 var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
                 writer.WriteLine($"NativeMethods.{accessorSymbol}({pInvokeArgsString});");
+
+                if (needsOuterTry)
+                {
+                    writer.Indent--;
+                    writer.WriteLine("}");
+                    writer.WriteLine("finally");
+                    writer.WriteLine("{");
+                    writer.Indent++;
+                    EmitPinHandleCleanup(writer, pinHandles);
+                    writer.Indent--;
+                    writer.WriteLine("}");
+                }
 
                 writer.Indent--;
                 writer.WriteLine("}");
@@ -1225,6 +1410,65 @@ public class ProtocolProxyEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits parameter marshalling for dispatched methods.
+    /// String params: encode to UTF-8 bytes, pin via GCHandle, wrap in Utf8Slice.
+    /// Blittable params: simple copy.
+    /// All params end up as arg{i}Slice for uniform pointer passing.
+    /// Handle variables must be pre-declared by EmitPinHandleDeclarations before the enclosing try block.
+    /// </summary>
+    private static void EmitMethodParameterMarshalling(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs)
+    {
+        for (int i = 0; i < argNames.Count; i++)
+        {
+            if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]))
+            {
+                // String parameter: encode to UTF-8, pin via GCHandle, wrap in Utf8Slice
+                var handleName = $"arg{i}Handle";
+                writer.WriteLine($"var arg{i}Bytes = System.Text.Encoding.UTF8.GetBytes({argNames[i]} ?? string.Empty);");
+                writer.WriteLine($"{handleName} = GCHandle.Alloc(arg{i}Bytes, GCHandleType.Pinned);");
+                writer.WriteLine($"var arg{i}Slice = new Utf8Slice {{ Ptr = {handleName}.AddrOfPinnedObject(), Len = (nint)arg{i}Bytes.Length }};");
+            }
+            else
+            {
+                // Blittable parameter: simple copy
+                writer.WriteLine($"var arg{i}Slice = {argNames[i]};");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits GCHandle.Free() calls for pinned string parameter handles.
+    /// Uses IsAllocated check for exception-safe cleanup.
+    /// </summary>
+    private static void EmitPinHandleCleanup(CSharpWriter writer, List<string> pinHandles)
+    {
+        foreach (var handle in pinHandles)
+        {
+            writer.WriteLine($"if ({handle}.IsAllocated) {handle}.Free();");
+        }
+    }
+
+    /// <summary>
+    /// Emits GCHandle variable declarations initialized to default before try blocks.
+    /// This ensures handles can be safely checked with IsAllocated in finally blocks
+    /// even if an exception occurs during allocation of subsequent handles.
+    /// </summary>
+    private static List<string> EmitPinHandleDeclarations(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs)
+    {
+        var pinHandles = new List<string>();
+        for (int i = 0; i < argNames.Count; i++)
+        {
+            if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]))
+            {
+                var handleName = $"arg{i}Handle";
+                writer.WriteLine($"var {handleName} = default(GCHandle);");
+                pinHandles.Add(handleName);
+            }
+        }
+        return pinHandles;
     }
 
     #endregion
@@ -1308,6 +1552,13 @@ public class ProtocolProxyEmitter
 
             #region Marshalling Helpers
 
+            [StructLayout(LayoutKind.Sequential)]
+            private struct Utf8Slice
+            {
+                public IntPtr Ptr;
+                public nint Len;
+            }
+
             private static IntPtr MarshalToSwiftBuffer<T>(T value)
             {
                 // Use direct memory operations for all types
@@ -1365,6 +1616,12 @@ public class ProtocolProxyEmitter
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
             if (hasGetter && dispatchEmitter.IsPropertyGetterDispatchable(property))
             {
+                var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
+                var isStringProperty = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);
+                // Validate projected type allows dispatch (same gate as EmitPropertyImplementation)
+                if (!isStringProperty && !WitnessDispatchEmitter.IsBlittablePrimitive(csharpTypeName))
+                    continue;
+
                 var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
                 var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
 
@@ -1375,6 +1632,28 @@ public class ProtocolProxyEmitter
 
                     [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{freeSymbol}}")]
                     public static extern void {{freeSymbol}}(IntPtr ptr);
+                    """);
+            }
+        }
+
+        // Property setters
+        foreach (var property in protocolDecl.Properties)
+        {
+            var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+            if (hasSetter && dispatchEmitter.IsPropertySetterDispatchable(property))
+            {
+                var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
+                var isStringProperty = WitnessDispatchEmitter.IsStringDispatchType(property.SwiftTypeSpec);
+                // Validate projected type allows dispatch (same gate as EmitPropertyImplementation)
+                if (!isStringProperty && !WitnessDispatchEmitter.IsBlittablePrimitive(csharpTypeName))
+                    continue;
+
+                var setterSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "set", property.Name, 0);
+
+                writer.WriteLine();
+                writer.WriteLines($$"""
+                    [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{setterSymbol}}")]
+                    public static extern void {{setterSymbol}}(IntPtr containerPtr, IntPtr valuePtr);
                     """);
             }
         }
@@ -1579,6 +1858,28 @@ public class ProtocolProxyEmitter
         }
 
         return $"({string.Join(", ", elements)})";
+    }
+
+    /// <summary>
+    /// Checks if a projected C# type name represents SwiftString.
+    /// This validates that the TypeDatabase properly resolved Swift.String
+    /// rather than falling back to Swift.AnyType.
+    /// </summary>
+    private static bool IsSwiftStringProjectedType(string csharpTypeName)
+    {
+        // Swift.String projects to Swift.SwiftString when properly registered
+        return csharpTypeName == "Swift.SwiftString"
+            || csharpTypeName == "SwiftString"
+            || csharpTypeName == "Swift.Runtime.SwiftString";
+    }
+
+    /// <summary>
+    /// Checks if a projected C# type name represents an idiomatic string type
+    /// (used for method params/returns where TypeConversionHandler applies).
+    /// </summary>
+    private static bool IsIdiomaticStringType(string csharpTypeName)
+    {
+        return csharpTypeName == "string" || csharpTypeName == "System.String";
     }
 
     private static string GetProxyClassName(ProtocolDecl protocolDecl)

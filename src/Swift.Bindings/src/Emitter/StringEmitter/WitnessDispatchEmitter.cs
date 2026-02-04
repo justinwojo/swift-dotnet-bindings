@@ -12,6 +12,8 @@ namespace BindingsGeneration;
 ///
 /// Phase A scope: blittable property getters, non-mutating methods returning blittable types,
 /// non-mutating void methods with blittable parameters.
+/// Phase B scope: String property getters/setters, String method params/returns,
+/// blittable property setters.
 /// </summary>
 public class WitnessDispatchEmitter
 {
@@ -109,6 +111,7 @@ public class WitnessDispatchEmitter
         var methodIndices = new Dictionary<string, int>();
 
         bool anyEmitted = false;
+        bool utf8SliceEmitted = false;
 
         // Property getters
         foreach (var property in protocolDecl.Properties)
@@ -121,7 +124,32 @@ public class WitnessDispatchEmitter
                     writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
                     anyEmitted = true;
                 }
+                if (!utf8SliceEmitted && NeedsUtf8Slice(protocolDecl))
+                {
+                    EmitUtf8SliceStruct(writer);
+                    utf8SliceEmitted = true;
+                }
                 EmitPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
+            }
+        }
+
+        // Property setters
+        foreach (var property in protocolDecl.Properties)
+        {
+            var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+            if (hasSetter && IsPropertySetterDispatchable(property))
+            {
+                if (!anyEmitted)
+                {
+                    writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
+                    anyEmitted = true;
+                }
+                if (!utf8SliceEmitted && NeedsUtf8Slice(protocolDecl))
+                {
+                    EmitUtf8SliceStruct(writer);
+                    utf8SliceEmitted = true;
+                }
+                EmitPropertySetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
             }
         }
 
@@ -145,6 +173,11 @@ public class WitnessDispatchEmitter
                     writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
                     anyEmitted = true;
                 }
+                if (!utf8SliceEmitted && NeedsUtf8Slice(protocolDecl))
+                {
+                    EmitUtf8SliceStruct(writer);
+                    utf8SliceEmitted = true;
+                }
                 EmitMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
         }
@@ -155,20 +188,30 @@ public class WitnessDispatchEmitter
 
     /// <summary>
     /// Determines if a property getter can be dispatched via witness table.
-    /// A getter is dispatchable if its return type is a blittable primitive.
+    /// A getter is dispatchable if its return type is blittable or String.
     /// </summary>
     public bool IsPropertyGetterDispatchable(PropertyDecl property)
     {
-        return IsTypeBlittable(property.SwiftTypeSpec);
+        return IsTypeDispatchable(property.SwiftTypeSpec);
+    }
+
+    /// <summary>
+    /// Determines if a property setter can be dispatched via witness table.
+    /// A setter is dispatchable if its type is blittable or String.
+    /// </summary>
+    public bool IsPropertySetterDispatchable(PropertyDecl property)
+    {
+        return IsTypeDispatchable(property.SwiftTypeSpec);
     }
 
     /// <summary>
     /// Determines if a method can be dispatched via witness table.
-    /// A method is dispatchable if all parameter types and the return type (if any) are blittable.
+    /// A method is dispatchable if all parameter types and the return type (if any) are blittable or String.
+    /// Throwing and async methods are not yet dispatchable.
     /// </summary>
     public bool IsMethodDispatchable(MethodDecl method)
     {
-        // Phase A: throwing and async methods require special Swift accessor
+        // Throwing and async methods require special Swift accessor
         // signatures (try/await) that we don't generate yet
         if (method.Throws || method.IsAsync)
             return false;
@@ -176,17 +219,44 @@ public class WitnessDispatchEmitter
         // Check return type
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        if (hasReturn && !IsTypeBlittable(returnType!))
+        if (hasReturn && !IsTypeDispatchable(returnType!))
             return false;
 
         // Check all parameters
         foreach (var param in method.CSSignature.Skip(1))
         {
-            if (!IsTypeBlittable(param.SwiftTypeSpec))
+            if (!IsTypeDispatchable(param.SwiftTypeSpec))
                 return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Checks if a TypeSpec represents Swift.String.
+    /// Used by ProtocolProxyEmitter to branch on String-specific marshalling.
+    /// </summary>
+    public static bool IsStringType(TypeSpec? typeSpec)
+    {
+        return typeSpec is NamedTypeSpec namedType && namedType.Name == "Swift.String";
+    }
+
+    /// <summary>
+    /// Checks if a type can be dispatched through witness accessors.
+    /// This includes blittable primitives and Swift.String (via UTF-8 bridge).
+    /// </summary>
+    public bool IsTypeDispatchable(TypeSpec? typeSpec)
+    {
+        return IsTypeBlittable(typeSpec) || IsStringType(typeSpec);
+    }
+
+    /// <summary>
+    /// Checks if a TypeSpec represents a String dispatch type.
+    /// Public for ProtocolProxyEmitter to branch on String vs blittable marshalling.
+    /// </summary>
+    public static bool IsStringDispatchType(TypeSpec? typeSpec)
+    {
+        return IsStringType(typeSpec);
     }
 
     /// <summary>
@@ -245,6 +315,51 @@ public class WitnessDispatchEmitter
 
     #region Private Helpers
 
+    /// <summary>
+    /// Checks whether a protocol has any dispatchable members that use String types,
+    /// which requires the SBW_Utf8Slice struct to be emitted.
+    /// </summary>
+    private bool NeedsUtf8Slice(ProtocolDecl protocolDecl)
+    {
+        foreach (var property in protocolDecl.Properties)
+        {
+            if (IsStringType(property.SwiftTypeSpec))
+                return true;
+        }
+        foreach (var method in protocolDecl.Methods)
+        {
+            if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+            if (method.Throws || method.IsAsync)
+                continue;
+            var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            if (returnType != null && !returnType.IsEmptyTuple && IsStringType(returnType))
+                return true;
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (IsStringType(param.SwiftTypeSpec))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Emits the @frozen SBW_Utf8Slice struct used to transfer UTF-8 string data
+    /// across the Swift/C# boundary.
+    /// </summary>
+    private static void EmitUtf8SliceStruct(SwiftWriter writer)
+    {
+        writer.WriteLines("""
+            @frozen
+            public struct SBW_Utf8Slice {
+                public var ptr: UnsafeMutablePointer<UInt8>
+                public var len: Int
+            }
+
+            """);
+    }
+
     private bool IsTypeBlittable(TypeSpec? typeSpec)
     {
         if (typeSpec == null) return false;
@@ -294,28 +409,111 @@ public class WitnessDispatchEmitter
     private void EmitPropertyGetterAccessor(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string moduleQualifiedName)
     {
         var protocolName = protocolDecl.Name;
-        var csharpReturnType = GetCSharpTypeName(property.SwiftTypeSpec);
-        var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
 
-        writer.WriteLines($$"""
-            @_silgen_name("{{accessorSymbol}}")
-            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                let result = existential.{{property.Name}}
-                let ptr = UnsafeMutablePointer<{{swiftReturnType}}>.allocate(capacity: 1)
-                ptr.initialize(to: result)
-                return UnsafeMutableRawPointer(ptr)
-            }
+        if (IsStringType(property.SwiftTypeSpec))
+        {
+            // String getter: convert Swift String to UTF-8 bytes via SBW_Utf8Slice
+            writer.WriteLines($$"""
+                @_silgen_name("{{accessorSymbol}}")
+                public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                    let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                    let result: String = existential.{{property.Name}}
+                    let utf8 = Array(result.utf8)
+                    let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
+                    if !utf8.isEmpty {
+                        utf8.withUnsafeBufferPointer { src in
+                            bufferPtr.initialize(from: src.baseAddress!, count: src.count)
+                        }
+                    }
+                    let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)
+                    slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))
+                    return UnsafeMutableRawPointer(slicePtr)
+                }
 
-            @_silgen_name("{{freeSymbol}}")
-            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
-                ptr.assumingMemoryBound(to: {{swiftReturnType}}.self).deinitialize(count: 1)
-                ptr.deallocate()
-            }
+                @_silgen_name("{{freeSymbol}}")
+                public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                    let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
+                    slicePtr.pointee.ptr.deallocate()
+                    slicePtr.deinitialize(count: 1)
+                    slicePtr.deallocate()
+                }
 
-            """);
+                """);
+        }
+        else
+        {
+            // Blittable getter: direct pointer allocation
+            var csharpReturnType = GetCSharpTypeName(property.SwiftTypeSpec);
+            var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
+
+            writer.WriteLines($$"""
+                @_silgen_name("{{accessorSymbol}}")
+                public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                    let existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                    let result = existential.{{property.Name}}
+                    let ptr = UnsafeMutablePointer<{{swiftReturnType}}>.allocate(capacity: 1)
+                    ptr.initialize(to: result)
+                    return UnsafeMutableRawPointer(ptr)
+                }
+
+                @_silgen_name("{{freeSymbol}}")
+                public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                    ptr.assumingMemoryBound(to: {{swiftReturnType}}.self).deinitialize(count: 1)
+                    ptr.deallocate()
+                }
+
+                """);
+        }
+    }
+
+    private void EmitPropertySetterAccessor(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string moduleQualifiedName)
+    {
+        var protocolName = protocolDecl.Name;
+        var accessorSymbol = GetAccessorSymbol(protocolName, "set", property.Name, 0);
+
+        if (IsStringType(property.SwiftTypeSpec))
+        {
+            // String setter: decode SBW_Utf8Slice → String, then assign via typed pointee
+            writer.WriteLines($$"""
+                @_silgen_name("{{accessorSymbol}}")
+                public func {{accessorSymbol}}(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+                    let typedPtr = containerPtr.assumingMemoryBound(to: (any {{moduleQualifiedName}}).self)
+                    var existential = typedPtr.pointee
+                    let slice = valuePtr.load(as: SBW_Utf8Slice.self)
+                    let str: String
+                    if slice.len > 0 {
+                        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+                            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+                            return slice.len
+                        }
+                    } else {
+                        str = ""
+                    }
+                    existential.{{property.Name}} = str
+                    typedPtr.pointee = existential
+                }
+
+                """);
+        }
+        else
+        {
+            // Blittable setter: typed pointee assignment
+            var csharpType = GetCSharpTypeName(property.SwiftTypeSpec);
+            var swiftType = GetSwiftPrimitiveType(csharpType);
+
+            writer.WriteLines($$"""
+                @_silgen_name("{{accessorSymbol}}")
+                public func {{accessorSymbol}}(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+                    let typedPtr = containerPtr.assumingMemoryBound(to: (any {{moduleQualifiedName}}).self)
+                    var existential = typedPtr.pointee
+                    existential.{{property.Name}} = valuePtr.load(as: {{swiftType}}.self)
+                    typedPtr.pointee = existential
+                }
+
+                """);
+        }
     }
 
     private void EmitMethodAccessor(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string moduleQualifiedName, int index)
@@ -323,6 +521,7 @@ public class WitnessDispatchEmitter
         var protocolName = protocolDecl.Name;
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        var isStringReturn = hasReturn && IsStringType(returnType!);
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
 
@@ -344,14 +543,38 @@ public class WitnessDispatchEmitter
         // Load existential — use var for methods that may be mutating in the future
         writer.WriteLine($"let existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
 
-        // Unmarshal parameters
+        // Unmarshal parameters — per-parameter branching for String vs blittable
         var callArgs = new List<string>();
         int argIdx = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
-            var swiftType = GetSwiftPrimitiveType(csharpType);
-            writer.WriteLine($"let arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
+            if (IsStringType(param.SwiftTypeSpec))
+            {
+                // String parameter: decode SBW_Utf8Slice → Swift String
+                writer.WriteLine($"let arg{argIdx}Slice = arg{argIdx}Ptr.load(as: SBW_Utf8Slice.self)");
+                writer.WriteLine($"let arg{argIdx}: String");
+                writer.WriteLine($"if arg{argIdx}Slice.len > 0 {{");
+                writer.Indent++;
+                writer.WriteLine($"arg{argIdx} = String(unsafeUninitializedCapacity: arg{argIdx}Slice.len) {{ buf in");
+                writer.Indent++;
+                writer.WriteLine($"UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg{argIdx}Slice.ptr, byteCount: arg{argIdx}Slice.len)");
+                writer.WriteLine($"return arg{argIdx}Slice.len");
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.Indent--;
+                writer.WriteLine("} else {");
+                writer.Indent++;
+                writer.WriteLine($"arg{argIdx} = \"\"");
+                writer.Indent--;
+                writer.WriteLine("}");
+            }
+            else
+            {
+                // Blittable parameter: direct load
+                var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
+                var swiftType = GetSwiftPrimitiveType(csharpType);
+                writer.WriteLine($"let arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
+            }
             callArgs.Add($"arg{argIdx}");
             argIdx++;
         }
@@ -371,12 +594,35 @@ public class WitnessDispatchEmitter
 
         if (hasReturn)
         {
-            var csharpReturnType = GetCSharpTypeName(returnType!);
-            var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
-            writer.WriteLine($"let result = existential.{method.Name}({callArgsString})");
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
-            writer.WriteLine("ptr.initialize(to: result)");
-            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            if (isStringReturn)
+            {
+                // String return: convert to UTF-8 bytes via SBW_Utf8Slice
+                writer.WriteLine($"let result: String = existential.{method.Name}({callArgsString})");
+                writer.WriteLine("let utf8 = Array(result.utf8)");
+                writer.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
+                writer.WriteLine("if !utf8.isEmpty {");
+                writer.Indent++;
+                writer.WriteLine("utf8.withUnsafeBufferPointer { src in");
+                writer.Indent++;
+                writer.WriteLine("bufferPtr.initialize(from: src.baseAddress!, count: src.count)");
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.WriteLine("let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
+                writer.WriteLine("slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))");
+                writer.WriteLine("return UnsafeMutableRawPointer(slicePtr)");
+            }
+            else
+            {
+                // Blittable return: direct pointer allocation
+                var csharpReturnType = GetCSharpTypeName(returnType!);
+                var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
+                writer.WriteLine($"let result = existential.{method.Name}({callArgsString})");
+                writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
+                writer.WriteLine("ptr.initialize(to: result)");
+                writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            }
         }
         else
         {
@@ -390,18 +636,37 @@ public class WitnessDispatchEmitter
         // Emit free function only for methods with return values
         if (hasReturn)
         {
-            var csharpReturnType = GetCSharpTypeName(returnType!);
-            var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
             var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
 
-            writer.WriteLines($$"""
-                @_silgen_name("{{freeSymbol}}")
-                public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
-                    ptr.assumingMemoryBound(to: {{swiftReturnType}}.self).deinitialize(count: 1)
-                    ptr.deallocate()
-                }
+            if (isStringReturn)
+            {
+                // String return: free SBW_Utf8Slice + buffer
+                writer.WriteLines($$"""
+                    @_silgen_name("{{freeSymbol}}")
+                    public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                        let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
+                        slicePtr.pointee.ptr.deallocate()
+                        slicePtr.deinitialize(count: 1)
+                        slicePtr.deallocate()
+                    }
 
-                """);
+                    """);
+            }
+            else
+            {
+                // Blittable return: simple dealloc
+                var csharpReturnType = GetCSharpTypeName(returnType!);
+                var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
+
+                writer.WriteLines($$"""
+                    @_silgen_name("{{freeSymbol}}")
+                    public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                        ptr.assumingMemoryBound(to: {{swiftReturnType}}.self).deinitialize(count: 1)
+                        ptr.deallocate()
+                    }
+
+                    """);
+            }
         }
     }
 

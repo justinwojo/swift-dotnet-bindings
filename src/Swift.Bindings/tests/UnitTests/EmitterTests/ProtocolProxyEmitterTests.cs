@@ -120,7 +120,8 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("private readonly ExistentialContainer1 _swiftContainer;", output);
+        Assert.Contains("private ExistentialContainer1 _swiftContainer;", output);
+        Assert.DoesNotContain("private readonly ExistentialContainer1 _swiftContainer;", output);
     }
 
     #endregion
@@ -732,19 +733,36 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_NonBlittablePropertyGetter_EmitsNotSupportedException()
+    public void EmitProxyClass_StringPropertyGetter_RegisteredType_EmitsUtf8SliceDispatch()
     {
+        RegisterSwiftString();
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "name", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.String"));
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("throw new NotSupportedException(", output);
-        Assert.Contains("Cannot get property 'Name'", output);
-        Assert.Contains("Swift-backed existential container", output);
+        Assert.Contains("NativeMethods.SBW_TestProtocol_get_name_0", output);
+        Assert.Contains("Utf8Slice", output);
+        Assert.Contains("Encoding.UTF8.GetString", output);
+        Assert.Contains("new Swift.SwiftString(str)", output);
+        Assert.DoesNotContain("Cannot get property 'Name'", output);
     }
 
     [Fact]
-    public void EmitProxyClass_PropertySetter_EmitsNotSupportedException()
+    public void EmitProxyClass_StringPropertyGetter_NoTypeDB_FallsBackToNotSupported()
     {
+        // Without TypeDB registration, Swift.String projects to Swift.AnyType
+        // which is incompatible with SwiftString dispatch. Must fall back.
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "name", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.String"));
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Cannot get property 'Name'", output);
+        Assert.DoesNotContain("Encoding.UTF8.GetString", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertySetter_BlittableSwift_EmitsNotSupportedWithoutTypeDB()
+    {
+        // Without TypeDatabase registration, Swift.Int projects to Swift.AnyType (non-blittable)
+        // so setter dispatch is disabled — falls back to NotSupportedException
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
         var output = EmitProxyClass(protocolDecl);
 
@@ -835,7 +853,7 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_NonBlittableMethodWithReturn_EmitsNotSupportedException()
+    public void EmitProxyClass_StringMethodWithReturn_EmitsUtf8SliceDispatch()
     {
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
         protocolDecl.Methods.Add(new MethodDecl
@@ -866,8 +884,11 @@ public class ProtocolProxyEmitterTests
         });
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("Cannot call method 'GetName'", output);
-        Assert.Contains("Swift-backed existential container", output);
+        // String method return should dispatch via Utf8Slice
+        Assert.Contains("NativeMethods.SBW_TestProtocol_method_getName_0", output);
+        Assert.Contains("Utf8Slice", output);
+        Assert.Contains("Encoding.UTF8.GetString", output);
+        Assert.DoesNotContain("Cannot call method 'GetName'", output);
     }
 
     [Fact]
@@ -939,14 +960,14 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_ExistentialConstructorXmlDoc_MentionsLimitation()
+    public void EmitProxyClass_ExistentialConstructorXmlDoc_MentionsDispatchCapabilities()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("<remarks>", output);
-        Assert.Contains("NotSupportedException", output);
-        Assert.Contains("C# implementation instead", output);
+        Assert.Contains("blittable and String", output);
+        Assert.Contains("witness table accessors", output);
     }
 
     #endregion
@@ -956,7 +977,8 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_BlittableGetter_GeneratesPInvokeDeclaration()
     {
-        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        RegisterSwiftInt32();
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int32"));
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("EntryPoint = \"SBW_TestProtocol_get_value_0\"", output);
@@ -966,7 +988,8 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_BlittableGetter_GeneratesFreePInvoke()
     {
-        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        RegisterSwiftInt32();
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int32"));
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("EntryPoint = \"SBW_TestProtocol_free_get_value_0\"", output);
@@ -976,7 +999,8 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_BlittableGetter_UsesCdeclCallingConvention()
     {
-        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        RegisterSwiftInt32();
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int32"));
         var output = EmitProxyClass(protocolDecl);
 
         // Both accessor and free should use Cdecl
@@ -1044,22 +1068,50 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_NonBlittableGetter_NoPInvokeGenerated()
+    public void EmitProxyClass_StringGetter_RegisteredType_GeneratesPInvoke()
     {
+        RegisterSwiftString();
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "name", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.String"));
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.DoesNotContain("SBW_TestProtocol_get_name_0", output);
+        Assert.Contains("SBW_TestProtocol_get_name_0", output);
+        Assert.Contains("SBW_TestProtocol_free_get_name_0", output);
     }
 
     [Fact]
-    public void EmitProxyClass_BlittableSetter_StillThrowsNotSupported()
+    public void EmitProxyClass_BlittableSetter_RegisteredType_EmitsDispatch()
     {
-        // Setters are not dispatchable in Phase A
-        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
+        // With a properly registered type, setters should dispatch
+        RegisterSwiftInt32();
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true, new NamedTypeSpec("Swift.Int32"));
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("Cannot set property 'Value'", output);
+        Assert.Contains("NativeMethods.SBW_TestProtocol_set_value_0", output);
+        Assert.DoesNotContain("Cannot set property 'Value'", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_StringSetter_RegisteredType_EmitsUtf8SliceDispatch()
+    {
+        RegisterSwiftString();
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "name", hasGetter: true, hasSetter: true, new NamedTypeSpec("Swift.String"));
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("NativeMethods.SBW_TestProtocol_set_name_0", output);
+        Assert.Contains("Encoding.UTF8.GetBytes", output);
+        Assert.Contains("Utf8Slice", output);
+        Assert.DoesNotContain("Cannot set property 'Name'", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SetterPInvoke_GeneratesDeclaration()
+    {
+        RegisterSwiftInt32();
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true, new NamedTypeSpec("Swift.Int32"));
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("EntryPoint = \"SBW_TestProtocol_set_value_0\"", output);
+        Assert.Contains("public static extern void SBW_TestProtocol_set_value_0(IntPtr containerPtr, IntPtr valuePtr)", output);
     }
 
     [Fact]
@@ -1132,7 +1184,7 @@ public class ProtocolProxyEmitterTests
         // Projected type System.Int32 is blittable → dispatch enabled
         Assert.Contains("NativeMethods.SBW_TestProtocol_method_setValue_0", output);
         Assert.DoesNotContain("Cannot call method 'SetValue'", output);
-        Assert.Contains("var arg0Copy = newValue;", output);
+        Assert.Contains("var arg0Slice = newValue;", output);
     }
 
     [Fact]
@@ -1189,10 +1241,9 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_MethodWithNonBlittableParam_FallsBackToNotSupported()
+    public void EmitProxyClass_MethodWithStringParam_EmitsStringDispatch()
     {
-        // A method with a non-blittable parameter (String) should NOT be dispatched,
-        // even if the return type is blittable or void
+        // A method with a String parameter should now be dispatched via Utf8Slice
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
         protocolDecl.Methods.Add(new MethodDecl
         {
@@ -1212,7 +1263,6 @@ public class ProtocolProxyEmitterTests
                     ParentDecl = null,
                     ModuleDecl = null
                 },
-                // Swift.String is non-blittable on both Swift and C# sides
                 new()
                 {
                     Name = "name",
@@ -1233,9 +1283,30 @@ public class ProtocolProxyEmitterTests
         });
         var output = EmitProxyClass(protocolDecl);
 
-        // Should NOT dispatch — String param is not blittable
-        Assert.Contains("Cannot call method 'SetName'", output);
-        Assert.DoesNotContain("NativeMethods.SBW_TestProtocol_method_setName", output);
+        // Should dispatch — String params are now supported via Utf8Slice
+        Assert.Contains("NativeMethods.SBW_TestProtocol_method_setName_0", output);
+        Assert.Contains("Encoding.UTF8.GetBytes", output);
+        Assert.DoesNotContain("Cannot call method 'SetName'", output);
+
+        // P2 fix: handles declared before try, IsAllocated check in finally
+        Assert.Contains("var arg0Handle = default(GCHandle);", output);
+        Assert.Contains("if (arg0Handle.IsAllocated) arg0Handle.Free();", output);
+    }
+
+    #endregion
+
+    #region Utf8Slice Struct Tests
+
+    [Fact]
+    public void EmitProxyClass_GeneratesUtf8SliceStruct()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("[StructLayout(LayoutKind.Sequential)]", output);
+        Assert.Contains("private struct Utf8Slice", output);
+        Assert.Contains("public IntPtr Ptr;", output);
+        Assert.Contains("public nint Len;", output);
     }
 
     #endregion
@@ -1363,6 +1434,25 @@ public class ProtocolProxyEmitterTests
             IsAsync = false,
             Visibility = Visibility.Public
         };
+    }
+
+    /// <summary>
+    /// Registers Swift.String → Swift.SwiftString in the test TypeDatabase so the
+    /// projected C# property type is SwiftString and String dispatch is enabled.
+    /// </summary>
+    private void RegisterSwiftString()
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.String"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSSWsMA",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
     }
 
     /// <summary>

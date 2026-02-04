@@ -217,10 +217,10 @@ public class WitnessDispatchEmitterTests
     }
 
     [Fact]
-    public void IsPropertyGetterDispatchable_String_ReturnsFalse()
+    public void IsPropertyGetterDispatchable_String_ReturnsTrue()
     {
         var property = CreateProperty("name", new NamedTypeSpec("Swift.String"));
-        Assert.False(_emitter.IsPropertyGetterDispatchable(property));
+        Assert.True(_emitter.IsPropertyGetterDispatchable(property));
     }
 
     [Fact]
@@ -248,24 +248,24 @@ public class WitnessDispatchEmitterTests
     }
 
     [Fact]
-    public void IsMethodDispatchable_StringReturn_ReturnsFalse()
+    public void IsMethodDispatchable_StringReturn_ReturnsTrue()
     {
         var method = CreateMethod("getName",
             returnType: new NamedTypeSpec("Swift.String"));
-        Assert.False(_emitter.IsMethodDispatchable(method));
+        Assert.True(_emitter.IsMethodDispatchable(method));
     }
 
     [Fact]
-    public void IsMethodDispatchable_NonBlittableParam_ReturnsFalse()
+    public void IsMethodDispatchable_StringParam_ReturnsTrue()
     {
         var method = CreateMethodWithParams("process",
             returnType: TupleTypeSpec.Empty,
             paramTypes: new[] { ("text", new NamedTypeSpec("Swift.String") as TypeSpec) });
-        Assert.False(_emitter.IsMethodDispatchable(method));
+        Assert.True(_emitter.IsMethodDispatchable(method));
     }
 
     [Fact]
-    public void IsMethodDispatchable_MixedParams_ReturnsFalse()
+    public void IsMethodDispatchable_MixedBlittableAndStringParams_ReturnsTrue()
     {
         var method = CreateMethodWithParams("process",
             returnType: new NamedTypeSpec("Swift.Int32"),
@@ -274,6 +274,17 @@ public class WitnessDispatchEmitterTests
                 ("count", new NamedTypeSpec("Swift.Int32") as TypeSpec),
                 ("name", new NamedTypeSpec("Swift.String") as TypeSpec)
             });
+        Assert.True(_emitter.IsMethodDispatchable(method));
+    }
+
+    [Fact]
+    public void IsMethodDispatchable_ArrayParam_ReturnsFalse()
+    {
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var method = CreateMethodWithParams("process",
+            returnType: TupleTypeSpec.Empty,
+            paramTypes: new[] { ("items", arrayType as TypeSpec) });
         Assert.False(_emitter.IsMethodDispatchable(method));
     }
 
@@ -393,45 +404,62 @@ public class WitnessDispatchEmitterTests
     #region Non-Dispatchable Members Tests
 
     [Fact]
-    public void EmitDispatch_NonBlittableProperty_NoOutput()
+    public void EmitDispatch_StringProperty_EmitsUtf8SlicePattern()
     {
         var protocolDecl = CreateProtocolWithProperty("HasName", "name", new NamedTypeSpec("Swift.String"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.DoesNotContain("@_silgen_name", output);
+        Assert.Contains("@_silgen_name(\"SBW_HasName_get_name_0\")", output);
+        Assert.Contains("SBW_Utf8Slice", output);
+        Assert.Contains("Array(result.utf8)", output);
+        Assert.Contains("withUnsafeBufferPointer", output);
     }
 
     [Fact]
-    public void EmitDispatch_NonBlittableMethod_NoOutput()
+    public void EmitDispatch_StringMethod_EmitsUtf8SliceReturn()
     {
         var protocolDecl = CreateProtocolWithMethod("HasName", "getName",
             returnType: new NamedTypeSpec("Swift.String"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.DoesNotContain("@_silgen_name", output);
+        Assert.Contains("@_silgen_name(\"SBW_HasName_method_getName_0\")", output);
+        Assert.Contains("let result: String = existential.getName()", output);
+        Assert.Contains("SBW_Utf8Slice", output);
     }
 
     [Fact]
-    public void EmitDispatch_MixedMembers_OnlyBlittableEmitted()
+    public void EmitDispatch_MixedMembers_BothBlittableAndStringEmitted()
     {
         var protocolDecl = CreateSimpleProtocol("MixedProtocol");
 
         // Blittable property
         protocolDecl.Properties.Add(CreateProperty("count", new NamedTypeSpec("Swift.Int32")));
 
-        // Non-blittable property
+        // String property
         protocolDecl.Properties.Add(CreateProperty("name", new NamedTypeSpec("Swift.String")));
 
         var output = EmitDispatch(protocolDecl);
 
         Assert.Contains("SBW_MixedProtocol_get_count_0", output);
-        Assert.DoesNotContain("SBW_MixedProtocol_get_name_0", output);
+        Assert.Contains("SBW_MixedProtocol_get_name_0", output);
     }
 
     [Fact]
-    public void EmitDispatch_SetterOnlyProperty_NoOutput()
+    public void EmitDispatch_NonDispatchableArrayProperty_NoOutput()
     {
-        // Properties with only setter (no getter) should not emit dispatch
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var protocolDecl = CreateSimpleProtocol("HasItems");
+        protocolDecl.Properties.Add(CreateProperty("items", arrayType));
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.DoesNotContain("@_silgen_name", output);
+    }
+
+    [Fact]
+    public void EmitDispatch_SetterOnlyProperty_EmitsSetter()
+    {
+        // Properties with only setter should emit setter dispatch
         var protocolDecl = CreateSimpleProtocol("WriteOnly");
         var property = new PropertyDecl
         {
@@ -450,7 +478,173 @@ public class WitnessDispatchEmitterTests
 
         var output = EmitDispatch(protocolDecl);
 
-        Assert.DoesNotContain("@_silgen_name", output);
+        Assert.Contains("SBW_WriteOnly_set_value_0", output);
+    }
+
+    #endregion
+
+    #region String Dispatch Type Tests
+
+    [Fact]
+    public void IsStringDispatchType_SwiftString_ReturnsTrue()
+    {
+        Assert.True(WitnessDispatchEmitter.IsStringDispatchType(new NamedTypeSpec("Swift.String")));
+    }
+
+    [Fact]
+    public void IsStringDispatchType_SwiftInt_ReturnsFalse()
+    {
+        Assert.False(WitnessDispatchEmitter.IsStringDispatchType(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void IsStringDispatchType_Null_ReturnsFalse()
+    {
+        Assert.False(WitnessDispatchEmitter.IsStringDispatchType(null));
+    }
+
+    [Fact]
+    public void IsStringType_SwiftString_ReturnsTrue()
+    {
+        Assert.True(WitnessDispatchEmitter.IsStringType(new NamedTypeSpec("Swift.String")));
+    }
+
+    [Fact]
+    public void IsStringType_NonString_ReturnsFalse()
+    {
+        Assert.False(WitnessDispatchEmitter.IsStringType(new NamedTypeSpec("Swift.Int")));
+    }
+
+    #endregion
+
+    #region Property Setter Tests
+
+    [Fact]
+    public void IsPropertySetterDispatchable_BlittableType_ReturnsTrue()
+    {
+        var property = CreateProperty("value", new NamedTypeSpec("Swift.Int32"));
+        Assert.True(_emitter.IsPropertySetterDispatchable(property));
+    }
+
+    [Fact]
+    public void IsPropertySetterDispatchable_StringType_ReturnsTrue()
+    {
+        var property = CreateProperty("name", new NamedTypeSpec("Swift.String"));
+        Assert.True(_emitter.IsPropertySetterDispatchable(property));
+    }
+
+    [Fact]
+    public void IsPropertySetterDispatchable_ArrayType_ReturnsFalse()
+    {
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var property = CreateProperty("items", arrayType);
+        Assert.False(_emitter.IsPropertySetterDispatchable(property));
+    }
+
+    [Fact]
+    public void EmitDispatch_BlittableSetter_EmitsTypedPointeeAssignment()
+    {
+        var protocolDecl = CreateProtocolWithGetterAndSetter("HasValue", "value", new NamedTypeSpec("Swift.Int32"));
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("SBW_HasValue_set_value_0", output);
+        Assert.Contains("containerPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("typedPtr.pointee = existential", output);
+    }
+
+    [Fact]
+    public void EmitDispatch_StringSetter_EmitsUtf8SliceDecode()
+    {
+        var protocolDecl = CreateProtocolWithGetterAndSetter("HasName", "name", new NamedTypeSpec("Swift.String"));
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("SBW_HasName_set_name_0", output);
+        Assert.Contains("SBW_Utf8Slice", output);
+        Assert.Contains("String(unsafeUninitializedCapacity:", output);
+    }
+
+    [Fact]
+    public void EmitDispatch_SetterNoFreeFunction()
+    {
+        var protocolDecl = CreateProtocolWithGetterAndSetter("HasValue", "value", new NamedTypeSpec("Swift.Int32"));
+        var output = EmitDispatch(protocolDecl);
+
+        // Setters should not have free functions
+        Assert.DoesNotContain("SBW_HasValue_free_set_value_0", output);
+    }
+
+    #endregion
+
+    #region SBW_Utf8Slice Struct Tests
+
+    [Fact]
+    public void EmitDispatch_StringProperty_EmitsUtf8SliceStructOnce()
+    {
+        var protocolDecl = CreateSimpleProtocol("MultiString");
+        protocolDecl.Properties.Add(CreateProperty("firstName", new NamedTypeSpec("Swift.String")));
+        protocolDecl.Properties.Add(CreateProperty("lastName", new NamedTypeSpec("Swift.String")));
+
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("@frozen", output);
+        Assert.Contains("public struct SBW_Utf8Slice", output);
+        // Should only appear once
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "public struct SBW_Utf8Slice"));
+    }
+
+    [Fact]
+    public void EmitDispatch_BlittableOnly_NoUtf8SliceStruct()
+    {
+        var protocolDecl = CreateProtocolWithProperty("HasCount", "count", new NamedTypeSpec("Swift.Int32"));
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.DoesNotContain("SBW_Utf8Slice", output);
+    }
+
+    #endregion
+
+    #region String Method Emission Tests
+
+    [Fact]
+    public void EmitMethod_StringParam_EmitsUtf8SliceDecode()
+    {
+        var protocolDecl = CreateProtocolWithMethodAndParams("HasName", "setName",
+            returnType: TupleTypeSpec.Empty,
+            paramTypes: new[] { ("name", new NamedTypeSpec("Swift.String") as TypeSpec) });
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("arg0Slice = arg0Ptr.load(as: SBW_Utf8Slice.self)", output);
+        Assert.Contains("String(unsafeUninitializedCapacity:", output);
+    }
+
+    [Fact]
+    public void EmitMethod_MixedParams_EmitsBothPatterns()
+    {
+        var protocolDecl = CreateProtocolWithMethodAndParams("Calculator", "compute",
+            returnType: new NamedTypeSpec("Swift.Int32"),
+            paramTypes: new[]
+            {
+                ("count", new NamedTypeSpec("Swift.Int32") as TypeSpec),
+                ("label", new NamedTypeSpec("Swift.String") as TypeSpec)
+            });
+        var output = EmitDispatch(protocolDecl);
+
+        // Blittable param loads directly
+        Assert.Contains("arg0Ptr.load(as: Int32.self)", output);
+        // String param uses Utf8Slice
+        Assert.Contains("arg1Slice = arg1Ptr.load(as: SBW_Utf8Slice.self)", output);
+    }
+
+    [Fact]
+    public void EmitMethod_StringReturn_EmitsUtf8SliceFree()
+    {
+        var protocolDecl = CreateProtocolWithMethod("HasName", "getName",
+            returnType: new NamedTypeSpec("Swift.String"));
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("SBW_HasName_free_method_getName_0", output);
+        Assert.Contains("slicePtr.pointee.ptr.deallocate()", output);
     }
 
     #endregion
@@ -562,6 +756,26 @@ public class WitnessDispatchEmitterTests
     {
         var protocol = CreateSimpleProtocol(protocolName);
         protocol.Methods.Add(CreateMethodWithParams(methodName, returnType, paramTypes));
+        return protocol;
+    }
+
+    private ProtocolDecl CreateProtocolWithGetterAndSetter(string protocolName, string propertyName, TypeSpec typeSpec)
+    {
+        var protocol = CreateSimpleProtocol(protocolName);
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = propertyName,
+            SwiftTypeSpec = typeSpec,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl($"{propertyName}_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl($"{propertyName}_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
         return protocol;
     }
 

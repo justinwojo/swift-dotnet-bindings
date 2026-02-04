@@ -3,7 +3,7 @@
 Consolidated backlog of generator gaps, runtime issues, and infrastructure work. Ordered by priority.
 
 **Date**: February 2026
-**Current**: Phase 52 complete, 1216 unit tests, 93/93 must-pass features
+**Current**: Phase 53 complete, 1238 unit tests, 93/93 must-pass features
 **Completed items**: See `CompletedPhases/completed-backlog-items.md`
 
 ---
@@ -45,9 +45,9 @@ Reassessed February 2026 after Phases 49-52 (binding reports regenerated).
 | # | Area | Description | Impact | Priority |
 |---|------|-------------|--------|----------|
 | ~~20~~ | ~~Generator~~ | ~~AnyTypeFallback investigation~~ | ~~Resolved: 13/14 were stale (already fixed by Phase 50-52 generic improvements). 1 remaining is QuartzCore.CALayer type gap.~~ | ~~Done~~ |
-| ~~8~~ | ~~Validation~~ | ~~BlinkID runtime validation~~ | ~~15/18 tests pass. 3 failures are known SwiftString non-blittable P/Invoke issue.~~ | ~~Done~~ |
-| 19B | Generator | Witness dispatch Phase B (String marshalling first) | Enables non-blittable existential dispatch | P2 |
-| 21 | Generator | UnsupportedSignature triage | 30 skipped members across all libraries | P2 |
+| ~~8~~ | ~~Validation~~ | ~~BlinkID runtime validation~~ | ~~15/18 tests pass. 3 failures now addressable via Phase B String dispatch.~~ | ~~Done~~ |
+| ~~19B~~ | ~~Generator~~ | ~~Witness dispatch Phase B (String + setters)~~ | ~~String marshalling via SBW_Utf8Slice, property setters, exception-safe GCHandle cleanup~~ | ~~Done~~ |
+| ~~21~~ | ~~Generator~~ | ~~UnsupportedSignature triage~~ | ~~All 30 skips categorized. No low-cost fixable cluster — largest are UIKit (10) and Foundation.Bundle (8), both structural.~~ | ~~Done~~ |
 | 12B | Generator | Emitter decomposition Phase B | Maintainability / onboarding | P3 |
 | 6 | Runtime | Async callback marshalling (Array, String) | 2 async tests blocked | P3 |
 | 14 | Runtime | .NET convenience methods on Swift runtime types | DX friction | P3 |
@@ -59,9 +59,9 @@ Reassessed February 2026 after Phases 49-52 (binding reports regenerated).
 ### Planned execution order
 
 1. ~~**Item 20** — AnyTypeFallback investigation~~ ✓ Done — all were stale except 1 QuartzCore gap
-2. ~~**Item 8** — BlinkID runtime validation~~ ✓ Done — 15/18 tests pass, 3 failures are known SwiftString non-blittable issue
-3. **Item 19B** — Witness dispatch String marshalling (biggest real-world impact)
-4. **Item 21** — UnsupportedSignature triage (understand the bucket, find clusters)
+2. ~~**Item 8** — BlinkID runtime validation~~ ✓ Done — 15/18 tests pass, 3 failures now addressable via Item 19B
+3. ~~**Item 19B** — Witness dispatch String marshalling + setters~~ ✓ Done — SBW_Utf8Slice bridge, property setters, projected-type validation gates
+4. ~~**Item 21** — UnsupportedSignature triage~~ ✓ Done — all 30 categorized, no low-cost fixable cluster
 5. **Item 16** — Upstream Mono bug reports (in parallel as infra hygiene)
 
 ---
@@ -112,7 +112,7 @@ All 3 failures are **non-blittable types in P/Invoke with Swift calling conventi
 
 Error: `Passing non-blittable types to a P/Invoke with the Swift calling convention is unsupported.`
 
-This is a known .NET Mono JIT limitation. Integer-based enums (DocumentOrientation, DocumentRotation, ImageAnalysisDetectionStatus, DocumentImageColorStatus) work perfectly. String-based enum raw values require IntPtr + manual marshalling workaround (tracked in Item 19B for protocol witness dispatch, same issue).
+This is a known .NET Mono JIT limitation. Integer-based enums (DocumentOrientation, DocumentRotation, ImageAnalysisDetectionStatus, DocumentImageColorStatus) work perfectly. String-based enum raw values require IntPtr + manual marshalling workaround. The `SBW_Utf8Slice` bridge from Phase 53 (Item 19B) demonstrates the pattern needed — the same approach can be applied to enum raw value accessors.
 
 ### Build Issues Documented
 
@@ -122,66 +122,63 @@ This is a known .NET Mono JIT limitation. Integer-based enums (DocumentOrientati
 
 ---
 
-## 19B. Protocol Witness Table Dispatch -- Phase B (Extended)
+## ~~19B. Protocol Witness Table Dispatch -- Phase B~~ ✓ DONE
 
-**Priority**: P2
-**Area**: Generator (emitter + runtime)
+**Status**: Completed in Phase 53. String marshalling and property setters work through witness dispatch.
 
-Phase A (Phase 52) enabled blittable read-only dispatch. Phase B extends to non-blittable types and write operations. **String marshalling is the highest-impact sub-item** — many real-world protocol members return or accept `String`.
+### What was implemented
 
-### Sub-items (ordered by real-world impact)
+**`SBW_Utf8Slice` bridge struct** — `@frozen` Swift struct + `[StructLayout(Sequential)]` C# struct for ABI-stable UTF-8 transfer across the P/Invoke boundary. Emitted once per protocol that has String members.
 
-1. **String parameters/returns**: Dedicated marshalling path — `MarshalFromSwift<T>` currently uses `Unsafe.Read<T>` which only works for blittable types. Needs Swift-side String-to-UTF8 conversion in accessor functions, plus C# `SwiftString` construction from returned pointer.
-2. **Property setters**: Remove `readonly` from `_swiftContainer` to allow write-back after setter dispatch.
-3. **Mutating methods**: Same `readonly` constraint as setters.
-4. **Subscripts**: Index parameter + return value dispatch.
-5. **Non-frozen types, closures, generics**: Complex marshalling (longer term).
+**String property getters** — Swift accessor encodes `String` to `Array(result.utf8)`, allocates `SBW_Utf8Slice`, returns pointer. C# decodes via `Encoding.UTF8.GetString`. Free function deallocates both the buffer and the slice.
 
-**Acceptance criteria**:
-- [ ] String-returning protocol members dispatch correctly
-- [ ] Property setters work through Swift-backed existentials
-- [ ] Tests exercise round-trip: Swift creates existential -> C# calls method through proxy
+**String method returns/params** — Same `SBW_Utf8Slice` bridge. Parameters use `GCHandle.Alloc` pinning with exception-safe cleanup (`default(GCHandle)` declaration before `try`, `IsAllocated` check in `finally`).
+
+**Property setters** — Blittable setters use typed pointee assignment (`typedPtr.pointee = existential`) for correct ARC/value semantics. String setters encode to UTF-8 via `fixed` block and pass `Utf8Slice` pointer. `_swiftContainer` field changed from `readonly` to mutable for write-back.
+
+**Projected-type validation gates** — `IsSwiftStringProjectedType()` validates properties project to `Swift.SwiftString` (not `Swift.AnyType`). `IsIdiomaticStringType()` validates method params/returns project to `string`. Prevents dispatch when TypeDatabase is incomplete.
+
+### Files modified
+
+| File | Changes |
+|------|---------|
+| `WitnessDispatchEmitter.cs` | `SBW_Utf8Slice` struct emission, `IsStringType`/`IsTypeDispatchable`/`IsStringDispatchType`, `IsPropertySetterDispatchable`, String Swift accessors for getters/setters/methods |
+| `ProtocolProxyEmitter.cs` | `Utf8Slice` C# struct, mutable `_swiftContainer`, String dispatch in property/method impl, setter dispatch, exception-safe GCHandle cleanup, P/Invoke declarations, projected-type gates |
+| `WitnessDispatchEmitterTests.cs` | 22 updated/new tests for String dispatch, setters, `SBW_Utf8Slice` |
+| `ProtocolProxyEmitterTests.cs` | 14 updated/new tests for String dispatch, setters, `Utf8Slice`, projected-type validation |
+
+### Remaining sub-items (not in scope for Phase B)
+
+- **Mutating methods**: Same `readonly` fix applied, but no dedicated test coverage yet
+- **Subscripts**: Index parameter + return value dispatch
+- **Non-frozen types, closures, generics**: Complex marshalling (longer term)
+
+### Verification
+
+- Unit tests: 1238/1238 passed
+- TestFramework: 93/93 must-pass, 0 degraded
 
 ---
 
-## 21. UnsupportedSignature Triage
+## ~~21. UnsupportedSignature Triage~~ ✓ DONE
 
-**Priority**: P2
-**Area**: Generator
-**Source**: Real-world binding analysis (February 2026)
+**Status**: Investigation complete. All 30 skips categorized. No low-cost fixable cluster identified.
 
-30 skipped members across all three libraries with `UnsupportedSignature`. This is a grab-bag category — triaging it will reveal whether there are fixable clusters or if most are structural limitations.
+### Triage Results (30 skips)
 
-### Known sub-categories (from binding report details)
+| Category | Count | Libraries | Root Cause | Fixable? |
+|----------|-------|-----------|------------|----------|
+| Placeholder types | 5 | BlinkID(2), Nuke(3) | Constructor/method signatures with unresolved generic or internal type params | Low priority — requires deeper generic/placeholder resolution |
+| UIKit touch/event methods | 8 | Lottie | `beginTracking`/`endTracking`/etc. reference UITouch, UIEvent, CGPoint | Needs UIKit type records in TypeDatabase |
+| Foundation.Bundle params | 8 | Lottie | `named()`, `asset()`, `init(bundle:)` reference Foundation.Bundle | Needs Foundation.Bundle type record |
+| CALayer content gravity | 2 | Lottie | `contentsGravity` returns `CALayerContentsGravity` (QuartzCore type alias) | Needs QuartzCore type support |
+| Logger autoclosures | 4 | Lottie | `LottieLogger` methods use `@autoclosure () -> String`, `StaticString` | New pattern — generator doesn't handle `@autoclosure` |
+| UIControl.State / ClosedRange | 2 | Lottie | `setPlayRange(ClosedRange<CGFloat>)`, `isOn(UIControl.State)` | Needs ClosedRange + UIKit type support |
+| Lottie animation config | 1 | Lottie | `LottieButton.animate` with unresolved config type | Unclear without further investigation |
 
-**UIKit nested types (Lottie, ~10 skips)**:
-- `UIView.ContentMode`, `UIAccessibilityTraits` — nested UIKit types not in TypeDatabase
-- `beginTracking`/`endTracking`/`continueTracking`/`cancelTracking` — UIEvent/UITouch params
-- These are UIKit event methods inherited by Lottie view subclasses
+### Assessment
 
-**Placeholder types (BlinkID + Nuke + Lottie, ~12 skips)**:
-- Constructor signatures with unresolved placeholder types
-- Methods like `imagePublisher`, `register` with complex generic signatures
-- `LottieLogger` methods (`init`, `assert`, `assertionFailure`, `warn`) — likely `@autoclosure` params
-
-**Complex accessor signatures (Nuke, ~4 skips)**:
-- `dataCache_Get`, `imageCache_Get`, `delegate_Get` — property accessors with protocol return types
-- `dataLoadingError_Get` — error type accessor
-
-**Operator with placeholder (Lottie, 1 skip)**:
-- `Keyframe.==` — operator on generic type with unresolved type param
-
-### Investigation approach
-
-1. Categorize all 30 skips by root cause (UIKit types, autoclosure, placeholder generics, etc.)
-2. Identify which categories are fixable vs. structural
-3. UIKit nested types may be addressable by adding type records (similar to NSObject fix in Phase 45)
-4. `@autoclosure` params are a new pattern the generator hasn't handled
-
-**Acceptance criteria**:
-- [ ] All 30 skips categorized by root cause
-- [ ] Fixable clusters identified with estimated scope
-- [ ] At least one cluster fixed if cost is low
+The two largest clusters (UIKit types: 10 skips, Foundation.Bundle: 8 skips) both require adding cross-framework ObjC type records to the TypeDatabase. This is structural work affecting the type resolution pipeline broadly — not a targeted fix. No code changes made for this item.
 
 ---
 
@@ -196,7 +193,7 @@ Phase A (file split) is complete — all files <= 800 LOC. Phase B extracts true
 2. Extract return handlers (IndirectResult, BoundGeneric, Direct, Void)
 3. Extract argument handlers (NonFrozen, Generic, BoundGeneric)
 
-`EnumHandler.cs` (1,715 LOC) and `ProtocolProxyEmitter.cs` (1,403 LOC) are also decomposition candidates.
+`EnumHandler.cs` (1,715 LOC) and `ProtocolProxyEmitter.cs` (1,964 LOC) are also decomposition candidates.
 
 **Reference**: `src/docs/emitter-redesign-proposal.md`
 
