@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
@@ -78,10 +79,12 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// <summary>
     /// Disposes the handle. Call this to properly clean up Swift resources.
     /// During explicit disposal, Swift's Destroy is called to decrement reference counts.
+    /// Also suppresses finalization since cleanup is already handled.
     /// </summary>
     public new void Dispose()
     {
         _explicitDispose = true;
+        GC.SuppressFinalize(this);
         base.Dispose();
     }
 
@@ -91,7 +94,8 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// </summary>
     /// <remarks>
     /// During finalization (when Dispose wasn't explicitly called), calling Swift's Destroy
-    /// can crash if the Swift runtime is shutting down. In that case, we only free the buffer.
+    /// can crash if the Swift runtime is shutting down. In that case, we only free the buffer
+    /// and emit a diagnostic warning so developers can identify the leak.
     /// During explicit disposal, we call Destroy to properly decrement reference counts.
     /// </remarks>
     protected override unsafe bool ReleaseHandle()
@@ -99,6 +103,16 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         // Early exit for already-freed handles
         if (handle == IntPtr.Zero)
             return true;
+
+        // Warn when handle is finalized without explicit Dispose — the Swift ARC
+        // reference count won't be decremented, which may leak native memory.
+        if (!_explicitDispose && handle != IntPtr.Zero)
+        {
+            Debug.WriteLine($"[SwiftSafeHandle] WARNING: SwiftSafeHandle<{typeof(T).Name}> " +
+                $"(0x{handle:X}) was finalized without Dispose(). " +
+                "Swift ARC reference count was not decremented. " +
+                "Use 'using' or call Dispose() explicitly.");
+        }
 
         // Only call Destroy during explicit disposal, not during finalization.
         // During finalization/shutdown, the Swift runtime may be in an inconsistent state

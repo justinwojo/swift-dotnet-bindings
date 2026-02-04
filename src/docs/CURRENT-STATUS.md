@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 44 Complete)
-**Unit Tests**: 1032 passed
+**Last Updated**: February 2026 (Phase 45 Complete)
+**Unit Tests**: 1078 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
 ---
@@ -51,6 +51,8 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - ✅ Existential containers (protocol composition)
 - ✅ Opaque return types (`some Protocol` → existential container via Swift wrapper)
 - ✅ CoreGraphics opaque types (CGImage, CGColor, CGContext → IntPtr)
+- ✅ Swift pointer types (OpaquePointer, UnsafePointer, UnsafeMutablePointer → IntPtr)
+- ✅ NSObject subclass parameters (ObjC bridged marshalling pipeline)
 
 ### DX Features
 - ✅ Binding completeness report (`binding-report.json`)
@@ -85,7 +87,33 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ---
 
-## Recent Completions (Phase 44)
+## Recent Completions (Phase 45)
+
+### Swift Pointer Type Support
+- `OpaquePointer`, `UnsafePointer`, `UnsafeMutablePointer`, `UnsafeRawPointer`, `UnsafeMutableRawPointer`, `Builtin.RawPointer` → `System.IntPtr`
+- Early-return checks in TypeDatabaseExtensions for all 5 resolution methods
+- `Optional<OpaquePointer>` resolves automatically through existing Optional handler
+
+### NSObject Subclass as Method Parameter
+- Free functions taking NSObject parameters (e.g., `describeNSObject(obj: NSObject)`) now emit correctly
+- Synthetic ObjCBridged TypeRecord created for known ObjC root classes (NSObject, NSProxy)
+- Handles TypeSpecParser's `ObjectiveC.X → Foundation.X` remapping with narrow predicate
+- DB-first precedence preserved: explicit type database entries override synthetic records
+- Non-class ObjectiveC module types (Selector, ObjCBool) correctly excluded
+
+### Finalizer Safety Net for SwiftSafeHandle
+- `GC.SuppressFinalize(this)` added to `Dispose()` — standard .NET SafeHandle pattern
+- `Debug.WriteLine` warning emitted when SwiftSafeHandle is finalized without explicit Dispose
+- Documents the deliberate tradeoff: Swift `Destroy` is skipped during finalization to avoid SIGSEGV
+
+### Test Coverage
+- Unit tests: 1078 (up from 1032)
+- TestFramework: 88/93 must-pass features passing (up from 85/93)
+- 3 features fixed: `opaque_pointer`, `optional_opaque_pointer`, `nsobject_as_parameter`
+
+---
+
+## Previous Completions (Phase 44)
 
 ### Inout Parameter Support
 - Swift `inout` parameters now emit as C# `ref` parameters
@@ -138,7 +166,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - Enum case construction fix (DestructiveInjectEnumTag)
 - CoreGraphics type stubs (CGImage, CGColor, etc.)
 
-### Test Coverage
+### Test Coverage (Phase 44)
 - Unit tests: 1032
 - Integration tests: 678 passed
 - Runtime tests: 108 passed
@@ -160,7 +188,7 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ## Development History
 
-43 phases of improvements tracked in git history. Key milestones:
+45 phases of improvements tracked in git history. Key milestones:
 - Phase 1-15: Core infrastructure and Nuke validation
 - Phase 16-29: Type system and runtime fixes
 - Phase 30-33: Generic type improvements
@@ -170,3 +198,4 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - Phase 42: Lottie runtime validation, enum case construction, CoreGraphics stubs
 - Phase 43: Protocol conformance emission, opaque returns, async properties, actors
 - Phase 44: Inout parameters, failable initializers
+- Phase 45: Pointer types, NSObject parameters, finalizer safety net

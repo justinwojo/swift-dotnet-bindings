@@ -163,8 +163,8 @@ Output: NuGet package with C# bindings
 
 ## Current Capabilities
 
-**Status** (February 2026 - Phase 42):
-- **Unit Tests**: 1032 passed
+**Status** (February 2026 - Phase 45):
+- **Unit Tests**: 1078 passed
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅
 - **Lottie**: 0 errors ✅ (runtime validated, 8/9 tests pass)
@@ -181,15 +181,16 @@ Output: NuGet package with C# bindings
 - Operators (arithmetic, comparison, bitwise, unary; automatic pair synthesis)
 - Existential containers (protocol composition types)
 - CoreGraphics opaque types (CGImage, CGColor, CGContext → IntPtr)
+- Swift pointer types (OpaquePointer, UnsafePointer, etc. → IntPtr)
+- NSObject subclass parameters in free functions (ObjC bridged marshalling)
 - Binding completeness report (`binding-report.json`)
 - `[UnsupportedSwiftType]` attribute on degraded members
 - StoreKit 2 bindings (published as experimental NuGet)
 
 **Not Working**:
-- Protocol conformance emission (types don't implement protocol interfaces)
 - Async properties
 - SwiftUI/Combine framework types (skipped)
-- Actors
+- Full actor isolation enforcement
 
 See `src/docs/CURRENT-STATUS.md` for full status details.
 
@@ -407,6 +408,135 @@ cd TestFramework
 - `output/coverage-matrix.json` - Feature coverage matrix (from generate-coverage-report.sh)
 
 See `src/docs/CompletedPhases/comprehensive-test-library-design.md` for the full test library design and feature coverage matrix.
+
+## TestFramework Feedback Loop
+
+The TestFramework is the primary validation tool for generator changes. It contains 67 Swift source files exercising 145 mapped features across 18 categories (types, closures, generics, protocols, async, operators, etc.). After any generator change, the TestFramework tells you whether you fixed what you intended and whether you broke anything else.
+
+### When to Run
+
+**Always run after changes to these directories:**
+- `src/Swift.Bindings/src/Marshaler/` — type marshalling logic
+- `src/Swift.Bindings/src/Emitter/` — code generation
+- `src/Swift.Bindings/src/Parser/` — ABI parsing
+- `src/Swift.Bindings/src/TypeDatabase/` — type lookup and resolution
+- `src/Swift.Bindings/src/Model/` — type declarations
+
+**Also run after:**
+- Adding new Swift test files to `TestFramework/Sources/`
+- Modifying existing Swift test files
+
+**The full validation sequence after generator changes:**
+```bash
+./run-tests.sh                                          # Unit tests pass first
+cd TestFramework && ./build-and-test.sh && ./generate-coverage-report.sh  # Then coverage
+```
+
+### Understanding Coverage Report Output
+
+The `generate-coverage-report.sh` script prints a summary and writes `output/coverage-matrix.json`. The summary looks like:
+
+```
+Must-pass features: 88/93 passing, 5 degraded, 0 missing
+Known-unsupported features: 47/52 have tests (5 compiled out)
+
+*** WARNING: 5 must-pass feature(s) have skipped binding members ***
+  - generic_struct (generic_types): 6 skipped member(s)
+      Property wrapped: AnyTypeFallback
+      Method init: UnsupportedSignature
+```
+
+**Feature categories:**
+- **must_pass** — Features the generator is expected to handle. These have Swift test code and should produce complete bindings.
+- **known_unsupported** — Features not yet implemented (actors, property wrappers, keypaths, etc.). Tracked for completeness but don't indicate regressions.
+
+**Feature statuses (within must_pass):**
+- **passing** — Test exists, all binding members emitted successfully. This is the goal state.
+- **degraded** — Test exists, but some binding members were skipped. The WARNING section lists exactly which members and why.
+- **missing** — No test file exists for this feature. Should not happen; add a test if it does.
+- **compiled_out** — Swift source guarded by `#if swift(>=6.0)` or similar; absent from ABI on current toolchain.
+
+### Skip Reason Reference
+
+When a member is skipped, the binding report records a `SkipReason`. These are defined in `src/Swift.Bindings/src/Reporting/BindingReport.cs`:
+
+| Skip Reason | Meaning | Typical Fix Area |
+|-------------|---------|------------------|
+| `UnsupportedSignature` | Method/property signature contains types the marshaller can't handle | `Marshaler/` handlers, `TypeDatabase/` type resolution |
+| `AnyTypeFallback` | Type resolved to opaque `Any` instead of a concrete type | `TypeDatabase/TypeDatabaseExtensions.cs`, type XML files |
+| `UnsupportedExistential` | Existential type (any Protocol) with unsupported composition | `Marshaler/`, existential handling |
+| `AsyncProperty` | Property has async getter/setter (not yet supported) | `Emitter/StringEmitter/Handler/PropertyHandler.cs` |
+| `UnsupportedType` | Type resolution failed entirely | Type handlers in `Emitter/StringEmitter/Handler/` |
+| `UnsupportedClosure` | Closure type not supported (nested, async, etc.) | `Marshaler/ClosureHandler.cs` |
+| `GenericProtocolConstraint` | Protocol with associated types used as constraint | Generic handling in `Marshaler/` |
+| `UnsatisfiedGenericConstraint` | Bound generic has unresolvable constraints | Generic handling in `Marshaler/` |
+| `DuplicateSignature` | Multiple members with identical C# signatures | Emitter deduplication logic |
+| `UnsupportedAsyncStream` | AsyncStream with element type that can't be marshalled | Async handling in `Emitter/StringEmitter/Handler/` |
+| `SwiftUIConstraint` | Type from SwiftUI (intentionally skipped) | N/A — by design |
+| `CombineFramework` | Type from Combine (intentionally skipped) | N/A — by design |
+| `MissingHandler` | No emitter handler for this declaration kind | Add handler in `Emitter/StringEmitter/Handler/` |
+| `Unknown` | Catch-all for unclassified skip reasons | Investigate the specific member in the emitter |
+
+### Reacting to Results
+
+**After a targeted fix (you expect specific features to improve):**
+1. Run the coverage report
+2. Verify the specific features moved from `degraded` → `passing`
+3. Verify no other features regressed (degraded count should not increase elsewhere)
+4. Report the before/after: "opaque_pointer: degraded → passing, total degraded: 8 → 5"
+
+**If degraded count decreased (features fixed):**
+- Confirm the fixed features in the coverage output
+- Update `src/docs/CURRENT-STATUS.md` if the fix is significant
+
+**If degraded count increased (regression):**
+- Check the WARNING section for newly degraded features
+- Look at the skip reason to identify which code area caused it
+- The `binding_skips` array in `coverage-matrix.json` has full details per feature:
+  ```json
+  {
+    "name": "feature_name",
+    "test_status": "degraded",
+    "binding_skips": [
+      { "name": "methodName", "kind": "Method", "reason": "UnsupportedSignature", "details": "..." }
+    ]
+  }
+  ```
+- Cross-reference the `reason` with the table above to find the responsible code area
+- The `details` field often contains the specific type or signature that failed
+
+**If a known_unsupported feature starts passing after your change:**
+- This means you accidentally (or intentionally) enabled a new feature
+- Consider promoting it: remove it from `KNOWN_UNSUPPORTED_FEATURES` in `generate-coverage-report.sh` to make it a must_pass feature going forward
+
+### Current Baseline (Phase 45)
+
+| Metric | Value |
+|--------|-------|
+| Must-pass features | 93 total |
+| Passing | 88 (94.6%) |
+| Degraded | 5 |
+| Known-unsupported | 52 |
+| Types emitted | 151/168 (89.9%) |
+| Members emitted | 658/747 (88.1%) |
+
+**Remaining degraded features** (all related to unbound generics or existentials):
+- `generic_function` — 1 skip (UnsupportedSignature)
+- `generic_struct` — 6 skips (AnyTypeFallback, UnsupportedSignature)
+- `generic_class` — 2 skips (AnyTypeFallback, UnsupportedSignature)
+- `where_clause` — 2 skips (AnyTypeFallback, UnsupportedSignature)
+- `any_protocol_existential` — 1 skip (UnsupportedExistential)
+
+These represent the frontier of unbound generic type support — the next major capability gap to close.
+
+### Investigating a Specific Degraded Feature
+
+To understand why a feature is degraded:
+
+1. **Find the Swift source**: Features map to files in `TestFramework/Sources/SwiftBindingsTestLib/<category>/`. Feature names use snake_case matching the file/section.
+2. **Check the binding report**: `jq '.SkippedItems[] | select(.Name == "methodName")' output/binding-report.json`
+3. **Check the generated bindings**: Search `output/Swift.SwiftBindingsTestLib.cs` for the type — skipped members have `[UnsupportedSwiftType("reason")]` attributes.
+4. **Trace through the generator**: The skip reason tells you which handler rejected the member. Set a breakpoint or add logging in the corresponding handler file.
 
 ## Architecture Notes
 

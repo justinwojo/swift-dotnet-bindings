@@ -50,8 +50,18 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
+        // Pointer types are always mapped to IntPtr
+        if (IsPointerType(typeSpec))
+        {
+            return true;
+        }
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
-        return typeDatabase.IsTypeProcessed(typeName);
+        if (typeDatabase.IsTypeProcessed(typeName))
+            return true;
+
+        // ObjC root class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
+        return IsObjCModuleType(typeSpec);
     }
 
     /// <summary>
@@ -92,6 +102,13 @@ public static class TypeDatabaseExtensions
             return AnyType;
         }
 
+        // Pointer types are always mapped to IntPtr
+        if (IsPointerType(typeSpec))
+        {
+            return IntPtrType;
+        }
+
+        // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         return typeDatabase.GetTypeRecordOrAnyType(typeName);
     }
@@ -153,8 +170,25 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
+        // Pointer types are always mapped to IntPtr
+        if (IsPointerType(typeSpec))
+        {
+            record = IntPtrType;
+            return true;
+        }
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
-        return typeDatabase.TryGetTypeRecord(typeName, out record);
+        if (typeDatabase.TryGetTypeRecord(typeName, out record))
+            return true;
+
+        // ObjC root class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
+        if (IsObjCModuleType(typeSpec))
+        {
+            record = CreateObjCBridgedTypeRecord(typeName);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -177,6 +211,13 @@ public static class TypeDatabaseExtensions
             return AnyType;
         }
 
+        // Pointer types are always mapped to IntPtr
+        if (IsPointerType(typeSpec))
+        {
+            return IntPtrType;
+        }
+
+        // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         return typeDatabase.GetTypeRecordOrThrow(typeName);
     }
@@ -192,6 +233,12 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
             return record;
 
+        // ObjC root class types not in the database get synthetic ObjCBridged records.
+        // Only NSObject/NSProxy are safe — other ObjectiveC module types (Selector, ObjCBool)
+        // are structs. TypeSpecParser remaps ObjectiveC.X → Foundation.X, so check both modules.
+        if (IsObjCRootClassSwiftType(swiftTypeName))
+            return CreateObjCBridgedTypeRecord(swiftTypeName);
+
         throw new Exception($"Type {swiftTypeName.ModuleQualifiedName} not found in database.");
     }
 
@@ -205,6 +252,12 @@ public static class TypeDatabaseExtensions
     {
         if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
             return record;
+
+        // ObjC root class types not in the database get synthetic ObjCBridged records.
+        // Only NSObject/NSProxy are safe — other ObjectiveC module types (Selector, ObjCBool)
+        // are structs. TypeSpecParser remaps ObjectiveC.X → Foundation.X, so check both modules.
+        if (IsObjCRootClassSwiftType(swiftTypeName))
+            return CreateObjCBridgedTypeRecord(swiftTypeName);
 
         return AnyType;
     }
@@ -245,6 +298,20 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
+        // Pointer types are fully handled (mapped to IntPtr), not a fallback
+        if (IsPointerType(typeSpec))
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
+        // ObjC framework types are handled via synthetic ObjCBridged records, not a fallback
+        if (IsObjCModuleType(typeSpec))
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         if (typeDatabase.TryGetTypeRecord(typeName, out _))
         {
@@ -257,6 +324,20 @@ public static class TypeDatabaseExtensions
             typeName.ModuleQualifiedName);
         return true;
     }
+
+    /// <summary>
+    /// Gets the type record for Swift pointer types, mapped to System.IntPtr.
+    /// Covers OpaquePointer, UnsafePointer, UnsafeMutablePointer, UnsafeRawPointer,
+    /// UnsafeMutableRawPointer, and Builtin.RawPointer.
+    /// </summary>
+    public static TypeRecord IntPtrType { get; } = new TypeRecord
+    {
+        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "IntPtr"),
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.OpaquePointer"),
+        MetadataAccessor = string.Empty,
+        Flags = TypeRecordFlags.Frozen,
+        Kind = TypeRecordKind.Struct,
+    };
 
     /// <summary>
     /// Gets the type record for the Any type.
@@ -305,6 +386,79 @@ public static class TypeDatabaseExtensions
             Flags = TypeRecordFlags.Frozen, // Existential containers have fixed layout
             Kind = TypeRecordKind.Existential,
         };
+    }
+
+    /// <summary>
+    /// The ObjectiveC module namespace mapping. Only the ObjectiveC module is safe for
+    /// automatic ObjCBridged fallback because every type in it is an NSObject subclass.
+    /// Other Apple framework modules (Foundation, UIKit, etc.) also contain value types
+    /// and enums that would be misclassified as classes — those types must be registered
+    /// in the type database XML explicitly.
+    /// </summary>
+    private const string ObjCModuleName = "ObjectiveC";
+    private const string ObjCModuleCSharpNamespace = "Foundation";
+
+    /// <summary>
+    /// Creates a synthetic ObjCBridged TypeRecord for a type from the ObjectiveC module.
+    /// The resulting record triggers the existing ObjCBridged marshalling pipeline
+    /// (IntPtr in P/Invoke, Handle extraction in wrappers).
+    /// </summary>
+    private static TypeRecord CreateObjCBridgedTypeRecord(SwiftTypeName swiftTypeName)
+    {
+        return new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(ObjCModuleCSharpNamespace, swiftTypeName.Name),
+            SwiftTypeName = swiftTypeName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        };
+    }
+
+    /// <summary>
+    /// Determines whether the specified NamedTypeSpec represents a known ObjC root class.
+    /// Only NSObject and NSProxy are safe for synthetic ObjCBridged records — other
+    /// ObjectiveC module types (Selector, ObjCBool) are structs.
+    /// TypeSpecParser.cs remaps "ObjectiveC.X" → "Foundation.X", so we check both modules.
+    /// </summary>
+    private static bool IsObjCModuleType(NamedTypeSpec typeSpec)
+    {
+        if (!typeSpec.HasModule())
+            return false;
+        return (typeSpec.Module == ObjCModuleName || typeSpec.Module == "Foundation")
+            && IsKnownObjCRootClass(typeSpec.NameWithoutModule);
+    }
+
+    /// <summary>
+    /// Determines whether the specified SwiftTypeName represents a known ObjC root class.
+    /// Mirrors <see cref="IsObjCModuleType"/> but for the SwiftTypeName path.
+    /// </summary>
+    private static bool IsObjCRootClassSwiftType(SwiftTypeName swiftTypeName)
+    {
+        return (swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
+            && IsKnownObjCRootClass(swiftTypeName.Name);
+    }
+
+    /// <summary>
+    /// Returns true if the given unqualified type name is a known Objective-C root class.
+    /// The ObjectiveC Swift module only defines NSObject and NSProxy as root classes;
+    /// these get remapped to Foundation.NSObject and Foundation.NSProxy by TypeSpecParser.
+    /// Other ObjectiveC module types (Selector, ObjCBool, NSZone) are value types.
+    /// </summary>
+    private static bool IsKnownObjCRootClass(string name)
+    {
+        return name is "NSObject" or "NSProxy";
+    }
+
+    /// <summary>
+    /// Determines whether the specified NamedTypeSpec represents a Swift pointer type
+    /// that should be mapped to System.IntPtr.
+    /// </summary>
+    private static bool IsPointerType(NamedTypeSpec typeSpec)
+    {
+        return typeSpec.Name is "Swift.OpaquePointer" or "Swift.UnsafePointer"
+            or "Swift.UnsafeMutablePointer" or "Swift.UnsafeRawPointer"
+            or "Swift.UnsafeMutableRawPointer" or "Builtin.RawPointer";
     }
 
     /// <summary>

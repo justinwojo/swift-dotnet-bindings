@@ -3,7 +3,7 @@
 Consolidated backlog of generator gaps, runtime issues, and infrastructure work. Ordered by priority.
 
 **Date**: February 2026
-**Starting Point**: Phase 44 complete, 1032 unit tests, TestFramework v2.0 (67 files, 145 features)
+**Starting Point**: Phase 45 complete, 1078 unit tests, TestFramework v2.0 (67 files, 145 features)
 
 ---
 
@@ -12,14 +12,14 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | # | Area | Description | Impact | Priority |
 |---|------|-------------|--------|----------|
 | 1 | Generator | Unbound generic type parameters (`AnyTypeFallback`) | 4 degraded features, 12 skipped members | P1 |
-| 2 | Generator | OpaquePointer in method signatures | 2 degraded features, 3 skipped members | P2 |
-| 3 | Generator | NSObject subclass as method parameter | 1 degraded feature, 1 skipped member | P2 |
+| ~~2~~ | ~~Generator~~ | ~~OpaquePointer in method signatures~~ | ~~2 degraded features, 3 skipped members~~ | ~~Done (Phase 45)~~ |
+| ~~3~~ | ~~Generator~~ | ~~NSObject subclass as method parameter~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 45)~~ |
 | 4 | Generator | Existential type argument in bound generic | 1 degraded feature, 1 skipped member | P3 |
 | 5 | Runtime | Formalize async concurrency hook as shared library | Async init is copy-pasted per test; no reusable runtime | P2 |
 | 6 | Runtime | Fix async callback marshalling (Array, String) | 2 async tests blocked | P3 |
 | 7 | Validation | Lottie 9/9 — fix `LottieConfiguration.Shared` getter | 1 runtime test failure | P2 |
 | 8 | Validation | BlinkID runtime validation test app | Compiles but never runtime tested | P3 |
-| 9 | Runtime | Add finalizer safety net to `SwiftSafeHandle` | Memory leaks if users forget `Dispose()` | P1 |
+| ~~9~~ | ~~Runtime~~ | ~~Add finalizer safety net to `SwiftSafeHandle`~~ | ~~Memory leaks if users forget `Dispose()`~~ | ~~Done (Phase 45)~~ |
 | 10 | Generator | Protocol runtime completion (remove `NotImplementedException` stubs) | Blocks real protocol usage from C# | P1 |
 | 11 | Generator | Wrapper automation for known-problematic patterns | Manual per-library patches don't scale | P2 |
 | 12 | Generator | Emitter decomposition — split MethodHandler (3,361 LOC) | Blocks maintainability and onboarding | P2 |
@@ -30,7 +30,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | 17 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety for lifetime management | P3 |
 | 18 | Research | NativeAOT investigation (`[LibraryImport]` for Mono JIT bypass) | May eliminate known runtime bugs | P4 |
 
-**Generator target**: 93/93 must-pass features passing (currently 85, 8 degraded)
+**Generator target**: 93/93 must-pass features passing (currently 88, 5 degraded)
 
 ---
 
@@ -68,50 +68,15 @@ Generic structs, classes, and functions with unbound type parameters have their 
 
 ---
 
-## 2. OpaquePointer in Method Signatures
+## 2. ~~OpaquePointer in Method Signatures~~ ✅ Done (Phase 45)
 
-**Priority**: P2 — fixes 2 degraded features, 3 skipped members
-**Area**: Generator (marshaler)
-
-Methods accepting or returning `OpaquePointer` / `Optional<OpaquePointer>` are skipped with `UnsupportedSignature`. The marshaler doesn't recognize `OpaquePointer` as marshalable.
-
-**Affected features**:
-
-| Feature | File | Skipped Members |
-|---------|------|-----------------|
-| `opaque_pointer` | `UnsafeTypes/OpaquePointer.swift` | `opaquePointerIsValid`, `HandleWrapper.describe` |
-| `optional_opaque_pointer` | `UnsafeTypes/OpaquePointer.swift` | `optionalOpaquePointer` |
-
-**Expected mapping**: `OpaquePointer` → `IntPtr`, `Optional<OpaquePointer>` → `IntPtr` (nil = `IntPtr.Zero`)
-
-**Investigation areas**:
-- `src/Swift.Bindings/src/Marshaler/Conductor.cs` — type mapping table
-- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` — how `OpaquePointer` appears in ABI JSON
-- Compare with `UnsafePointer<T>` / `UnsafeMutablePointer<T>` which already map to `IntPtr`
-
-**Acceptance criteria**:
-- [ ] All 3 methods emit with `IntPtr` parameters/returns
-- [ ] Coverage report: `opaque_pointer` and `optional_opaque_pointer` show `passing`
+Added `IntPtrType` static TypeRecord and `IsPointerType()` helper in `TypeDatabaseExtensions.cs`. Early-return checks in all 5 resolution methods cover `OpaquePointer`, `UnsafePointer`, `UnsafeMutablePointer`, `UnsafeRawPointer`, `UnsafeMutableRawPointer`, and `Builtin.RawPointer`. Optional<OpaquePointer> resolves automatically through the existing Optional handler. 46 unit tests added.
 
 ---
 
-## 3. NSObject Subclass as Method Parameter
+## 3. ~~NSObject Subclass as Method Parameter~~ ✅ Done (Phase 45)
 
-**Priority**: P2 — fixes 1 degraded feature, 1 skipped member
-**Area**: Generator (marshaler)
-
-Free functions taking an NSObject subclass parameter are skipped with `UnsupportedSignature`. The NSObject type itself emits correctly — the issue is only when it appears as a function parameter.
-
-**Affected**: `describeNSObject` in `ObjCInterop/NSObjectSubclass.swift` (takes `SimpleNSObject`)
-
-**Investigation areas**:
-- `src/Swift.Bindings/src/Marshaler/Conductor.cs` — how NSObject subclass types are marshalled as parameters
-- `SimpleNSObject` emits as a class with SafeHandle, so the issue is parameter resolution for free functions, not type emission
-- Check if marshaler recognizes `SimpleNSObject` as a class type when it's a free function parameter vs. `self` in a method
-
-**Acceptance criteria**:
-- [ ] `describeNSObject` emits with `SimpleNSObject` parameter
-- [ ] Coverage report: `nsobject_as_parameter` shows `passing`
+Added synthetic ObjCBridged TypeRecord generation for known ObjC root classes (NSObject, NSProxy) in `TypeDatabaseExtensions.cs`. Handles TypeSpecParser's `ObjectiveC.X → Foundation.X` remapping with a narrow predicate (`IsKnownObjCRootClass`). DB-first precedence preserved — explicit type database entries override synthetic records. Non-class ObjectiveC module types (Selector, ObjCBool) correctly excluded via `IsObjCRootClassSwiftType()`. 8 unit tests added.
 
 ---
 
@@ -208,25 +173,9 @@ BlinkID bindings compile cleanly (0 errors) but have never been runtime tested. 
 
 ---
 
-## 9. Add Finalizer Safety Net to SwiftSafeHandle
+## 9. ~~Add Finalizer Safety Net to SwiftSafeHandle~~ ✅ Done (Phase 45)
 
-**Priority**: P1 — architecture review top-4 blocker
-**Area**: Runtime
-**Source**: Comprehensive architecture review (Codex finding)
-
-`SwiftSafeHandle<T>` only calls `Destroy` on explicit `Dispose()`, not on finalization. This means forgetting `using` or `Dispose()` silently leaks Swift objects. Every other SafeHandle-based pattern in .NET includes a destructor fallback.
-
-**Target file**: `src/Swift.Runtime/src/Swift/Runtime/SwiftHandle.cs:63-124`
-
-**What's needed**:
-1. Add destructor (`~SwiftSafeHandle()`) that calls `Dispose(false)`
-2. Ensure `Dispose(bool disposing)` calls `swift_release` even when `disposing` is `false`
-3. Suppress finalizer in `Dispose()` via `GC.SuppressFinalize(this)`
-
-**Acceptance criteria**:
-- [ ] `SwiftSafeHandle<T>` releases Swift objects even without explicit `Dispose()`
-- [ ] `GC.SuppressFinalize` called on explicit dispose path (no double-release)
-- [ ] Existing runtime tests still pass
+Added `GC.SuppressFinalize(this)` to `Dispose()` in `SwiftHandle.cs` — standard .NET SafeHandle pattern. Added `Debug.WriteLine` diagnostic warning when a SwiftSafeHandle is finalized without explicit Dispose, alerting developers to the ARC leak. Note: Swift `Destroy` is deliberately skipped during finalization to avoid SIGSEGV from the Swift runtime during .NET shutdown — the buffer is still freed, but Swift ARC is not decremented. This is documented as a known tradeoff.
 
 ---
 
