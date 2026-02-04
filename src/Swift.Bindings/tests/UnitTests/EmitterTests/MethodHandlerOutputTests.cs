@@ -344,7 +344,7 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_MethodWithExistentialBoundGeneric_SkipsEmission()
+    public void Emit_MethodWithSupportedExistentialBoundGeneric_EmitsSuccessfully()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -361,8 +361,9 @@ public class MethodHandlerOutputTests
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        // Supported existentials (1 protocol) should now emit with ExistentialContainer1
+        Assert.NotEqual(string.Empty, csOutput);
+        Assert.Contains("ExistentialContainer1", csOutput);
     }
 
     [Fact]

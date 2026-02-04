@@ -189,6 +189,65 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// Tries to find the first existential type argument within a bound generic type
+    /// that is NOT supported (i.e., has more than 8 protocols).
+    /// Supported existentials (0-8 protocols) are skipped so they can be emitted as ExistentialContainer types.
+    /// </summary>
+    /// <param name="typeSpec">The type specification to inspect.</param>
+    /// <param name="existentialType">The first unsupported existential type encountered.</param>
+    /// <returns><c>true</c> if an unsupported existential type argument was found; otherwise, <c>false</c>.</returns>
+    public bool TryGetFirstUnsupportedExistentialTypeArgument(TypeSpec typeSpec, out string existentialType)
+    {
+        if (_existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
+            {
+                existentialType = typeSpec.ToString();
+                return true;
+            }
+            existentialType = string.Empty;
+            return false;
+        }
+
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedTypeSpec:
+                foreach (var genericParameter in namedTypeSpec.GenericParameters)
+                {
+                    if (TryGetFirstUnsupportedExistentialTypeArgument(genericParameter, out existentialType))
+                    {
+                        return true;
+                    }
+                }
+                break;
+            case TupleTypeSpec tupleTypeSpec:
+                foreach (var element in tupleTypeSpec.Elements)
+                {
+                    if (TryGetFirstUnsupportedExistentialTypeArgument(element, out existentialType))
+                    {
+                        return true;
+                    }
+                }
+                break;
+            case ClosureTypeSpec closureTypeSpec:
+                if (TryGetFirstUnsupportedExistentialTypeArgument(closureTypeSpec.Arguments, out existentialType))
+                {
+                    return true;
+                }
+
+                if (TryGetFirstUnsupportedExistentialTypeArgument(closureTypeSpec.ReturnType, out existentialType))
+                {
+                    return true;
+                }
+                break;
+        }
+
+        existentialType = string.Empty;
+        return false;
+    }
+
+    /// <summary>
     /// Tries to find the first bound generic argument that cannot satisfy emitted C# constraints.
     /// </summary>
     /// <param name="typeSpec">The type specification to inspect.</param>
@@ -268,8 +327,12 @@ public class BoundGenericsHandler
         // Handle existential types (including bare 'Any' with 0 protocols and 'any Protocol' syntax)
         if (_existentialHandler.IsExistential(typeSpec))
         {
-            // Bound generic arguments constrained to ISwiftObject cannot safely use existential containers.
-            // Emit AnyType so callers can skip this member instead of generating invalid constraints.
+            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
+            {
+                return _existentialHandler.GetCSharpExistentialType(protocolList);
+            }
+            // Unsupported existentials (9+ protocols) still fall back to AnyType
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 

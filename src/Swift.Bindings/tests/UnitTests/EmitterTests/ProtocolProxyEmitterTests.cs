@@ -619,7 +619,7 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public void Update(Swift.TestModule.Box<Swift.AnyType> value)", output);
+        Assert.Contains("public void Update(Swift.TestModule.Box<Swift.Runtime.ExistentialContainer1> value)", output);
     }
 
     #endregion

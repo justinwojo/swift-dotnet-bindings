@@ -14,7 +14,7 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | ~~1~~ | ~~Generator~~ | ~~Generic tuple return marshalling (deferred from Phase 46)~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 48)~~ |
 | ~~2~~ | ~~Generator~~ | ~~OpaquePointer in method signatures~~ | ~~2 degraded features, 3 skipped members~~ | ~~Done (Phase 45)~~ |
 | ~~3~~ | ~~Generator~~ | ~~NSObject subclass as method parameter~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 45)~~ |
-| 4 | Generator | Existential type argument in bound generic | 1 degraded feature, 1 skipped member | P3 |
+| ~~4~~ | ~~Generator~~ | ~~Existential type argument in bound generic~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 50)~~ |
 | ~~5~~ | ~~Runtime~~ | ~~Formalize async concurrency hook as shared library~~ | ~~Async init is copy-pasted per test; no reusable runtime~~ | ~~Done (Phase 49)~~ |
 | 6 | Runtime | Fix async callback marshalling (Array, String) | 2 async tests blocked | P3 |
 | ~~7~~ | ~~Validation~~ | ~~Lottie 9/9 — fix `LottieConfiguration.Shared` getter~~ | ~~1 runtime test failure~~ | ~~Done (Phase 48)~~ |
@@ -31,7 +31,16 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 | 18 | Research | NativeAOT investigation (`[LibraryImport]` for Mono JIT bypass) | May eliminate known runtime bugs | P4 |
 | 19 | Generator | Protocol witness table dispatch for Swift-backed existentials | Swift-backed proxies can't access members | P3 |
 
-**Generator target**: 93/93 must-pass features passing (currently 92, 1 degraded)
+**Generator target**: 93/93 must-pass features passing ✅ (achieved Phase 50)
+
+### Planned execution order
+
+Items aren't tackled linearly by number. The agreed sequence prioritizes the fastest coverage win, then long-term leverage:
+
+1. ~~**Item 4** — Existential in bound generic (narrow fix, 92→93/93)~~ ✅ Done
+2. **Items 11 + 13** — Wrapper automation + binding report guidance (removes recurring manual work)
+3. **Item 19** — Protocol witness table dispatch (makes existentials functionally useful)
+4. **Item 16** — Upstream Mono bug reports (in parallel as infra hygiene)
 
 ---
 
@@ -59,24 +68,19 @@ Added synthetic ObjCBridged TypeRecord generation for known ObjC root classes (N
 
 ---
 
-## 4. Existential Type Argument in Bound Generic
+## 4. ~~Existential Type Argument in Bound Generic~~ ✅ Done (Phase 50)
 
-**Priority**: P3 — fixes 1 degraded feature, 1 skipped member
-**Area**: Generator (marshaler)
+Two-part fix in `BoundGenericsHandler.cs` and `MethodHandler.cs`:
 
-Methods with a bound generic containing an existential type argument (e.g., `[any Describable]` = `Array<any Describable>`) are skipped with `UnsupportedExistential`.
+1. **Type translation**: `TranslateTypeSpecToCSharp()` now resolves supported existentials (0–8 protocols) to `ExistentialContainer{N}` instead of blanket `AnyType` fallback. Uses `ExistentialHandler.ToProtocolListTypeSpec()` + `IsSupportedExistential()` + `GetCSharpExistentialType()`. Unsupported existentials (9+ protocols) still fall back to `AnyType`.
+2. **Method guard**: Added `TryGetFirstUnsupportedExistentialTypeArgument()` — same recursive structure as `TryGetFirstExistentialTypeArgument` but only returns `true` for unsupported existentials. `MethodHandler.Emit` calls this narrower check, allowing methods like `describeAll([any Describable])` to emit as `SwiftArray<ExistentialContainer1>`.
 
-**Affected**: `describeAll` in `Generics/Existentials.swift` (takes `[any Describable]`)
+Constructor and property guards intentionally left on the broader check to limit blast radius.
 
-**Note**: Even if the generator emits this, it may be blocked at runtime by the Mono JIT existential metadata bug (see `known-issues-workarounds.md`). The generator fix and the runtime issue are independent.
-
-**Investigation areas**:
-- `src/Swift.Bindings/src/Marshaler/Conductor.cs` — existential types inside bound generics
-- `SwiftArray<ExistentialContainer>` is the runtime representation
-
-**Acceptance criteria**:
-- [ ] `describeAll` emits (with `[UnsupportedSwiftType]` if runtime is still blocked)
-- [ ] Coverage report: `any_protocol_existential` shows `passing`
+**Acceptance criteria** (all met):
+- [x] `describeAll` emits without `[UnsupportedSwiftType]`
+- [x] Coverage report: `any_protocol_existential` shows `passing` (93/93 must-pass)
+- [x] 1110 unit tests pass (3 new tests for `TryGetFirstUnsupportedExistentialTypeArgument`)
 
 ---
 
@@ -196,7 +200,7 @@ The original `MethodHandler.cs` (3,827 LOC) has been split into 7 files with no 
 | `WrapperEmitter.Marshalling.cs` | 546 | Argument marshalling, closures, SafeHandle, generics |
 | `WrapperEmitter.Return.cs` | 444 | Return handling, tuple element helpers |
 
-All files ≤800 LOC. All 1107 unit tests pass. TestFramework coverage unchanged (92/93 must-pass).
+All files ≤800 LOC. All 1107 unit tests pass. TestFramework coverage unchanged at time of decomposition.
 
 ### Phase B: Handler Extraction (Pending)
 
