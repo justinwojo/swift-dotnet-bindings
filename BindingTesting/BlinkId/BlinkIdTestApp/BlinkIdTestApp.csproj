@@ -10,6 +10,8 @@
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <!-- BlinkID validation does not exercise async wrappers; disable runtime dylib packaging to avoid InstallNameTool failure. -->
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,7 +19,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
+    <ProjectReference Include="../../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
   </ItemGroup>
 
   <!-- Include BlinkID bindings -->
@@ -32,7 +35,8 @@
     </NativeReference>
   </ItemGroup>
 
-  <!-- Include SwiftBindings framework (async wrappers) - uncomment when Swift wrapper is ready -->
+  <!-- Include SwiftBindings framework (async wrappers) - disabled: Swift wrapper has compilation errors -->
+  <!-- The test app only exercises enum cases, metadata, and static properties which are in BlinkID directly -->
   <!--
   <ItemGroup>
     <NativeReference Include="../output-ios/SwiftBindings.xcframework">

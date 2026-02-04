@@ -12,3 +12,9 @@ Instructions for Codex in this repository.
 ## Project guidance
 - Follow project conventions and workflows documented in `CLAUDE.md`.
 - If guidance conflicts, this file takes precedence for Codex execution constraints.
+
+## Codex execution notes (macOS)
+- Codex runs on macOS but still inside a sandbox by default. For simulator/process operations, rerun with escalated permissions if needed (for example: `xcrun simctl ...`, `dotnet build` for iOS app packaging, `ps`).
+- The default command timeout can be too short for iOS builds; use a longer timeout before assuming a hang.
+- If `dotnet build` appears stuck after restore in Codex, rerun with escalated permissions; sandboxed runs can stall without producing useful output.
+- BlinkID test app currently avoids the `InstallNameTool` `libSwiftBindingsRuntime.dylib.tmp` failure by setting `IncludeSwiftBindingsRuntimeNative=false` on its Swift.Runtime project reference.

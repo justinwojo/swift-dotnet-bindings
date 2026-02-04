@@ -3,8 +3,40 @@
 Consolidated backlog of generator gaps, runtime issues, and infrastructure work. Ordered by priority.
 
 **Date**: February 2026
-**Starting Point**: Phase 48 complete, 1107 unit tests, TestFramework v2.0 (67 files, 145 features)
 **Current**: Phase 52 complete, 1216 unit tests, 93/93 must-pass features
+**Completed items**: See `CompletedPhases/completed-backlog-items.md`
+
+---
+
+## Real-World Binding Status
+
+Reassessed February 2026 after Phases 49-52 (binding reports regenerated).
+
+| Metric | BlinkID | Nuke | Lottie |
+|--------|---------|------|--------|
+| Types emitted | 116/119 (97.5%) | 60/68 (88.2%) | 79/93 (84.9%) |
+| Members emitted | 569/655 (86.9%) | 330/490 (67.3%) | 387/609 (63.5%) |
+| Members skipped | 3 | 12 | 42 |
+| `[UnsupportedSwiftType]` attrs | 0 | 0 | 25 |
+| Runtime validated | Yes (15/18 tests) | Yes | Yes (9/9 tests) |
+| Compile errors | 18* | 26* | 39* |
+
+### Skip Reasons Across All Three Libraries (57 total skips)
+
+| Reason | BlinkID | Nuke | Lottie | Total | Notes |
+|--------|---------|------|--------|-------|-------|
+| UnsupportedSignature | 2 | 3 | 26 | **31** | UIKit types, placeholder types, complex accessors |
+| UnsupportedExistential | 0 | 6 | 2 | **8** | Existential type args in bound generics without default args |
+| AnyTypeFallback | 0 | 0 | 1 | **1** | QuartzCore.CALayer not in type database |
+| UnsatisfiedGenericConstraint | 0 | 0 | 5 | **5** | Generic constraint not satisfiable (Lottie `AnyInterpolatable`) |
+| UnsupportedType | 1 | 0 | 4 | **5** | Type resolution failed (UIKit nested types, actor executors) |
+| UnsupportedClosure | 0 | 1 | 3 | **4** | Non-invokable closure types |
+| AsyncProperty | 0 | 2 | 0 | **2** | Async getters (Nuke `ImageTask.image`, `.response`) |
+| SwiftUIConstraint | 0 | 0 | 1 | **1** | By design (LottieView) |
+
+*\* Compile errors are all protocol conformance interface mismatches introduced by Phase 52's protocol conformance emission. They affect types where emitted protocol members don't match the generated interface (static vs instance members, missing implementations). Workaround: remove interface from class declarations. These errors were not present in pre-Phase-52 bindings.*
+
+**Improvement from Phase 49-52**: 94 → 57 skips (-39%). BlinkID went from 15 → 3 skips (all 10 AnyTypeFallback resolved). Nuke went from 19 → 12 skips. Lottie went from 60 → 42 skips.
 
 ---
 
@@ -12,94 +44,165 @@ Consolidated backlog of generator gaps, runtime issues, and infrastructure work.
 
 | # | Area | Description | Impact | Priority |
 |---|------|-------------|--------|----------|
-| ~~1~~ | ~~Generator~~ | ~~Generic tuple return marshalling (deferred from Phase 46)~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 48)~~ |
-| ~~2~~ | ~~Generator~~ | ~~OpaquePointer in method signatures~~ | ~~2 degraded features, 3 skipped members~~ | ~~Done (Phase 45)~~ |
-| ~~3~~ | ~~Generator~~ | ~~NSObject subclass as method parameter~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 45)~~ |
-| ~~4~~ | ~~Generator~~ | ~~Existential type argument in bound generic~~ | ~~1 degraded feature, 1 skipped member~~ | ~~Done (Phase 50)~~ |
-| ~~5~~ | ~~Runtime~~ | ~~Formalize async concurrency hook as shared library~~ | ~~Async init is copy-pasted per test; no reusable runtime~~ | ~~Done (Phase 49)~~ |
-| 6 | Runtime | Fix async callback marshalling (Array, String) | 2 async tests blocked | P3 |
-| ~~7~~ | ~~Validation~~ | ~~Lottie 9/9 — fix `LottieConfiguration.Shared` getter~~ | ~~1 runtime test failure~~ | ~~Done (Phase 48)~~ |
-| 8 | Validation | BlinkID runtime validation test app | Compiles but never runtime tested | P3 |
-| ~~9~~ | ~~Runtime~~ | ~~Add finalizer safety net to `SwiftSafeHandle`~~ | ~~Memory leaks if users forget `Dispose()`~~ | ~~Done (Phase 45)~~ |
-| ~~10~~ | ~~Generator~~ | ~~Protocol runtime completion (remove `NotImplementedException` stubs)~~ | ~~Blocks real protocol usage from C#~~ | ~~Done (Phase 47)~~ |
-| ~~11~~ | ~~Generator~~ | ~~Wrapper automation for known-problematic patterns~~ | ~~Manual per-library patches don't scale~~ | ~~Done (Phase 51)~~ |
-| 12 | Generator | Emitter decomposition — split MethodHandler (Phase A done, Phase B pending) | Blocks maintainability and onboarding | P2 |
-| ~~13~~ | ~~Generator~~ | ~~Improve binding report with workaround recommendations~~ | ~~Consumers don't know what to do about gaps~~ | ~~Done (Phase 51)~~ |
-| 14 | Runtime | .NET convenience methods on Swift runtime types | DX friction with unfamiliar Swift types | P3 |
-| 15 | Testing | Deeper protocol runtime tests | Protocol tests are compile checks, not runtime behavior | P3 |
-| 16 | Infrastructure | Upstream .NET runtime bug reports with minimal repros | Mono JIT bugs block existentials/async | P3 |
-| 17 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety for lifetime management | P3 |
-| 18 | Research | NativeAOT investigation (`[LibraryImport]` for Mono JIT bypass) | May eliminate known runtime bugs | P4 |
-| 19 | Generator | Protocol witness table dispatch for Swift-backed existentials (Phase A done) | Swift-backed proxies: blittable read-only dispatch works | P3 |
-
-**Generator target**: 93/93 must-pass features passing ✅ (achieved Phase 50)
+| ~~20~~ | ~~Generator~~ | ~~AnyTypeFallback investigation~~ | ~~Resolved: 13/14 were stale (already fixed by Phase 50-52 generic improvements). 1 remaining is QuartzCore.CALayer type gap.~~ | ~~Done~~ |
+| ~~8~~ | ~~Validation~~ | ~~BlinkID runtime validation~~ | ~~15/18 tests pass. 3 failures are known SwiftString non-blittable P/Invoke issue.~~ | ~~Done~~ |
+| 19B | Generator | Witness dispatch Phase B (String marshalling first) | Enables non-blittable existential dispatch | P2 |
+| 21 | Generator | UnsupportedSignature triage | 30 skipped members across all libraries | P2 |
+| 12B | Generator | Emitter decomposition Phase B | Maintainability / onboarding | P3 |
+| 6 | Runtime | Async callback marshalling (Array, String) | 2 async tests blocked | P3 |
+| 14 | Runtime | .NET convenience methods on Swift runtime types | DX friction | P3 |
+| 15 | Testing | Deeper protocol runtime tests | Protocol tests are compile checks only | P3 |
+| 16 | Infrastructure | Upstream .NET runtime bug reports | Mono JIT bugs block existentials/async | P3 |
+| 17 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety | P3 |
+| 18 | Research | NativeAOT investigation | May eliminate known runtime bugs | P4 |
 
 ### Planned execution order
 
-Items aren't tackled linearly by number. The agreed sequence prioritizes the fastest coverage win, then long-term leverage:
-
-1. ~~**Item 4** — Existential in bound generic (narrow fix, 92→93/93)~~ ✅ Done
-2. ~~**Items 11 + 13** — Wrapper automation + binding report guidance (removes recurring manual work)~~ ✅ Done
-3. ~~**Item 19 Phase A** — Protocol witness table dispatch, blittable read-only (makes existentials functionally useful for primitives)~~ ✅ Done
-4. **Item 19 Phase B** — Witness dispatch for setters, mutating methods, String marshalling
+1. ~~**Item 20** — AnyTypeFallback investigation~~ ✓ Done — all were stale except 1 QuartzCore gap
+2. ~~**Item 8** — BlinkID runtime validation~~ ✓ Done — 15/18 tests pass, 3 failures are known SwiftString non-blittable issue
+3. **Item 19B** — Witness dispatch String marshalling (biggest real-world impact)
+4. **Item 21** — UnsupportedSignature triage (understand the bucket, find clusters)
 5. **Item 16** — Upstream Mono bug reports (in parallel as infra hygiene)
 
 ---
 
-## 1. ~~Generic Tuple Return Marshalling~~ ✅ Done (Phase 48)
+## ~~20. AnyTypeFallback Investigation~~ ✓ RESOLVED
 
-Generic tuple returns (e.g., `pair<T, U>() -> (T, U)`) now emit correctly. Generator changes:
-1. `MarshallingHelpers.MethodRequiresIndirectResult` returns `true` for tuples with generic elements
-2. `CSSignatureBuilder.HandleReturnType` accepts generic-element tuples via `GenericContext`
-3. `PInvokeSignatureBuilder.HandleReturnType` lets generic-element tuples fall through to indirect result handling
-4. Both signature builders reject generic-element tuples on async methods (async skips indirect result, so the required sret path is unavailable)
+**Status**: Investigated and resolved — binding reports were stale (generated before Phases 49-52).
+**Resolution**: Regenerating binding reports with the current generator resolved 13 of 14 skips.
 
-The runtime already supported tuple metadata (`TryGetTupleTypeMetadata`) and per-element extraction (`MarshalTupleFromSwift`) — only the generator needed changes. TestFramework: `generic_function` moved from degraded to passing (92/93 must-pass).
+### Findings
 
----
+**BlinkID (10 → 0 AnyTypeFallback)**: All 10 skips were generic type parameter properties on `VehicleClassInfo<T>`, `DateResult<T>`, and `DriverLicenseDetailedInfo<T>`. The generic context propagation through `BoundGenericsHandler.TranslateBoundGenericTypeToCSharp` and `PropertyHandler`'s `isGenericTypeParam` branch already handles these correctly. The binding reports were simply not regenerated after the Phase 50 generic improvements. Members emitted: 559 → 569.
 
-## 2. ~~OpaquePointer in Method Signatures~~ ✅ Done (Phase 45)
+**Lottie (4 → 1 AnyTypeFallback)**:
+- `Keyframe.value` (τ_0_0 directly) — **Fixed**: Same generic parameter resolution as BlinkID.
+- `LottieButton.body` / `LottieSwitch.body` — **No longer AnyTypeFallback**: These `some View` opaque types are now handled by other skip paths (UnsupportedSignature for placeholder types), not AnyTypeFallback.
+- `LottieAnimationLayer.animationLayer` — **Remains**: Type is `Optional<QuartzCore.CALayer>`. `CALayer` is an Objective-C class from QuartzCore which is not covered by the ObjC bridging logic (only Foundation/ObjectiveC modules are bridged). This is a structural gap requiring broader ObjC framework module support.
 
-Added `IntPtrType` static TypeRecord and `IsPointerType()` helper in `TypeDatabaseExtensions.cs`. Early-return checks in all 5 resolution methods cover `OpaquePointer`, `UnsafePointer`, `UnsafeMutablePointer`, `UnsafeRawPointer`, `UnsafeMutableRawPointer`, and `Builtin.RawPointer`. Optional<OpaquePointer> resolves automatically through the existing Optional handler. 46 unit tests added.
-
----
-
-## 3. ~~NSObject Subclass as Method Parameter~~ ✅ Done (Phase 45)
-
-Added synthetic ObjCBridged TypeRecord generation for known ObjC root classes (NSObject, NSProxy) in `TypeDatabaseExtensions.cs`. Handles TypeSpecParser's `ObjectiveC.X → Foundation.X` remapping with a narrow predicate (`IsKnownObjCRootClass`). DB-first precedence preserved — explicit type database entries override synthetic records. Non-class ObjectiveC module types (Selector, ObjCBool) correctly excluded via `IsObjCRootClassSwiftType()`. 8 unit tests added.
+### Verification
+- Unit tests: 1216/1216 passed
+- TestFramework: 93/93 must-pass features, 0 degraded
+- BlinkID: 3 skips remaining (0 AnyTypeFallback)
+- Lottie: 42 skips remaining (1 AnyTypeFallback — QuartzCore gap)
 
 ---
 
-## 4. ~~Existential Type Argument in Bound Generic~~ ✅ Done (Phase 50)
+## ~~8. BlinkID Runtime Validation~~ ✓ DONE
 
-Two-part fix in `BoundGenericsHandler.cs` and `MethodHandler.cs`:
+**Status**: Completed — 15/18 tests pass on iOS Simulator.
 
-1. **Type translation**: `TranslateTypeSpecToCSharp()` now resolves supported existentials (0–8 protocols) to `ExistentialContainer{N}` instead of blanket `AnyType` fallback. Uses `ExistentialHandler.ToProtocolListTypeSpec()` + `IsSupportedExistential()` + `GetCSharpExistentialType()`. Unsupported existentials (9+ protocols) still fall back to `AnyType`.
-2. **Method guard**: Added `TryGetFirstUnsupportedExistentialTypeArgument()` — same recursive structure as `TryGetFirstExistentialTypeArgument` but only returns `true` for unsupported existentials. `MethodHandler.Emit` calls this narrower check, allowing methods like `describeAll([any Describable])` to emit as `SwiftArray<ExistentialContainer1>`.
+### Test Results (18 tests across 6 suites)
 
-Constructor and property guards intentionally left on the broader check to limit blast radius.
+| Suite | Tests | Passed | Failed |
+|-------|-------|--------|--------|
+| Type Metadata | 3 | 3 | 0 |
+| Enum Cases | 4 | 3 | 1 |
+| Enum Raw Values | 4 | 2 | 2 |
+| Enum FromRawValue | 2 | 2 | 0 |
+| Static Properties | 1 | 1 | 0 |
+| Extended Metadata | 4 | 4 | 0 |
 
-**Acceptance criteria** (all met):
-- [x] `describeAll` emits without `[UnsupportedSwiftType]`
-- [x] Coverage report: `any_protocol_existential` shows `passing` (93/93 must-pass)
-- [x] 1110 unit tests pass (3 new tests for `TryGetFirstUnsupportedExistentialTypeArgument`)
+### Failures (all same root cause)
+
+All 3 failures are **non-blittable types in P/Invoke with Swift calling convention**:
+- `DetectionStatus.FromRawValue(string)` — SwiftString parameter
+- `Country.RawValue` getter — SwiftString return
+- `DocumentType.RawValue` getter — SwiftString return
+
+Error: `Passing non-blittable types to a P/Invoke with the Swift calling convention is unsupported.`
+
+This is a known .NET Mono JIT limitation. Integer-based enums (DocumentOrientation, DocumentRotation, ImageAnalysisDetectionStatus, DocumentImageColorStatus) work perfectly. String-based enum raw values require IntPtr + manual marshalling workaround (tracked in Item 19B for protocol witness dispatch, same issue).
+
+### Build Issues Documented
+
+1. **Generated Swift wrapper (`Swift.BlinkID.swift`) has compilation errors**: `@convention(c)` callbacks with non-ObjC-representable types (BlinkIDSdk, PingStatus), EveryProtocol doesn't conform to Decodable (Pinglet protocol). SwiftBindings.xcframework disabled in csproj.
+2. **Protocol conformance static/instance mismatch**: 9 Pinglet types emit static `SchemaName`/`SchemaVersion` but `ISwiftPinglet` interface requires instance members. Workaround: removed `: ISwiftPinglet` from generated code.
+3. **`libSwiftBindingsRuntime.dylib` InstallNameTool failure**: Native library from Phase 49 causes MSBuild `_InstallNameTool` task crash (file not copied to nativelibraries dir). Fix: `IncludeSwiftBindingsRuntimeNative` MSBuild property in `Swift.Runtime.csproj` (default `true`) gates native dylib inclusion; BlinkIdTestApp sets it to `false` via `AdditionalProperties` on the project reference.
 
 ---
 
-## 5. ~~Formalize Async Concurrency Hook~~ ✅ Done (Phase 49)
+## 19B. Protocol Witness Table Dispatch -- Phase B (Extended)
 
-Extracted the inline concurrency hook from `AsyncTests.swift` into a proper shared library:
+**Priority**: P2
+**Area**: Generator (emitter + runtime)
 
-1. `src/Swift.Runtime/swift/SwiftBindingsRuntime.swift` — GCDExecutor + `dlsym`-based hook, exported as `SwiftBindings_InitializeConcurrency` and `SwiftBindings_IsConcurrencyInitialized` via `@_cdecl`
-2. `src/Swift.Runtime/swift/build-runtime.sh` — Builds `libSwiftBindingsRuntime.dylib` for macOS, iOS device, and iOS Simulator targets
-3. `src/Swift.Runtime/src/Swift/Runtime/SwiftConcurrency.cs` — Thread-safe `SwiftConcurrency.Initialize()` with double-checked locking, `IsInitialized` property, XML documentation of limitations
-4. `Swift.Runtime.csproj` updated to include native library per platform target
-5. `AsyncTests.cs` updated to use `SwiftConcurrency.Initialize()` instead of test-specific P/Invoke; inline hook removed from `AsyncTests.swift`
+Phase A (Phase 52) enabled blittable read-only dispatch. Phase B extends to non-blittable types and write operations. **String marshalling is the highest-impact sub-item** — many real-world protocol members return or accept `String`.
 
-**Acceptance criteria** (all met):
-- [x] `SwiftConcurrency.Initialize()` callable from any .NET app
-- [x] AsyncTests use shared library instead of inline hook
-- [x] `TestInstanceMethods` and `TestStaticMethods` still pass
+### Sub-items (ordered by real-world impact)
+
+1. **String parameters/returns**: Dedicated marshalling path — `MarshalFromSwift<T>` currently uses `Unsafe.Read<T>` which only works for blittable types. Needs Swift-side String-to-UTF8 conversion in accessor functions, plus C# `SwiftString` construction from returned pointer.
+2. **Property setters**: Remove `readonly` from `_swiftContainer` to allow write-back after setter dispatch.
+3. **Mutating methods**: Same `readonly` constraint as setters.
+4. **Subscripts**: Index parameter + return value dispatch.
+5. **Non-frozen types, closures, generics**: Complex marshalling (longer term).
+
+**Acceptance criteria**:
+- [ ] String-returning protocol members dispatch correctly
+- [ ] Property setters work through Swift-backed existentials
+- [ ] Tests exercise round-trip: Swift creates existential -> C# calls method through proxy
+
+---
+
+## 21. UnsupportedSignature Triage
+
+**Priority**: P2
+**Area**: Generator
+**Source**: Real-world binding analysis (February 2026)
+
+30 skipped members across all three libraries with `UnsupportedSignature`. This is a grab-bag category — triaging it will reveal whether there are fixable clusters or if most are structural limitations.
+
+### Known sub-categories (from binding report details)
+
+**UIKit nested types (Lottie, ~10 skips)**:
+- `UIView.ContentMode`, `UIAccessibilityTraits` — nested UIKit types not in TypeDatabase
+- `beginTracking`/`endTracking`/`continueTracking`/`cancelTracking` — UIEvent/UITouch params
+- These are UIKit event methods inherited by Lottie view subclasses
+
+**Placeholder types (BlinkID + Nuke + Lottie, ~12 skips)**:
+- Constructor signatures with unresolved placeholder types
+- Methods like `imagePublisher`, `register` with complex generic signatures
+- `LottieLogger` methods (`init`, `assert`, `assertionFailure`, `warn`) — likely `@autoclosure` params
+
+**Complex accessor signatures (Nuke, ~4 skips)**:
+- `dataCache_Get`, `imageCache_Get`, `delegate_Get` — property accessors with protocol return types
+- `dataLoadingError_Get` — error type accessor
+
+**Operator with placeholder (Lottie, 1 skip)**:
+- `Keyframe.==` — operator on generic type with unresolved type param
+
+### Investigation approach
+
+1. Categorize all 30 skips by root cause (UIKit types, autoclosure, placeholder generics, etc.)
+2. Identify which categories are fixable vs. structural
+3. UIKit nested types may be addressable by adding type records (similar to NSObject fix in Phase 45)
+4. `@autoclosure` params are a new pattern the generator hasn't handled
+
+**Acceptance criteria**:
+- [ ] All 30 skips categorized by root cause
+- [ ] Fixable clusters identified with estimated scope
+- [ ] At least one cluster fixed if cost is low
+
+---
+
+## 12B. Emitter Decomposition -- Phase B (Handler Extraction)
+
+**Priority**: P3
+**Area**: Generator (emitter)
+
+Phase A (file split) is complete — all files <= 800 LOC. Phase B extracts true handler components per `emitter-redesign-proposal.md`:
+
+1. Split into focused handlers (Constructor, Static/Instance, SwiftError, Generic, Async)
+2. Extract return handlers (IndirectResult, BoundGeneric, Direct, Void)
+3. Extract argument handlers (NonFrozen, Generic, BoundGeneric)
+
+`EnumHandler.cs` (1,715 LOC) and `ProtocolProxyEmitter.cs` (1,403 LOC) are also decomposition candidates.
+
+**Reference**: `src/docs/emitter-redesign-proposal.md`
+
+**Acceptance criteria**:
+- [ ] Handler responsibilities are clear and focused
+- [ ] No behavioral changes (all tests pass)
 
 ---
 
@@ -108,7 +211,7 @@ Extracted the inline concurrency hook from `AsyncTests.swift` into a proper shar
 **Priority**: P3
 **Area**: Runtime
 
-`TestArray` and `TestString` async integration tests are blocked by callback marshalling errors (`Cannot marshal type System.String from Swift`). This is separate from the concurrency hook issue (item 5) — the hook works, but the async callback that delivers the result can't marshal complex types.
+`TestArray` and `TestString` async integration tests are blocked by callback marshalling errors (`Cannot marshal type System.String from Swift`). The concurrency hook works, but the async callback that delivers the result can't marshal complex types.
 
 **Acceptance criteria**:
 - [ ] `TestArray` passes
@@ -116,135 +219,10 @@ Extracted the inline concurrency hook from `AsyncTests.swift` into a proper shar
 
 ---
 
-## 7. ~~Lottie 9/9 — LottieConfiguration.Shared~~ ✅ Done (Phase 48)
-
-Root cause: Generated `==` and `!=` operators on reference types accessed `.Payload` without null checks. When C# code did `config != null`, it invoked the overloaded `!=` operator which delegated to `==`, passing `null` as the second argument. `arg1.Payload` threw `NullReferenceException`.
-
-Fix: `OperatorHandler.cs` now emits null guards (`if (arg0 is null) return arg1 is null;`) for equality/inequality operators when the containing type is a C# reference type (ClassDecl, EnumDecl, non-frozen StructDecl, frozen-struct-projected-as-class). Guards are emitted for both explicit operators and synthesized paired operators. Lottie: 9/9 runtime tests pass.
-
----
-
-## 8. BlinkID Runtime Validation
-
-**Priority**: P3
-**Area**: Validation
-
-BlinkID bindings compile cleanly (0 errors) but have never been runtime tested. Need a test app similar to `LottieTestApp`.
-
-**Acceptance criteria**:
-- [ ] `BindingTesting/BlinkID/BlinkIDTestApp/` project created
-- [ ] Basic API smoke tests (type metadata, configuration, enums)
-- [ ] `validate-sim.sh` runs and reports results
-
----
-
-## 9. ~~Add Finalizer Safety Net to SwiftSafeHandle~~ ✅ Done (Phase 45)
-
-Added `GC.SuppressFinalize(this)` to `Dispose()` in `SwiftHandle.cs` — standard .NET SafeHandle pattern. Added `Debug.WriteLine` diagnostic warning when a SwiftSafeHandle is finalized without explicit Dispose, alerting developers to the ARC leak. Note: Swift `Destroy` is deliberately skipped during finalization to avoid SIGSEGV from the Swift runtime during .NET shutdown — the buffer is still freed, but Swift ARC is not decremented. This is documented as a known tradeoff.
-
----
-
-## 10. ~~Protocol Runtime Completion~~ ✅ Done (Phase 47)
-
-Replaced all 7 `NotImplementedException` stubs in `ProtocolProxyEmitter.cs` with descriptive `NotSupportedException` throws. The Swift existential code path (when `_csharpImpl == null`) now throws `NotSupportedException` with messages identifying the specific member and explaining the limitation. The conformance descriptor stub similarly throws `NotSupportedException` explaining that proxy types use EveryProtocol's witness table.
-
-All `TODO` comments removed. XML documentation on the existential container constructor documents the limitation. 8 new tests verify the degradation behavior.
-
-**Acceptance criteria** (all met):
-- [x] Zero `NotImplementedException` paths remain in `ProtocolProxyEmitter.cs`
-- [x] Protocol proxy types degrade gracefully: Swift-backed proxies throw `NotSupportedException` for member access with descriptive messages
-- [x] All 1107 unit tests pass (8 new)
-
----
-
-## 11. ~~Wrapper Automation for Known-Problematic Patterns~~ ✅ Done (Phase 51)
-
-First-cut automation for existential-in-bound-generic constructors via `ExistentialBypassEmitter`. When a struct constructor has bound generic params containing existential type arguments and all such params have `HasDefaultArg == true`, the generator auto-emits:
-
-1. **Swift wrapper**: `@_silgen_name` function that omits existential params (Swift fills defaults), heap-allocates the result, and returns `UnsafeMutableRawPointer`. Companion free function for cleanup.
-2. **C# factory**: Static `Create_{hash}` method with try/finally cleanup, P/Invoke declarations (inline or via `PInvokeHelperContext` for generic types), frozen/non-frozen copy strategies.
-3. **Binding report**: `WrappedItems` list with `WrapperKind`, `MangledName` (for overload disambiguation), and details.
-
-**Safety gates** (return false → falls back to skip):
-- Parent must be a StructDecl; failable/throwing constructors rejected
-- All existential params must have `HasDefaultArg == true`
-- Passthrough params with `IsGeneric == true` rejected (no GenericTypeMapping for reduced method)
-- Reduced signature must have no placeholders
-- Wrapper and P/Invoke parameter signatures must match exactly (rejects types needing marshalling setup: SafeHandle, idiomatic conversions, indirect results)
-
-**Scope limitation**: Handles constructors only, existential-in-bound-generic pattern only. Async SafeHandle and non-blittable CallConvSwift patterns are deferred.
-
-**Acceptance criteria** (all met):
-- [x] Generator auto-generates Swift wrappers for existential-in-bound-generic constructors
-- [x] Binding report includes `WrappedItems` annotation with wrapper kind and mangled name
-- [x] 1151 unit tests pass (20 new ExistentialBypassEmitter tests)
-
----
-
-## 12. Emitter Decomposition — Split MethodHandler
-
-**Priority**: P2 — architecture review top-4 blocker
-**Area**: Generator (emitter)
-**Source**: Comprehensive architecture review (all reviewers)
-
-### Phase A: File Split (Complete)
-
-The original `MethodHandler.cs` (3,827 LOC) has been split into 7 files with no behavioral changes:
-
-| File | Lines | Contents |
-|------|-------|----------|
-| `MethodHandler.cs` | 369 | Handler factories + handlers (public API) |
-| `MethodSignature.cs` | 517 | Parameter, Signature, SignatureBuilderBase, WrapperSignatureBuilder, SignatureHandler |
-| `PInvokeEmitter.cs` | 535 | PInvokeSignatureBuilder, PInvokeEmitter |
-| `WrapperEmitter.cs` | 692 | Core orchestration, constructor emission, structural helpers |
-| `WrapperEmitter.Async.cs` | 779 | Async emission pipeline |
-| `WrapperEmitter.Marshalling.cs` | 546 | Argument marshalling, closures, SafeHandle, generics |
-| `WrapperEmitter.Return.cs` | 444 | Return handling, tuple element helpers |
-
-All files ≤800 LOC. All 1107 unit tests pass. TestFramework coverage unchanged at time of decomposition.
-
-### Phase B: Handler Extraction (Pending)
-
-Extract true handler components per `emitter-redesign-proposal.md`:
-1. Split into focused handlers (Constructor, Static/Instance, SwiftError, Generic, Async)
-2. Extract return handlers (IndirectResult, BoundGeneric, Direct, Void)
-3. Extract argument handlers (NonFrozen, Generic, BoundGeneric)
-
-Phase A is a prerequisite: the code must be navigable before it can be restructured.
-
-`EnumHandler.cs` (1,715 LOC) and `ProtocolProxyEmitter.cs` (1,403 LOC) are also candidates for decomposition.
-
-**Reference**: `src/docs/emitter-redesign-proposal.md`
-
-**Acceptance criteria**:
-- [x] No single handler file exceeds ~800 lines (Phase A)
-- [x] Existing unit tests still pass with no behavioral changes (Phase A)
-- [ ] Handler responsibilities are clear and focused (Phase B)
-
----
-
-## 13. ~~Improve Binding Report with Workaround Recommendations~~ ✅ Done (Phase 51)
-
-Added `RecommendedWorkaround` field to `SkippedItem` in the binding report data model. `WorkaroundRecommendations.GetRecommendation(SkipReason)` maps all 14 skip reasons to actionable guidance text. Wired into both `RecordTypeSkipped` and `RecordMemberSkipped` in `ReportCollector`. JSON serialization picks it up automatically.
-
-**Files**:
-- `BindingReport.cs` — added `RecommendedWorkaround` property to `SkippedItem`
-- `WorkaroundRecommendations.cs` — static mapping for all 14 `SkipReason` values
-- `ReportCollector.cs` — populates workaround on skip recording
-- `ReportEmitter.cs` — wrapper count in console summary
-
-**Acceptance criteria** (all met):
-- [x] `binding-report.json` includes workaround guidance for all skipped items
-- [x] All 14 skip reasons have mapped workarounds
-- [x] 4 new WorkaroundRecommendationsTests + 6 new ReportCollectorTests
-
----
-
 ## 14. .NET Convenience Methods on Swift Runtime Types
 
 **Priority**: P3
 **Area**: Runtime (DX)
-**Source**: Comprehensive architecture review (external AI recommendation)
 
 C# developers encounter unfamiliar types (`SwiftArray<T>`, `SwiftString`, `SwiftOptional<T>`). Adding .NET-idiomatic convenience methods preserves zero-copy performance while improving developer experience.
 
@@ -274,7 +252,6 @@ public override string ToString() => Encoding.UTF8.GetString(Utf8Span);
 
 **Priority**: P3
 **Area**: Testing
-**Source**: Comprehensive architecture review (Codex finding)
 
 Current protocol tests in `ProtocolsTests.cs` are mostly compile checks — they verify the generated code compiles but don't exercise runtime behavior (method dispatch through protocol witnesses, proxy object lifecycle, etc.).
 
@@ -295,7 +272,6 @@ Current protocol tests in `ProtocolsTests.cs` are mostly compile checks — they
 
 **Priority**: P3
 **Area**: Infrastructure
-**Source**: Comprehensive architecture review
 
 Known Mono JIT bugs block features (existential type metadata crash, async frame marking). These should be filed as dotnet/runtime issues with minimal reproduction cases so the .NET team can prioritize fixes.
 
@@ -314,9 +290,8 @@ Known Mono JIT bugs block features (existential type metadata crash, async frame
 
 **Priority**: P3
 **Area**: Tooling
-**Source**: Comprehensive architecture review
 
-Complement to item 9 (finalizer safety net). A Roslyn analyzer can warn at compile time when Swift objects implementing `IDisposable` are created without `using` or explicit `Dispose()`.
+A Roslyn analyzer can warn at compile time when Swift objects implementing `IDisposable` are created without `using` or explicit `Dispose()`.
 
 **What's needed**:
 1. Create analyzer project targeting `ISwiftObject` / `SwiftSafeHandle<T>` types
@@ -334,7 +309,6 @@ Complement to item 9 (finalizer safety net). A Roslyn analyzer can warn at compi
 
 **Priority**: P4
 **Area**: Research
-**Source**: Comprehensive architecture review
 
 .NET 10's `[LibraryImport]` source generator and NativeAOT compilation may bypass Mono JIT bugs entirely. If NativeAOT works for Swift interop, several known runtime issues (items 6, 16) may disappear.
 
@@ -350,62 +324,37 @@ Complement to item 9 (finalizer safety net). A Roslyn analyzer can warn at compi
 
 ---
 
-## 19. Protocol Witness Table Dispatch for Swift-Backed Existentials
+## Observations: UnsupportedExistential (26 skips)
 
-**Priority**: P3
-**Area**: Generator (emitter + runtime)
-**Source**: Follow-up from item 10 (Phase 47)
+Not a standalone work item — these are existential type arguments in bound generics where the parameter does **not** have a default value. Phase 51's `ExistentialBypassEmitter` handles the default-arg case. The non-default-arg case requires the caller to actually construct and pass an `ExistentialContainer`, which needs:
 
-When C# receives a protocol-typed value from Swift (e.g., `any Describable`), the proxy is created via the existential container constructor. Full support requires generating Swift accessor functions that dispatch through the witness table, plus corresponding P/Invoke declarations.
+- Constructor/method signatures that accept `ExistentialContainer{N}` as a bound generic type argument
+- C# callers to box their protocol-conforming object into a container
+- Runtime support for existential container construction from C#
 
-### Phase A: Blittable Read-Only Dispatch ✅ Done (Phase 52)
+This is a deeper architectural problem than the other items. The 26 skips break down as:
 
-For protocol members whose types are all blittable primitives, the generator now emits Swift `@_silgen_name` accessor functions and C# P/Invoke calls instead of `NotSupportedException`.
+| Library | Existential Type | Count |
+|---------|-----------------|-------|
+| Nuke | `any ImagePipelineDelegate` | 1 |
+| Nuke | `any ImageProcessing` | 2 |
+| Nuke | `any ImageDecoding` | 1 |
+| Nuke | `any Swift.Error` | 1 |
+| Nuke | anonymous existential (empty) | 5 |
+| Lottie | `any AnimationImageProvider` | 2 |
+| Lottie | `any AnyValueProvider` | 2 |
+| Lottie | `any AnimationCacheProvider` | 4 |
+| Lottie | `any DotLottieCacheProvider` | 3 |
+| Lottie | `any Swift.Error` | 2 |
+| Lottie | anonymous existential (empty) | 3 |
 
-**New files**:
-- `WitnessDispatchEmitter.cs` — Generates Swift accessor functions (`SBW_{Protocol}_{kind}_{name}_{index}`) that reconstruct existentials via `containerPtr.load(as: (any Protocol).self)` and dispatch through the witness table. Heap-allocates return values; companion free functions handle cleanup.
-- `SwiftTypeNameHelper.cs` — Shared Swift type name rendering extracted from `EveryProtocolEmitter`, used by both emitters.
-- `WitnessDispatchEmitterTests.cs` — 47 tests covering accessor generation, marshalability checks, naming conventions, overload disambiguation.
-
-**Modified files**:
-- `ProtocolProxyEmitter.cs` — Property getters and methods with blittable signatures now emit `fixed` + P/Invoke dispatch path instead of `NotSupportedException`. P/Invoke declarations added to NativeMethods class. Three-layer projected-type gate ensures dispatch is only enabled when the C#-side projected type is also a blittable primitive (prevents type mismatches when TypeDatabase is incomplete).
-- `EveryProtocolEmitter.cs` — Delegates to `SwiftTypeNameHelper` for type name rendering.
-- `ModuleHandler.cs` — Creates `WitnessDispatchEmitter` and calls `EmitWitnessDispatchFunctions` for each suitable protocol.
-
-**Safety gates** (all three must pass for dispatch):
-1. **Swift-side blittability**: `IsPropertyGetterDispatchable` / `IsMethodDispatchable` — checks Swift type names against known blittable primitives, rejects throws/async methods
-2. **Projected-type blittability**: C#-side projected type (from TypeDatabase) must also be a blittable primitive (`IsBlittablePrimitive`). Prevents type mismatches when projected type diverges (e.g., `Swift.AnyType` from incomplete TypeDatabase).
-3. **Return type canonicalization**: `MarshalFromSwift<T>` uses canonical blittable type from `GetBlittableCSharpType`, not the interface-projected type.
-
-Non-dispatchable members gracefully degrade to `NotSupportedException`.
-
-**Acceptance criteria** (all met):
-- [x] Blittable property getters dispatch through witness table via P/Invoke
-- [x] Non-mutating methods with blittable params/returns dispatch through witness table
-- [x] Void methods with blittable params dispatch (no free function needed)
-- [x] Non-dispatchable members (String, throws, async, setters) keep `NotSupportedException`
-- [x] Projected-type gate prevents type-invalid code when TypeDatabase is incomplete
-- [x] 1216 unit tests pass (65 new), 93/93 must-pass features
-
-### Phase B: Extended Dispatch (Pending)
-
-**What's needed**:
-1. **Property setters**: Remove `readonly` from `_swiftContainer` to allow write-back after setter dispatch
-2. **Mutating methods**: Same `readonly` constraint as setters
-3. **String parameters/returns**: Dedicated marshalling path — `MarshalFromSwift<T>` uses `Unsafe.Read<T>` which only works for blittable types
-4. **Subscripts**: Index parameter + return value dispatch
-5. **Non-frozen types, closures, generics**: Complex marshalling
-
-**Acceptance criteria**:
-- [ ] Property setters work through Swift-backed existentials
-- [ ] String-returning protocol members dispatch correctly
-- [ ] Tests exercise round-trip: Swift creates existential → C# calls method through proxy
+Most are library-specific provider/delegate protocols. Addressing these would require the generator to emit methods that accept `ExistentialContainer` parameters in bound generic positions — a significant extension of the current existential support.
 
 ---
 
 ## Verification
 
-After completing any generator task (1–4):
+After completing any generator task:
 
 ```bash
 cd TestFramework
@@ -422,4 +371,30 @@ for f in d['features']:
     if f.get('test_status') == 'degraded':
         print(f'  {f[\"name\"]}: {len(f.get(\"binding_skips\",[]))} skips')
 "
+```
+
+After completing any real-world binding task, regenerate and compare:
+
+```bash
+# BlinkID
+cd BindingTesting/BlinkID && ./regenerate-bindings.sh
+
+# Nuke
+cd BindingTesting/Nuke && ./regenerate-bindings.sh
+
+# Lottie
+cd BindingTesting/Lottie && ./regenerate-bindings.sh
+
+# Quick skip count comparison
+for lib in BlinkID/output-ios Nuke/output-ios Lottie/output-ios; do
+  echo "=== $lib ==="
+  python3 -c "
+import json
+with open('BindingTesting/$lib/binding-report.json') as f:
+    d = json.load(f)
+print(f'Types: {d[\"EmittedTypeCount\"]}/{d[\"TotalTypeCount\"]}')
+print(f'Members: {d[\"EmittedMemberCount\"]}/{d[\"TotalMemberCount\"]}')
+print(f'Skipped: {d[\"SkippedMemberCount\"]}')
+"
+done
 ```

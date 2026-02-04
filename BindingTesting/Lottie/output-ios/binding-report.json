@@ -1,433 +1,350 @@
 {
   "ModuleName": "Lottie",
-  "GeneratedAt": "2026-02-03T04:40:57.596633+00:00",
+  "GeneratedAt": "2026-02-04T16:06:59.808026+00:00",
   "TotalTypes": 93,
   "EmittedTypes": 79,
   "SkippedTypes": 1,
   "TotalMembers": 609,
-  "EmittedMembers": 369,
-  "SkippedMembers": 59,
-  "SynthesizedMembers": 265,
+  "EmittedMembers": 387,
+  "SkippedMembers": 41,
+  "SynthesizedMembers": 272,
   "SkippedItems": [
     {
       "Kind": "Property",
       "Name": "valueProviders",
       "ContainingType": "Lottie.LottieAnimationLayer",
       "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.AnyValueProvider'."
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnyValueProvider'.",
+      "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
     },
     {
       "Kind": "Property",
       "Name": "animationLayerDidLoad",
       "ContainingType": "Lottie.LottieAnimationLayer",
       "Reason": "UnsupportedClosure",
-      "Details": "Closure parameters are not invokable from C#."
+      "Details": "Closure parameters are not invokable from C#.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
     },
     {
       "Kind": "Property",
       "Name": "animationLayer",
       "ContainingType": "Lottie.LottieAnimationLayer",
       "Reason": "AnyTypeFallback",
-      "Details": "Property type resolved to AnyType (Swift.SwiftOptional<Swift.AnyType>)."
+      "Details": "Property type resolved to AnyType (Swift.SwiftOptional<Swift.AnyType>).",
+      "RecommendedWorkaround": "Use concrete bound generic types instead of Any where possible."
     },
     {
       "Kind": "Property",
       "Name": "animationLoaded",
       "ContainingType": "Lottie.LottieAnimationLayer",
       "Reason": "UnsupportedClosure",
-      "Details": "Closure parameters are not invokable from C#."
-    },
-    {
-      "Kind": "Method",
-      "Name": "init",
-      "ContainingType": "Lottie.LottieAnimationLayer",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationImageProvider'."
-    },
-    {
-      "Kind": "Method",
-      "Name": "getValue",
-      "ContainingType": "Lottie.LottieAnimationLayer",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument ''."
-    },
-    {
-      "Kind": "Method",
-      "Name": "getOriginalValue",
-      "ContainingType": "Lottie.LottieAnimationLayer",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument ''."
-    },
-    {
-      "Kind": "Property",
-      "Name": "body",
-      "ContainingType": "Lottie.LottieButton",
-      "Reason": "AnyTypeFallback",
-      "Details": "Property type resolved to AnyType (Swift.AnyType)."
+      "Details": "Closure parameters are not invokable from C#.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
     },
     {
       "Kind": "Method",
       "Name": "animate",
       "ContainingType": "Lottie.LottieButton",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "fontFor",
       "ContainingType": "Lottie.DefaultFontProvider",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
-    },
-    {
-      "Kind": "Property",
-      "Name": "shared",
-      "ContainingType": "Lottie.LottieAnimationCache",
-      "Reason": "UnsupportedSignature",
-      "Details": "Accessor 'shared_Get' has unsupported signature."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Lottie.FilepathImageProvider",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "contentsGravity",
       "ContainingType": "Lottie.FilepathImageProvider",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "named",
       "ContainingType": "Lottie.LottieAnimation",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationCacheProvider'."
-    },
-    {
-      "Kind": "Method",
-      "Name": "filepath",
-      "ContainingType": "Lottie.LottieAnimation",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationCacheProvider'."
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "asset",
       "ContainingType": "Lottie.LottieAnimation",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationCacheProvider'."
-    },
-    {
-      "Kind": "Method",
-      "Name": "loadedFrom",
-      "ContainingType": "Lottie.LottieAnimation",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationCacheProvider'."
-    },
-    {
-      "Kind": "Property",
-      "Name": "body",
-      "ContainingType": "Lottie.LottieSwitch",
-      "Reason": "AnyTypeFallback",
-      "Details": "Property type resolved to AnyType (Swift.AnyType)."
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "isOn",
       "ContainingType": "Lottie.LottieSwitch",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Type",
       "Name": "LottieView",
       "ContainingType": null,
       "Reason": "SwiftUIConstraint",
-      "Details": "Unsupported generic constraint: SwiftUI.View"
+      "Details": "Unsupported generic constraint: SwiftUI.View",
+      "RecommendedWorkaround": "SwiftUI types are excluded. Use Swift wrappers to bridge SwiftUI functionality."
     },
     {
       "Kind": "Property",
       "Name": "storage",
       "ContainingType": "Lottie.SizeValueProvider",
       "Reason": "UnsatisfiedGenericConstraint",
-      "Details": "Type argument 'Lottie.LottieVector3D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
+      "Details": "Type argument 'Lottie.LottieVector3D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'.",
+      "RecommendedWorkaround": "Use a Swift wrapper that constructs the generic type internally."
     },
     {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Lottie.CompatibleAnimation",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Property",
       "Name": "contentMode",
       "ContainingType": "Lottie.CompatibleAnimationView",
       "Reason": "UnsupportedType",
-      "Details": "Type resolution failed for property type 'UIKit.UIView.ContentMode'."
-    },
-    {
-      "Kind": "Method",
-      "Name": "getValue",
-      "ContainingType": "Lottie.CompatibleAnimationView",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument ''."
+      "Details": "Type resolution failed for property type 'UIKit.UIView.ContentMode'.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
     },
     {
       "Kind": "Property",
       "Name": "storage",
       "ContainingType": "Lottie.ColorValueProvider",
       "Reason": "UnsatisfiedGenericConstraint",
-      "Details": "Type argument 'Lottie.LottieColor' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
+      "Details": "Type argument 'Lottie.LottieColor' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'.",
+      "RecommendedWorkaround": "Use a Swift wrapper that constructs the generic type internally."
     },
     {
       "Kind": "Method",
       "Name": "beginTracking",
       "ContainingType": "Lottie.AnimatedControl",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "continueTracking",
       "ContainingType": "Lottie.AnimatedControl",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "endTracking",
       "ContainingType": "Lottie.AnimatedControl",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "cancelTracking",
       "ContainingType": "Lottie.AnimatedControl",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "setLayer",
       "ContainingType": "Lottie.AnimatedControl",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Property",
       "Name": "accessibilityTraits",
       "ContainingType": "Lottie.AnimatedButton",
       "Reason": "UnsupportedType",
-      "Details": "Type resolution failed for property type 'UIKit.UIAccessibilityTraits'."
+      "Details": "Type resolution failed for property type 'UIKit.UIAccessibilityTraits'.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
     },
     {
       "Kind": "Method",
       "Name": "beginTracking",
       "ContainingType": "Lottie.AnimatedButton",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "endTracking",
       "ContainingType": "Lottie.AnimatedButton",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "setPlayRange",
       "ContainingType": "Lottie.AnimatedButton",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Property",
       "Name": "accessibilityTraits",
       "ContainingType": "Lottie.AnimatedSwitch",
       "Reason": "UnsupportedType",
-      "Details": "Type resolution failed for property type 'UIKit.UIAccessibilityTraits'."
+      "Details": "Type resolution failed for property type 'UIKit.UIAccessibilityTraits'.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
     },
     {
       "Kind": "Method",
       "Name": "endTracking",
       "ContainingType": "Lottie.AnimatedSwitch",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Property",
       "Name": "valueProviders",
       "ContainingType": "Lottie.LottieAnimationView",
       "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.AnyValueProvider'."
+      "Details": "Bound generic contains existential type argument 'any Lottie.AnyValueProvider'.",
+      "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
     },
     {
       "Kind": "Property",
       "Name": "animationLoaded",
       "ContainingType": "Lottie.LottieAnimationView",
       "Reason": "UnsupportedClosure",
-      "Details": "Closure parameters are not invokable from C#."
-    },
-    {
-      "Kind": "Method",
-      "Name": "init",
-      "ContainingType": "Lottie.LottieAnimationView",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.AnimationImageProvider'."
-    },
-    {
-      "Kind": "Method",
-      "Name": "getValue",
-      "ContainingType": "Lottie.LottieAnimationView",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument ''."
-    },
-    {
-      "Kind": "Method",
-      "Name": "getOriginalValue",
-      "ContainingType": "Lottie.LottieAnimationView",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument ''."
+      "Details": "Closure parameters are not invokable from C#.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
     },
     {
       "Kind": "Property",
       "Name": "storage",
       "ContainingType": "Lottie.FloatValueProvider",
       "Reason": "UnsatisfiedGenericConstraint",
-      "Details": "Type argument 'Lottie.LottieVector1D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
+      "Details": "Type argument 'Lottie.LottieVector1D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'.",
+      "RecommendedWorkaround": "Use a Swift wrapper that constructs the generic type internally."
     },
     {
       "Kind": "Property",
       "Name": "storage",
       "ContainingType": "Lottie.GradientValueProvider",
       "Reason": "UnsatisfiedGenericConstraint",
-      "Details": "Type argument 'Swift.Array<Swift.Double>' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
-    },
-    {
-      "Kind": "Property",
-      "Name": "imageProvider",
-      "ContainingType": "Lottie.DotLottieConfiguration",
-      "Reason": "UnsupportedSignature",
-      "Details": "Accessor 'imageProvider_Get' has unsupported signature."
+      "Details": "Type argument 'Swift.Array<Swift.Double>' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'.",
+      "RecommendedWorkaround": "Use a Swift wrapper that constructs the generic type internally."
     },
     {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Lottie.BundleImageProvider",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "contentsGravity",
       "ContainingType": "Lottie.BundleImageProvider",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Property",
       "Name": "contentMode",
       "ContainingType": "Lottie.LottieAnimationViewBase",
       "Reason": "UnsupportedType",
-      "Details": "Type resolution failed for property type 'UIKit.UIView.ContentMode'."
-    },
-    {
-      "Kind": "Method",
-      "Name": "loadedFrom",
-      "ContainingType": "Lottie.DotLottieFile.SynchronouslyBlockingCurrentThread",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Swift.Error'."
+      "Details": "Type resolution failed for property type 'UIKit.UIView.ContentMode'.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
     },
     {
       "Kind": "Method",
       "Name": "named",
       "ContainingType": "Lottie.DotLottieFile.SynchronouslyBlockingCurrentThread",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Swift.Error'."
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "named",
       "ContainingType": "Lottie.DotLottieFile",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.DotLottieCacheProvider'."
-    },
-    {
-      "Kind": "Method",
-      "Name": "loadedFrom",
-      "ContainingType": "Lottie.DotLottieFile",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.DotLottieCacheProvider'."
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "asset",
       "ContainingType": "Lottie.DotLottieFile",
-      "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument 'any Lottie.DotLottieCacheProvider'."
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Lottie.LottieLogger",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "assert",
       "ContainingType": "Lottie.LottieLogger",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "assertionFailure",
       "ContainingType": "Lottie.LottieLogger",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
       "Name": "warn",
       "ContainingType": "Lottie.LottieLogger",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Property",
       "Name": "storage",
       "ContainingType": "Lottie.PointValueProvider",
       "Reason": "UnsatisfiedGenericConstraint",
-      "Details": "Type argument 'Lottie.LottieVector3D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'."
-    },
-    {
-      "Kind": "Property",
-      "Name": "value",
-      "ContainingType": "Lottie.Keyframe",
-      "Reason": "AnyTypeFallback",
-      "Details": "Property type resolved to AnyType (Swift.AnyType)."
-    },
-    {
-      "Kind": "Operator",
-      "Name": "==",
-      "ContainingType": "Lottie.Keyframe",
-      "Reason": "UnsupportedSignature",
-      "Details": "Operator signature contains unsupported placeholder type."
-    },
-    {
-      "Kind": "Method",
-      "Name": "init",
-      "ContainingType": "Lottie.Keyframe",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type."
+      "Details": "Type argument 'Lottie.LottieVector3D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'.",
+      "RecommendedWorkaround": "Use a Swift wrapper that constructs the generic type internally."
     }
-  ]
+  ],
+  "WrappedItems": []
 }
