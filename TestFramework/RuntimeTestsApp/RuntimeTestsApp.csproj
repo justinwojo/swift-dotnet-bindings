@@ -17,6 +17,8 @@
     <NoWarn>CS0169;CA1422;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <!-- Disable trimming for test app (reflection-heavy) -->
     <MtouchLink>None</MtouchLink>
+    <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,7 +26,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
+    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
   </ItemGroup>
 
   <!-- Include TestFramework bindings -->

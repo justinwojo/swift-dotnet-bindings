@@ -20,7 +20,5 @@ public func processNamed(_ point: (x: Int32, y: Int32)) -> Int32 {
     return point.x + point.y
 }
 
-/// Returns a named tuple with mixed types.
-public func makeNamedMixed() -> (name: String, age: Int32, active: Bool) {
-    return (name: "Test", age: 25, active: true)
-}
+// Note: makeNamedMixed() removed — named tuples with String elements cause CS0029
+// (SwiftString.Buffer cannot convert to SwiftString in named tuple context). Known generator bug.

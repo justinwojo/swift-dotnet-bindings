@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Foundation;
@@ -269,6 +270,8 @@ public class MainViewController : UIViewController
         UpdateResultLabel(TestLogger.GetFullLog());
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Test runner discovers test classes by reflection")]
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Test runner discovers test classes by reflection")]
     private async Task RunTestClassAsync(Type testClassType, TestResults results, TestTier maxTier, bool flakeDetect = false)
     {
         TestLogger.Info("");

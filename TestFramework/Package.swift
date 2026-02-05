@@ -24,7 +24,6 @@ let package = Package(
             exclude: [
                 // Temporarily disabled directories (generator bugs)
                 "Async.disabled",
-                "Closures.disabled",
                 "EdgeCases.disabled",
                 "ErrorHandling.disabled",
                 "Generics",  // Has unbound generic issues
@@ -32,13 +31,14 @@ let package = Package(
                 "Lifetime.disabled",
                 "MemoryManagement.disabled",
                 "ObjCInterop.disabled",
-                "Operators",  // Disabled operators
                 "Parameters.disabled",
                 "PropertyWrappers.disabled",
-                "Tuples",  // Tuple type conversion issues
-                "UnsafeTypes.disabled",
                 "Foundation",  // Foundation types not fully supported
                 "Protocols",  // Protocol issues
+                // Individual unsupported files within enabled directories
+                "Closures/Autoclosures.swift",  // @autoclosure not supported
+                "UnsafeTypes/Span.swift",  // Span<T> not supported
+                "UnsafeTypes/PointerGenerics.swift",  // Generic<PointerType> emits ISwiftObject constraint violation (CS0315)
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),

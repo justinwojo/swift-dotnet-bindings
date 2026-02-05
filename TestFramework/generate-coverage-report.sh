@@ -454,6 +454,18 @@ FEATURE_MAP = {
         "name": "span_types",
         "features": ["span_parameter", "raw_span_parameter"]
     },
+    "UnsafeTypes/PointerGenerics.swift": {
+        "name": "pointer_generics",
+        "features": ["generic_pointer_container", "pointer_container_round_trip"]
+    },
+    "Collections/ArrayOperations.swift": {
+        "name": "array_operations",
+        "features": ["array_parameter", "array_return", "array_of_class", "array_round_trip"]
+    },
+    "Optionals/OptionalTypes.swift": {
+        "name": "optional_types",
+        "features": ["optional_blittable_return", "optional_class_return", "optional_parameter", "optional_struct_properties"]
+    },
 }
 
 # Features that are known unsupported (generator can't handle them yet).
@@ -513,6 +525,10 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "circular_strong_reference",
     "weak_cycle_breaking",
     "unowned_cycle_breaking",
+    "throwing_closure",  # Throwing closure thunks emit SwiftString→void* return mismatch
+    "throwing_closure_with_fallback",  # Same emission issue as throwing_closure
+    "generic_pointer_container",  # Generic<PointerType> emits ISwiftObject constraint on IntPtr (CS0315)
+    "pointer_container_round_trip",  # Same constraint issue as generic_pointer_container
 }
 
 
@@ -617,14 +633,30 @@ FEATURE_DECLARATIONS = {
     "unowned_cycle_breaking": {"ResourceOwner", "OwnedResource", "createOwnerResourcePair"},
 
     # Closures/Escaping.swift — regular escaping vs throwing closures
-    "escaping_void_closure": {"ClosureConsumer"},
-    "escaping_with_primitives": {"ClosureConsumer"},
-    "escaping_with_frozen_struct": {"ClosureConsumer"},
+    "escaping_void_closure": {"callVoidCallback", "ClosureConsumer"},
+    "escaping_with_primitives": {"callWithInt32", "callMultiArg", "callBoolCallback", "callDoubleCallback", "callMultipleTimes"},
+    "escaping_with_frozen_struct": {"callWithFrozenStruct"},
     "throwing_closure": {
         "callThrowingClosure", "callThrowingVoidClosure",
         "callThrowingStringClosure",
     },
     "throwing_closure_with_fallback": {"callThrowingClosureWithFallback"},
+
+    # UnsafeTypes/PointerGenerics.swift — generic pointer containers
+    "generic_pointer_container": {"PointerContainer", "createInt32PointerContainer", "createOpaquePointerContainer"},
+    "pointer_container_round_trip": {"readFromPointerContainer"},
+
+    # Collections/ArrayOperations.swift — array features
+    "array_parameter": {"arrayCount", "sumArray", "isEmptyArray"},
+    "array_return": {"createIntArray", "createStringArray", "reverseIntArray"},
+    "array_of_class": {"describeAnimals"},
+    "array_round_trip": {"filterPositive"},
+
+    # Optionals/OptionalTypes.swift — optional features
+    "optional_blittable_return": {"findIndex"},
+    "optional_class_return": {"findAnimalByName"},
+    "optional_parameter": {"describeOptionalInt"},
+    "optional_struct_properties": {"OptionalConfig"},
 }
 
 

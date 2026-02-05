@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 61 Complete, TestFramework Phase B In Progress)
-**Unit Tests**: 1238 passed
+**Last Updated**: February 2026 (Phase 61 Complete, TestFramework Phase D Complete)
+**Unit Tests**: 1239 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
 ---
@@ -86,18 +86,35 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 ---
 
-## Recent Progress: TestFramework Runtime Tests (Phase B)
+## Recent Progress: TestFramework Phase D (Real-World Pattern Coverage)
 
-### Runtime Test Coverage Added
-- `StringMarshallingTests` (20 tests): ASCII/unicode/emoji round-trips, string enum raw value round-trips (Phase 55 regression coverage), edge case strings (empty, whitespace, >64KB)
-- `EnumMarshallingTests` (17 tests): Direction, Color (int raw), StatusCode, Shape (associated values), nested container enums (OrderContainer.Status, PaymentContainer.Status), NetworkConfig enums
-- `ClassMarshallingTests` (15 tests): Animal creation/properties/methods, UniqueResource, MutableProps, StaticMethods, SafeHandle use-after-dispose, GC pressure survival
-- Async test stubs created (deferred — async Swift sources currently disabled)
-- Contract matrix updated: Blittable/String/Class/Enum sync return and param cells now `R✓`
+### Layer 1 Expansion
+- Re-enabled Swift sources: Operators (4 files), Tuples (3 files), Closures (3 files), UnsafeTypes (3 files)
+- New Swift sources: Collections/ArrayOperations.swift, Optionals/OptionalTypes.swift
+- Fixed `getStaticBuffer()` dangling pointer bug (process-lifetime allocation)
+- Coverage: 99 must-pass features, 44 passing, 0 degraded (was 93/93 before expansion)
+- 51 "missing" features from still-disabled directories (Generics, Protocols, Async, etc.)
+- 56 known-unsupported features (throwing closures, pointer generics, autoclosures, etc.)
 
-### Remaining Phase B Items
-- Protocol witness dispatch tests, lifetime/ownership tests, negative-path tests, concurrency/stress tests
-- Async tests blocked on re-enabling async Swift sources
+### Known Generator Limitations Found
+- `UnsafePointer<T>` (immutable) maps to `AnyType` instead of `IntPtr` — workaround: use `UnsafeMutablePointer<T>`
+- Named tuples with `String` elements: `(SwiftString.Buffer, ...)` cannot convert to `(SwiftString, ...)`
+- Throwing closure thunks: `SwiftString` return emitted as `void*`
+- `PointerContainer<IntPtr>` violates `ISwiftObject` generic constraint (CS0315)
+
+### Layer 2 Runtime Tests Added
+- `ArrayMarshallingTests` (11 tests): array count/sum/reverse/filter, empty arrays, class element arrays
+- `OptionalMarshallingTests` (8 tests): Some/None for blittable/class, optional parameters, OptionalConfig struct
+- `TupleMarshallingTests` (9 tests): 2-7 element tuples, named tuples, mixed types, divmod, TupleReturner methods
+- `PointerMarshallingTests` (9 tests): IntPtr read/write/return, opaque pointer, fill buffer, raw pointer
+- `OperatorTests` (13 tests): arithmetic (+,-,*,/,%), comparison (==,!=,<,>), bitwise (&,|,^), unary (!,~)
+- `ClosureTests` (14 tests): @convention(c), @escaping, closure returns, ClosureConsumer/ClosureFactory, void/bool/multi-arg
+
+### Previous Phase Coverage (Phases A-C)
+- `StringMarshallingTests` (20 tests), `EnumMarshallingTests` (17 tests), `ClassMarshallingTests` (15 tests)
+- `BlittableRoundTripTests` (7 tests), `OwnershipTests` (28 tests), `NegativePathTests` (21 tests)
+- `StressTests` (12 tests), async test stubs (deferred)
+- Total runtime tests: ~184
 
 ---
 
@@ -263,10 +280,11 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - Enum case construction fix (DestructiveInjectEnumTag)
 - CoreGraphics type stubs (CGImage, CGColor, etc.)
 
-### Test Coverage (Phase 44)
-- Unit tests: 1032
-- Integration tests: 678 passed
-- Runtime tests: 108 passed
+### Test Coverage (Phase 44 → Phase D)
+- Unit tests: 1239
+- Integration tests: 699 passed
+- Runtime tests: ~184 (Phase D added 64 tests across arrays, optionals, tuples, pointers, operators, closures)
+- TestFramework: 99 must-pass features, 44 passing, 0 degraded
 
 ---
 
