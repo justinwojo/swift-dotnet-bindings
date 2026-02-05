@@ -21,6 +21,11 @@ namespace BindingsGeneration
             bool isInstanceMethod = _env.MethodDecl.MethodType != MethodType.Static;
             bool isSwiftClass = _env.ParentDecl is ClassDecl;
 
+            // Detect String return type - requires UTF-8 marshalling via SBW_Utf8Slice
+            // SBW_Utf8Slice and SBW_Free are emitted at module level (ModuleHandler.EmitSwiftImports)
+            var returnTypeSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+            bool isStringReturn = !isEmptyTuple && returnTypeSpec.ToString() == "Swift.String";
+
             // Identify non-frozen parameters that need to be kept alive until callback
             var nonFrozenParams = _env.MethodDecl.CSSignature
                 .Skip(1)
@@ -158,6 +163,7 @@ namespace BindingsGeneration
 
             string callbackParams;
             string callbackResultArgs;
+            string stringMarshalCode = "";  // UTF-8 marshalling for String returns
             if (isEmptyTuple)
             {
                 callbackParams = "";
@@ -171,6 +177,25 @@ namespace BindingsGeneration
                 callbackParams = string.Join(", ", elementTypes) + ", ";
                 // For callback invocation, access tuple elements with .0, .1, etc.
                 callbackResultArgs = string.Join(", ", Enumerable.Range(0, tupleTypeSpec.Elements.Count).Select(i => $"result{_env.MethodDecl.Name}.{i}")) + ", ";
+            }
+            else if (isStringReturn)
+            {
+                // String return: pass UTF-8 (ptr, len) directly for @convention(c) compatibility
+                // Custom structs aren't allowed in @convention(c) params, only primitives and pointers
+                // Swift allocates UTF-8 buffer, C# copies and frees via SBW_Free
+                callbackParams = "UnsafeMutablePointer<UInt8>, Int, ";
+                callbackResultArgs = "_slicePtr, _sliceLen, ";
+                var resultVar = $"result{_env.MethodDecl.Name}";
+                // Always allocate (even empty strings get 1 byte) for simplicity.
+                // C# always frees via SBW_Free - even 1-byte empty allocations are harmless.
+                stringMarshalCode =
+                    $"// Marshal String to UTF-8 (C# will free via SBW_Free)\n" +
+                    $"                        var _utf8 = Array({resultVar}.utf8)\n" +
+                    $"                        let _sliceLen = _utf8.count\n" +
+                    $"                        let _slicePtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(_sliceLen, 1))\n" +
+                    $"                        if _sliceLen > 0 {{\n" +
+                    $"                            _slicePtr.initialize(from: &_utf8, count: _sliceLen)\n" +
+                    $"                        }}";
             }
             else if (returnTypeArg.IsGeneric)
             {
@@ -352,6 +377,7 @@ namespace BindingsGeneration
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
+                        {{stringMarshalCode}}
                         callback({{callbackResultArgs}}task)
                     } catch {
                         let errorMessage = String(describing: error)
@@ -373,6 +399,7 @@ namespace BindingsGeneration
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
+                        {{stringMarshalCode}}
                         callback({{callbackResultArgs}}task)
                     } catch {
                         let errorMessage = String(describing: error)
@@ -403,6 +430,7 @@ namespace BindingsGeneration
                             {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                                 {{methodCallArgs}}
                             )
+                            {{stringMarshalCode}}
                             callback({{callbackResultArgs}}task)
                         } catch {
                             let errorMessage = String(describing: error)
@@ -425,6 +453,7 @@ namespace BindingsGeneration
                             {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                                 {{methodCallArgs}}
                             )
+                            {{stringMarshalCode}}
                             callback({{callbackResultArgs}}task)
                         } catch {
                             let errorMessage = String(describing: error)
@@ -453,6 +482,7 @@ namespace BindingsGeneration
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
+                        {{stringMarshalCode}}
                         callback({{callbackResultArgs}}task)
                     } catch {
                         let errorMessage = String(describing: error)
@@ -472,6 +502,7 @@ namespace BindingsGeneration
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
                         )
+                        {{stringMarshalCode}}
                         callback({{callbackResultArgs}}task)
                     } catch {
                         let errorMessage = String(describing: error)
@@ -507,6 +538,14 @@ namespace BindingsGeneration
             if (isTupleReturn)
             {
                 EmitAsyncWrapperForTuple(csWriter, returnType, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
+                return;
+            }
+
+            // Detect String return - requires UTF-8 unmarshalling from SBW_Utf8Slice
+            bool isStringReturn = !voidReturn && returnType.SwiftTypeSpec.ToString() == "Swift.String";
+            if (isStringReturn)
+            {
+                EmitAsyncWrapperForString(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
                 return;
             }
 
@@ -756,6 +795,142 @@ namespace BindingsGeneration
                                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                                         {
                                             // Call Destroy to release Swift references, then free buffer
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetException(exception);
+                                }
+                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                {
+                                    directTcs.TrySetException(exception);
+                                }
+                            }
+                            finally
+                            {
+                                handle.Free();
+                            }
+                        }
+                """;
+            csWriter.WriteLine(text);
+        }
+
+        /// <summary>
+        /// Emits async wrapper for methods returning String.
+        /// Uses SBW_Utf8Slice for @convention(c) compatibility.
+        /// Swift allocates UTF-8 buffer, C# copies via Marshal.PtrToStringUTF8 and frees via SBW_Free.
+        /// </summary>
+        private void EmitAsyncWrapperForString(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName)
+        {
+            // Determine the wrapper library path - SBW_Free is emitted in the Swift wrapper library
+            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
+            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+
+            // Get the module-specific symbol name for SBW_Free
+            var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
+
+            // Determine fully-qualified C# type key for deduplication (types with multiple async
+            // string methods should only emit SBW_Free P/Invoke once). Use ModuleQualifiedName
+            // to avoid collisions between nested types with the same simple name in different
+            // containing types (e.g., OuterA.ErrorType vs OuterB.ErrorType).
+            var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
+            var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
+            if (needsFreePInvoke)
+            {
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+            }
+
+            // For string returns, the callback receives (ptr, len) directly - custom structs not allowed in @convention(c)
+            // We unmarshal to string and then call SBW_Free in finally block
+            var freePInvokeDecl = needsFreePInvoke
+                ? $"""
+                        [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        private static extern void SBW_Free(IntPtr ptr);
+
+                """
+                : "";
+
+            var text = $$"""
+                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static void {{callbackMethodName}}(IntPtr slicePtr, nint sliceLen, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                // Unmarshal UTF-8 to string
+                                string result;
+                                if (sliceLen == 0)
+                                {
+                                    result = string.Empty;
+                                }
+                                else
+                                {
+                                    result = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slicePtr, (int)sliceLen)!;
+                                }
+
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            deferred.Handle.DangerousRelease();
+                                        }
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                        {
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetResult(result);
+                                }
+                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                {
+                                    directTcs.TrySetResult(result);
+                                }
+                            }
+                            finally
+                            {
+                                // Always free Swift-allocated memory (even empty strings allocate 1 byte)
+                                SBW_Free(slicePtr);
+                                handle.Free();
+                            }
+                        }
+
+                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                var exception = new SwiftException(errorMessage);
+
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            deferred.Handle.DangerousRelease();
+                                        }
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                        {
                                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                                             NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }

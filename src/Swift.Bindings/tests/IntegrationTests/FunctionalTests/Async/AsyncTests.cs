@@ -106,7 +106,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal("three", result[2].ToString());
         }
 
-        [Fact(Skip = "Async callback marshalling: Cannot marshal Array/String return types from Swift in async callbacks")]
+        [Fact]
         public async Task TestString()
         {
             var myStruct = new Bindings.AsyncStruct(0);

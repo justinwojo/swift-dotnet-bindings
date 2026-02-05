@@ -226,6 +226,14 @@ namespace BindingsGeneration
             }
 
             swiftWriter.WriteLine();
+
+            // Emit SBW_Utf8Slice and SBW_Free at module level (before any functions)
+            // These are needed for async String returns and may be used elsewhere.
+            // Emitting unconditionally is safe - small structs/functions that do no harm if unused.
+            // SBW_Free uses module-specific symbol name to avoid collisions if multiple modules
+            // are linked into the same wrapper library.
+            Utf8SliceEmitter.EmitIfNeeded(swiftWriter);
+            Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleDecl.Name);
         }
 
         /// <summary>
