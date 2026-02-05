@@ -26,6 +26,9 @@ namespace BindingsGeneration
             var returnTypeSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
             bool isStringReturn = !isEmptyTuple && returnTypeSpec.ToString() == "Swift.String";
 
+            // Detect Array<String> return type - requires flat buffer marshalling
+            bool isArrayStringReturn = !isEmptyTuple && IsArrayOfString(returnTypeSpec);
+
             // Identify non-frozen parameters that need to be kept alive until callback
             var nonFrozenParams = _env.MethodDecl.CSSignature
                 .Skip(1)
@@ -195,6 +198,45 @@ namespace BindingsGeneration
                     $"                        let _slicePtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(_sliceLen, 1))\n" +
                     $"                        if _sliceLen > 0 {{\n" +
                     $"                            _slicePtr.initialize(from: &_utf8, count: _sliceLen)\n" +
+                    $"                        }}";
+            }
+            else if (isArrayStringReturn)
+            {
+                // Array<String> return: serialize to flat buffer [count][lengths...][data...]
+                // Same callback signature as String - just (ptr, len)
+                callbackParams = "UnsafeMutablePointer<UInt8>, Int, ";
+                callbackResultArgs = "_bufferPtr, _bufferLen, ";
+                var resultVar = $"result{_env.MethodDecl.Name}";
+                // Serialize array to flat buffer using explicit Int64 for wire format consistency
+                // (avoids platform-sized Int ambiguity between Swift and C#)
+                stringMarshalCode =
+                    $"// Marshal Array<String> to flat buffer (C# will free via SBW_Free)\n" +
+                    $"                        let _count = Int64({resultVar}.count)\n" +
+                    $"                        var _lengths = [Int64]()\n" +
+                    $"                        var _totalDataLen = 0\n" +
+                    $"                        for _s in {resultVar} {{\n" +
+                    $"                            let _utf8 = Array(_s.utf8)\n" +
+                    $"                            _lengths.append(Int64(_utf8.count))\n" +
+                    $"                            _totalDataLen += _utf8.count\n" +
+                    $"                        }}\n" +
+                    $"                        let _headerSize = MemoryLayout<Int64>.size * (1 + Int(_count))\n" +
+                    $"                        let _bufferLen = _headerSize + _totalDataLen\n" +
+                    $"                        let _bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(_bufferLen, 1))\n" +
+                    $"                        // Write header: count followed by lengths (all Int64)\n" +
+                    $"                        _bufferPtr.withMemoryRebound(to: Int64.self, capacity: 1 + Int(_count)) {{ _intPtr in\n" +
+                    $"                            _intPtr[0] = _count\n" +
+                    $"                            for _i in 0..<Int(_count) {{\n" +
+                    $"                                _intPtr[1 + _i] = _lengths[_i]\n" +
+                    $"                            }}\n" +
+                    $"                        }}\n" +
+                    $"                        // Write string data after header\n" +
+                    $"                        var _dataOffset = _headerSize\n" +
+                    $"                        for _s in {resultVar} {{\n" +
+                    $"                            var _utf8 = Array(_s.utf8)\n" +
+                    $"                            if !_utf8.isEmpty {{\n" +
+                    $"                                (_bufferPtr + _dataOffset).initialize(from: &_utf8, count: _utf8.count)\n" +
+                    $"                            }}\n" +
+                    $"                            _dataOffset += _utf8.count\n" +
                     $"                        }}";
             }
             else if (returnTypeArg.IsGeneric)
@@ -546,6 +588,14 @@ namespace BindingsGeneration
             if (isStringReturn)
             {
                 EmitAsyncWrapperForString(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
+                return;
+            }
+
+            // Detect Array<String> return - requires flat buffer unmarshalling
+            bool isArrayStringReturn = !voidReturn && IsArrayOfString(returnType.SwiftTypeSpec);
+            if (isArrayStringReturn)
+            {
+                EmitAsyncWrapperForArrayString(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
                 return;
             }
 
@@ -949,6 +999,223 @@ namespace BindingsGeneration
                         }
                 """;
             csWriter.WriteLine(text);
+        }
+
+        /// <summary>
+        /// Emits async wrapper for methods returning Array&lt;String&gt;.
+        /// Deserializes from flat buffer format: [count][lengths...][data...].
+        /// Returns IReadOnlyList&lt;string&gt; for idiomatic C# usage.
+        /// </summary>
+        private void EmitAsyncWrapperForArrayString(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName)
+        {
+            // Determine the wrapper library path - SBW_Free is emitted in the Swift wrapper library
+            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
+            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+
+            // Get the module-specific symbol name for SBW_Free
+            var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
+
+            // Determine fully-qualified C# type key for deduplication
+            var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
+            var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
+            if (needsFreePInvoke)
+            {
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+            }
+
+            var freePInvokeDecl = needsFreePInvoke
+                ? $"""
+                        [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        private static extern void SBW_Free(IntPtr ptr);
+
+                """
+                : "";
+
+            // The wrapper return type is IReadOnlyList<SwiftString> (matches non-async Array<String> return type)
+            var text = $$"""
+                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static void {{callbackMethodName}}(IntPtr bufferPtr, nint bufferLen, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            System.Exception? deserializationError = null;
+                            System.Collections.Generic.List<SwiftString>? result = null;
+
+                            try
+                            {
+                                // Deserialize Array<String> from flat buffer into SwiftString instances
+                                // Buffer format: [count: Int64][len0: Int64]...[lenN-1: Int64][str0 bytes]...[strN-1 bytes]
+                                if (bufferLen <= sizeof(long))
+                                {
+                                    // Empty array or just count field
+                                    result = new System.Collections.Generic.List<SwiftString>();
+                                }
+                                else
+                                {
+                                    long count = *(long*)bufferPtr;
+
+                                    // Validate count is in valid range for int cast
+                                    if (count < 0 || count > int.MaxValue)
+                                        throw new InvalidOperationException($"Invalid array count in async callback buffer: {count}");
+
+                                    if (count == 0)
+                                    {
+                                        result = new System.Collections.Generic.List<SwiftString>();
+                                    }
+                                    else
+                                    {
+                                        // Calculate and validate header size (count already validated <= int.MaxValue)
+                                        int headerSize = sizeof(long) * (1 + (int)count);
+                                        if (headerSize > bufferLen)
+                                            throw new InvalidOperationException($"Buffer too small for array header: need {headerSize}, have {bufferLen}");
+
+                                        // Read lengths from header
+                                        long* lengthsPtr = (long*)bufferPtr + 1;
+
+                                        // Validate all lengths are in valid range and total doesn't exceed buffer
+                                        long totalDataLen = 0;
+                                        for (int i = 0; i < count; i++)
+                                        {
+                                            long len = lengthsPtr[i];
+                                            if (len < 0 || len > int.MaxValue)
+                                                throw new InvalidOperationException($"Invalid string length at index {i}: {len}");
+                                            totalDataLen += len;
+                                        }
+                                        if (headerSize + totalDataLen > bufferLen)
+                                            throw new InvalidOperationException($"Buffer too small for array data: need {headerSize + totalDataLen}, have {bufferLen}");
+
+                                        // Read strings and wrap in SwiftString (casts are safe after validation)
+                                        result = new System.Collections.Generic.List<SwiftString>((int)count);
+                                        int dataOffset = headerSize;
+                                        for (int i = 0; i < count; i++)
+                                        {
+                                            int strLen = (int)lengthsPtr[i];
+                                            string s = strLen == 0
+                                                ? string.Empty
+                                                : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
+                                            result.Add(new SwiftString(s));
+                                            dataOffset += strLen;
+                                        }
+                                    }
+                                }
+                            }
+                            catch (System.Exception ex)
+                            {
+                                // Capture deserialization errors to report via TCS (can't throw from UnmanagedCallersOnly)
+                                deserializationError = ex;
+                            }
+
+                            try
+                            {
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            deferred.Handle.DangerousRelease();
+                                        }
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                        {
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
+                                        }
+                                    }
+                                    if (deserializationError != null)
+                                        holderTcs.TrySetException(deserializationError);
+                                    else
+                                        holderTcs.TrySetResult(result!);
+                                }
+                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                {
+                                    if (deserializationError != null)
+                                        directTcs.TrySetException(deserializationError);
+                                    else
+                                        directTcs.TrySetResult(result!);
+                                }
+                            }
+                            finally
+                            {
+                                // Always free Swift-allocated memory (even empty arrays allocate 1 byte)
+                                SBW_Free(bufferPtr);
+                                handle.Free();
+                            }
+                        }
+
+                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                var exception = new SwiftException(errorMessage);
+
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            deferred.Handle.DangerousRelease();
+                                        }
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                        {
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetException(exception);
+                                }
+                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                {
+                                    directTcs.TrySetException(exception);
+                                }
+                            }
+                            finally
+                            {
+                                handle.Free();
+                            }
+                        }
+                """;
+            csWriter.WriteLine(text);
+        }
+
+        /// <summary>
+        /// Determines if a TypeSpec represents Swift.Array&lt;Swift.String&gt;.
+        /// Used to detect array-of-string returns that need flat buffer serialization in async callbacks.
+        /// </summary>
+        private bool IsArrayOfString(TypeSpec typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec namedType)
+                return false;
+
+            // Check if it's Swift.Array
+            var typeName = SwiftTypeName.FromTypeSpec(namedType);
+            if (typeName.ModuleQualifiedName != "Swift.Array")
+                return false;
+
+            // Check if it has exactly one generic parameter
+            if (namedType.GenericParameters.Count != 1)
+                return false;
+
+            // Check if the generic parameter is Swift.String
+            var elementType = namedType.GenericParameters[0];
+            return elementType.ToString() == "Swift.String";
         }
     }
 }
