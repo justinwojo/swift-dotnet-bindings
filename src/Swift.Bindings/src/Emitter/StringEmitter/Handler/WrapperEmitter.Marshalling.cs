@@ -302,8 +302,10 @@ namespace BindingsGeneration
 
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
 
-                // If the type falls back to AnyType, don't append generic parameters
-                if (typeRecord == TypeDatabaseExtensions.AnyType)
+                // If the type falls back to AnyType or is IntPtr (pointer types), don't append generic parameters
+                // Pointer types like UnsafeMutablePointer<T> resolve to IntPtr which doesn't support generics
+                if (typeRecord == TypeDatabaseExtensions.AnyType ||
+                    typeRecord == TypeDatabaseExtensions.IntPtrType)
                 {
                     return typeRecord.CSharpTypeName.FullyQualifiedName;
                 }

@@ -288,9 +288,11 @@ public class BoundGenericsHandler
 
         var typeReference = _typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec); // TODO: consider throwing an exception instead
 
-        // If the type falls back to AnyType, don't append generic parameters
-        // since AnyType is not a generic type and adding <T1, T2> would be invalid C#
-        if (typeReference == TypeDatabaseExtensions.AnyType)
+        // If the type falls back to AnyType or is IntPtr (pointer types), don't append generic parameters
+        // since these are not generic types in C# and adding <T1, T2> would be invalid C#
+        // Pointer types like UnsafeMutablePointer<T> resolve to IntPtr which doesn't support generics
+        if (typeReference == TypeDatabaseExtensions.AnyType ||
+            typeReference == TypeDatabaseExtensions.IntPtrType)
         {
             return typeReference.CSharpTypeName.FullyQualifiedName;
         }

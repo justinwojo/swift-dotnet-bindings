@@ -356,6 +356,12 @@ namespace BindingsGeneration
                 var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
                 if (_env.TypeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord))
                 {
+                    // Pointer types like UnsafeMutablePointer<T> resolve to IntPtr which doesn't support generics
+                    if (baseRecord == TypeDatabaseExtensions.IntPtrType)
+                    {
+                        return baseRecord.CSharpTypeName.FullyQualifiedName;
+                    }
+
                     // Recursively translate generic parameters
                     var translatedParams = new List<string>();
                     foreach (var param in namedType.GenericParameters)

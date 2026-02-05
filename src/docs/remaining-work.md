@@ -3,7 +3,7 @@
 Consolidated backlog of generator gaps, runtime issues, and infrastructure work. Ordered by priority.
 
 **Date**: February 2026
-**Current**: Phase 60 complete, 93/93 must-pass features
+**Current**: Phase 61 complete, 93/93 must-pass features
 **Completed items**: See `CompletedPhases/completed-backlog-items.md`
 
 ---
@@ -34,7 +34,7 @@ Reassessed February 2026 after Phase 60 (async complex type marshalling).
 | 4 | Runtime | ~~Async callback marshalling (Array, String, complex types)~~ | ~~async tests blocked~~ | ✅ **Done** |
 | 5 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety | P3 |
 | 6 | Research | NativeAOT hands-on validation | Desk research done, testing remaining | P4 |
-| 7 | Generator | nint emitted as generic type in integration tests | 13 compile errors | P3 |
+| 7 | Generator | ~~nint emitted as generic type in integration tests~~ | ~~13 compile errors~~ | ✅ **Done** |
 
 ---
 
@@ -216,26 +216,36 @@ Desk research complete. Findings:
 
 ## 7. nint Emitted as Generic Type in Integration Tests
 
-**Priority**: P3
+**Priority**: ✅ **COMPLETE** (Phase 61)
 **Area**: Generator
-**Impact**: 13 compile errors in integration tests
+**Impact**: 13 compile errors → **0**
 
-The generator emits `nint<SomeType>` in some contexts where it should emit `nint`. This causes CS0308 errors: "The non-generic type 'nint' cannot be used with type arguments."
+### Implementation (Phase 61)
 
-**Affected files** (in `src/Swift.Bindings/tests/IntegrationTests/bin/Debug/net10.0/`):
-- `MemoryTests/Swift.MemoryTests.cs` — 7 errors
-- `UnsafePointer/Swift.UnsafePointerTests.cs` — 6 errors
+Swift pointer types like `UnsafeMutablePointer<UInt8>` were correctly resolving to `System.IntPtr` in the TypeDatabase, but several code paths were still appending the original generic parameters, producing invalid C# like `System.IntPtr<System.Byte>`.
 
-**Root cause**: Likely in bound generic type resolution where `Swift.Int` (or similar) is being translated with a generic argument that should be stripped.
+**Root cause**: When translating bound generic types to C#, the code checked for `AnyType` fallback but not `IntPtrType`. Since pointer types have generic parameters in Swift (e.g., `UnsafeMutablePointer<T>`), the translation code was appending them even though `IntPtr` is not a generic type in C#.
 
-**Test exclusion to remove when fixed**:
-`src/Swift.Bindings/tests/IntegrationTests/Swift.Bindings.Integration.Tests.csproj` contains `TODO(nint-generic-bug)` markers for exclusions that must be removed when this bug is fixed.
+**Files changed**:
 
-**Acceptance criteria**:
-- [ ] Integration tests compile without CS0308 errors
-- [ ] `nint` emitted correctly in all contexts
-- [ ] No regression in unit tests or real-world bindings
-- [ ] Remove `TODO(nint-generic-bug)` exclusions from csproj
+| File | Method | Change |
+|------|--------|--------|
+| `MethodSignature.cs` | `TranslateTypeSpecForConversion()` | Added `IntPtrType` check before appending generics |
+| `WrapperEmitter.Return.cs` | `GetCSharpTypeForTupleElement()` | Added `IntPtrType` check in `TryGetTypeRecord` path |
+| `WrapperEmitter.Marshalling.cs` | `TranslateTypeSpecForConversion()` | Added `IntPtrType` check before appending generics |
+| `BoundGenericsHandler.cs` | `TranslateBoundGenericTypeToCSharp()` | Added `IntPtrType` check before appending generics |
+| `ClosureHandler.cs` | `TranslateBoundGenericToCSharp()` | Added `IntPtrType` check before appending generics |
+| `TupleHandler.cs` | `TranslateBoundGenericToCSharp()` | Added `IntPtrType` check before appending generics |
+| `Swift.Bindings.Integration.Tests.csproj` | — | Removed `TODO(nint-generic-bug)` exclusions |
+| `UnsafePointerTests.cs` | — | Updated to use `nint` casts instead of Swift wrapper types |
+
+### Acceptance criteria
+
+- [x] Integration tests compile without CS0308 errors
+- [x] `nint` emitted correctly in all contexts
+- [x] No regression in unit tests (1239/1239 passed)
+- [x] No regression in TestFramework (93/93 must-pass)
+- [x] Remove `TODO(nint-generic-bug)` exclusions from csproj
 
 ---
 

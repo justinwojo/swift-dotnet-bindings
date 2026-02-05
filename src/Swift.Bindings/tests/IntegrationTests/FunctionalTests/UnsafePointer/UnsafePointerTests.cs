@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Diagnostics;
@@ -49,20 +50,15 @@ namespace BindingsGeneration.FunctionalTests
             {
                 const int Success = 1;
 
-                UnsafeMutableRawPointer _keyPtr = new UnsafeMutableRawPointer(keyPtr);
-                UnsafeMutableRawPointer _noncePtr = new UnsafeMutableRawPointer(noncePtr);
-                UnsafeMutableRawPointer _plaintextPtr = new UnsafeMutableRawPointer(plaintextPtr);
-                UnsafeMutablePointer<Byte> _ciphertextPtr = new UnsafeMutablePointer<Byte>(ciphertextPtr);
-                UnsafeMutablePointer<Byte> _tagPtr = new UnsafeMutablePointer<Byte>(tagPtr);
-                UnsafeMutableRawPointer _aadPtr = new UnsafeMutableRawPointer(aadPtr);
-
+                // Swift pointer types (UnsafeMutableRawPointer, UnsafeMutablePointer<T>, etc.)
+                // are projected to IntPtr in the generated bindings
                 int result = Swift.UnsafePointerTests.UnsafePointerTests.AppleCryptoNative_ChaCha20Poly1305Encrypt(
-                                    _keyPtr, key.Length,
-                                    _noncePtr, nonce.Length,
-                                    _plaintextPtr, plaintext.Length,
-                                    _ciphertextPtr, ciphertext.Length,
-                                    _tagPtr, tag.Length,
-                                    _aadPtr, aad.Length);
+                                    (nint)keyPtr, key.Length,
+                                    (nint)noncePtr, nonce.Length,
+                                    (nint)plaintextPtr, plaintext.Length,
+                                    (nint)ciphertextPtr, ciphertext.Length,
+                                    (nint)tagPtr, tag.Length,
+                                    (nint)aadPtr, aad.Length);
 
                 if (result != Success)
                 {
@@ -90,20 +86,14 @@ namespace BindingsGeneration.FunctionalTests
                 const int Success = 1;
                 const int AuthTagMismatch = -1;
 
-                UnsafeMutableRawPointer _keyPtr = new UnsafeMutableRawPointer(keyPtr);
-                UnsafeMutableRawPointer _noncePtr = new UnsafeMutableRawPointer(noncePtr);
-                UnsafeMutableRawPointer _ciphertextPtr = new UnsafeMutableRawPointer(ciphertextPtr);
-                UnsafeMutableRawPointer _tagPtr = new UnsafeMutableRawPointer(tagPtr);
-                UnsafeMutablePointer<Byte> _plaintextPtr = new UnsafeMutablePointer<Byte>(plaintextPtr);
-                UnsafeMutableRawPointer _aadPtr = new UnsafeMutableRawPointer(aadPtr);
-
+                // Swift pointer types are projected to IntPtr in the generated bindings
                 int result = Swift.UnsafePointerTests.UnsafePointerTests.AppleCryptoNative_ChaCha20Poly1305Decrypt(
-                    _keyPtr, key.Length,
-                    _noncePtr, nonce.Length,
-                    _ciphertextPtr, ciphertext.Length,
-                    _tagPtr, tag.Length,
-                    _plaintextPtr, plaintext.Length,
-                    _aadPtr, aad.Length);
+                    (nint)keyPtr, key.Length,
+                    (nint)noncePtr, nonce.Length,
+                    (nint)ciphertextPtr, ciphertext.Length,
+                    (nint)tagPtr, tag.Length,
+                    (nint)plaintextPtr, plaintext.Length,
+                    (nint)aadPtr, aad.Length);
 
                 if (result != Success)
                 {

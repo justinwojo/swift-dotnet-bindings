@@ -351,6 +351,12 @@ public class TupleHandler
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 
+        // Pointer types like UnsafeMutablePointer<T> resolve to IntPtr which doesn't support generics
+        if (typeRecord == TypeDatabaseExtensions.IntPtrType)
+        {
+            return typeRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
         // Recursively translate all generic parameters
         var translatedParams = new List<string>();
         foreach (var genericParam in namedType.GenericParameters)
