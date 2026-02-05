@@ -87,7 +87,7 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl);
 
-        Assert.Equal("where T0 : ISwiftObject, T1 : ISwiftObject", result);
+        Assert.Equal("where T0 : ISwiftObject where T1 : ISwiftObject", result);
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 # TestFramework Enhancement Plan
 
-**Status**: Phase A Complete, Phase B In Progress (blocked on generator bug)
+**Status**: Phase A Complete, Phase B Complete, Phase C In Progress
 **Date**: February 2026
 **Context**: Phases 55-61 fixed bugs that TestFramework didn't catch
 
@@ -297,9 +297,9 @@ Assert.AreEqual(input, result);
 - [x] Implement `EnumMarshallingTests` (17 tests: Direction, Color, StatusCode, Shape associated values, nested container enums, NetworkConfig)
 - [x] Implement `ClassMarshallingTests` (15 tests: Animal, UniqueResource, MutableProps, StaticMethods, SafeHandle use-after-dispose, GC pressure)
 - [x] Create async test stubs (AsyncStringTests, AsyncComplexTypeTests) — DEFERRED: async Swift sources in `.disabled/`, no async methods in bindings
-- [ ] **BLOCKED**: Fix generator bug with multiple generic type parameter constraints
-  - Issue: `where T0 : X, T1 : X` should be `where T0 : X where T1 : X`
-  - Affects: `PointerPair<T0, T1>`, `GenericPair<T0, T1>`, etc.
+- [x] Fix test expectation for multiple generic type parameter constraints
+  - The generator code was already correct (`GenericTypeEmitter.GetWhereClause` at line 102)
+  - The unit test asserted wrong expected value: `"where T0 : X, T1 : X"` → `"where T0 : X where T1 : X"`
 - [x] Implement protocol witness dispatch tests — DEFERRED: no protocol interfaces in generated bindings; stub created with requirements documented
 - [x] Implement lifetime/ownership tests (28 tests: retain/release balance, double-dispose safety, access-after-dispose for property get/set/method, shared-reference invalidation, independent references, GC stress)
 - [x] Implement negative-path tests (21 tests: invalid enum FromRawValue, equality throws for non-Equatable types, disposed object edge cases, zero/invalid handle access, validate round-trip functions)
