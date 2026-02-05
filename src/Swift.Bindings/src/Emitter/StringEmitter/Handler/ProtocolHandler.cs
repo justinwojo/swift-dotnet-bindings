@@ -127,7 +127,7 @@ namespace BindingsGeneration
                 }
 
                 // Create a unique key for the subscript based on index parameter types
-                var subscriptKey = GetSubscriptSignatureKey(subscriptDecl, env.TypeDatabase, protocolDecl);
+                var subscriptKey = ProtocolSignatureHelper.GetSubscriptSignatureKey(subscriptDecl, env.TypeDatabase, protocolDecl);
                 if (emittedSubscripts.Contains(subscriptKey))
                 {
                     _logger.LogDebug($"Skipping duplicate subscript in interface {protocolDecl.Name}");
@@ -143,7 +143,7 @@ namespace BindingsGeneration
             foreach (var methodDecl in protocolDecl.Methods)
             {
                 // Create a unique key for the method (name + parameter types)
-                var methodKey = GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl);
+                var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl);
                 if (emittedMethods.Contains(methodKey))
                 {
                     _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' in interface {protocolDecl.Name}");
@@ -172,75 +172,6 @@ namespace BindingsGeneration
             var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
             var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName);
             proxyEmitter.EmitProxyClass(csWriter, protocolDecl);
-        }
-
-        /// <summary>
-        /// Creates a unique signature key for a method based on name and parameter types.
-        /// </summary>
-        private string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
-        {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var paramTypes = new List<string>();
-            // Skip first element (return type) in CSSignature
-            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
-            {
-                var arg = methodDecl.CSSignature[i];
-                try
-                {
-                    // Handle associated type references for protocols
-                    if (arg.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
-                    {
-                        paramTypes.Add(MapAssociatedTypeToGenericParam(assocRef, protocolContext));
-                    }
-                    else
-                    {
-                        var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
-                        paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
-                    }
-                }
-                catch
-                {
-                    // For generic type parameters or other unsupported types,
-                    // use the string representation of the type spec
-                    paramTypes.Add(arg.SwiftTypeSpec?.ToString() ?? "unknown");
-                }
-            }
-            return $"{methodDecl.Name}({string.Join(",", paramTypes)})";
-        }
-
-        /// <summary>
-        /// Creates a unique signature key for a subscript based on index parameter types.
-        /// </summary>
-        private string GetSubscriptSignatureKey(SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
-        {
-            var paramTypes = new List<string>();
-            foreach (var param in subscriptDecl.IndexParameters)
-            {
-                try
-                {
-                    // Handle associated type references for protocols
-                    if (param.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
-                    {
-                        paramTypes.Add(MapAssociatedTypeToGenericParam(assocRef, protocolContext));
-                    }
-                    else if (param.SwiftTypeSpec != null)
-                    {
-                        var typeRecord = typeDatabase.GetTypeRecordOrAnyType(param.SwiftTypeSpec);
-                        paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
-                    }
-                    else
-                    {
-                        paramTypes.Add("unknown");
-                    }
-                }
-                catch
-                {
-                    // For generic type parameters or other unsupported types,
-                    // use the string representation of the type spec
-                    paramTypes.Add(param.SwiftTypeSpec?.ToString() ?? "unknown");
-                }
-            }
-            return $"subscript[{string.Join(",", paramTypes)}]";
         }
 
         /// <summary>
@@ -295,7 +226,7 @@ namespace BindingsGeneration
             string csharpTypeName;
             if (propertyDecl.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
             {
-                csharpTypeName = MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+                csharpTypeName = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
             }
             else if (boundGenericsHandler.IsBoundGeneric(propertyDecl))
             {
@@ -346,7 +277,7 @@ namespace BindingsGeneration
             string returnTypeName;
             if (subscriptDecl.ReturnTypeSpec is AssociatedTypeReferenceSpec assocRef)
             {
-                returnTypeName = MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+                returnTypeName = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
             }
             else if (subscriptDecl.ReturnTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
             {
@@ -424,6 +355,7 @@ namespace BindingsGeneration
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Get return type - apply idiomatic type conversions (SwiftString -> string, etc.)
+            // and native type remapping (Foundation.URL -> NSUrl, Foundation.Data -> NSData)
             // to match what MethodHandler emits on concrete types
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);
             var returnType = "void";
@@ -433,7 +365,19 @@ namespace BindingsGeneration
                 if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
                 {
                     var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(returnArg.SwiftTypeSpec, isParameter: false);
-                    returnType = idiomaticType ?? GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                    if (idiomaticType != null)
+                    {
+                        returnType = idiomaticType;
+                    }
+                    else if (typeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
+                    {
+                        returnType = typeConversionHandler.GetNativeTypeName(returnArg.SwiftTypeSpec)
+                            ?? GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                    }
+                    else
+                    {
+                        returnType = GetCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                    }
                 }
             }
 
@@ -443,7 +387,20 @@ namespace BindingsGeneration
             {
                 var arg = methodDecl.CSSignature[i];
                 var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(arg.SwiftTypeSpec, isParameter: true);
-                var argTypeName = idiomaticParamType ?? GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                string argTypeName;
+                if (idiomaticParamType != null)
+                {
+                    argTypeName = idiomaticParamType;
+                }
+                else if (typeConversionHandler.HasNativeTypeRemapping(arg.SwiftTypeSpec))
+                {
+                    argTypeName = typeConversionHandler.GetNativeTypeName(arg.SwiftTypeSpec)
+                        ?? GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                }
+                else
+                {
+                    argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                }
                 var argName = string.IsNullOrEmpty(arg.Name) ? $"arg{i}" : arg.Name;
                 parameters.Add($"{argTypeName} {argName}");
             }
@@ -475,7 +432,7 @@ namespace BindingsGeneration
             // Handle associated type references (e.g., Self.Element, τ_0_0.Element)
             if (typeSpec is AssociatedTypeReferenceSpec assocRef)
             {
-                return MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+                return ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
             }
 
             // Handle existential types (any Protocol, protocol compositions)
@@ -584,34 +541,5 @@ namespace BindingsGeneration
             return $"({string.Join(", ", elements)})";
         }
 
-        /// <summary>
-        /// Maps an associated type reference to a C# generic parameter name.
-        /// For example, "Self.Element" in a protocol with associated type "Element" becomes "TElement".
-        /// </summary>
-        private string MapAssociatedTypeToGenericParam(AssociatedTypeReferenceSpec assocRef, ProtocolDecl? protocolDecl)
-        {
-            // Handle Self reference
-            if (assocRef.BaseType == "Self" && string.IsNullOrEmpty(assocRef.AssociatedTypeName))
-            {
-                return "TSelf";
-            }
-
-            // Handle associated type reference like "Self.Element"
-            if (!string.IsNullOrEmpty(assocRef.AssociatedTypeName))
-            {
-                // Map "Element" -> "TElement"
-                return $"T{assocRef.AssociatedTypeName}";
-            }
-
-            // Fallback for generic parameter like τ_0_0
-            if (assocRef.BaseType.StartsWith("τ_") || assocRef.BaseType.StartsWith("T"))
-            {
-                // Already a generic param reference
-                return assocRef.BaseType;
-            }
-
-            _logger.LogWarning($"Unknown associated type reference: {assocRef}");
-            return "object";
-        }
     }
 }

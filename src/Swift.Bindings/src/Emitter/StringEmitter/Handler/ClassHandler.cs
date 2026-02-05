@@ -95,11 +95,13 @@ namespace BindingsGeneration
 
             try
             {
+                var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, env.TypeDatabase);
                 var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
                     classDecl,
                     typeNameWithGenerics,
                     moduleDecl.Name,
-                    env.TypeDatabase);
+                    env.TypeDatabase,
+                    conformanceValidator);
 
                 if (classDecl.IsActor)
                     csWriter.WriteLine("// Swift actor type - methods are actor-isolated unless marked nonisolated");

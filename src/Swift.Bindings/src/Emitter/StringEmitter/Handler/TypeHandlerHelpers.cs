@@ -494,11 +494,18 @@ internal static class ProtocolConformanceHelper
     /// Enums with associated values are emitted as C# classes without Equals implementation,
     /// so they do not get the IEquatable interface.
     /// </summary>
+    /// <param name="typeDecl">The type declaration to get interfaces for.</param>
+    /// <param name="typeNameWithGenerics">The C# type name including generic parameters.</param>
+    /// <param name="moduleName">The current module name.</param>
+    /// <param name="typeDatabase">The type database for type lookups.</param>
+    /// <param name="conformanceValidator">Optional validator to check if all protocol members can be emitted.</param>
+    /// <returns>List of interface names the type should implement.</returns>
     public static List<string> GetImplementedInterfaces(
         TypeDecl typeDecl,
         string typeNameWithGenerics,
         string moduleName,
-        ITypeDatabase typeDatabase)
+        ITypeDatabase typeDatabase,
+        ProtocolConformanceValidator? conformanceValidator = null)
     {
         var interfaces = new List<string> { typeof(ISwiftObject).Name };
         var emitted = new HashSet<string>(interfaces);
@@ -535,6 +542,23 @@ internal static class ProtocolConformanceHelper
                 // All other protocol conformances: emit if the protocol is a supported same-module protocol
                 if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
                     continue;
+
+                // Validate protocol can be fully implemented if validator is provided
+                if (conformanceValidator != null)
+                {
+                    // Use ModuleQualifiedName for precision when same-name protocols exist
+                    var protocolDecl = conformanceValidator.FindProtocol(conformance.Protocol.ModuleQualifiedName);
+
+                    // Cross-module protocols (e.g., Swift.Equatable) return null from FindProtocol
+                    // since they're not in moduleDecl.Protocols. These are handled above for Equatable.
+                    // For other cross-module protocols, we trust ShouldEmitConformance already validated.
+                    if (protocolDecl != null)
+                    {
+                        // Same-module protocol - validate concrete type members
+                        if (!conformanceValidator.CanFullyImplementProtocol(typeDecl, protocolDecl))
+                            continue;  // Skip interface if we can't fully implement it
+                    }
+                }
 
                 var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics);
                 if (emitted.Add(iface))

@@ -310,14 +310,26 @@ public partial class ProtocolProxyEmitter
         if (hasReturn)
         {
             var idiomaticReturn = typeConversionHandler.GetIdiomaticCSharpType(returnType!, isParameter: false);
-            returnTypeName = idiomaticReturn ?? GetCSharpTypeName(returnType!);
+            if (idiomaticReturn != null)
+            {
+                returnTypeName = idiomaticReturn;
+            }
+            else if (typeConversionHandler.HasNativeTypeRemapping(returnType!))
+            {
+                // Apply native type remapping (Foundation.URL -> NSUrl, Foundation.Data -> NSData)
+                returnTypeName = typeConversionHandler.GetNativeTypeName(returnType!) ?? GetCSharpTypeName(returnType!);
+            }
+            else
+            {
+                returnTypeName = GetCSharpTypeName(returnType!);
+            }
         }
         else
         {
             returnTypeName = "void";
         }
 
-        // Build parameter list - apply idiomatic type conversions to match interface
+        // Build parameter list - apply idiomatic type conversions and native type remapping to match interface
         var parameters = new List<string>();
         var argNames = new List<string>();
         var projectedParamTypes = new List<string>();
@@ -326,7 +338,20 @@ public partial class ProtocolProxyEmitter
         foreach (var param in method.CSSignature.Skip(1))
         {
             var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(param.SwiftTypeSpec, isParameter: true);
-            var paramTypeName = idiomaticParamType ?? GetCSharpTypeName(param.SwiftTypeSpec);
+            string paramTypeName;
+            if (idiomaticParamType != null)
+            {
+                paramTypeName = idiomaticParamType;
+            }
+            else if (typeConversionHandler.HasNativeTypeRemapping(param.SwiftTypeSpec))
+            {
+                // Apply native type remapping (Foundation.URL -> NSUrl, Foundation.Data -> NSData)
+                paramTypeName = typeConversionHandler.GetNativeTypeName(param.SwiftTypeSpec) ?? GetCSharpTypeName(param.SwiftTypeSpec);
+            }
+            else
+            {
+                paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+            }
             var paramName = string.IsNullOrEmpty(param.Name) ? $"arg{argIndex}" : param.Name;
             parameters.Add($"{paramTypeName} {paramName}");
             argNames.Add(paramName);

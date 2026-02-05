@@ -101,11 +101,13 @@ namespace BindingsGeneration
 
             try
             {
+                var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, env.TypeDatabase);
                 var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
                     structDecl,
                     typeNameWithGenerics,
                     moduleDecl.Name,
-                    env.TypeDatabase);
+                    env.TypeDatabase,
+                    conformanceValidator);
 
                 var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))

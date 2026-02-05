@@ -1339,7 +1339,7 @@ public class MainViewController : UIViewController
         try
         {
             var cancellable = new MyCancellable();
-            cancellable.cancel();
+            cancellable.Cancel();
 
             if (cancellable.CancelCount == 1 && cancellable.IsCancelled)
             {
@@ -1398,11 +1398,11 @@ public class MainViewController : UIViewController
         try
         {
             var processor = new MyImageProcessor();
-            var id = processor.identifier;
+            var id = processor.Identifier;
 
             if (processor.IdentifierCallCount == 1)
             {
-                TestLogger.Info("MyImageProcessor.identifier works directly");
+                TestLogger.Info("MyImageProcessor.Identifier works directly");
                 results.Pass("ISwiftImageProcessing direct implementation");
             }
             else
@@ -1436,7 +1436,7 @@ public class MainViewController : UIViewController
             processor.IdentifierCallCount = 0;
 
             var proxy = new ImageProcessingProxy(processor);
-            var id = proxy.identifier;
+            var id = proxy.Identifier;
 
             if (processor.IdentifierCallCount == 1)
             {
@@ -1622,11 +1622,11 @@ public class MyCancellable : ISwiftCancellable
     public int CancelCount { get; set; }
     public bool IsCancelled { get; private set; }
 
-    public void cancel()
+    public void Cancel()
     {
         CancelCount++;
         IsCancelled = true;
-        TestLogger.Info($"MyCancellable.cancel() invoked (count: {CancelCount})");
+        TestLogger.Info($"MyCancellable.Cancel() invoked (count: {CancelCount})");
     }
 }
 
@@ -1638,29 +1638,29 @@ public class MyImageProcessor : ISwiftImageProcessing
     public int IdentifierCallCount { get; set; }
     public int ProcessCallCount { get; private set; }
 
-    public SwiftString identifier
+    public SwiftString Identifier
     {
         get
         {
             IdentifierCallCount++;
-            TestLogger.Info($"MyImageProcessor.identifier accessed (count: {IdentifierCallCount})");
+            TestLogger.Info($"MyImageProcessor.Identifier accessed (count: {IdentifierCallCount})");
             return new SwiftString("my-test-processor");
         }
     }
 
-    public AnyType hashableIdentifier => default;
+    public AnyType HashableIdentifier => default;
 
-    public SwiftOptional<UIKit.UIImage> process(UIKit.UIImage arg0)
+    public UIKit.UIImage? Process(UIKit.UIImage arg0)
     {
         ProcessCallCount++;
-        TestLogger.Info($"MyImageProcessor.process(UIImage) invoked (count: {ProcessCallCount})");
-        return SwiftOptional<UIKit.UIImage>.NewNone();
+        TestLogger.Info($"MyImageProcessor.Process(UIImage) invoked (count: {ProcessCallCount})");
+        return null;
     }
 
-    public ImageContainer process(ImageContainer arg0, ImageProcessingContext context)
+    public ImageContainer Process(ImageContainer arg0, ImageProcessingContext context)
     {
         ProcessCallCount++;
-        TestLogger.Info($"MyImageProcessor.process(ImageContainer) invoked (count: {ProcessCallCount})");
+        TestLogger.Info($"MyImageProcessor.Process(ImageContainer) invoked (count: {ProcessCallCount})");
         return arg0;
     }
 }

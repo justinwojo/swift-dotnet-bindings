@@ -109,11 +109,13 @@ namespace BindingsGeneration
 
             try
             {
+                var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, env.TypeDatabase);
                 var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
                     structDecl,
                     typeNameWithGenerics,
                     moduleDecl.Name,
-                    env.TypeDatabase);
+                    env.TypeDatabase,
+                    conformanceValidator);
 
                 if (isProjectedAsClass)
                 {

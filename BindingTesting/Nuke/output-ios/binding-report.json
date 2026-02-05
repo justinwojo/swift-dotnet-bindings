@@ -1,14 +1,54 @@
 {
   "ModuleName": "Nuke",
-  "GeneratedAt": "2026-02-04T22:15:48.658538+00:00",
+  "GeneratedAt": "2026-02-05T04:33:27.056401+00:00",
   "TotalTypes": 68,
   "EmittedTypes": 60,
   "SkippedTypes": 0,
   "TotalMembers": 490,
-  "EmittedMembers": 330,
-  "SkippedMembers": 12,
+  "EmittedMembers": 323,
+  "SkippedMembers": 19,
   "SynthesizedMembers": 248,
   "SkippedItems": [
+    {
+      "Kind": "Method",
+      "Name": "resize",
+      "ContainingType": "Nuke.ImageProcessing",
+      "Reason": "StaticProtocolMember",
+      "Details": "Static protocol members cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "circle",
+      "ContainingType": "Nuke.ImageProcessing",
+      "Reason": "StaticProtocolMember",
+      "Details": "Static protocol members cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "roundedCorners",
+      "ContainingType": "Nuke.ImageProcessing",
+      "Reason": "StaticProtocolMember",
+      "Details": "Static protocol members cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "coreImageFilter",
+      "ContainingType": "Nuke.ImageProcessing",
+      "Reason": "StaticProtocolMember",
+      "Details": "Static protocol members cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "gaussianBlur",
+      "ContainingType": "Nuke.ImageProcessing",
+      "Reason": "StaticProtocolMember",
+      "Details": "Static protocol members cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": null
+    },
     {
       "Kind": "Property",
       "Name": "makeImageDecoder",
@@ -32,6 +72,22 @@
       "Reason": "UnsupportedSignature",
       "Details": "Method signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "_default",
+      "ContainingType": "Nuke.ImageEncoding",
+      "Reason": "StaticProtocolMember",
+      "Details": "Static protocol members cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "imageIO",
+      "ContainingType": "Nuke.ImageEncoding",
+      "Reason": "StaticProtocolMember",
+      "Details": "Static protocol members cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": null
     },
     {
       "Kind": "Property",

@@ -305,11 +305,6 @@ public func getEveryProtocolAnimationCacheProviderWitnessTable() -> UnsafeRawPoi
     }
 }
 // Witness dispatch accessors for AnimationCacheProvider
-@frozen
-public struct SBW_Utf8Slice {
-    public var ptr: UnsafeMutablePointer<UInt8>
-    public var len: Int
-}
 @_silgen_name("SBW_AnimationCacheProvider_method_clearCache_2")
 public func SBW_AnimationCacheProvider_method_clearCache_2(_ containerPtr: UnsafeRawPointer) {
     let existential = containerPtr.load(as: (any Lottie.AnimationCacheProvider).self)
@@ -548,11 +543,6 @@ public func getEveryProtocolDotLottieCacheProviderWitnessTable() -> UnsafeRawPoi
     }
 }
 // Witness dispatch accessors for DotLottieCacheProvider
-@frozen
-public struct SBW_Utf8Slice {
-    public var ptr: UnsafeMutablePointer<UInt8>
-    public var len: Int
-}
 @_silgen_name("SBW_DotLottieCacheProvider_method_clearCache_2")
 public func SBW_DotLottieCacheProvider_method_clearCache_2(_ containerPtr: UnsafeRawPointer) {
     let existential = containerPtr.load(as: (any Lottie.DotLottieCacheProvider).self)
@@ -803,7 +793,7 @@ extension Lottie.LottieSwitch {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom4data8filename13dispatchQueueAC10Foundation4DataV_SSSo03OS_H6_queueCtYaKFZ_async")
-    public static func PInvoke_loadedFrom_3D1CFB63(callback: @escaping @convention(c) (Lottie.DotLottieFile, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_7F79EE0E(callback: @escaping @convention(c) (Lottie.DotLottieFile, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let dispatchQueueValue = dispatchQueue.assumingMemoryBound(to: Dispatch.DispatchQueue.self).pointee

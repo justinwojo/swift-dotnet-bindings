@@ -345,11 +345,6 @@ public func getEveryProtocolDataCachingWitnessTable() -> UnsafeRawPointer {
     }
 }
 // Witness dispatch accessors for DataCaching
-@frozen
-public struct SBW_Utf8Slice {
-    public var ptr: UnsafeMutablePointer<UInt8>
-    public var len: Int
-}
 @_silgen_name("SBW_DataCaching_method_containsData_1")
 public func SBW_DataCaching_method_containsData_1(_ containerPtr: UnsafeRawPointer, _ arg0Ptr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
     let existential = containerPtr.load(as: (any Nuke.DataCaching).self)
@@ -745,7 +740,7 @@ public func SBW_ImageDecoding_free_get_isAsynchronous_0(_ ptr: UnsafeMutableRawP
 }
 
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-public func PInvoke_image_00DE0A01(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_7311D5D9(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -765,7 +760,7 @@ public func PInvoke_image_00DE0A01(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-public func PInvoke_image_23381102(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_2074644F(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -785,7 +780,7 @@ public func PInvoke_image_23381102(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAA0B7RequestV_tYaKF_async")
-public func PInvoke_data_47CC4EA9(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_1449F394(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -805,7 +800,7 @@ public func PInvoke_data_47CC4EA9(callback: @escaping @convention(c) (Foundation
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAF3URLV_tYaKF_async")
-public func PInvoke_data_3DCAA24B(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_44625084(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee

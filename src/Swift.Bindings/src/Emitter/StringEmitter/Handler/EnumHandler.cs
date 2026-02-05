@@ -100,11 +100,13 @@ namespace BindingsGeneration
             try
             {
                 // Use unsafe class since methods may use function pointers
+                var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, env.TypeDatabase);
                 var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
                     enumDecl,
                     typeNameWithGenerics,
                     moduleDecl.Name,
-                    env.TypeDatabase);
+                    env.TypeDatabase,
+                    conformanceValidator);
                 var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";

@@ -404,8 +404,323 @@ public func SBW_SdkSettings_set_resourceLocalFolder_0(_ containerPtr: UnsafeMuta
     typedPtr.pointee = existential
 }
 
+@_silgen_name("SBW_BlinkID_Country_InitWithRawValue")
+public func SBW_BlinkID_Country_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.Country? = BlinkID.Country(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.Country?.self)
+}
+@_silgen_name("SBW_BlinkID_Region_InitWithRawValue")
+public func SBW_BlinkID_Region_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.Region? = BlinkID.Region(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.Region?.self)
+}
+@_silgen_name("SBW_BlinkID_DocumentType_InitWithRawValue")
+public func SBW_BlinkID_DocumentType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.DocumentType? = BlinkID.DocumentType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.DocumentType?.self)
+}
+@_silgen_name("SBW_BlinkID_DetectionStatus_InitWithRawValue")
+public func SBW_BlinkID_DetectionStatus_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.DetectionStatus? = BlinkID.DetectionStatus(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.DetectionStatus?.self)
+}
+@_silgen_name("SBW_BlinkID_CameraHardwareInfoPinglet_CameraFacing_InitWithRawValue")
+public func SBW_BlinkID_CameraHardwareInfoPinglet_CameraFacing_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.CameraHardwareInfoPinglet.CameraFacing? = BlinkID.CameraHardwareInfoPinglet.CameraFacing(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.CameraHardwareInfoPinglet.CameraFacing?.self)
+}
+@_silgen_name("SBW_BlinkID_CameraHardwareInfoPinglet_Focus_InitWithRawValue")
+public func SBW_BlinkID_CameraHardwareInfoPinglet_Focus_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.CameraHardwareInfoPinglet.Focus? = BlinkID.CameraHardwareInfoPinglet.Focus(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.CameraHardwareInfoPinglet.Focus?.self)
+}
+@_silgen_name("SBW_BlinkID_ScanningConditionsPinglet_UpdateType_InitWithRawValue")
+public func SBW_BlinkID_ScanningConditionsPinglet_UpdateType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.ScanningConditionsPinglet.UpdateType? = BlinkID.ScanningConditionsPinglet.UpdateType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.ScanningConditionsPinglet.UpdateType?.self)
+}
+@_silgen_name("SBW_BlinkID_ScanningConditionsPinglet_DeviceOrientation_InitWithRawValue")
+public func SBW_BlinkID_ScanningConditionsPinglet_DeviceOrientation_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.ScanningConditionsPinglet.DeviceOrientation? = BlinkID.ScanningConditionsPinglet.DeviceOrientation(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.ScanningConditionsPinglet.DeviceOrientation?.self)
+}
+@_silgen_name("SBW_BlinkID_WrapperProductInfoPinglet_WrapperProduct_InitWithRawValue")
+public func SBW_BlinkID_WrapperProductInfoPinglet_WrapperProduct_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.WrapperProductInfoPinglet.WrapperProduct? = BlinkID.WrapperProductInfoPinglet.WrapperProduct(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.WrapperProductInfoPinglet.WrapperProduct?.self)
+}
+@_silgen_name("SBW_BlinkID_UxEventPinglet_EventType_InitWithRawValue")
+public func SBW_BlinkID_UxEventPinglet_EventType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.UxEventPinglet.EventType? = BlinkID.UxEventPinglet.EventType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.UxEventPinglet.EventType?.self)
+}
+@_silgen_name("SBW_BlinkID_UxEventPinglet_ErrorMessageType_InitWithRawValue")
+public func SBW_BlinkID_UxEventPinglet_ErrorMessageType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.UxEventPinglet.ErrorMessageType? = BlinkID.UxEventPinglet.ErrorMessageType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.UxEventPinglet.ErrorMessageType?.self)
+}
+@_silgen_name("SBW_BlinkID_UxEventPinglet_AlertType_InitWithRawValue")
+public func SBW_BlinkID_UxEventPinglet_AlertType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.UxEventPinglet.AlertType? = BlinkID.UxEventPinglet.AlertType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.UxEventPinglet.AlertType?.self)
+}
+@_silgen_name("SBW_BlinkID_UxEventPinglet_HelpCloseType_InitWithRawValue")
+public func SBW_BlinkID_UxEventPinglet_HelpCloseType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.UxEventPinglet.HelpCloseType? = BlinkID.UxEventPinglet.HelpCloseType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.UxEventPinglet.HelpCloseType?.self)
+}
+@_silgen_name("SBW_BlinkID_LogPinglet_LogLevel_InitWithRawValue")
+public func SBW_BlinkID_LogPinglet_LogLevel_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.LogPinglet.LogLevel? = BlinkID.LogPinglet.LogLevel(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.LogPinglet.LogLevel?.self)
+}
+@_silgen_name("SBW_BlinkID_SdkInitStartPinglet_Product_InitWithRawValue")
+public func SBW_BlinkID_SdkInitStartPinglet_Product_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.SdkInitStartPinglet.Product? = BlinkID.SdkInitStartPinglet.Product(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.SdkInitStartPinglet.Product?.self)
+}
+@_silgen_name("SBW_BlinkID_SdkInitStartPinglet_Platform_InitWithRawValue")
+public func SBW_BlinkID_SdkInitStartPinglet_Platform_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.SdkInitStartPinglet.Platform? = BlinkID.SdkInitStartPinglet.Platform(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.SdkInitStartPinglet.Platform?.self)
+}
+@_silgen_name("SBW_BlinkID_CameraPermissionPinglet_EventType_InitWithRawValue")
+public func SBW_BlinkID_CameraPermissionPinglet_EventType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.CameraPermissionPinglet.EventType? = BlinkID.CameraPermissionPinglet.EventType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.CameraPermissionPinglet.EventType?.self)
+}
+@_silgen_name("SBW_BlinkID_ErrorPinglet_ErrorType_InitWithRawValue")
+public func SBW_BlinkID_ErrorPinglet_ErrorType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.ErrorPinglet.ErrorType? = BlinkID.ErrorPinglet.ErrorType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.ErrorPinglet.ErrorType?.self)
+}
+@_silgen_name("SBW_BlinkID_CameraInputInfoPinglet_CameraFacing_InitWithRawValue")
+public func SBW_BlinkID_CameraInputInfoPinglet_CameraFacing_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.CameraInputInfoPinglet.CameraFacing? = BlinkID.CameraInputInfoPinglet.CameraFacing(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.CameraInputInfoPinglet.CameraFacing?.self)
+}
+@_silgen_name("SBW_BlinkID_AnonymizationMode_InitWithRawValue")
+public func SBW_BlinkID_AnonymizationMode_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.AnonymizationMode? = BlinkID.AnonymizationMode(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.AnonymizationMode?.self)
+}
+@_silgen_name("SBW_BlinkID_ProcessingStatus_InitWithRawValue")
+public func SBW_BlinkID_ProcessingStatus_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.ProcessingStatus? = BlinkID.ProcessingStatus(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.ProcessingStatus?.self)
+}
 @_silgen_name("$s7BlinkID0A5IDSdkC21createScanningSession15sessionSettingsAA0A9IDSessionCAA0aiH0V_tYaKF_async")
-public func PInvoke_createScanningSession_6E1AB16E(callback: @escaping @convention(c) (BlinkID.BlinkIDSession, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, sessionSettings: UnsafeRawPointer, _self: OpaquePointer){
+public func PInvoke_createScanningSession_5D9246EE(callback: @escaping @convention(c) (BlinkID.BlinkIDSession, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, sessionSettings: UnsafeRawPointer, _self: OpaquePointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let sessionSettingsValue = sessionSettings.assumingMemoryBound(to: BlinkID.BlinkIDSessionSettings.self).pointee
@@ -426,7 +741,7 @@ public func PInvoke_createScanningSession_6E1AB16E(callback: @escaping @conventi
 }
 extension BlinkID.BlinkIDSdk {
     @_silgen_name("$s7BlinkID0A5IDSdkC06createaC012withSettingsAcA0acF0V_tYaKFZ_async")
-    public static func PInvoke_createBlinkIDSdk_1B686A98(callback: @escaping @convention(c) (BlinkID.BlinkIDSdk, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, withSettings: UnsafeRawPointer){
+    public static func PInvoke_createBlinkIDSdk_48D22935(callback: @escaping @convention(c) (BlinkID.BlinkIDSdk, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, withSettings: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let withSettingsValue = withSettings.assumingMemoryBound(to: BlinkID.BlinkIDSdkSettings.self).pointee
@@ -447,7 +762,7 @@ extension BlinkID.BlinkIDSdk {
 }
 extension BlinkID.BlinkIDSdk {
     @_silgen_name("$s7BlinkID0A5IDSdkC19refreshLicenseLeaseyyYaKFZ_async")
-    public static func PInvoke_refreshLicenseLease_738589CE(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
+    public static func PInvoke_refreshLicenseLease_5255252A(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
         
         Task {
             do {
@@ -462,8 +777,23 @@ extension BlinkID.BlinkIDSdk {
         }
     }
 }
+@_silgen_name("SBW_BlinkID_RecognitionMode_InitWithRawValue")
+public func SBW_BlinkID_RecognitionMode_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.RecognitionMode? = BlinkID.RecognitionMode(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.RecognitionMode?.self)
+}
 @_silgen_name("$s7BlinkID11PingManagerC10addPinglet7pinglet13sessionNumberyx_SitYaAA0F0RzlF_async")
-public func PInvoke_addPinglet_4CC1B0A4<P>(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, pinglet: P, sessionNumber: Swift.Int) where P : Pinglet{
+public func PInvoke_addPinglet_150341B2<P>(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, pinglet: P, sessionNumber: Swift.Int) where P : Pinglet{
     
     // selfInstance is safe - C# called Arc.Retain before invoking this method
     Task {
@@ -479,7 +809,7 @@ public func PInvoke_addPinglet_4CC1B0A4<P>(callback: @escaping @convention(c) (I
     }
 }
 @_silgen_name("$s7BlinkID11PingManagerC12sendPingletsAA0C6StatusOyYaF_async")
-public func PInvoke_sendPinglets_115ED83E(callback: @escaping @convention(c) (BlinkID.PingStatus, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
+public func PInvoke_sendPinglets_5E7DCB85(callback: @escaping @convention(c) (BlinkID.PingStatus, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
     
     // selfInstance is safe - C# called Arc.Retain before invoking this method
     Task {
@@ -493,4 +823,34 @@ public func PInvoke_sendPinglets_115ED83E(callback: @escaping @convention(c) (Bl
             errorMessage.withCString { errorCallback($0, task) }
         }
     }
+}
+@_silgen_name("SBW_BlinkID_FieldType_InitWithRawValue")
+public func SBW_BlinkID_FieldType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.FieldType? = BlinkID.FieldType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.FieldType?.self)
+}
+@_silgen_name("SBW_BlinkID_AlphabetType_InitWithRawValue")
+public func SBW_BlinkID_AlphabetType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+    let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+    let str: String
+    if slice.len > 0 {
+        str = String(unsafeUninitializedCapacity: slice.len) { buf in
+            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+            return slice.len
+        }
+    } else {
+        str = ""
+    }
+    let result: BlinkID.AlphabetType? = BlinkID.AlphabetType(rawValue: str)
+    resultPtr.storeBytes(of: result, as: BlinkID.AlphabetType?.self)
 }

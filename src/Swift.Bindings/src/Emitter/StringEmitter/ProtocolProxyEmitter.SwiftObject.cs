@@ -139,6 +139,7 @@ public partial class ProtocolProxyEmitter
     private void EmitWitnessDispatchPInvokes(CSharpWriter writer, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter)
     {
         var protocolName = protocolDecl.Name;
+        var emittedPInvokes = new HashSet<string>();
 
         // Property getters (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
@@ -156,6 +157,9 @@ public partial class ProtocolProxyEmitter
                     continue;
 
                 var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "get", property.Name, 0);
+                if (!emittedPInvokes.Add(accessorSymbol))
+                    continue;
+
                 var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "get", property.Name, 0);
 
                 writer.WriteLine();
@@ -185,6 +189,8 @@ public partial class ProtocolProxyEmitter
                     continue;
 
                 var setterSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "set", property.Name, 0);
+                if (!emittedPInvokes.Add(setterSymbol))
+                    continue;
 
                 writer.WriteLine();
                 writer.WriteLines($$"""
@@ -216,6 +222,8 @@ public partial class ProtocolProxyEmitter
                 var paramCount = method.CSSignature.Count - 1;
 
                 var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolName, "method", method.Name, idx);
+                if (!emittedPInvokes.Add(accessorSymbol))
+                    continue;
 
                 // Build parameter list: containerPtr + one IntPtr per param
                 var pInvokeParams = new List<string> { "IntPtr containerPtr" };
