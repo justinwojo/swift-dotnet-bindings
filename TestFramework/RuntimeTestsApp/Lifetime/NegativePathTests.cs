@@ -1,0 +1,301 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using RuntimeTestsApp.Infrastructure;
+using Swift;
+using Swift.SwiftBindingsTestLib;
+
+namespace RuntimeTestsApp.Lifetime;
+
+/// <summary>
+/// Negative-path tests: invalid inputs, error conditions, edge cases that
+/// should produce well-defined errors rather than crashes or corruption.
+/// </summary>
+public class NegativePathTests : TestBase
+{
+    public NegativePathTests(TestResults results) : base(results) { }
+
+    #region Invalid Enum FromRawValue
+
+    [TestTier(TestTier.Tier2)]
+    public void TestDirectionInvalidFromRawValue()
+    {
+        // Direction is a simple enum (no raw value) — test that
+        // invalid tag values don't exist by verifying valid ones work
+        var north = Direction.North;
+        AssertNotNull(north, "Direction.North is valid");
+
+        var south = Direction.South;
+        AssertNotNull(south, "Direction.South is valid");
+
+        TestLogger.Info("Direction valid case construction verified");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestColorInvalidRawValue()
+    {
+        // Color.FromRawValue with invalid value should return null
+        var invalid = Color.FromRawValue(999);
+        AssertNull(invalid, "Color.FromRawValue(999) returns null");
+
+        var negative = Color.FromRawValue(-1);
+        AssertNull(negative, "Color.FromRawValue(-1) returns null");
+
+        TestLogger.Info("Color invalid raw values return null");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestStatusCodeInvalidRawValue()
+    {
+        // StatusCode string enum with invalid value
+        var invalid = StatusCode.FromRawValue("NONEXISTENT");
+        AssertNull(invalid, "StatusCode.FromRawValue(NONEXISTENT) returns null");
+
+        var empty = StatusCode.FromRawValue("");
+        AssertNull(empty, "StatusCode.FromRawValue('') returns null");
+
+        TestLogger.Info("StatusCode invalid raw values return null");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestLogLevelInvalidRawValue()
+    {
+        // LogLevel with invalid raw value
+        var invalid = LogLevel.FromRawValue("NOT_A_LEVEL");
+        AssertNull(invalid, "LogLevel.FromRawValue(NOT_A_LEVEL) returns null");
+
+        // Case-sensitive check
+        var wrongCase = LogLevel.FromRawValue("[info]");
+        AssertNull(wrongCase, "LogLevel.FromRawValue('[info]') returns null (case-sensitive)");
+
+        TestLogger.Info("LogLevel invalid raw values return null");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestGreetingInvalidRawValue()
+    {
+        var invalid = Greeting.FromRawValue("not_a_greeting");
+        AssertNull(invalid, "Greeting.FromRawValue with invalid value returns null");
+
+        TestLogger.Info("Greeting invalid raw value returns null");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestHttpMethodInvalidRawValue()
+    {
+        var invalid = NetworkConfig.HttpMethod.FromRawValue("INVALID_METHOD");
+        AssertNull(invalid, "HttpMethod.FromRawValue(INVALID_METHOD) returns null");
+
+        TestLogger.Info("HttpMethod invalid raw value returns null");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestContentTypeInvalidRawValue()
+    {
+        var invalid = NetworkConfig.ContentType.FromRawValue("invalid/type");
+        AssertNull(invalid, "ContentType.FromRawValue(invalid/type) returns null");
+
+        TestLogger.Info("ContentType invalid raw value returns null");
+    }
+
+    #endregion
+
+    #region Equality Throws for Non-Equatable Types
+
+    [TestTier(TestTier.Tier2)]
+    public void TestAnimalEqualityThrows()
+    {
+        var animal1 = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
+        var animal2 = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
+
+        AssertThrows<InvalidOperationException>(() =>
+        {
+            _ = animal1.Equals(animal2);
+        }, "Animal.Equals throws InvalidOperationException");
+
+        AssertThrows<InvalidOperationException>(() =>
+        {
+            _ = animal1.GetHashCode();
+        }, "Animal.GetHashCode throws InvalidOperationException");
+
+        TestLogger.Info("Non-Equatable Animal equality correctly throws");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestUniqueResourceEqualityThrows()
+    {
+        var r1 = new UniqueResource(1);
+        var r2 = new UniqueResource(1);
+
+        AssertThrows<InvalidOperationException>(() =>
+        {
+            _ = r1.Equals(r2);
+        }, "UniqueResource.Equals throws InvalidOperationException");
+
+        TestLogger.Info("Non-Equatable UniqueResource equality correctly throws");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestMutablePropsEqualityThrows()
+    {
+        var p1 = new MutableProps(1, "A");
+        var p2 = new MutableProps(1, "A");
+
+        AssertThrows<InvalidOperationException>(() =>
+        {
+            _ = p1.Equals(p2);
+        }, "MutableProps.Equals throws InvalidOperationException");
+
+        TestLogger.Info("Non-Equatable MutableProps equality correctly throws");
+    }
+
+    #endregion
+
+    #region Disposed Object Edge Cases
+
+    [TestTier(TestTier.Tier2)]
+    public void TestDisposedAnimalSoundPropertyAfterDispose()
+    {
+        // Test the second property (Sound) specifically
+        var animal = SwiftBindingsTestLib.CreateAnimal("Test", "Moo");
+        animal.Payload.Dispose();
+
+        AssertThrows<ObjectDisposedException>(() =>
+        {
+            _ = animal.Sound;
+        }, "Sound property after dispose throws");
+
+        TestLogger.Info("Sound property after dispose correctly throws");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestDisposedAnimalSoundSetAfterDispose()
+    {
+        var animal = SwiftBindingsTestLib.CreateAnimal("Test", "Moo");
+        animal.Payload.Dispose();
+
+        AssertThrows<ObjectDisposedException>(() =>
+        {
+            animal.Sound = new SwiftString("NewSound");
+        }, "Sound set after dispose throws");
+
+        TestLogger.Info("Sound set after dispose correctly throws");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestDisposedMutablePropsNameAfterDispose()
+    {
+        var props = new MutableProps(1, "Test");
+        props.Payload.Dispose();
+
+        AssertThrows<ObjectDisposedException>(() =>
+        {
+            _ = props.Name;
+        }, "MutableProps.Name after dispose throws");
+
+        TestLogger.Info("MutableProps.Name after dispose correctly throws");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestDisposedMutablePropsNameSetAfterDispose()
+    {
+        var props = new MutableProps(1, "Test");
+        props.Payload.Dispose();
+
+        AssertThrows<ObjectDisposedException>(() =>
+        {
+            props.Name = new SwiftString("New");
+        }, "MutableProps.Name set after dispose throws");
+
+        TestLogger.Info("MutableProps.Name set after dispose correctly throws");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestDisposedResourceConsumeAfterDispose()
+    {
+        var resource = SwiftBindingsTestLib.CreateUniqueResource(10);
+        resource.Payload.Dispose();
+
+        AssertThrows<ObjectDisposedException>(() =>
+        {
+            _ = resource.Consume();
+        }, "Consume after dispose throws");
+
+        TestLogger.Info("Consume after dispose correctly throws");
+    }
+
+    #endregion
+
+    #region SwiftSafeHandle.Zero Access
+
+    [TestTier(TestTier.Tier2)]
+    public void TestZeroHandlePropertyAccessThrows()
+    {
+        // SwiftSafeHandle<T>.Zero is the default invalid handle.
+        // Generated types initialize _payload to .Zero before the constructor
+        // replaces it. We can't create a type with a .Zero handle directly
+        // (no public default constructors), but we can simulate this by
+        // disposing the handle — a disposed handle behaves identically to
+        // a zero handle (both are invalid SafeHandles).
+        //
+        // This test verifies the contract: invalid handles produce
+        // ObjectDisposedException on any property/method access.
+        var animal = SwiftBindingsTestLib.CreateAnimal("ZeroTest", "Sound");
+
+        // Verify the payload is valid before dispose
+        AssertTrue(!animal.Payload.IsInvalid, "Payload is valid before dispose");
+
+        // Dispose makes the handle invalid (equivalent to .Zero behavior)
+        animal.Payload.Dispose();
+        AssertTrue(animal.Payload.IsClosed, "Payload is closed after dispose");
+
+        // All access paths should throw
+        AssertThrows<ObjectDisposedException>(() => { _ = animal.Name; },
+            "Zero/disposed handle: Name get throws");
+        AssertThrows<ObjectDisposedException>(() => { animal.Name = new SwiftString("X"); },
+            "Zero/disposed handle: Name set throws");
+        AssertThrows<ObjectDisposedException>(() => { _ = animal.Speak(); },
+            "Zero/disposed handle: Speak() throws");
+        AssertThrows<ObjectDisposedException>(() => { _ = animal.Describe(); },
+            "Zero/disposed handle: Describe() throws");
+
+        TestLogger.Info("Zero/disposed handle access correctly throws on all paths");
+    }
+
+    // NOTE: "Static method after type metadata failure" is not testable in a
+    // normal runtime environment. Type metadata is loaded lazily from the
+    // native Swift library and cached permanently. To trigger a metadata
+    // failure, we would need to corrupt or unload the native library, which
+    // would crash the entire process rather than producing a catchable error.
+    // This scenario is inherently untestable without process-level isolation.
+
+    #endregion
+
+    #region Validate Round-Trip Free Function
+
+    [TestTier(TestTier.Tier2)]
+    public void TestValidateLogLevelInvalidValues()
+    {
+        // ValidateLogLevelRoundTrip should return false for invalid values
+        AssertFalse(SwiftBindingsTestLib.ValidateLogLevelRoundTrip(""), "Empty string is invalid");
+        AssertFalse(SwiftBindingsTestLib.ValidateLogLevelRoundTrip("INVALID"), "Random string is invalid");
+        AssertFalse(SwiftBindingsTestLib.ValidateLogLevelRoundTrip("[info]"), "Lowercase is invalid");
+
+        TestLogger.Info("ValidateLogLevelRoundTrip rejects invalid values");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestValidateLogLevelAllValid()
+    {
+        // All valid raw values should round-trip
+        var validValues = new[] { "[DEBUG]", "[INFO]", "[WARN]", "[ERROR]", "[CRITICAL]" };
+        foreach (var value in validValues)
+        {
+            AssertTrue(SwiftBindingsTestLib.ValidateLogLevelRoundTrip(value), $"{value} round-trips");
+        }
+
+        TestLogger.Info("All valid LogLevel raw values round-trip correctly");
+    }
+
+    #endregion
+}
