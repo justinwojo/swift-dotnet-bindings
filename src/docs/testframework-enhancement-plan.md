@@ -1,6 +1,6 @@
 # TestFramework Enhancement Plan
 
-**Status**: Phase A Complete, Phase B Pending
+**Status**: Phase A Complete, Phase B In Progress (blocked on generator bug)
 **Date**: February 2026
 **Context**: Phases 55-61 fixed bugs that TestFramework didn't catch
 
@@ -197,36 +197,26 @@ TestFramework/Sources/SwiftBindingsTestLib/
 
 ```
 TestFramework/
-├── RuntimeTests/
-│   ├── RuntimeTests.csproj            # References generated bindings
+├── RuntimeTestsApp/                    # iOS simulator app (like LottieTestApp pattern)
+│   ├── RuntimeTestsApp.csproj          # References generated bindings + xcframework
+│   ├── Program.cs                      # App entry, discovery-based test runner
 │   ├── Infrastructure/
-│   │   ├── TestBase.cs                # Common setup, GC helpers
-│   │   └── LifetimeTracker.cs         # Ref count assertions
+│   │   ├── TestBase.cs                 # Common setup, GC/timeout/assertion helpers
+│   │   ├── TestResults.cs              # Result tracking, tier enum, TestTierAttribute
+│   │   ├── TestLogger.cs               # Console/UI logging
+│   │   └── LifetimeTracker.cs          # Ref count assertions
 │   ├── Marshalling/
-│   │   ├── BlittableRoundTripTests.cs
-│   │   ├── StringMarshallingTests.cs
-│   │   ├── ArrayMarshallingTests.cs
-│   │   ├── EnumMarshallingTests.cs
-│   │   └── ClassMarshallingTests.cs
-│   ├── Async/
-│   │   ├── AsyncBlittableTests.cs
-│   │   ├── AsyncStringTests.cs
-│   │   ├── AsyncArrayTests.cs
-│   │   └── AsyncComplexTypeTests.cs
-│   ├── Protocols/
-│   │   ├── WitnessDispatchTests.cs
-│   │   └── InterfaceCastingTests.cs
-│   ├── Generics/
-│   │   ├── BoundGenericTests.cs
-│   │   └── PointerGenericTests.cs
-│   ├── Closures/
-│   │   ├── ClosureParamTests.cs
-│   │   └── ClosureReturnTests.cs
-│   └── Lifetime/
-│       ├── RetainReleaseTests.cs
-│       ├── CallbackLifetimeTests.cs
-│       └── AsyncLifetimeTests.cs
-└── run-runtime-tests.sh               # Build + run Layer 2 tests
+│   │   ├── BlittableRoundTripTests.cs  ✓
+│   │   ├── StringMarshallingTests.cs   (planned)
+│   │   ├── ArrayMarshallingTests.cs    (planned)
+│   │   ├── EnumMarshallingTests.cs     (planned)
+│   │   └── ClassMarshallingTests.cs    (planned)
+│   ├── Async/                          (planned)
+│   ├── Protocols/                      (planned)
+│   ├── Generics/                       (planned)
+│   ├── Closures/                       (planned)
+│   └── Lifetime/                       (planned)
+└── run-runtime-tests.sh                # Build + run Layer 2 tests (--tier, --skip-regen, --timeout)
 ```
 
 ---
@@ -285,14 +275,22 @@ Assert.AreEqual(input, result);
 - [x] Add `OwnershipTests.swift` with explicit lifetime scenarios
 - [x] Regenerate bindings, verify Layer 1 passes (93/93 must-pass, 0 degraded)
 
-### Phase B: C# Runtime Test Project
+### Phase B: C# Runtime Test Project (In Progress)
 
 **Scope**: Runtime tests cover cells where `G✓` (generator coverage confirmed). Cells marked `G?` require Layer 1 investigation first. Cells marked `-` are intentionally excluded.
 
-- [ ] Create `RuntimeTests.csproj` referencing generated bindings
-- [ ] Add test infrastructure (TestBase, LifetimeTracker)
-- [ ] Implement marshalling round-trip tests (one per `G✓` matrix cell)
-- [ ] Implement async round-trip tests (prioritize `R◐` cells first)
+- [x] Create `RuntimeTestsApp.csproj` (iOS simulator app pattern, like LottieTestApp)
+- [x] Add test infrastructure (TestBase, TestLogger, TestResults, LifetimeTracker)
+- [x] Add discovery-based test runner (auto-discovers all `TestBase` subclasses via reflection)
+- [x] Wire `--tier` CLI argument from `run-runtime-tests.sh` through to app execution
+- [x] Support class-level `[TestTier]` attribute as fallback when method-level is absent
+- [x] Implement `BlittableRoundTripTests` (Tier 1 smoke tests for Int32, Bool, Double, Float)
+- [x] Create `run-runtime-tests.sh` script with tier selection
+- [ ] Implement `StringMarshallingTests` (round-trip, unicode, empty, long strings)
+- [ ] Implement async round-trip tests (AsyncStringTests, AsyncComplexTypeTests)
+- [ ] **BLOCKED**: Fix generator bug with multiple generic type parameter constraints
+  - Issue: `where T0 : X, T1 : X` should be `where T0 : X where T1 : X`
+  - Affects: `PointerPair<T0, T1>`, `GenericPair<T0, T1>`, etc.
 - [ ] Implement protocol witness dispatch tests
 - [ ] Implement lifetime/ownership tests
 - [ ] Implement negative-path tests (invalid handles, disposed access, timeouts)
@@ -300,12 +298,14 @@ Assert.AreEqual(input, result);
 
 ### Phase C: Integration
 
-- [ ] Create `run-runtime-tests.sh` script with tier selection (`--tier 1|2|3`)
+- [x] Create `run-runtime-tests.sh` script with tier selection (`--tier 1|2|3`)
   - **Must regenerate bindings first** (or fail if `--skip-regen` passed and bindings older than Swift sources)
-  - Script flow: `build-and-test.sh` → compile RuntimeTests → run selected tier
+  - Script flow: `build-and-test.sh` → compile RuntimeTestsApp → run selected tier
+  - Tier argument passed through to app via `--tier N` CLI arg (app reads on startup)
+- [x] Assign tests to tiers with `[TestTier(TestTier.TierN)]` attributes (method- and class-level)
+- [x] Discovery-based test execution (new `TestBase` subclasses auto-discovered, no manual wiring)
 - [ ] Document Layer 1 vs Layer 2 in TestFramework README
 - [ ] Document toolchain requirements (Xcode, Swift, .NET versions)
-- [ ] Assign tests to tiers with `[Category("Tier1")]` attributes
 - [ ] Add flake detection: Tier 3 runs each test 3x, any inconsistency fails the suite
 - [ ] Add to `remaining-work.md` verification steps
 - [ ] Consider golden API snapshot tooling (deferred)
