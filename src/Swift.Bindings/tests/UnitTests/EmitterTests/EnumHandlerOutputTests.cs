@@ -281,6 +281,166 @@ public class EnumHandlerOutputTests
         };
     }
 
+    [Fact]
+    public void Emit_SameNamedNestedEnumsWithStringRawValue_ProducesDistinctWrapperSymbols()
+    {
+        // Regression test: same-named nested enums in different containers should
+        // produce distinct SBW_*_InitWithRawValue wrapper symbols to avoid collisions.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Create first nested enum: TestModule.Container1.ErrorType
+        var container1 = CreateStructDecl("Container1", moduleDecl);
+        var enum1 = CreateNestedEnumDecl("ErrorType", container1, moduleDecl, isFrozen: true);
+        enum1.RawValueTypeName = "String";
+        enum1.Cases.Add(CreateCase("unknown"));
+        enum1.Methods.Add(CreateStringRawValueInitializer(enum1, moduleDecl));
+        container1.Types.Add(enum1);
+
+        // Create second nested enum: TestModule.Container2.ErrorType
+        var container2 = CreateStructDecl("Container2", moduleDecl);
+        var enum2 = CreateNestedEnumDecl("ErrorType", container2, moduleDecl, isFrozen: true);
+        enum2.RawValueTypeName = "String";
+        enum2.Cases.Add(CreateCase("failed"));
+        enum2.Methods.Add(CreateStringRawValueInitializer(enum2, moduleDecl));
+        container2.Types.Add(enum2);
+
+        // Reset shared state and emit both enums
+        EnumHandler.ResetUtf8SliceTracking();
+        var (_, swiftOutput1) = EmitEnum(enum1, typeDatabase);
+        var (_, swiftOutput2) = EmitEnum(enum2, typeDatabase);
+
+        // Verify distinct wrapper symbols
+        Assert.Contains("SBW_TestModule_Container1_ErrorType_InitWithRawValue", swiftOutput1);
+        Assert.Contains("SBW_TestModule_Container2_ErrorType_InitWithRawValue", swiftOutput2);
+
+        // Verify they are different
+        Assert.DoesNotContain("SBW_TestModule_Container2_ErrorType_InitWithRawValue", swiftOutput1);
+        Assert.DoesNotContain("SBW_TestModule_Container1_ErrorType_InitWithRawValue", swiftOutput2);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithString()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        return typeDatabase;
+    }
+
+    private static StructDecl CreateStructDecl(string name, ModuleDecl moduleDecl)
+    {
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10{moduleDecl.Name}{name.Length}{name}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10{moduleDecl.Name}{name.Length}{name}VMa"
+        };
+    }
+
+    private static EnumDecl CreateNestedEnumDecl(string name, StructDecl container, ModuleDecl moduleDecl, bool isFrozen)
+    {
+        return new EnumDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{container.Name}.{name}"),
+            MangledName = $"$s10{moduleDecl.Name}{container.Name.Length}{container.Name}{name.Length}{name}ON",
+            Cases = new List<EnumCaseDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = container,
+            ModuleDecl = moduleDecl,
+            IsFrozen = isFrozen,
+            MetadataAccessor = $"$s10{moduleDecl.Name}{container.Name.Length}{container.Name}{name.Length}{name}OMa"
+        };
+    }
+
+    private static MethodDecl CreateStringRawValueInitializer(EnumDecl enumDecl, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s{enumDecl.MangledName}8rawValueACSgSS_tcfC",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec(enumDecl.SwiftTypeName.ModuleQualifiedName),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    Name = "rawValue",
+                    PrivateName = "rawValue",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
     private static (string csOutput, string swiftOutput) EmitEnum(EnumDecl enumDecl, TypeDatabase typeDatabase)
     {
         var csOutput = new StringWriter();

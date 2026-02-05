@@ -111,7 +111,6 @@ public class WitnessDispatchEmitter
         var methodIndices = new Dictionary<string, int>();
 
         bool anyEmitted = false;
-        bool utf8SliceEmitted = false;
 
         // Property getters (skip static properties - not part of witness table)
         foreach (var property in protocolDecl.Properties)
@@ -126,10 +125,9 @@ public class WitnessDispatchEmitter
                     writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
                     anyEmitted = true;
                 }
-                if (!utf8SliceEmitted && NeedsUtf8Slice(protocolDecl))
+                if (NeedsUtf8Slice(protocolDecl))
                 {
-                    EmitUtf8SliceStruct(writer);
-                    utf8SliceEmitted = true;
+                    Utf8SliceEmitter.EmitIfNeeded(writer);
                 }
                 EmitPropertyGetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
             }
@@ -148,10 +146,9 @@ public class WitnessDispatchEmitter
                     writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
                     anyEmitted = true;
                 }
-                if (!utf8SliceEmitted && NeedsUtf8Slice(protocolDecl))
+                if (NeedsUtf8Slice(protocolDecl))
                 {
-                    EmitUtf8SliceStruct(writer);
-                    utf8SliceEmitted = true;
+                    Utf8SliceEmitter.EmitIfNeeded(writer);
                 }
                 EmitPropertySetterAccessor(writer, property, protocolDecl, moduleQualifiedName);
             }
@@ -177,10 +174,9 @@ public class WitnessDispatchEmitter
                     writer.WriteLine($"// Witness dispatch accessors for {protocolName}");
                     anyEmitted = true;
                 }
-                if (!utf8SliceEmitted && NeedsUtf8Slice(protocolDecl))
+                if (NeedsUtf8Slice(protocolDecl))
                 {
-                    EmitUtf8SliceStruct(writer);
-                    utf8SliceEmitted = true;
+                    Utf8SliceEmitter.EmitIfNeeded(writer);
                 }
                 EmitMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
@@ -348,22 +344,6 @@ public class WitnessDispatchEmitter
             }
         }
         return false;
-    }
-
-    /// <summary>
-    /// Emits the @frozen SBW_Utf8Slice struct used to transfer UTF-8 string data
-    /// across the Swift/C# boundary.
-    /// </summary>
-    private static void EmitUtf8SliceStruct(SwiftWriter writer)
-    {
-        writer.WriteLines("""
-            @frozen
-            public struct SBW_Utf8Slice {
-                public var ptr: UnsafeMutablePointer<UInt8>
-                public var len: Int
-            }
-
-            """);
     }
 
     private bool IsTypeBlittable(TypeSpec? typeSpec)

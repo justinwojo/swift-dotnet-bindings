@@ -70,6 +70,9 @@ namespace BindingsGeneration
             var moduleEnv = (ModuleEnvironment)env;
             var moduleDecl = moduleEnv.ModuleDecl;
 
+            // Reset per-module state for shared emitters
+            EnumHandler.ResetUtf8SliceTracking();
+
             // Emit Swift imports at the top of the Swift wrapper file
             EmitSwiftImports(swiftWriter, moduleDecl);
 

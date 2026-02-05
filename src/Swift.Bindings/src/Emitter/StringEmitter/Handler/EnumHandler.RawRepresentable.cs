@@ -9,13 +9,29 @@ namespace BindingsGeneration
     public partial class EnumHandler
     {
         /// <summary>
+        /// Tracks which Swift wrapper symbols have been emitted to avoid duplicates.
+        /// This is needed because nested enums may be processed multiple times.
+        /// </summary>
+        private static readonly HashSet<string> _emittedWrapperSymbols = new();
+
+        /// <summary>
+        /// Resets the UTF-8 slice emission tracking. Call at the start of each module.
+        /// </summary>
+        public static void ResetUtf8SliceTracking()
+        {
+            Utf8SliceEmitter.ResetForModule();
+            _emittedWrapperSymbols.Clear();
+        }
+
+        /// <summary>
         /// Emits RawRepresentable support for enums with simple cases.
         /// This includes a FromRawValue method and static properties for each case.
         /// </summary>
-        private void EmitRawRepresentableSupport(CSharpWriter csWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext)
+        private void EmitRawRepresentableSupport(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext)
         {
             var rawTypeName = enumDecl.RawValueTypeName!;
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+            var isStringRawType = rawTypeName == "String";
 
             // Map Swift raw type to C# type
             var csharpRawType = rawTypeName switch
@@ -51,6 +67,18 @@ namespace BindingsGeneration
                 return;
             }
 
+            // For String raw types, emit Swift wrapper and C# marshalling infrastructure
+            string? wrapperSymbol = null;
+            if (isStringRawType)
+            {
+                // Use full module-qualified name to avoid collisions for same-named nested enums
+                // e.g., BlinkID.Foo.ErrorType and BlinkID.Bar.ErrorType get unique symbols
+                var sanitizedName = enumDecl.SwiftTypeName.ModuleQualifiedName.Replace(".", "_");
+                wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
+                EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol);
+                EmitUtf8SliceStruct(csWriter);
+            }
+
             // Emit FromRawValue method - different implementations for frozen vs non-frozen enums
             // Frozen enums can return directly, non-frozen enums require indirect return via SwiftOptional
             if (enumDecl.IsFrozen)
@@ -60,46 +88,83 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"/// Creates a {enumTypeName} from its raw value.");
                 csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
                 csWriter.WriteLine("/// </summary>");
-                csWriter.WriteLine($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                var rawInitCall = pinvokeHelperContext != null
-                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue(rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
-                    : "PInvoke_InitWithRawValue(rawValue)";
-                csWriter.WriteLine($"IntPtr resultPtr = {rawInitCall};");
-                csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                csWriter.WriteLine("return null;");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
-                csWriter.WriteLine($"var result = new {enumTypeName}();");
-                csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(resultPtr);");
-                csWriter.WriteLine("return result;");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
-                csWriter.WriteLine();
 
-                // Emit P/Invoke for init(rawValue:) - frozen version returns IntPtr directly
-                if (pinvokeHelperContext != null)
+                if (isStringRawType)
                 {
-                    pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
-                    {
-                        LibraryPath = libPath,
-                        EntryPoint = initRawValueMethod.MangledName,
-                        MethodName = "PInvoke_InitWithRawValue",
-                        ReturnType = "IntPtr",
-                        ParametersString = $"{csharpRawType} rawValue",
-                        IsAsync = false,
-                        MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
-                    });
+                    // String raw type: use UTF-8 marshalling via wrapper
+                    csWriter.WriteLine($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);");
+                    csWriter.WriteLine("fixed (byte* utf8Ptr = utf8Bytes)");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };");
+                    csWriter.WriteLine("IntPtr resultPtr = PInvoke_InitWithRawValue_Wrapper((IntPtr)(&slice));");
+                    csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("return null;");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.WriteLine($"var result = new {enumTypeName}();");
+                    csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(resultPtr);");
+                    csWriter.WriteLine("return result;");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.WriteLine();
+
+                    // P/Invoke for the Swift wrapper (not the original init)
+                    csWriter.WriteLine($"[DllImport(\"SwiftBindings\", EntryPoint = \"{wrapperSymbol}\")]");
+                    csWriter.WriteLine("private static extern IntPtr PInvoke_InitWithRawValue_Wrapper(IntPtr slicePtr);");
+                    csWriter.WriteLine();
                 }
                 else
                 {
-                    csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
-                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                    csWriter.WriteLine($"private static extern IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
+                    // Blittable raw type: direct P/Invoke
+                    csWriter.WriteLine($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    var rawInitCall = pinvokeHelperContext != null
+                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue(rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                        : "PInvoke_InitWithRawValue(rawValue)";
+                    csWriter.WriteLine($"IntPtr resultPtr = {rawInitCall};");
+                    csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("return null;");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.WriteLine($"var result = new {enumTypeName}();");
+                    csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(resultPtr);");
+                    csWriter.WriteLine("return result;");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
                     csWriter.WriteLine();
+
+                    // Emit P/Invoke for init(rawValue:) - frozen version returns IntPtr directly
+                    if (pinvokeHelperContext != null)
+                    {
+                        pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                        {
+                            LibraryPath = libPath,
+                            EntryPoint = initRawValueMethod.MangledName,
+                            MethodName = "PInvoke_InitWithRawValue",
+                            ReturnType = "IntPtr",
+                            ParametersString = $"{csharpRawType} rawValue",
+                            IsAsync = false,
+                            MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                        });
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+                        csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
+                        csWriter.WriteLine($"private static extern IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
+                        csWriter.WriteLine();
+                    }
                 }
             }
             else
@@ -138,13 +203,31 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
-                // Call P/Invoke with indirect result
+                // Call P/Invoke with indirect result - different for String vs blittable
                 csWriter.WriteLine("// Call the failable initializer with indirect result");
-                csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
-                var rawInitIndirectCall = pinvokeHelperContext != null
-                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue(swiftIndirectResult, rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
-                    : "PInvoke_InitWithRawValue(swiftIndirectResult, rawValue)";
-                csWriter.WriteLine($"{rawInitIndirectCall};");
+
+                if (isStringRawType)
+                {
+                    // String raw type: encode to UTF-8 and use wrapper
+                    csWriter.WriteLine("var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);");
+                    csWriter.WriteLine("fixed (byte* utf8Ptr = utf8Bytes)");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };");
+                    csWriter.WriteLine("PInvoke_InitWithRawValue_Wrapper((IntPtr)resultBuffer, (IntPtr)(&slice));");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+                else
+                {
+                    // Blittable raw type: direct P/Invoke
+                    csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
+                    var rawInitIndirectCall = pinvokeHelperContext != null
+                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue(swiftIndirectResult, rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                        : "PInvoke_InitWithRawValue(swiftIndirectResult, rawValue)";
+                    csWriter.WriteLine($"{rawInitIndirectCall};");
+                }
+
                 csWriter.WriteLine();
 
                 // Check if Some or None via enum tag
@@ -184,8 +267,15 @@ namespace BindingsGeneration
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
 
-                // Emit P/Invoke for init(rawValue:) - non-frozen version uses indirect result
-                if (pinvokeHelperContext != null)
+                // Emit P/Invoke for init(rawValue:)
+                if (isStringRawType)
+                {
+                    // String raw type: P/Invoke for the Swift wrapper
+                    csWriter.WriteLine($"[DllImport(\"SwiftBindings\", EntryPoint = \"{wrapperSymbol}\")]");
+                    csWriter.WriteLine("private static extern void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);");
+                    csWriter.WriteLine();
+                }
+                else if (pinvokeHelperContext != null)
                 {
                     pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
                     {
@@ -274,6 +364,94 @@ namespace BindingsGeneration
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
             }
+        }
+
+        /// <summary>
+        /// Emits the Swift wrapper function for String-based enum init(rawValue:).
+        /// The wrapper accepts SBW_Utf8Slice, decodes to String, and calls the real init.
+        /// </summary>
+        private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol)
+        {
+            // Skip if this wrapper has already been emitted (nested enums may be processed multiple times)
+            if (!_emittedWrapperSymbols.Add(wrapperSymbol))
+            {
+                return;
+            }
+
+            // Use the full module-qualified name for nested enums (e.g., BlinkID.SomeClass.ErrorType)
+            var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+
+            // Emit SBW_Utf8Slice struct if not already done for this module
+            Utf8SliceEmitter.EmitIfNeeded(swiftWriter);
+
+            // Determine if enum is frozen (affects return style)
+            if (enumDecl.IsFrozen)
+            {
+                // Frozen enum: return Optional pointer directly
+                // Returns nil (NULL) if rawValue is invalid
+                swiftWriter.WriteLines($$"""
+                    @_silgen_name("{{wrapperSymbol}}")
+                    public func {{wrapperSymbol}}(_ slicePtr: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
+                        let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+                        let str: String
+                        if slice.len > 0 {
+                            str = String(unsafeUninitializedCapacity: slice.len) { buf in
+                                UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+                                return slice.len
+                            }
+                        } else {
+                            str = ""
+                        }
+                        guard let result = {{enumFullName}}(rawValue: str) else {
+                            return nil
+                        }
+                        let ptr = UnsafeMutablePointer<{{enumFullName}}>.allocate(capacity: 1)
+                        ptr.initialize(to: result)
+                        return UnsafeMutableRawPointer(ptr)
+                    }
+
+                    """);
+            }
+            else
+            {
+                // Non-frozen enum: write result to indirect return buffer
+                // The caller provides the buffer for Optional<EnumType>
+                swiftWriter.WriteLines($$"""
+                    @_silgen_name("{{wrapperSymbol}}")
+                    public func {{wrapperSymbol}}(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+                        let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+                        let str: String
+                        if slice.len > 0 {
+                            str = String(unsafeUninitializedCapacity: slice.len) { buf in
+                                UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+                                return slice.len
+                            }
+                        } else {
+                            str = ""
+                        }
+                        let result: {{enumFullName}}? = {{enumFullName}}(rawValue: str)
+                        resultPtr.storeBytes(of: result, as: {{enumFullName}}?.self)
+                    }
+
+                    """);
+            }
+        }
+
+        /// <summary>
+        /// Emits the C# Utf8Slice struct used for UTF-8 string marshalling.
+        /// This is emitted inside the enum class.
+        /// </summary>
+        private static void EmitUtf8SliceStruct(CSharpWriter csWriter)
+        {
+            csWriter.WriteLines("""
+                [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+                private struct Utf8Slice
+                {
+                    public IntPtr Ptr;
+                    public nint Len;
+                }
+
+                """);
         }
     }
 }

@@ -3,7 +3,7 @@
 Consolidated backlog of generator gaps, runtime issues, and infrastructure work. Ordered by priority.
 
 **Date**: February 2026
-**Current**: Phase 54 complete, 1238 unit tests, 93/93 must-pass features
+**Current**: Phase 55 complete, 1239 unit tests, 93/93 must-pass features
 **Completed items**: See `CompletedPhases/completed-backlog-items.md`
 
 ---
@@ -50,14 +50,31 @@ After Phase 54 fixed the static/instance mismatch issue (BlinkID now compiles cl
 - **CS0738**: "does not have matching return type" — return type mismatch between interface and implementation
 - **CS0111**: "already defines a member" — duplicate P/Invoke declarations in proxy classes
 
-**Root cause**: The interface declares instance members from the protocol, but the conforming type either:
-1. Doesn't emit those members (skipped due to unsupported signature)
-2. Emits members with different types than the interface expects
+**Root cause analysis** (February 2026):
 
-**Potential fixes**:
-1. Skip conformance emission when required interface members can't be implemented
-2. Track which interface members are emitted and only add conformance if all are present
-3. Fix the duplicate P/Invoke emission in proxy classes
+The errors fall into two distinct categories:
+
+1. **CS0535 (missing members)**: Types like `ImageDecoders.Empty` emit `: ISwiftImageDecoding` in their class declaration, but required interface members (`Decode(Data)`, `DecodePartiallyDownloadedData(Data)`) were skipped during emission due to unsupported signatures. The conformance is added by `ProtocolConformanceHelper.GetImplementedInterfaces()` without checking whether all protocol members were actually emitted.
+
+2. **CS0111 (duplicate P/Invoke)**: The proxy emitter generates duplicate `SBW_ImageDecoding_get_isAsynchronous_0` declarations. This appears to be a separate bug where the same property is encountered multiple times during proxy emission.
+
+**Example from Nuke build output**:
+```
+ImageDecoders.Empty does not implement interface member 'ISwiftImageDecoding.Decode(Data)'
+ImageDecodingProxy.NativeMethods already defines 'SBW_ImageDecoding_get_isAsynchronous_0'
+```
+
+**Implementation approach**:
+
+1. **For CS0535**: Modify `ProtocolConformanceHelper.GetImplementedInterfaces()` to accept a set of skipped member names per type. Before adding a protocol interface, verify all required protocol members were emitted (not in the skipped set). This requires:
+   - Passing binding report / skip info into the conformance helper
+   - Or: tracking emitted vs. skipped members during type emission and checking at conformance time
+
+2. **For CS0111**: Add deduplication in `ProtocolProxyEmitter.EmitWitnessDispatchPInvokes()` to track already-emitted P/Invoke symbols and skip duplicates.
+
+**Key files**:
+- `ProtocolConformanceHelper` in `TypeHandlerHelpers.cs:480-601`
+- `ProtocolProxyEmitter.cs` for duplicate P/Invoke fix
 
 **Acceptance criteria**:
 - [ ] Nuke compiles without manual intervention
@@ -70,6 +87,8 @@ After Phase 54 fixed the static/instance mismatch issue (BlinkID now compiles cl
 
 **Priority**: P1
 **Area**: Generator
+**Status**: ✅ **Implementation complete** (Phase 55) — runtime validation blocked by separate async issue
+
 **Impact**: 3 remaining BlinkID test failures (15/18 → 18/18)
 
 The 3 failing BlinkID tests are all String-based enum raw value accessors:
@@ -79,12 +98,32 @@ The 3 failing BlinkID tests are all String-based enum raw value accessors:
 
 Error: `Passing non-blittable types to a P/Invoke with the Swift calling convention is unsupported.`
 
-**Solution**: Apply the `SBW_Utf8Slice` pattern from Phase 53 (witness dispatch) to enum raw value accessors. The pattern is proven — it just needs to be extended to the enum handler.
+**Solution**: Applied the `SBW_Utf8Slice` pattern from Phase 53 (witness dispatch) to enum raw value accessors.
+
+**Implementation (Phase 55)**:
+- `EnumHandler.RawRepresentable.cs` — String raw types now use UTF-8 marshalling via `Utf8Slice` struct
+- `Utf8SliceEmitter.cs` — Shared emitter ensures `SBW_Utf8Slice` struct emitted once per module
+- Swift wrapper functions: `SBW_{Module}_{Container}_{Enum}_InitWithRawValue` decode UTF-8 → String → call init(rawValue:)
+- Module-qualified wrapper symbols prevent collisions for same-named nested enums (e.g., `Container1.ErrorType` vs `Container2.ErrorType`)
+- C# marshalling: `System.Text.Encoding.UTF8.GetBytes` → pinned buffer → P/Invoke wrapper
+
+**Code generation verified**:
+- ✅ Swift wrappers correctly generated for Country, Region, DetectionStatus, etc.
+- ✅ C# Utf8Slice struct and marshalling code generated in each String raw type enum
+- ✅ No duplicate SBW_Utf8Slice definitions (shared emitter works)
+- ✅ All 1239 unit tests pass (includes regression test for nested enum symbol collisions)
+
+**Runtime validation blocked**: BlinkID Swift wrapper compilation fails due to **pre-existing** async callback errors (unrelated to enum changes):
+```
+'(BlinkIDSession, Int64) -> Void' is not representable in Objective-C
+@escaping attribute only applies to function types
+```
+These errors occur in `PingManager` and `BlinkIDSdk` async methods — a separate issue requiring async wrapper generator fixes.
 
 **Acceptance criteria**:
-- [ ] BlinkID: 18/18 runtime tests pass
-- [ ] String-based enum raw values use `SBW_Utf8Slice` bridge
-- [ ] No regression in other bindings
+- [x] String-based enum raw values use `SBW_Utf8Slice` bridge
+- [x] No regression in other bindings (1238/1238 tests pass)
+- [ ] BlinkID: 18/18 runtime tests pass *(blocked by async issue)*
 
 ---
 

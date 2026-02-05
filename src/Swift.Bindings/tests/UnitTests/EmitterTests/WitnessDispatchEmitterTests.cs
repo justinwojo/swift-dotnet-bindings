@@ -687,6 +687,9 @@ public class WitnessDispatchEmitterTests
 
     private string EmitDispatch(ProtocolDecl protocolDecl)
     {
+        // Reset shared state before each emission to ensure test isolation
+        Utf8SliceEmitter.ResetForModule();
+
         var stringWriter = new StringWriter();
         var writer = new SwiftWriter(stringWriter);
         _emitter.EmitWitnessDispatchFunctions(writer, protocolDecl);

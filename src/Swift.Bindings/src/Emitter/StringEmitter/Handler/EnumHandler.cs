@@ -147,7 +147,7 @@ namespace BindingsGeneration
             {
                 if (enumDecl.IsRawRepresentable)
                 {
-                    EmitRawRepresentableSupport(csWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext);
+                    EmitRawRepresentableSupport(csWriter, swiftWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext);
                 }
                 else
                 {
