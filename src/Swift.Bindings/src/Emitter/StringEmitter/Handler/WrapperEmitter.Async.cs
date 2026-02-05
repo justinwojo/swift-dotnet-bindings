@@ -1279,10 +1279,14 @@ namespace BindingsGeneration
                 """
                 : "";
 
-            // For class types, Swift also retained the object, so we need to release after marshalling
-            // The release happens on the raw pointer value read from the allocated memory
-            var releaseCode = isClassType
-                ? "\n\n                            // Release the retain added by Swift (class was retained before passing through callback)\n                            Arc.Release(resultPtr);"
+            // For class types, Swift retained the object before passing through callback.
+            // We must read the object pointer from the buffer (resultPtr points to buffer containing the pointer)
+            // and release it in finally to avoid leaking the retain even if marshalling throws.
+            var readObjPtrCode = isClassType
+                ? "\n                            // Read object pointer from buffer (for class types, buffer contains the object reference)\n                            IntPtr _retainedObjPtr = *(IntPtr*)resultPtr;"
+                : "";
+            var releaseObjCode = isClassType
+                ? "\n                                // Release the retain added by Swift (must use dereferenced object pointer, not buffer pointer)\n                                Arc.Release(_retainedObjPtr);"
                 : "";
 
             var text = $$"""
@@ -1290,11 +1294,11 @@ namespace BindingsGeneration
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
                         private static void {{callbackMethodName}}(IntPtr resultPtr, IntPtr task)
                         {
-                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            GCHandle handle = GCHandle.FromIntPtr(task);{{readObjPtrCode}}
                             try
                             {
                                 // Read result from pointer (Swift allocated memory and stored the value)
-                                var result = SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(resultPtr);{{releaseCode}}
+                                var result = SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(resultPtr);
 
                                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
@@ -1324,7 +1328,7 @@ namespace BindingsGeneration
                                 }
                             }
                             finally
-                            {
+                            {{{releaseObjCode}}
                                 // Free Swift-allocated memory
                                 SBW_Free(resultPtr);
                                 handle.Free();

@@ -81,6 +81,8 @@ callback(_resultPtr, task)
 
 ### 4. C# Callback Handling
 
+**Important**: For classes, `resultPtr` points to a buffer containing the object reference, not the object itself. We must dereference to get the actual object pointer for `Arc.Release`.
+
 ```csharp
 [DllImport("<wrapper-lib>", EntryPoint = "SBW_Free_<ModuleName>")]
 private static extern void SBW_Free(IntPtr ptr);
@@ -91,19 +93,22 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> _callback
 private static void CallbackMethod(IntPtr resultPtr, IntPtr task)
 {
     GCHandle handle = GCHandle.FromIntPtr(task);
+    // For classes: read the object pointer from the buffer BEFORE we free it
+    IntPtr _retainedObjPtr = *(IntPtr*)resultPtr;
     try
     {
         // Read result from pointer
         var result = SwiftMarshal.MarshalFromSwift<ResultType>(resultPtr);
-
-        // For classes: release the retain added by Swift
-        Arc.Release(resultPtr);
 
         // Complete TaskCompletionSource (existing logic)
         // ...
     }
     finally
     {
+        // For classes: release the retain added by Swift
+        // CRITICAL: Use dereferenced object pointer, not the buffer pointer!
+        Arc.Release(_retainedObjPtr);
+
         // Free Swift-allocated memory
         SBW_Free(resultPtr);
         handle.Free();
@@ -123,9 +128,15 @@ _ = Unmanaged.passRetained(result as AnyObject)
 
 **C# side:**
 ```csharp
-// Release the extra retain after marshalling
-Arc.Release(resultPtr);
+// CRITICAL: resultPtr is a pointer to the buffer, not the object!
+// The buffer contains the object pointer - we must dereference to get it.
+IntPtr objPtr = *(IntPtr*)resultPtr;
+
+// Release the extra retain after marshalling (in finally block)
+Arc.Release(objPtr);
 ```
+
+**Why dereference is required**: Swift stores the class instance in allocated memory via `storeBytes(of:as:)`. For a class, the "value" stored is the object reference (a pointer). So `resultPtr` points to a buffer containing a pointer, not directly to the object. Calling `Arc.Release(resultPtr)` would try to release the buffer address, causing undefined behavior or crashes.
 
 For value types (enums, structs), no ARC handling is needed - the bytes are simply copied.
 
