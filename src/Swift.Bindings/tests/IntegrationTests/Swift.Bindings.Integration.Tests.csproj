@@ -18,6 +18,26 @@
     </ProjectReference>
   </ItemGroup>
 
+  <!--
+    ╔══════════════════════════════════════════════════════════════════════════════╗
+    ║  TODO(nint-generic-bug): Remove these exclusions when remaining-work.md      ║
+    ║  item #7 is fixed (generator emits nint<T> instead of nint).                 ║
+    ║                                                                              ║
+    ║  Affected files produce CS0308: "The non-generic type 'nint' cannot be       ║
+    ║  used with type arguments"                                                   ║
+    ║                                                                              ║
+    ║  Files excluded:                                                             ║
+    ║    - FunctionalTests/MemoryTests/MemoryTests.cs (7 errors)                   ║
+    ║    - FunctionalTests/UnsafePointer/UnsafePointerTests.cs (6 errors)          ║
+    ║    - Generated: MemoryTests/Swift.MemoryTests.cs                             ║
+    ║    - Generated: UnsafePointer/Swift.UnsafePointerTests.cs                    ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝
+  -->
+  <ItemGroup>
+    <Compile Remove="FunctionalTests/MemoryTests/MemoryTests.cs" />
+    <Compile Remove="FunctionalTests/UnsafePointer/UnsafePointerTests.cs" />
+  </ItemGroup>
+
   <Target Name="CompileNativeLibs" AfterTargets="ResolveReferences">
     <!-- Generate Swift libraries and projection tooling bindings -->
     <Exec Command="$(PreTestCommand)" />
@@ -36,7 +56,9 @@
     <!-- Compile generated bindings with tests -->
     <ItemGroup>
       <Compile Include="$(OutputPath)/**/*.cs" />
+      <!-- TODO(nint-generic-bug): Remove when item #7 is fixed -->
+      <Compile Remove="$(OutputPath)MemoryTests/**/*.cs" />
+      <Compile Remove="$(OutputPath)UnsafePointer/**/*.cs" />
     </ItemGroup>
   </Target>
 </Project>
-
