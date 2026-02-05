@@ -64,6 +64,15 @@ else
         echo "ERROR: Bindings not found. Run without --skip-regen first."
         exit 1
     fi
+    # Check that bindings are not older than Swift sources
+    BINDINGS_FILE="output/Swift.SwiftBindingsTestLib.cs"
+    NEWEST_SWIFT=$(find Sources/SwiftBindingsTestLib -name '*.swift' -newer "$BINDINGS_FILE" 2>/dev/null | head -1)
+    if [ -n "$NEWEST_SWIFT" ]; then
+        echo "ERROR: Bindings are stale. Swift source newer than bindings:"
+        echo "  $NEWEST_SWIFT"
+        echo "Run without --skip-regen to regenerate."
+        exit 1
+    fi
     echo ""
 fi
 
@@ -115,8 +124,15 @@ APP_PATH="RuntimeTestsApp/bin/Debug/net10.0-ios/iossimulator-arm64/RuntimeTestsA
 echo "Installing app..."
 xcrun simctl install "$SIMULATOR_ID" "$APP_PATH"
 
+# Build launch arguments
+LAUNCH_ARGS="--tier $TIER"
+if [ "$TIER" -ge 3 ]; then
+    LAUNCH_ARGS="$LAUNCH_ARGS --flake-detect"
+    echo "Flake detection enabled (Tier 3): each test runs 3x"
+fi
+
 echo "Launching app..."
-xcrun simctl launch --console-pty "$SIMULATOR_ID" com.swiftbindings.runtimetestsapp --tier "$TIER" &
+xcrun simctl launch --console-pty "$SIMULATOR_ID" com.swiftbindings.runtimetestsapp $LAUNCH_ARGS &
 LAUNCH_PID=$!
 
 # Monitor for test completion

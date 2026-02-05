@@ -271,6 +271,7 @@ Most are library-specific provider/delegate protocols. Addressing these would re
 After completing any generator task:
 
 ```bash
+# Layer 1: Generator coverage
 cd TestFramework
 ./build-and-test.sh
 ./generate-coverage-report.sh
@@ -285,7 +286,12 @@ for f in d['features']:
     if f.get('test_status') == 'degraded':
         print(f'  {f[\"name\"]}: {len(f.get(\"binding_skips\",[]))} skips')
 "
+
+# Layer 2: Runtime ABI/marshalling tests
+./run-runtime-tests.sh --tier 2
 ```
+
+Layer 2 runtime tests validate that generated bindings actually work at runtime (marshalling round-trips, SafeHandle lifecycle, memory management). Use `--tier 2` for merge-gate validation, `--tier 3` for nightly runs with flake detection. See `TestFramework/README.md` for details.
 
 After completing any real-world binding task, regenerate and compare:
 

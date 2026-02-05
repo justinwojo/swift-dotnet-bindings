@@ -1,6 +1,6 @@
 # TestFramework Enhancement Plan
 
-**Status**: Phase A Complete, Phase B Complete, Phase C In Progress
+**Status**: Phase A Complete, Phase B Complete, Phase C Complete
 **Date**: February 2026
 **Context**: Phases 55-61 fixed bugs that TestFramework didn't catch
 
@@ -313,10 +313,10 @@ Assert.AreEqual(input, result);
   - Tier argument passed through to app via `--tier N` CLI arg (app reads on startup)
 - [x] Assign tests to tiers with `[TestTier(TestTier.TierN)]` attributes (method- and class-level)
 - [x] Discovery-based test execution (new `TestBase` subclasses auto-discovered, no manual wiring)
-- [ ] Document Layer 1 vs Layer 2 in TestFramework README
-- [ ] Document toolchain requirements (Xcode, Swift, .NET versions)
-- [ ] Add flake detection: Tier 3 runs each test 3x, any inconsistency fails the suite
-- [ ] Add to `remaining-work.md` verification steps
+- [x] Document Layer 1 vs Layer 2 in TestFramework README
+- [x] Document toolchain requirements (Xcode, Swift, .NET versions)
+- [x] Add flake detection: Tier 3 runs each test 3x, any inconsistency fails the suite
+- [x] Add to `remaining-work.md` verification steps
 - [ ] Consider golden API snapshot tooling (deferred)
 
 ---

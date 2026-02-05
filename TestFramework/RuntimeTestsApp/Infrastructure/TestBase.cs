@@ -23,8 +23,9 @@ public abstract class TestBase
 
     /// <summary>
     /// Runs all test methods in this class that match the specified tier.
+    /// When flakeDetect is true, each test runs 3 times and inconsistent results fail the suite.
     /// </summary>
-    public async Task RunAllTestsAsync(TestTier maxTier = TestTier.Tier3)
+    public async Task RunAllTestsAsync(TestTier maxTier = TestTier.Tier3, bool flakeDetect = false)
     {
         // Class-level tier serves as default for methods without their own attribute
         var classTierAttr = GetType().GetCustomAttribute<TestTierAttribute>();
@@ -47,7 +48,14 @@ public abstract class TestBase
                 continue;
             }
 
-            await RunTestMethodAsync(method);
+            if (flakeDetect)
+            {
+                await RunTestWithFlakeDetectionAsync(method);
+            }
+            else
+            {
+                await RunTestMethodAsync(method);
+            }
         }
     }
 
@@ -78,6 +86,71 @@ public abstract class TestBase
             stopwatch.Stop();
             TestLogger.Exception(ex, testName);
             Results.Fail(testName, ex.Message, stopwatch.Elapsed);
+        }
+    }
+
+    /// <summary>
+    /// Runs a test method 3 times for flake detection. If results are inconsistent
+    /// (some runs pass, some fail), the test is reported as FLAKY and fails the suite.
+    /// </summary>
+    private async Task RunTestWithFlakeDetectionAsync(MethodInfo method)
+    {
+        const int runs = 3;
+        var testName = $"{TestClassName}.{method.Name}";
+        var passCount = 0;
+        var failCount = 0;
+        string? lastError = null;
+        var totalElapsed = TimeSpan.Zero;
+
+        TestLogger.Test($"--- {testName} (flake detect: {runs}x) ---");
+
+        for (int i = 0; i < runs; i++)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                var result = method.Invoke(this, null);
+                if (result is Task task)
+                {
+                    await task;
+                }
+                stopwatch.Stop();
+                totalElapsed += stopwatch.Elapsed;
+                passCount++;
+                TestLogger.Debug($"  Run {i + 1}/{runs}: PASS ({stopwatch.Elapsed.TotalMilliseconds:F0}ms)");
+            }
+            catch (TargetInvocationException tie) when (tie.InnerException != null)
+            {
+                stopwatch.Stop();
+                totalElapsed += stopwatch.Elapsed;
+                failCount++;
+                lastError = tie.InnerException.Message;
+                TestLogger.Debug($"  Run {i + 1}/{runs}: FAIL ({stopwatch.Elapsed.TotalMilliseconds:F0}ms) - {lastError}");
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                totalElapsed += stopwatch.Elapsed;
+                failCount++;
+                lastError = ex.Message;
+                TestLogger.Debug($"  Run {i + 1}/{runs}: FAIL ({stopwatch.Elapsed.TotalMilliseconds:F0}ms) - {lastError}");
+            }
+        }
+
+        if (passCount == runs)
+        {
+            // All runs passed — stable pass
+            Results.Pass(testName, totalElapsed);
+        }
+        else if (failCount == runs)
+        {
+            // All runs failed — stable failure
+            Results.Fail(testName, lastError ?? "Unknown error", totalElapsed);
+        }
+        else
+        {
+            // Inconsistent results — flaky test
+            Results.Fail(testName, $"FLAKY: passed {passCount}/{runs}, failed {failCount}/{runs} - {lastError}", totalElapsed);
         }
     }
 

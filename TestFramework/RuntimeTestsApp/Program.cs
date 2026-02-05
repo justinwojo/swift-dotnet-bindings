@@ -19,15 +19,25 @@ public class Application
     /// </summary>
     internal static TestTier? TierOverride { get; private set; }
 
+    /// <summary>
+    /// When true, each test runs 3 times and inconsistent results (flaky tests) fail the suite.
+    /// Enabled via --flake-detect CLI arg, automatically set for Tier 3.
+    /// </summary>
+    internal static bool FlakeDetect { get; private set; }
+
     static void Main(string[] args)
     {
-        // Parse --tier argument before UI launch
-        for (int i = 0; i < args.Length - 1; i++)
+        // Parse --tier and --flake-detect arguments before UI launch
+        for (int i = 0; i < args.Length; i++)
         {
-            if (args[i] == "--tier" && int.TryParse(args[i + 1], out var tier) && tier >= 1 && tier <= 3)
+            if (args[i] == "--tier" && i + 1 < args.Length && int.TryParse(args[i + 1], out var tier) && tier >= 1 && tier <= 3)
             {
                 TierOverride = (TestTier)tier;
-                break;
+                i++;
+            }
+            else if (args[i] == "--flake-detect")
+            {
+                FlakeDetect = true;
             }
         }
 
@@ -217,9 +227,16 @@ public class MainViewController : UIViewController
                 .OrderBy(t => t.Name)
                 .ToList();
 
+            // Flake detection: enabled via CLI --flake-detect, or automatically for Tier 3
+            var flakeDetect = Application.FlakeDetect || maxTier >= TestTier.Tier3;
+            if (flakeDetect)
+            {
+                TestLogger.Info("Flake detection ENABLED: each test runs 3x");
+            }
+
             foreach (var testClass in testClasses)
             {
-                await RunTestClassAsync(testClass, results, maxTier);
+                await RunTestClassAsync(testClass, results, maxTier, flakeDetect);
             }
         }
         catch (Exception ex)
@@ -252,7 +269,7 @@ public class MainViewController : UIViewController
         UpdateResultLabel(TestLogger.GetFullLog());
     }
 
-    private async Task RunTestClassAsync(Type testClassType, TestResults results, TestTier maxTier)
+    private async Task RunTestClassAsync(Type testClassType, TestResults results, TestTier maxTier, bool flakeDetect = false)
     {
         TestLogger.Info("");
         TestLogger.Info($"=== {testClassType.Name} ===");
@@ -260,7 +277,7 @@ public class MainViewController : UIViewController
         try
         {
             var testClass = (TestBase)Activator.CreateInstance(testClassType, results)!;
-            await testClass.RunAllTestsAsync(maxTier);
+            await testClass.RunAllTestsAsync(maxTier, flakeDetect);
         }
         catch (Exception ex)
         {
