@@ -97,7 +97,9 @@ public static class GenericTypeEmitter
         if (constraints.Count == 0)
             return string.Empty;
 
-        return $"where {string.Join(", ", constraints)}";
+        // Each type parameter needs its own 'where' clause in C#
+        // e.g., "where T0 : ISwiftObject where T1 : ISwiftObject"
+        return string.Join(" ", constraints.Select(c => $"where {c}"));
     }
 
     /// <summary>

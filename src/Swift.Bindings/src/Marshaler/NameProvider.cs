@@ -225,7 +225,10 @@ public static class NameProvider
         if (PropertyNameMappings.TryGetValue(swiftPropertyName, out var mappedName))
             return mappedName;
 
-        var pascalName = ToPascalCase(swiftPropertyName);
+        // Sanitize property wrapper projected values (e.g., $volume -> ProjectedVolume)
+        var sanitizedName = SanitizePropertyWrapperName(swiftPropertyName);
+
+        var pascalName = ToPascalCase(sanitizedName);
 
         // Check for collision with containing type name (CS0542: member names cannot be same as enclosing type)
         // Example: class DotLottieFile { var Animation: Animation? } -> property Animation collides with class name
@@ -243,6 +246,24 @@ public static class NameProvider
         }
 
         return pascalName;
+    }
+
+    /// <summary>
+    /// Sanitizes property wrapper projected value names.
+    /// Swift uses $ prefix for projected values (e.g., $volume), but $ is not valid in C# identifiers.
+    /// This converts them to a valid C# name (e.g., $volume -> projectedVolume).
+    /// </summary>
+    /// <param name="swiftName">The original Swift property or method name.</param>
+    /// <returns>A sanitized name with $ prefix converted to "projected" prefix.</returns>
+    public static string SanitizePropertyWrapperName(string swiftName)
+    {
+        if (string.IsNullOrEmpty(swiftName))
+            return swiftName;
+
+        if (swiftName.StartsWith("$"))
+            return "projected" + swiftName.Substring(1);
+
+        return swiftName;
     }
 
     /// <summary>

@@ -696,15 +696,19 @@ namespace BindingsGeneration
         {
             var result = new List<AccessorDecl>();
 
+            // Sanitize property wrapper projected value names ($volume -> projectedVolume)
+            // The $ prefix is valid in Swift but not in C# identifiers
+            var sanitizedFieldName = NameProvider.SanitizePropertyWrapperName(fieldName);
+
             foreach (var accessor in accessors)
             {
                 switch (accessor.AccessorKind)
                 {
                     case "get":
-                        result.Add(CreateGetAccessor(accessor, fieldName, parentDecl, moduleDecl));
+                        result.Add(CreateGetAccessor(accessor, sanitizedFieldName, parentDecl, moduleDecl));
                         break;
                     case "set":
-                        result.Add(CreateSetAccessor(accessor, fieldName, parentDecl, moduleDecl));
+                        result.Add(CreateSetAccessor(accessor, sanitizedFieldName, parentDecl, moduleDecl));
                         break;
                     case "_modify":
                         // Optimization accessor, not needed for correctness
@@ -833,15 +837,18 @@ namespace BindingsGeneration
         {
             var typeSpec = CreateTypeSpec(node.Children.ElementAt(0));
 
+            // Sanitize property wrapper projected value names ($volume -> projectedVolume)
+            var sanitizedName = NameProvider.SanitizePropertyWrapperName(node.Name);
+
             return new PropertyDecl
             {
                 SwiftTypeSpec = typeSpec,
-                Name = node.Name,
+                Name = sanitizedName,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsStatic = node.@static ?? false,
                 HasStorage = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "HasStorage") != -1,
-                Accessors = HandleAccessors(node.Accessors, node.Name, parentDecl, moduleDecl)
+                Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
         }
 
