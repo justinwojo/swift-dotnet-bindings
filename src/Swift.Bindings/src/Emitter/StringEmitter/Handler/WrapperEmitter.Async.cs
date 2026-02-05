@@ -246,8 +246,48 @@ namespace BindingsGeneration
             }
             else
             {
-                callbackParams = returnTypeArg.SwiftTypeSpec + ", ";
-                callbackResultArgs = $"result{_env.MethodDecl.Name}, ";
+                // For non-primitive types (classes, enums, structs), @convention(c) doesn't allow
+                // passing Swift types directly. We must use OpaquePointer and allocate memory.
+                var returnTypeName = returnTypeSpec.ToString();
+                bool isComplexType = !IsSwiftPrimitive(returnTypeName);
+
+                if (isComplexType)
+                {
+                    // Complex types: allocate memory, store result, pass pointer
+                    callbackParams = "OpaquePointer, ";
+                    callbackResultArgs = "_resultPtr, ";
+                    var resultVar = $"result{_env.MethodDecl.Name}";
+                    var swiftReturnType = returnTypeSpec.ToString();
+
+                    // Check if this is a class type (needs retain to prevent ARC deallocation)
+                    _env.TypeDatabase.TryGetTypeRecord(returnTypeSpec, out var complexReturnTypeRecord);
+                    bool isClassType = complexReturnTypeRecord?.Kind == TypeRecordKind.Class;
+
+                    // Allocate memory, copy result value, pass pointer through callback
+                    // For classes: the "value" is a pointer, so we're storing the pointer value
+                    // For enums/structs: we're storing the inline data
+                    // C# will read from this memory and call SBW_Free to release it
+                    stringMarshalCode =
+                        $"// Marshal complex type to pointer (C# will free via SBW_Free)\n" +
+                        $"                        let _resultPtr: OpaquePointer\n" +
+                        $"                        do {{\n" +
+                        $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
+                        $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
+                        $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
+                        $"                            _rawPtr.storeBytes(of: {resultVar}, as: {swiftReturnType}.self)\n" +
+                        (isClassType
+                            ? $"                            // Retain class to prevent ARC deallocation before C# processes it\n" +
+                              $"                            _ = Unmanaged.passRetained({resultVar} as AnyObject)\n"
+                            : "") +
+                        $"                            _resultPtr = OpaquePointer(_rawPtr)\n" +
+                        $"                        }}";
+                }
+                else
+                {
+                    // Primitive types can be passed directly through @convention(c)
+                    callbackParams = returnTypeArg.SwiftTypeSpec + ", ";
+                    callbackResultArgs = $"result{_env.MethodDecl.Name}, ";
+                }
             }
 
             var baseParams = new[]
@@ -596,6 +636,18 @@ namespace BindingsGeneration
             if (isArrayStringReturn)
             {
                 EmitAsyncWrapperForArrayString(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
+                return;
+            }
+
+            // Detect complex type returns (classes, enums, structs) that need OpaquePointer marshalling
+            // These types can't be passed directly through @convention(c) callbacks
+            var returnTypeName = returnType.SwiftTypeSpec.ToString();
+            bool isComplexTypeReturn = !voidReturn && !returnType.IsGeneric && !IsSwiftPrimitive(returnTypeName);
+            if (isComplexTypeReturn)
+            {
+                _env.TypeDatabase.TryGetTypeRecord(returnType.SwiftTypeSpec, out var complexTypeRecord);
+                bool isClassType = complexTypeRecord?.Kind == TypeRecordKind.Class;
+                EmitAsyncWrapperForComplexType(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType);
                 return;
             }
 
@@ -1196,6 +1248,136 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits async wrapper for methods returning complex types (classes, enums, structs).
+        /// These types can't be passed directly through @convention(c) callbacks, so Swift
+        /// allocates memory, stores the result, and passes an OpaquePointer.
+        /// C# receives IntPtr, reads the value, and frees the memory.
+        /// </summary>
+        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType)
+        {
+            // Determine the wrapper library path - SBW_Free is emitted in the Swift wrapper library
+            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
+            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+
+            // Get the module-specific symbol name for SBW_Free
+            var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
+
+            // Determine fully-qualified C# type key for deduplication
+            var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
+            var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
+            if (needsFreePInvoke)
+            {
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+            }
+
+            var freePInvokeDecl = needsFreePInvoke
+                ? $"""
+                        [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        private static extern void SBW_Free(IntPtr ptr);
+
+                """
+                : "";
+
+            // For class types, Swift also retained the object, so we need to release after marshalling
+            // The release happens on the raw pointer value read from the allocated memory
+            var releaseCode = isClassType
+                ? "\n\n                            // Release the retain added by Swift (class was retained before passing through callback)\n                            Arc.Release(resultPtr);"
+                : "";
+
+            var text = $$"""
+                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static void {{callbackMethodName}}(IntPtr resultPtr, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                // Read result from pointer (Swift allocated memory and stored the value)
+                                var result = SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(resultPtr);{{releaseCode}}
+
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            deferred.Handle.DangerousRelease();
+                                        }
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                        {
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetResult(result);
+                                }
+                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                {
+                                    directTcs.TrySetResult(result);
+                                }
+                            }
+                            finally
+                            {
+                                // Free Swift-allocated memory
+                                SBW_Free(resultPtr);
+                                handle.Free();
+                            }
+                        }
+
+                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                var exception = new SwiftException(errorMessage);
+
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            deferred.Handle.DangerousRelease();
+                                        }
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                        {
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetException(exception);
+                                }
+                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                {
+                                    directTcs.TrySetException(exception);
+                                }
+                            }
+                            finally
+                            {
+                                handle.Free();
+                            }
+                        }
+                """;
+            csWriter.WriteLine(text);
+        }
+
+        /// <summary>
         /// Determines if a TypeSpec represents Swift.Array&lt;Swift.String&gt;.
         /// Used to detect array-of-string returns that need flat buffer serialization in async callbacks.
         /// </summary>
@@ -1216,6 +1398,31 @@ namespace BindingsGeneration
             // Check if the generic parameter is Swift.String
             var elementType = namedType.GenericParameters[0];
             return elementType.ToString() == "Swift.String";
+        }
+
+        /// <summary>
+        /// Checks if a Swift type name is a primitive type that can be passed directly
+        /// through @convention(c) callbacks without pointer indirection.
+        /// </summary>
+        private static bool IsSwiftPrimitive(string swiftTypeName)
+        {
+            return swiftTypeName switch
+            {
+                "Swift.Int" => true,
+                "Swift.UInt" => true,
+                "Swift.Int8" => true,
+                "Swift.UInt8" => true,
+                "Swift.Int16" => true,
+                "Swift.UInt16" => true,
+                "Swift.Int32" => true,
+                "Swift.UInt32" => true,
+                "Swift.Int64" => true,
+                "Swift.UInt64" => true,
+                "Swift.Float" => true,
+                "Swift.Double" => true,
+                "Swift.Bool" => true,
+                _ => false
+            };
         }
     }
 }

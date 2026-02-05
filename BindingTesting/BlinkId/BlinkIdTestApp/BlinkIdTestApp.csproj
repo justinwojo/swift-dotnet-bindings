@@ -35,13 +35,10 @@
     </NativeReference>
   </ItemGroup>
 
-  <!-- Include SwiftBindings framework (async wrappers) - disabled: Swift wrapper has compilation errors -->
-  <!-- The test app only exercises enum cases, metadata, and static properties which are in BlinkID directly -->
-  <!--
+  <!-- Include SwiftBindings framework (async wrappers + String enum raw value marshalling) -->
   <ItemGroup>
-    <NativeReference Include="../output-ios/SwiftBindings.xcframework">
+    <NativeReference Include="../output-ios/SwiftBindings.framework">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>
-  -->
 </Project>

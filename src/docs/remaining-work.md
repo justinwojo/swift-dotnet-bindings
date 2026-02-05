@@ -3,21 +3,21 @@
 Consolidated backlog of generator gaps, runtime issues, and infrastructure work. Ordered by priority.
 
 **Date**: February 2026
-**Current**: Phase 57 complete, 1239 unit tests, 93/93 must-pass features
+**Current**: Phase 60 complete, 93/93 must-pass features
 **Completed items**: See `CompletedPhases/completed-backlog-items.md`
 
 ---
 
 ## Real-World Binding Status
 
-Reassessed February 2026 after Phase 56 (protocol conformance validation).
+Reassessed February 2026 after Phase 60 (async complex type marshalling).
 
 | Metric | BlinkID | Nuke | Lottie |
 |--------|---------|------|--------|
 | Types emitted | 116/119 (97.5%) | 60/68 (88.2%) | 79/93 (84.9%) |
 | Members emitted | 567/572 (99.1%) | 323/342 (94.4%) | 387/428 (90.4%) |
 | Members skipped | 5 | 19 | 41 |
-| Runtime validated | Yes (15/18 tests) | Yes | Yes (9/9 tests) |
+| Runtime validated | Yes (**18/18 tests**) ✅ | Yes | Yes (9/9 tests) |
 | Compile errors | **0** ✅ | **0** ✅ | 1* |
 
 *\* Lottie has 1 compile error (CS0315) due to `ExistentialContainer0` not implementing `ISwiftObject` constraint — a pre-existing generic constraint issue unrelated to protocol conformance.*
@@ -29,9 +29,9 @@ Reassessed February 2026 after Phase 56 (protocol conformance validation).
 | # | Area | Description | Impact | Priority |
 |---|------|-------------|--------|----------|
 | 1 | Generator | ~~Missing protocol member implementations~~ | ~~~80 compile errors~~ | ✅ **Done** |
-| 2 | Generator | BlinkID enum raw value String marshalling | 3 remaining BlinkID test failures | **P1** |
+| 2 | Generator | ~~BlinkID enum raw value String marshalling~~ | ~~3 remaining BlinkID test failures~~ | ✅ **Done** |
 | 3 | Testing | ~~Deeper protocol runtime tests~~ | ~~Protocol tests are compile checks only~~ | ✅ **Done** |
-| 4 | Runtime | Async callback marshalling (Array, String) | 2 async tests blocked | P3 |
+| 4 | Runtime | ~~Async callback marshalling (Array, String, complex types)~~ | ~~async tests blocked~~ | ✅ **Done** |
 | 5 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety | P3 |
 | 6 | Research | NativeAOT hands-on validation | Desk research done, testing remaining | P4 |
 | 7 | Generator | nint emitted as generic type in integration tests | 13 compile errors | P3 |
@@ -83,45 +83,25 @@ Fixed three categories of protocol conformance compile errors:
 
 ## 2. BlinkID Enum Raw Value String Marshalling
 
-**Priority**: P1
+**Priority**: ✅ **COMPLETE** (Phase 55 + Phase 60)
 **Area**: Generator
-**Status**: ✅ **Implementation complete** (Phase 55) — runtime validation blocked by separate async issue
+**Impact**: 3 BlinkID test failures fixed (15/18 → **18/18** ✅)
 
-**Impact**: 3 remaining BlinkID test failures (15/18 → 18/18)
+### Implementation
 
-The 3 failing BlinkID tests are all String-based enum raw value accessors:
-- `DetectionStatus.FromRawValue(string)` — SwiftString parameter
-- `Country.RawValue` getter — SwiftString return
-- `DocumentType.RawValue` getter — SwiftString return
-
-Error: `Passing non-blittable types to a P/Invoke with the Swift calling convention is unsupported.`
-
-**Solution**: Applied the `SBW_Utf8Slice` pattern from Phase 53 (witness dispatch) to enum raw value accessors.
-
-**Implementation (Phase 55)**:
-- `EnumHandler.RawRepresentable.cs` — String raw types now use UTF-8 marshalling via `Utf8Slice` struct
+**Phase 55** implemented String raw value marshalling:
+- `EnumHandler.RawRepresentable.cs` — String raw types use UTF-8 marshalling via `Utf8Slice` struct
 - `Utf8SliceEmitter.cs` — Shared emitter ensures `SBW_Utf8Slice` struct emitted once per module
 - Swift wrapper functions: `SBW_{Module}_{Container}_{Enum}_InitWithRawValue` decode UTF-8 → String → call init(rawValue:)
-- Module-qualified wrapper symbols prevent collisions for same-named nested enums (e.g., `Container1.ErrorType` vs `Container2.ErrorType`)
 - C# marshalling: `System.Text.Encoding.UTF8.GetBytes` → pinned buffer → P/Invoke wrapper
 
-**Code generation verified**:
-- ✅ Swift wrappers correctly generated for Country, Region, DetectionStatus, etc.
-- ✅ C# Utf8Slice struct and marshalling code generated in each String raw type enum
-- ✅ No duplicate SBW_Utf8Slice definitions (shared emitter works)
-- ✅ All 1239 unit tests pass (includes regression test for nested enum symbol collisions)
+**Phase 60** unblocked runtime validation by fixing async callback marshalling for complex types (classes, enums, structs).
 
-**Runtime validation blocked**: BlinkID Swift wrapper compilation fails due to **pre-existing** async callback errors (unrelated to enum changes):
-```
-'(BlinkIDSession, Int64) -> Void' is not representable in Objective-C
-@escaping attribute only applies to function types
-```
-These errors occur in `PingManager` and `BlinkIDSdk` async methods — a separate issue requiring async wrapper generator fixes.
+### Acceptance criteria
 
-**Acceptance criteria**:
 - [x] String-based enum raw values use `SBW_Utf8Slice` bridge
-- [x] No regression in other bindings (1238/1238 tests pass)
-- [ ] BlinkID: 18/18 runtime tests pass *(blocked by async issue)*
+- [x] No regression in other bindings
+- [x] BlinkID: 18/18 runtime tests pass
 
 ---
 
@@ -162,16 +142,31 @@ Added 20 runtime tests exercising actual Swift-to-C# protocol interop behavior:
 
 ---
 
-## 4. Async Callback Marshalling (Array, String)
+## 4. Async Callback Marshalling (Array, String, Complex Types)
 
-**Priority**: P3
+**Priority**: ✅ **COMPLETE** (Phase 58, 59, 60)
 **Area**: Runtime
 
-`TestArray` and `TestString` async integration tests are blocked by callback marshalling errors (`Cannot marshal type System.String from Swift`). The concurrency hook works, but the async callback that delivers the result can't marshal complex types.
+### Implementation
 
-**Acceptance criteria**:
-- [ ] `TestArray` passes
-- [ ] `TestString` passes
+**Phase 58**: String returns via UTF-8 `(ptr, len)` callback parameters
+- Swift allocates UTF-8 buffer, C# copies via `Marshal.PtrToStringUTF8`, frees via `SBW_Free`
+- See `async-string-marshalling-design.md`
+
+**Phase 59**: Array<String> returns via flat buffer serialization
+- Format: `[count][lengths...][data...]`
+- See `async-array-marshalling-design.md`
+
+**Phase 60**: Class/enum/struct returns via `OpaquePointer`
+- Swift allocates memory, stores result, passes `OpaquePointer` through `@convention(c)` callback
+- For classes: Swift retains object to prevent ARC deallocation; C# releases after marshalling
+- C# receives `IntPtr`, reads via `SwiftMarshal.MarshalFromSwift`, frees via `SBW_Free`
+
+### Acceptance criteria
+
+- [x] `TestString` passes
+- [x] `TestArray` passes
+- [x] BlinkID async methods compile and run (18/18 tests)
 
 ---
 

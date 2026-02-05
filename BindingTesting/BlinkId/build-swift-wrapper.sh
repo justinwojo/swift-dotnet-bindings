@@ -23,7 +23,32 @@ xcrun swiftc -emit-library -target arm64-apple-ios15.0-simulator \
   -o SwiftBindings.framework/SwiftBindings \
   Swift.BlinkID.swift SwiftBindings.swift
 
-# Also update the xcframework copy (test app uses this)
-cp SwiftBindings.framework/SwiftBindings SwiftBindings.xcframework/ios-arm64-simulator/SwiftBindings.framework/SwiftBindings
+# Create Info.plist for the framework (required by iOS)
+cat > SwiftBindings.framework/Info.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.swiftbindings.SwiftBindings</string>
+    <key>CFBundleName</key>
+    <string>SwiftBindings</string>
+    <key>CFBundleExecutable</key>
+    <string>SwiftBindings</string>
+    <key>CFBundlePackageType</key>
+    <string>FMWK</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>MinimumOSVersion</key>
+    <string>15.0</string>
+    <key>CFBundleSupportedPlatforms</key>
+    <array>
+        <string>iPhoneSimulator</string>
+    </array>
+</dict>
+</plist>
+EOF
 
 echo "Swift wrapper built successfully"
