@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 52 Complete)
-**Unit Tests**: 1216 passed
+**Last Updated**: February 2026 (Phase 61 Complete, TestFramework Phase B In Progress)
+**Unit Tests**: 1238 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
 ---
@@ -83,6 +83,21 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 - **Mono JIT**: `swift_getExistentialTypeMetadata` crash when creating `SwiftArray<ExistentialContainer>` (workaround: Swift wrapper functions)
 - **SafeHandle in async**: .NET runtime doesn't preserve SafeHandle through async P/Invoke (workaround: singleton pattern + IntPtr conversion)
 - See `known-issues-workarounds.md` for full details
+
+---
+
+## Recent Progress: TestFramework Runtime Tests (Phase B)
+
+### Runtime Test Coverage Added
+- `StringMarshallingTests` (20 tests): ASCII/unicode/emoji round-trips, string enum raw value round-trips (Phase 55 regression coverage), edge case strings (empty, whitespace, >64KB)
+- `EnumMarshallingTests` (17 tests): Direction, Color (int raw), StatusCode, Shape (associated values), nested container enums (OrderContainer.Status, PaymentContainer.Status), NetworkConfig enums
+- `ClassMarshallingTests` (15 tests): Animal creation/properties/methods, UniqueResource, MutableProps, StaticMethods, SafeHandle use-after-dispose, GC pressure survival
+- Async test stubs created (deferred — async Swift sources currently disabled)
+- Contract matrix updated: Blittable/String/Class/Enum sync return and param cells now `R✓`
+
+### Remaining Phase B Items
+- Protocol witness dispatch tests, lifetime/ownership tests, negative-path tests, concurrency/stress tests
+- Async tests blocked on re-enabling async Swift sources
 
 ---
 

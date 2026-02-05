@@ -280,7 +280,10 @@ public func asPrioritizedExistential(_ item: PrioritizedItem) -> any Prioritized
 
 /// Accepts an array of existential Named and describes all.
 /// Tests witness dispatch in a loop - exercises repeated witness table lookups.
-public func describeAll(_ items: [any Named]) -> [String] {
+/// NOTE: Renamed from describeAll to avoid collision with Existentials.swift
+/// which has a similar function taking [any Describable]. Both would marshal
+/// to the same C# signature.
+public func describeAllNamed(_ items: [any Named]) -> [String] {
     return items.map { "Name: \($0.name)" }
 }
 

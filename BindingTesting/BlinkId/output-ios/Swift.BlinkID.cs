@@ -57,7 +57,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_default_Get_529BFC33(swiftIndirectResult);
+                PInvoke_default_Get_1488047C(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.RequestTimeout>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -70,7 +70,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14RequestTimeoutV7defaultACvgZ")]
-        private static extern void PInvoke_default_Get_529BFC33( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_default_Get_1488047C( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.BlinkID.RequestTimeout Default
         {
@@ -635,7 +635,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_errorDescription_Get_40D11DD2(self);
+                var result = PInvoke_errorDescription_Get_78A56546(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -648,7 +648,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23ResourceDownloaderErrorO16errorDescriptionSSSgvg")]
-        private static extern IntPtr PInvoke_errorDescription_Get_40D11DD2( SwiftSelf self);
+        private static extern IntPtr PInvoke_errorDescription_Get_78A56546( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> ErrorDescription
         {
@@ -5184,7 +5184,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_73B3272D(self);
+                var result = PInvoke_rawValue_Get_4C937459(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -5199,7 +5199,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID7CountryO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_73B3272D( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_4C937459( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -5212,7 +5212,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_5CF5E384();
+                var result = PInvoke_allCases_Get_2B5BEED7();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.Country>>(new IntPtr(&result));
             }
@@ -5225,7 +5225,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID7CountryO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_5CF5E384();
+        private static extern IntPtr PInvoke_allCases_Get_2B5BEED7();
         
         public static Swift.SwiftArray<Swift.BlinkID.Country> AllCases
         {
@@ -7806,7 +7806,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_1037FA81(self);
+                var result = PInvoke_rawValue_Get_0417D7E2(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -7821,7 +7821,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID6RegionO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_1037FA81( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_0417D7E2( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -7834,7 +7834,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_3B1D8530();
+                var result = PInvoke_allCases_Get_6B575CAE();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.Region>>(new IntPtr(&result));
             }
@@ -7847,7 +7847,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID6RegionO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_3B1D8530();
+        private static extern IntPtr PInvoke_allCases_Get_6B575CAE();
         
         public static Swift.SwiftArray<Swift.BlinkID.Region> AllCases
         {
@@ -9493,7 +9493,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_439E5E86(self);
+                var result = PInvoke_rawValue_Get_268F4347(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -9508,7 +9508,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12DocumentTypeO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_439E5E86( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_268F4347( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -9521,7 +9521,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_0E469C9A();
+                var result = PInvoke_allCases_Get_6BD2D5BE();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.DocumentType>>(new IntPtr(&result));
             }
@@ -9534,7 +9534,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12DocumentTypeO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_0E469C9A();
+        private static extern IntPtr PInvoke_allCases_Get_6BD2D5BE();
         
         public static Swift.SwiftArray<Swift.BlinkID.DocumentType> AllCases
         {
@@ -9617,7 +9617,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_shared_Get_7F0C4C92();
+                var result = PInvoke_shared_Get_41FE466B();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -9632,7 +9632,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15ProcessingActorC6sharedACvgZ")]
-        private static extern IntPtr PInvoke_shared_Get_7F0C4C92();
+        private static extern IntPtr PInvoke_shared_Get_41FE466B();
         
         public static Swift.BlinkID.ProcessingActor Shared
         {
@@ -9831,7 +9831,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_value_Get_7F2B035F(self);
+                    var result = PInvoke_value_Get_1CAAC7DB(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
                 }
@@ -9846,7 +9846,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV12StringResultV5valueSSSgvg")]
-            private static extern IntPtr PInvoke_value_Get_7F2B035F( SwiftSelf self);
+            private static extern IntPtr PInvoke_value_Get_1CAAC7DB( SwiftSelf self);
             
             public Swift.SwiftOptional<Swift.SwiftString> Value
             {
@@ -9863,7 +9863,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_location_Get_2A250F2F(self);
+                    var result = PInvoke_location_Get_0EDAE15C(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.RectangleF>>(new IntPtr(&result));
                 }
@@ -9878,7 +9878,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV12StringResultV8locationAA10RectangleFVSgvg")]
-            private static extern IntPtr PInvoke_location_Get_2A250F2F( SwiftSelf self);
+            private static extern IntPtr PInvoke_location_Get_0EDAE15C( SwiftSelf self);
             
             public Swift.SwiftOptional<Swift.BlinkID.RectangleF> Location
             {
@@ -9895,7 +9895,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_side_Get_3B1ABAA7(self);
+                    var result = PInvoke_side_Get_282A4E02(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.ScanningSide>>(new IntPtr(&result));
                 }
@@ -9910,7 +9910,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV12StringResultV4sideAA12ScanningSideOSgvg")]
-            private static extern IntPtr PInvoke_side_Get_3B1ABAA7( SwiftSelf self);
+            private static extern IntPtr PInvoke_side_Get_282A4E02( SwiftSelf self);
             
             public Swift.SwiftOptional<Swift.BlinkID.ScanningSide> Side
             {
@@ -10015,7 +10015,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_value_7D31A98E(_for.Payload.DangerousGetHandle(), self);
+                    var result = PInvoke_value_54269BAD(_for.Payload.DangerousGetHandle(), self);
                     
                     unsafe {
                         var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
@@ -10033,7 +10033,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV12StringResultV5value3forSSAA12AlphabetTypeO_tF")]
-            private static extern Swift.SwiftString.Buffer PInvoke_value_7D31A98E( IntPtr _for,  SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_value_54269BAD( IntPtr _for,  SwiftSelf self);
             
             
             public unsafe Swift.BlinkID.ScanningSide? SideMethod( Swift.BlinkID.AlphabetType _for)
@@ -10046,7 +10046,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_side_7E147748(_for.Payload.DangerousGetHandle(), self);
+                    var result = PInvoke_side_747C3C0C(_for.Payload.DangerousGetHandle(), self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.ScanningSide>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -10062,7 +10062,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV12StringResultV4side3forAA12ScanningSideOSgAA12AlphabetTypeO_tF")]
-            private static extern IntPtr PInvoke_side_7E147748( IntPtr _for,  SwiftSelf self);
+            private static extern IntPtr PInvoke_side_747C3C0C( IntPtr _for,  SwiftSelf self);
             
             
             public unsafe Swift.BlinkID.RectangleF? LocationMethod( Swift.BlinkID.AlphabetType _for)
@@ -10075,7 +10075,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_location_48837EAD(_for.Payload.DangerousGetHandle(), self);
+                    var result = PInvoke_location_289F31A2(_for.Payload.DangerousGetHandle(), self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.RectangleF>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -10091,7 +10091,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV12StringResultV8location3forAA10RectangleFVSgAA12AlphabetTypeO_tF")]
-            private static extern IntPtr PInvoke_location_48837EAD( IntPtr _for,  SwiftSelf self);
+            private static extern IntPtr PInvoke_location_289F31A2( IntPtr _for,  SwiftSelf self);
             
             
         }
@@ -10113,7 +10113,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_scanningStatus_Get_16726D2D(swiftIndirectResult, self);
+                    PInvoke_scanningStatus_Get_084FF306(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ScanningStatus>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -10128,7 +10128,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV18ResultCompletenessV14scanningStatusAA08ScanningG0Ovg")]
-            private static extern void PInvoke_scanningStatus_Get_16726D2D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_scanningStatus_Get_084FF306( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public Swift.BlinkID.ScanningStatus ScanningStatus
             {
@@ -10145,7 +10145,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_vizExtracted_Get_518E163C(self);
+                    var result = PInvoke_vizExtracted_Get_11260964(self);
                     
                     return result;
                 }
@@ -10160,7 +10160,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV18ResultCompletenessV12vizExtractedSbvg")]
-            private static extern System.Boolean PInvoke_vizExtracted_Get_518E163C( SwiftSelf self);
+            private static extern System.Boolean PInvoke_vizExtracted_Get_11260964( SwiftSelf self);
             
             public System.Boolean VizExtracted
             {
@@ -10177,7 +10177,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_mrzExtracted_Get_12AD9A9A(self);
+                    var result = PInvoke_mrzExtracted_Get_70628F90(self);
                     
                     return result;
                 }
@@ -10192,7 +10192,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV18ResultCompletenessV12mrzExtractedSbvg")]
-            private static extern System.Boolean PInvoke_mrzExtracted_Get_12AD9A9A( SwiftSelf self);
+            private static extern System.Boolean PInvoke_mrzExtracted_Get_70628F90( SwiftSelf self);
             
             public System.Boolean MrzExtracted
             {
@@ -10209,7 +10209,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_barcodeExtracted_Get_460D6C83(self);
+                    var result = PInvoke_barcodeExtracted_Get_092FCAE2(self);
                     
                     return result;
                 }
@@ -10224,7 +10224,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV18ResultCompletenessV16barcodeExtractedSbvg")]
-            private static extern System.Boolean PInvoke_barcodeExtracted_Get_460D6C83( SwiftSelf self);
+            private static extern System.Boolean PInvoke_barcodeExtracted_Get_092FCAE2( SwiftSelf self);
             
             public System.Boolean BarcodeExtracted
             {
@@ -10241,7 +10241,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_documentImageExtracted_Get_30797790(self);
+                    var result = PInvoke_documentImageExtracted_Get_6A1B75CB(self);
                     
                     return result;
                 }
@@ -10256,7 +10256,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV18ResultCompletenessV22documentImageExtractedSbvg")]
-            private static extern System.Boolean PInvoke_documentImageExtracted_Get_30797790( SwiftSelf self);
+            private static extern System.Boolean PInvoke_documentImageExtracted_Get_6A1B75CB( SwiftSelf self);
             
             public System.Boolean DocumentImageExtracted
             {
@@ -10273,7 +10273,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_faceImageExtracted_Get_3506C421(self);
+                    var result = PInvoke_faceImageExtracted_Get_4BAA44F2(self);
                     
                     return result;
                 }
@@ -10288,7 +10288,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV18ResultCompletenessV18faceImageExtractedSbvg")]
-            private static extern System.Boolean PInvoke_faceImageExtracted_Get_3506C421( SwiftSelf self);
+            private static extern System.Boolean PInvoke_faceImageExtracted_Get_4BAA44F2( SwiftSelf self);
             
             public System.Boolean FaceImageExtracted
             {
@@ -10305,7 +10305,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_signatureImageExtracted_Get_62DC8B9C(self);
+                    var result = PInvoke_signatureImageExtracted_Get_76CB0AA6(self);
                     
                     return result;
                 }
@@ -10320,7 +10320,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV18ResultCompletenessV23signatureImageExtractedSbvg")]
-            private static extern System.Boolean PInvoke_signatureImageExtracted_Get_62DC8B9C( SwiftSelf self);
+            private static extern System.Boolean PInvoke_signatureImageExtracted_Get_76CB0AA6( SwiftSelf self);
             
             public System.Boolean SignatureImageExtracted
             {
@@ -10434,7 +10434,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_inputImageAnalysisResult_Get_748D891B(swiftIndirectResult, self);
+                    PInvoke_inputImageAnalysisResult_Get_6383C576(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.InputImageAnalysisResult>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -10449,7 +10449,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV13ProcessResultV018inputImageAnalysisE0AA05InputghE0Vvg")]
-            private static extern void PInvoke_inputImageAnalysisResult_Get_748D891B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_inputImageAnalysisResult_Get_6383C576( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public Swift.BlinkID.InputImageAnalysisResult InputImageAnalysisResult
             {
@@ -10470,7 +10470,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_resultCompleteness_Get_14AF372F(swiftIndirectResult, self);
+                    PInvoke_resultCompleteness_Get_5F4D3A8E(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BlinkIDSDK.ResultCompleteness>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -10485,7 +10485,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV13ProcessResultV18resultCompletenessAC0eG0Vvg")]
-            private static extern void PInvoke_resultCompleteness_Get_14AF372F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_resultCompleteness_Get_5F4D3A8E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public Swift.BlinkID.BlinkIDSDK.ResultCompleteness ResultCompleteness
             {
@@ -10599,7 +10599,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_country_Get_705B2A8F(swiftIndirectResult, self);
+                    PInvoke_country_Get_19637CD5(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.Country>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -10614,7 +10614,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV17DocumentClassInfoV7countryAA7CountryOvg")]
-            private static extern void PInvoke_country_Get_705B2A8F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_country_Get_19637CD5( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public Swift.BlinkID.Country Country
             {
@@ -10635,7 +10635,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_region_Get_2762CF30(swiftIndirectResult, self);
+                    PInvoke_region_Get_0044E56C(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.Region>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -10650,7 +10650,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV17DocumentClassInfoV6regionAA6RegionOvg")]
-            private static extern void PInvoke_region_Get_2762CF30( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_region_Get_0044E56C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public Swift.BlinkID.Region Region
             {
@@ -10671,7 +10671,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_documentType_Get_6A9692E9(swiftIndirectResult, self);
+                    PInvoke_documentType_Get_5A4A9E1D(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DocumentType>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -10686,7 +10686,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV17DocumentClassInfoV12documentTypeAA0dH0Ovg")]
-            private static extern void PInvoke_documentType_Get_6A9692E9( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_documentType_Get_5A4A9E1D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public Swift.BlinkID.DocumentType DocumentType
             {
@@ -10703,7 +10703,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_countryName_Get_32A38E0A(self);
+                    var result = PInvoke_countryName_Get_4782ADCF(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -10720,7 +10720,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV17DocumentClassInfoV11countryNameSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_countryName_Get_32A38E0A( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_countryName_Get_4782ADCF( SwiftSelf self);
             
             public Swift.SwiftString CountryName
             {
@@ -10737,7 +10737,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_isoNumericCountryCode_Get_527B3E23(self);
+                    var result = PInvoke_isoNumericCountryCode_Get_12FF69CB(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -10754,7 +10754,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV17DocumentClassInfoV21isoNumericCountryCodeSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_isoNumericCountryCode_Get_527B3E23( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_isoNumericCountryCode_Get_12FF69CB( SwiftSelf self);
             
             public Swift.SwiftString IsoNumericCountryCode
             {
@@ -10771,7 +10771,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_isoAlpha2CountryCode_Get_3840632B(self);
+                    var result = PInvoke_isoAlpha2CountryCode_Get_303E9F59(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -10788,7 +10788,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV17DocumentClassInfoV20isoAlpha2CountryCodeSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_isoAlpha2CountryCode_Get_3840632B( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_isoAlpha2CountryCode_Get_303E9F59( SwiftSelf self);
             
             public Swift.SwiftString IsoAlpha2CountryCode
             {
@@ -10805,7 +10805,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_isoAlpha3CountryCode_Get_149E4F62(self);
+                    var result = PInvoke_isoAlpha3CountryCode_Get_7DD6AEFA(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -10822,7 +10822,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV17DocumentClassInfoV20isoAlpha3CountryCodeSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_isoAlpha3CountryCode_Get_149E4F62( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_isoAlpha3CountryCode_Get_7DD6AEFA( SwiftSelf self);
             
             public Swift.SwiftString IsoAlpha3CountryCode
             {
@@ -10927,7 +10927,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_isEmpty_24DFEB65(self);
+                    var result = PInvoke_isEmpty_2E9375B8(self);
                     
                     return result;
                 }
@@ -10942,7 +10942,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSDKV17DocumentClassInfoV7isEmptySbyF")]
-            private static extern System.Boolean PInvoke_isEmpty_24DFEB65( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isEmpty_2E9375B8( SwiftSelf self);
             
             
         }
@@ -11197,7 +11197,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_0CA22072(self);
+                var result = PInvoke_rawValue_Get_68765FC3(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -11212,7 +11212,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15DetectionStatusO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_0CA22072( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_68765FC3( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -11438,7 +11438,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_4509C1A0(self);
+                var result = PInvoke_rawValue_Get_22D01A3D(self);
                 
                 return result;
             }
@@ -11451,7 +11451,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID28ImageAnalysisDetectionStatusO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_4509C1A0( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_22D01A3D( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -11677,7 +11677,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_0C1BD620(self);
+                var result = PInvoke_rawValue_Get_7D450512(self);
                 
                 return result;
             }
@@ -11690,7 +11690,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24DocumentImageColorStatusO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_0C1BD620( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_7D450512( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -11916,7 +11916,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_6F26999E(self);
+                var result = PInvoke_rawValue_Get_13004B7E(self);
                 
                 return result;
             }
@@ -11929,7 +11929,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19DocumentOrientationO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_6F26999E( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_13004B7E( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -12189,7 +12189,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_36C0C3F8(self);
+                var result = PInvoke_rawValue_Get_4FAE3962(self);
                 
                 return result;
             }
@@ -12202,7 +12202,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16DocumentRotationO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_36C0C3F8( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_4FAE3962( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -12288,7 +12288,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_x_Get_6D838816(self);
+                var result = PInvoke_x_Get_7AA94198(self);
                 
                 return result;
             }
@@ -12303,7 +12303,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID5PointV1xs5Int32Vvg")]
-        private static extern System.Int32 PInvoke_x_Get_6D838816( SwiftSelf self);
+        private static extern System.Int32 PInvoke_x_Get_7AA94198( SwiftSelf self);
         
         public System.Int32 X
         {
@@ -12320,7 +12320,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_y_Get_3C9B46AA(self);
+                var result = PInvoke_y_Get_6BEC720B(self);
                 
                 return result;
             }
@@ -12335,7 +12335,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID5PointV1ys5Int32Vvg")]
-        private static extern System.Int32 PInvoke_y_Get_3C9B46AA( SwiftSelf self);
+        private static extern System.Int32 PInvoke_y_Get_6BEC720B( SwiftSelf self);
         
         public System.Int32 Y
         {
@@ -12449,7 +12449,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_upperLeft_Get_08877E54(swiftIndirectResult, self);
+                PInvoke_upperLeft_Get_0C11E8F2(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.Point>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12464,7 +12464,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13QuadrilateralV9upperLeftAA5PointVvg")]
-        private static extern void PInvoke_upperLeft_Get_08877E54( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_upperLeft_Get_0C11E8F2( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.Point UpperLeft
         {
@@ -12485,7 +12485,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_upperRight_Get_20031B49(swiftIndirectResult, self);
+                PInvoke_upperRight_Get_5C871335(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.Point>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12500,7 +12500,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13QuadrilateralV10upperRightAA5PointVvg")]
-        private static extern void PInvoke_upperRight_Get_20031B49( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_upperRight_Get_5C871335( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.Point UpperRight
         {
@@ -12521,7 +12521,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_lowerRight_Get_343AAF62(swiftIndirectResult, self);
+                PInvoke_lowerRight_Get_42F2D877(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.Point>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12536,7 +12536,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13QuadrilateralV10lowerRightAA5PointVvg")]
-        private static extern void PInvoke_lowerRight_Get_343AAF62( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_lowerRight_Get_42F2D877( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.Point LowerRight
         {
@@ -12557,7 +12557,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_lowerLeft_Get_43791F9F(swiftIndirectResult, self);
+                PInvoke_lowerLeft_Get_06D6B259(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.Point>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12572,7 +12572,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13QuadrilateralV9lowerLeftAA5PointVvg")]
-        private static extern void PInvoke_lowerLeft_Get_43791F9F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_lowerLeft_Get_06D6B259( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.Point LowerLeft
         {
@@ -12678,7 +12678,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaName_Get_2333433B();
+                var result = PInvoke_schemaName_Get_64CE145C();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12693,7 +12693,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV10schemaNameSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_2333433B();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_64CE145C();
         
         public static Swift.SwiftString SchemaName
         {
@@ -12706,7 +12706,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaVersion_Get_51C1A72D();
+                var result = PInvoke_schemaVersion_Get_47B65587();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12721,7 +12721,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV13schemaVersionSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_51C1A72D();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_47B65587();
         
         public static Swift.SwiftString SchemaVersion
         {
@@ -12738,7 +12738,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_availableCameras_Get_27C6CE32(self);
+                var result = PInvoke_availableCameras_Get_5B86B1EF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.AvailableCamerasItem>>(new IntPtr(&result));
             }
@@ -12753,7 +12753,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV16availableCamerasSayAC09AvailableH4ItemVGvg")]
-        private static extern IntPtr PInvoke_availableCameras_Get_27C6CE32( SwiftSelf self);
+        private static extern IntPtr PInvoke_availableCameras_Get_5B86B1EF( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.AvailableCamerasItem> AvailableCameras
         {
@@ -12864,7 +12864,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_cameraFacing_Get_7A103BCF(swiftIndirectResult, self);
+                    PInvoke_cameraFacing_Get_2538D655(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.CameraHardwareInfoPinglet.CameraFacing>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -12879,7 +12879,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV20AvailableCamerasItemV12cameraFacingAC0cK0Ovg")]
-            private static extern void PInvoke_cameraFacing_Get_7A103BCF( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_cameraFacing_Get_2538D655( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public Swift.BlinkID.CameraHardwareInfoPinglet.CameraFacing CameraFacing
             {
@@ -12896,7 +12896,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_focus_Get_36AED91D(self);
+                    var result = PInvoke_focus_Get_48F847C9(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.CameraHardwareInfoPinglet.Focus>>(new IntPtr(&result));
                 }
@@ -12911,7 +12911,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV20AvailableCamerasItemV5focusAC5FocusOSgvg")]
-            private static extern IntPtr PInvoke_focus_Get_36AED91D( SwiftSelf self);
+            private static extern IntPtr PInvoke_focus_Get_48F847C9( SwiftSelf self);
             
             public Swift.SwiftOptional<Swift.BlinkID.CameraHardwareInfoPinglet.Focus> Focus
             {
@@ -12928,7 +12928,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_availableResolutions_Get_2BFBD7CC(self);
+                    var result = PInvoke_availableResolutions_Get_7D67D0C4(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.AvailableResolutionsItem>>>(new IntPtr(&result));
                 }
@@ -12943,7 +12943,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV20AvailableCamerasItemV20availableResolutionsSayAC0gkI0VGSgvg")]
-            private static extern IntPtr PInvoke_availableResolutions_Get_2BFBD7CC( SwiftSelf self);
+            private static extern IntPtr PInvoke_availableResolutions_Get_7D67D0C4( SwiftSelf self);
             
             public Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.AvailableResolutionsItem>> AvailableResolutions
             {
@@ -13049,13 +13049,13 @@ namespace Swift.BlinkID
                 using var availableResolutionsSwift = availableResolutions is {} availableResolutionsValue ? SwiftOptional<Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.AvailableResolutionsItem>>.NewSome(availableResolutionsValue) : SwiftOptional<Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.AvailableResolutionsItem>>.NewNone();
                 using PayloadBuffer<IntPtr> availableResolutionsDisposable = availableResolutionsSwift.PayloadBuffer;
                 IntPtr availableResolutionsBuffer = availableResolutionsDisposable.Buffer;
-                PInvoke_init_5B026F61(swiftIndirectResult, cameraFacing.Payload.DangerousGetHandle(), focusBuffer, availableResolutionsBuffer);
+                PInvoke_init_6C080363(swiftIndirectResult, cameraFacing.Payload.DangerousGetHandle(), focusBuffer, availableResolutionsBuffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV20AvailableCamerasItemV12cameraFacing5focus20availableResolutionsAeC0cK0O_AC5FocusOSgSayAC0gnI0VGSgtcfC")]
-            private static extern void PInvoke_init_5B026F61( SwiftIndirectResult swiftIndirectResult,  IntPtr cameraFacing,  IntPtr focusBuffer,  IntPtr availableResolutionsBuffer);
+            private static extern void PInvoke_init_6C080363( SwiftIndirectResult swiftIndirectResult,  IntPtr cameraFacing,  IntPtr focusBuffer,  IntPtr availableResolutionsBuffer);
             
             
             public unsafe AvailableCamerasItem( Swift.Runtime.ExistentialContainer1 from)
@@ -13063,7 +13063,7 @@ namespace Swift.BlinkID
                 _payload = new SwiftSafeHandle<AvailableCamerasItem>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_79CFEF7C(swiftIndirectResult, from, out var error);
+                PInvoke_init_0352827F(swiftIndirectResult, from, out var error);
                 
                 if (error.Value != null)
                 {
@@ -13074,7 +13074,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV20AvailableCamerasItemV4fromAEs7Decoder_p_tKcfC")]
-            private static extern void PInvoke_init_79CFEF7C( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+            private static extern void PInvoke_init_0352827F( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
             
             
             [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -13088,7 +13088,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_encode_79F86DE1(to, self, out var error);
+                    PInvoke_encode_0FB60998(to, self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -13108,7 +13108,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV20AvailableCamerasItemV6encode2toys7Encoder_p_tKF")]
-            private static extern void PInvoke_encode_79F86DE1( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_encode_0FB60998( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
             
             
         }
@@ -13126,7 +13126,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_width_Get_6EC9A6F4(self);
+                    var result = PInvoke_width_Get_3DF5F1A6(self);
                     
                     return result;
                 }
@@ -13141,7 +13141,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV24AvailableResolutionsItemV5widths5Int64Vvg")]
-            private static extern System.Int64 PInvoke_width_Get_6EC9A6F4( SwiftSelf self);
+            private static extern System.Int64 PInvoke_width_Get_3DF5F1A6( SwiftSelf self);
             
             public System.Int64 Width
             {
@@ -13158,7 +13158,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_height_Get_488B0E63(self);
+                    var result = PInvoke_height_Get_728B6B32(self);
                     
                     return result;
                 }
@@ -13173,7 +13173,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV24AvailableResolutionsItemV6heights5Int64Vvg")]
-            private static extern System.Int64 PInvoke_height_Get_488B0E63( SwiftSelf self);
+            private static extern System.Int64 PInvoke_height_Get_728B6B32( SwiftSelf self);
             
             public System.Int64 Height
             {
@@ -13273,13 +13273,13 @@ namespace Swift.BlinkID
                 _payload = new SwiftSafeHandle<AvailableResolutionsItem>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_1CF3C530(swiftIndirectResult, width, height);
+                PInvoke_init_1E2AAC22(swiftIndirectResult, width, height);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV24AvailableResolutionsItemV5width6heightAEs5Int64V_AItcfC")]
-            private static extern void PInvoke_init_1CF3C530( SwiftIndirectResult swiftIndirectResult,  System.Int64 width,  System.Int64 height);
+            private static extern void PInvoke_init_1E2AAC22( SwiftIndirectResult swiftIndirectResult,  System.Int64 width,  System.Int64 height);
             
             
             public unsafe AvailableResolutionsItem( Swift.Runtime.ExistentialContainer1 from)
@@ -13287,7 +13287,7 @@ namespace Swift.BlinkID
                 _payload = new SwiftSafeHandle<AvailableResolutionsItem>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_001E70E4(swiftIndirectResult, from, out var error);
+                PInvoke_init_6769C286(swiftIndirectResult, from, out var error);
                 
                 if (error.Value != null)
                 {
@@ -13298,7 +13298,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV24AvailableResolutionsItemV4fromAEs7Decoder_p_tKcfC")]
-            private static extern void PInvoke_init_001E70E4( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+            private static extern void PInvoke_init_6769C286( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
             
             
             [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -13312,7 +13312,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_encode_1208B7C3(to, self, out var error);
+                    PInvoke_encode_396A226F(to, self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -13332,7 +13332,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV24AvailableResolutionsItemV6encode2toys7Encoder_p_tKF")]
-            private static extern void PInvoke_encode_1208B7C3( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_encode_396A226F( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
             
             
         }
@@ -13499,7 +13499,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_1C13D1C5(self);
+                    var result = PInvoke_rawValue_Get_7436DC98(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13514,7 +13514,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV0C6FacingO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_1C13D1C5( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_7436DC98( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -13527,7 +13527,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_735A2135();
+                    var result = PInvoke_allCases_Get_53B85AC2();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.CameraFacing>>(new IntPtr(&result));
                 }
@@ -13540,7 +13540,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV0C6FacingO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_735A2135();
+            private static extern IntPtr PInvoke_allCases_Get_53B85AC2();
             
             public static Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.CameraFacing> AllCases
             {
@@ -13758,7 +13758,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_6ECA6595(self);
+                    var result = PInvoke_rawValue_Get_7F70529F(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13773,7 +13773,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV5FocusO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_6ECA6595( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_7F70529F( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -13786,7 +13786,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_62CB48F4();
+                    var result = PInvoke_allCases_Get_0F949D4C();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.Focus>>(new IntPtr(&result));
                 }
@@ -13799,7 +13799,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV5FocusO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_62CB48F4();
+            private static extern IntPtr PInvoke_allCases_Get_0F949D4C();
             
             public static Swift.SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.Focus> AllCases
             {
@@ -13881,13 +13881,13 @@ namespace Swift.BlinkID
             using var availableCamerasSwift = SwiftArray<Swift.BlinkID.CameraHardwareInfoPinglet.AvailableCamerasItem>.FromEnumerable(availableCameras);
             using PayloadBuffer<IntPtr> availableCamerasDisposable = availableCamerasSwift.PayloadBuffer;
             IntPtr availableCamerasBuffer = availableCamerasDisposable.Buffer;
-            PInvoke_init_25DAA9A2(swiftIndirectResult, availableCamerasBuffer);
+            PInvoke_init_76DD8E36(swiftIndirectResult, availableCamerasBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV16availableCamerasACSayAC09AvailableH4ItemVG_tcfC")]
-        private static extern void PInvoke_init_25DAA9A2( SwiftIndirectResult swiftIndirectResult,  IntPtr availableCamerasBuffer);
+        private static extern void PInvoke_init_76DD8E36( SwiftIndirectResult swiftIndirectResult,  IntPtr availableCamerasBuffer);
         
         
         public unsafe CameraHardwareInfoPinglet( Swift.Runtime.ExistentialContainer1 from)
@@ -13895,7 +13895,7 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<CameraHardwareInfoPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_4EE05A19(swiftIndirectResult, from, out var error);
+            PInvoke_init_319062F1(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -13906,7 +13906,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_4EE05A19( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_319062F1( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -13920,7 +13920,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_encode_38425893(to, self, out var error);
+                PInvoke_encode_71A129F1(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -13940,7 +13940,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25CameraHardwareInfoPingletV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_38425893( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_71A129F1( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -13954,7 +13954,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaName_Get_35D6EF38();
+                var result = PInvoke_schemaName_Get_39EEAD24();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13969,7 +13969,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV10schemaNameSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_35D6EF38();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_39EEAD24();
         
         public static Swift.SwiftString SchemaName
         {
@@ -13982,7 +13982,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaVersion_Get_57785A68();
+                var result = PInvoke_schemaVersion_Get_40F9BD8E();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13997,7 +13997,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV13schemaVersionSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_57785A68();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_40F9BD8E();
         
         public static Swift.SwiftString SchemaVersion
         {
@@ -14018,7 +14018,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_updateType_Get_152471AB(swiftIndirectResult, self);
+                PInvoke_updateType_Get_34A189F8(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ScanningConditionsPinglet.UpdateType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -14033,7 +14033,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV10updateTypeAC06UpdateG0Ovg")]
-        private static extern void PInvoke_updateType_Get_152471AB( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_updateType_Get_34A189F8( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ScanningConditionsPinglet.UpdateType UpdateTypeValue
         {
@@ -14050,7 +14050,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_deviceOrientation_Get_6F22437D(self);
+                var result = PInvoke_deviceOrientation_Get_62B5CEF0(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.ScanningConditionsPinglet.DeviceOrientation>>(new IntPtr(&result));
             }
@@ -14065,7 +14065,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV17deviceOrientationAC06DeviceG0OSgvg")]
-        private static extern IntPtr PInvoke_deviceOrientation_Get_6F22437D( SwiftSelf self);
+        private static extern IntPtr PInvoke_deviceOrientation_Get_62B5CEF0( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.ScanningConditionsPinglet.DeviceOrientation> DeviceOrientationValue
         {
@@ -14082,7 +14082,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_flashlightOn_Get_007AD6D6(self);
+                var result = PInvoke_flashlightOn_Get_5C7B2BDF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Boolean>>(new IntPtr(&result));
             }
@@ -14097,7 +14097,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV12flashlightOnSbSgvg")]
-        private static extern IntPtr PInvoke_flashlightOn_Get_007AD6D6( SwiftSelf self);
+        private static extern IntPtr PInvoke_flashlightOn_Get_5C7B2BDF( SwiftSelf self);
         
         public Swift.SwiftOptional<System.Boolean> FlashlightOn
         {
@@ -14336,7 +14336,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_33D6A28A(self);
+                    var result = PInvoke_rawValue_Get_347B6A23(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -14351,7 +14351,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV10UpdateTypeO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_33D6A28A( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_347B6A23( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -14364,7 +14364,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_4299A8E4();
+                    var result = PInvoke_allCases_Get_4A5741F2();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.ScanningConditionsPinglet.UpdateType>>(new IntPtr(&result));
                 }
@@ -14377,7 +14377,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV10UpdateTypeO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_4299A8E4();
+            private static extern IntPtr PInvoke_allCases_Get_4A5741F2();
             
             public static Swift.SwiftArray<Swift.BlinkID.ScanningConditionsPinglet.UpdateType> AllCases
             {
@@ -14629,7 +14629,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_573CC447(self);
+                    var result = PInvoke_rawValue_Get_65F4CA3A(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -14644,7 +14644,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV17DeviceOrientationO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_573CC447( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_65F4CA3A( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -14657,7 +14657,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_1EB440B8();
+                    var result = PInvoke_allCases_Get_799B2D6D();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.ScanningConditionsPinglet.DeviceOrientation>>(new IntPtr(&result));
                 }
@@ -14670,7 +14670,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV17DeviceOrientationO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_1EB440B8();
+            private static extern IntPtr PInvoke_allCases_Get_799B2D6D();
             
             public static Swift.SwiftArray<Swift.BlinkID.ScanningConditionsPinglet.DeviceOrientation> AllCases
             {
@@ -14755,13 +14755,13 @@ namespace Swift.BlinkID
             using var flashlightOnSwift = flashlightOn is {} flashlightOnValue ? SwiftOptional<System.Boolean>.NewSome(flashlightOnValue) : SwiftOptional<System.Boolean>.NewNone();
             using PayloadBuffer<IntPtr> flashlightOnDisposable = flashlightOnSwift.PayloadBuffer;
             IntPtr flashlightOnBuffer = flashlightOnDisposable.Buffer;
-            PInvoke_init_1136E50C(swiftIndirectResult, updateType.Payload.DangerousGetHandle(), deviceOrientationBuffer, flashlightOnBuffer);
+            PInvoke_init_764D20FD(swiftIndirectResult, updateType.Payload.DangerousGetHandle(), deviceOrientationBuffer, flashlightOnBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV10updateType17deviceOrientation12flashlightOnA2C06UpdateG0O_AC06DeviceI0OSgSbSgtcfC")]
-        private static extern void PInvoke_init_1136E50C( SwiftIndirectResult swiftIndirectResult,  IntPtr updateType,  IntPtr deviceOrientationBuffer,  IntPtr flashlightOnBuffer);
+        private static extern void PInvoke_init_764D20FD( SwiftIndirectResult swiftIndirectResult,  IntPtr updateType,  IntPtr deviceOrientationBuffer,  IntPtr flashlightOnBuffer);
         
         
         public unsafe ScanningConditionsPinglet( Swift.Runtime.ExistentialContainer1 from)
@@ -14769,7 +14769,7 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<ScanningConditionsPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_6BB25147(swiftIndirectResult, from, out var error);
+            PInvoke_init_5779F5D2(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -14780,7 +14780,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_6BB25147( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_5779F5D2( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -14794,7 +14794,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_encode_17DC6B87(to, self, out var error);
+                PInvoke_encode_4BD9AFA9(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -14814,7 +14814,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25ScanningConditionsPingletV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_17DC6B87( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_4BD9AFA9( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -14828,7 +14828,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaName_Get_6D2C1AE5();
+                var result = PInvoke_schemaName_Get_2C38807E();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -14843,7 +14843,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25WrapperProductInfoPingletV10schemaNameSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_6D2C1AE5();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_2C38807E();
         
         public static Swift.SwiftString SchemaName
         {
@@ -14856,7 +14856,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaVersion_Get_441C9857();
+                var result = PInvoke_schemaVersion_Get_640DE4AF();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -14871,7 +14871,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25WrapperProductInfoPingletV13schemaVersionSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_441C9857();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_640DE4AF();
         
         public static Swift.SwiftString SchemaVersion
         {
@@ -14892,7 +14892,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_wrapperProduct_Get_697DD68B(swiftIndirectResult, self);
+                PInvoke_wrapperProduct_Get_19413A56(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.WrapperProductInfoPinglet.WrapperProduct>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -14907,7 +14907,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25WrapperProductInfoPingletV07wrapperD0AC0cD0Ovg")]
-        private static extern void PInvoke_wrapperProduct_Get_697DD68B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_wrapperProduct_Get_19413A56( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.WrapperProductInfoPinglet.WrapperProduct WrapperProductValue
         {
@@ -14924,7 +14924,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_correlationId_Get_1AA18500(self);
+                var result = PInvoke_correlationId_Get_755C150A(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -14939,7 +14939,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25WrapperProductInfoPingletV13correlationIdSSSgvg")]
-        private static extern IntPtr PInvoke_correlationId_Get_1AA18500( SwiftSelf self);
+        private static extern IntPtr PInvoke_correlationId_Get_755C150A( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> CorrelationId
         {
@@ -15195,7 +15195,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_5906550B(self);
+                    var result = PInvoke_rawValue_Get_52C6AB0C(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -15210,7 +15210,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25WrapperProductInfoPingletV0cD0O8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_5906550B( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_52C6AB0C( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -15223,7 +15223,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_2D19A876();
+                    var result = PInvoke_allCases_Get_28E281B2();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.WrapperProductInfoPinglet.WrapperProduct>>(new IntPtr(&result));
                 }
@@ -15236,7 +15236,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID25WrapperProductInfoPingletV0cD0O8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_2D19A876();
+            private static extern IntPtr PInvoke_allCases_Get_28E281B2();
             
             public static Swift.SwiftArray<Swift.BlinkID.WrapperProductInfoPinglet.WrapperProduct> AllCases
             {
@@ -15318,13 +15318,13 @@ namespace Swift.BlinkID
             using var correlationIdSwift = correlationId is {} correlationIdValue ? SwiftOptional<Swift.SwiftString>.NewSome(correlationIdValue) : SwiftOptional<Swift.SwiftString>.NewNone();
             using PayloadBuffer<IntPtr> correlationIdDisposable = correlationIdSwift.PayloadBuffer;
             IntPtr correlationIdBuffer = correlationIdDisposable.Buffer;
-            PInvoke_init_6E502435(swiftIndirectResult, wrapperProduct.Payload.DangerousGetHandle(), correlationIdBuffer);
+            PInvoke_init_693E8185(swiftIndirectResult, wrapperProduct.Payload.DangerousGetHandle(), correlationIdBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25WrapperProductInfoPingletV07wrapperD013correlationIdA2C0cD0O_SSSgtcfC")]
-        private static extern void PInvoke_init_6E502435( SwiftIndirectResult swiftIndirectResult,  IntPtr wrapperProduct,  IntPtr correlationIdBuffer);
+        private static extern void PInvoke_init_693E8185( SwiftIndirectResult swiftIndirectResult,  IntPtr wrapperProduct,  IntPtr correlationIdBuffer);
         
         
         public unsafe WrapperProductInfoPinglet( Swift.Runtime.ExistentialContainer1 from)
@@ -15332,7 +15332,7 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<WrapperProductInfoPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_5BDCD3C5(swiftIndirectResult, from, out var error);
+            PInvoke_init_2B5F8DCA(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -15343,7 +15343,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25WrapperProductInfoPingletV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_5BDCD3C5( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_2B5F8DCA( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -15357,7 +15357,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_encode_44D67787(to, self, out var error);
+                PInvoke_encode_06440A46(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -15377,7 +15377,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25WrapperProductInfoPingletV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_44D67787( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_06440A46( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -15391,7 +15391,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaName_Get_00C234C3();
+                var result = PInvoke_schemaName_Get_2BFBF3A9();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -15406,7 +15406,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV10schemaNameSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_00C234C3();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_2BFBF3A9();
         
         public static Swift.SwiftString SchemaName
         {
@@ -15419,7 +15419,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaVersion_Get_668D352C();
+                var result = PInvoke_schemaVersion_Get_10FDA8E1();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -15434,7 +15434,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV13schemaVersionSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_668D352C();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_10FDA8E1();
         
         public static Swift.SwiftString SchemaVersion
         {
@@ -15455,7 +15455,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_eventType_Get_2E52985D(swiftIndirectResult, self);
+                PInvoke_eventType_Get_23E9B230(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.UxEventPinglet.EventType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -15470,7 +15470,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV9eventTypeAC0dG0Ovg")]
-        private static extern void PInvoke_eventType_Get_2E52985D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_eventType_Get_23E9B230( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.UxEventPinglet.EventType EventTypeValue
         {
@@ -15487,7 +15487,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_errorMessageType_Get_62288461(self);
+                var result = PInvoke_errorMessageType_Get_5107FB56(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.UxEventPinglet.ErrorMessageType>>(new IntPtr(&result));
             }
@@ -15502,7 +15502,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV16errorMessageTypeAC05ErrorgH0OSgvg")]
-        private static extern IntPtr PInvoke_errorMessageType_Get_62288461( SwiftSelf self);
+        private static extern IntPtr PInvoke_errorMessageType_Get_5107FB56( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.UxEventPinglet.ErrorMessageType> ErrorMessageTypeValue
         {
@@ -15519,7 +15519,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_alertType_Get_154839AA(self);
+                var result = PInvoke_alertType_Get_5C1FABFB(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.UxEventPinglet.AlertType>>(new IntPtr(&result));
             }
@@ -15534,7 +15534,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV9alertTypeAC05AlertG0OSgvg")]
-        private static extern IntPtr PInvoke_alertType_Get_154839AA( SwiftSelf self);
+        private static extern IntPtr PInvoke_alertType_Get_5C1FABFB( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.UxEventPinglet.AlertType> AlertTypeValue
         {
@@ -15551,7 +15551,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_helpCloseType_Get_63448B69(self);
+                var result = PInvoke_helpCloseType_Get_444795BE(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.UxEventPinglet.HelpCloseType>>(new IntPtr(&result));
             }
@@ -15566,7 +15566,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV13helpCloseTypeAC04HelpgH0OSgvg")]
-        private static extern IntPtr PInvoke_helpCloseType_Get_63448B69( SwiftSelf self);
+        private static extern IntPtr PInvoke_helpCloseType_Get_444795BE( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.UxEventPinglet.HelpCloseType> HelpCloseTypeValue
         {
@@ -15958,7 +15958,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_0162FA72(self);
+                    var result = PInvoke_rawValue_Get_58DB9282(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -15973,7 +15973,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV0D4TypeO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_0162FA72( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_58DB9282( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -15986,7 +15986,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_4AB557E2();
+                    var result = PInvoke_allCases_Get_7FA59095();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.UxEventPinglet.EventType>>(new IntPtr(&result));
                 }
@@ -15999,7 +15999,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV0D4TypeO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_4AB557E2();
+            private static extern IntPtr PInvoke_allCases_Get_7FA59095();
             
             public static Swift.SwiftArray<Swift.BlinkID.UxEventPinglet.EventType> AllCases
             {
@@ -16353,7 +16353,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_1DE0CC84(self);
+                    var result = PInvoke_rawValue_Get_7B4A8720(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -16368,7 +16368,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV16ErrorMessageTypeO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_1DE0CC84( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_7B4A8720( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -16381,7 +16381,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_3B60CB66();
+                    var result = PInvoke_allCases_Get_35578DB0();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.UxEventPinglet.ErrorMessageType>>(new IntPtr(&result));
                 }
@@ -16394,7 +16394,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV16ErrorMessageTypeO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_3B60CB66();
+            private static extern IntPtr PInvoke_allCases_Get_35578DB0();
             
             public static Swift.SwiftArray<Swift.BlinkID.UxEventPinglet.ErrorMessageType> AllCases
             {
@@ -16646,7 +16646,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_2958324B(self);
+                    var result = PInvoke_rawValue_Get_36E5BCF2(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -16661,7 +16661,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV9AlertTypeO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_2958324B( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_36E5BCF2( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -16674,7 +16674,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_3EDCBA9F();
+                    var result = PInvoke_allCases_Get_14F1D628();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.UxEventPinglet.AlertType>>(new IntPtr(&result));
                 }
@@ -16687,7 +16687,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV9AlertTypeO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_3EDCBA9F();
+            private static extern IntPtr PInvoke_allCases_Get_14F1D628();
             
             public static Swift.SwiftArray<Swift.BlinkID.UxEventPinglet.AlertType> AllCases
             {
@@ -16905,7 +16905,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_407D9659(self);
+                    var result = PInvoke_rawValue_Get_01ADC046(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -16920,7 +16920,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV13HelpCloseTypeO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_407D9659( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_01ADC046( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -16933,7 +16933,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_69E15692();
+                    var result = PInvoke_allCases_Get_5259A607();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.UxEventPinglet.HelpCloseType>>(new IntPtr(&result));
                 }
@@ -16946,7 +16946,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV13HelpCloseTypeO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_69E15692();
+            private static extern IntPtr PInvoke_allCases_Get_5259A607();
             
             public static Swift.SwiftArray<Swift.BlinkID.UxEventPinglet.HelpCloseType> AllCases
             {
@@ -17034,13 +17034,13 @@ namespace Swift.BlinkID
             using var helpCloseTypeSwift = helpCloseType is {} helpCloseTypeValue ? SwiftOptional<Swift.BlinkID.UxEventPinglet.HelpCloseType>.NewSome(helpCloseTypeValue) : SwiftOptional<Swift.BlinkID.UxEventPinglet.HelpCloseType>.NewNone();
             using PayloadBuffer<IntPtr> helpCloseTypeDisposable = helpCloseTypeSwift.PayloadBuffer;
             IntPtr helpCloseTypeBuffer = helpCloseTypeDisposable.Buffer;
-            PInvoke_init_533753A0(swiftIndirectResult, eventType.Payload.DangerousGetHandle(), errorMessageTypeBuffer, alertTypeBuffer, helpCloseTypeBuffer);
+            PInvoke_init_746EA42F(swiftIndirectResult, eventType.Payload.DangerousGetHandle(), errorMessageTypeBuffer, alertTypeBuffer, helpCloseTypeBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV9eventType012errorMessageG005alertG009helpCloseG0A2C0dG0O_AC05ErroriG0OSgAC05AlertG0OSgAC04HelplG0OSgtcfC")]
-        private static extern void PInvoke_init_533753A0( SwiftIndirectResult swiftIndirectResult,  IntPtr eventType,  IntPtr errorMessageTypeBuffer,  IntPtr alertTypeBuffer,  IntPtr helpCloseTypeBuffer);
+        private static extern void PInvoke_init_746EA42F( SwiftIndirectResult swiftIndirectResult,  IntPtr eventType,  IntPtr errorMessageTypeBuffer,  IntPtr alertTypeBuffer,  IntPtr helpCloseTypeBuffer);
         
         
         public unsafe UxEventPinglet( Swift.Runtime.ExistentialContainer1 from)
@@ -17048,7 +17048,7 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<UxEventPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_1431624F(swiftIndirectResult, from, out var error);
+            PInvoke_init_4BE9C449(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -17059,7 +17059,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_1431624F( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_4BE9C449( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -17073,7 +17073,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_encode_0F1385B0(to, self, out var error);
+                PInvoke_encode_4A07B33E(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -17093,7 +17093,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14UxEventPingletV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_0F1385B0( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_4A07B33E( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -17107,7 +17107,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaName_Get_3D98EB34();
+                var result = PInvoke_schemaName_Get_1D62813A();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17122,7 +17122,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10LogPingletV10schemaNameSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_3D98EB34();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_1D62813A();
         
         public static Swift.SwiftString SchemaName
         {
@@ -17135,7 +17135,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaVersion_Get_6150BAA6();
+                var result = PInvoke_schemaVersion_Get_1FB705C8();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17150,7 +17150,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10LogPingletV13schemaVersionSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_6150BAA6();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_1FB705C8();
         
         public static Swift.SwiftString SchemaVersion
         {
@@ -17171,7 +17171,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_logLevel_Get_300A082D(swiftIndirectResult, self);
+                PInvoke_logLevel_Get_269423F1(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.LogPinglet.LogLevel>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17186,7 +17186,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10LogPingletV8logLevelAC0cF0Ovg")]
-        private static extern void PInvoke_logLevel_Get_300A082D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_logLevel_Get_269423F1( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.LogPinglet.LogLevel LogLevelValue
         {
@@ -17203,7 +17203,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_logMessage_Get_481DD2DE(self);
+                var result = PInvoke_logMessage_Get_524659E8(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17220,7 +17220,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10LogPingletV10logMessageSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_logMessage_Get_481DD2DE( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_logMessage_Get_524659E8( SwiftSelf self);
         
         public Swift.SwiftString LogMessage
         {
@@ -17459,7 +17459,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_5A8C0881(self);
+                    var result = PInvoke_rawValue_Get_3F2BD43E(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17474,7 +17474,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID10LogPingletV0C5LevelO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_5A8C0881( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_3F2BD43E( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -17487,7 +17487,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_213CAC38();
+                    var result = PInvoke_allCases_Get_09BAAAF2();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.LogPinglet.LogLevel>>(new IntPtr(&result));
                 }
@@ -17500,7 +17500,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID10LogPingletV0C5LevelO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_213CAC38();
+            private static extern IntPtr PInvoke_allCases_Get_09BAAAF2();
             
             public static Swift.SwiftArray<Swift.BlinkID.LogPinglet.LogLevel> AllCases
             {
@@ -17581,13 +17581,13 @@ namespace Swift.BlinkID
             
             using var logMessageSwift = new SwiftString(logMessage);
             using PayloadBuffer<SwiftString.Buffer> logMessageDisposable = logMessageSwift.PayloadBuffer;
-            PInvoke_init_21B969BD(swiftIndirectResult, logLevel.Payload.DangerousGetHandle(), logMessageDisposable.Buffer);
+            PInvoke_init_74927B31(swiftIndirectResult, logLevel.Payload.DangerousGetHandle(), logMessageDisposable.Buffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10LogPingletV8logLevel0E7MessageA2C0cF0O_SStcfC")]
-        private static extern void PInvoke_init_21B969BD( SwiftIndirectResult swiftIndirectResult,  IntPtr logLevel,  Swift.SwiftString.Buffer logMessage);
+        private static extern void PInvoke_init_74927B31( SwiftIndirectResult swiftIndirectResult,  IntPtr logLevel,  Swift.SwiftString.Buffer logMessage);
         
         
         public unsafe LogPinglet( Swift.Runtime.ExistentialContainer1 from)
@@ -17595,7 +17595,7 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<LogPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_46CC0B42(swiftIndirectResult, from, out var error);
+            PInvoke_init_6188B3EF(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -17606,7 +17606,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10LogPingletV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_46CC0B42( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_6188B3EF( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -17620,7 +17620,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_encode_0A9B551B(to, self, out var error);
+                PInvoke_encode_168813D0(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -17640,7 +17640,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10LogPingletV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_0A9B551B( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_168813D0( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -17654,7 +17654,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaName_Get_7CF756C1();
+                var result = PInvoke_schemaName_Get_4D7B4E44();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17669,7 +17669,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV10schemaNameSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_7CF756C1();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_4D7B4E44();
         
         public static Swift.SwiftString SchemaName
         {
@@ -17682,7 +17682,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaVersion_Get_6D6D92AE();
+                var result = PInvoke_schemaVersion_Get_5F2AF2FC();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17697,7 +17697,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV13schemaVersionSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_6D6D92AE();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_5F2AF2FC();
         
         public static Swift.SwiftString SchemaVersion
         {
@@ -17710,7 +17710,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_sessionNumber_Get_2843BB36();
+                var result = PInvoke_sessionNumber_Get_237706C9();
                 
                 return result;
             }
@@ -17723,7 +17723,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV13sessionNumberSivgZ")]
-        private static extern System.IntPtr PInvoke_sessionNumber_Get_2843BB36();
+        private static extern System.IntPtr PInvoke_sessionNumber_Get_237706C9();
         
         public static System.IntPtr SessionNumber
         {
@@ -17744,7 +17744,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_product_Get_4BA64E54(swiftIndirectResult, self);
+                PInvoke_product_Get_55499A10(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.SdkInitStartPinglet.Product>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17759,7 +17759,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV7productAC7ProductOvg")]
-        private static extern void PInvoke_product_Get_4BA64E54( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_product_Get_55499A10( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.SdkInitStartPinglet.Product ProductValue
         {
@@ -17780,7 +17780,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_platform_Get_0601DA8B(swiftIndirectResult, self);
+                PInvoke_platform_Get_18EDC585(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.SdkInitStartPinglet.Platform>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17795,7 +17795,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV8platformAC8PlatformOvg")]
-        private static extern void PInvoke_platform_Get_0601DA8B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_platform_Get_18EDC585( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.SdkInitStartPinglet.Platform PlatformValue
         {
@@ -17812,7 +17812,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_packageName_Get_64AD91DD(self);
+                var result = PInvoke_packageName_Get_47D8530D(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17829,7 +17829,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV11packageNameSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_packageName_Get_64AD91DD( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_packageName_Get_47D8530D( SwiftSelf self);
         
         public Swift.SwiftString PackageName
         {
@@ -17846,7 +17846,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_userId_Get_21812DD5(self);
+                var result = PInvoke_userId_Get_12AE79A1(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17863,7 +17863,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV6userIdSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_userId_Get_21812DD5( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_userId_Get_12AE79A1( SwiftSelf self);
         
         public Swift.SwiftString UserId
         {
@@ -18187,7 +18187,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_5648FADB(self);
+                    var result = PInvoke_rawValue_Get_48994EC5(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -18202,7 +18202,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV7ProductO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_5648FADB( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_48994EC5( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -18215,7 +18215,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_633E9A0E();
+                    var result = PInvoke_allCases_Get_7CE36535();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.SdkInitStartPinglet.Product>>(new IntPtr(&result));
                 }
@@ -18228,7 +18228,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV7ProductO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_633E9A0E();
+            private static extern IntPtr PInvoke_allCases_Get_7CE36535();
             
             public static Swift.SwiftArray<Swift.BlinkID.SdkInitStartPinglet.Product> AllCases
             {
@@ -18514,7 +18514,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_1101F3B6(self);
+                    var result = PInvoke_rawValue_Get_1CBF1C87(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -18529,7 +18529,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV8PlatformO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_1101F3B6( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_1CBF1C87( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -18542,7 +18542,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_511507CB();
+                    var result = PInvoke_allCases_Get_4D1F5543();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.SdkInitStartPinglet.Platform>>(new IntPtr(&result));
                 }
@@ -18555,7 +18555,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV8PlatformO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_511507CB();
+            private static extern IntPtr PInvoke_allCases_Get_4D1F5543();
             
             public static Swift.SwiftArray<Swift.BlinkID.SdkInitStartPinglet.Platform> AllCases
             {
@@ -18638,13 +18638,13 @@ namespace Swift.BlinkID
             using PayloadBuffer<SwiftString.Buffer> packageNameDisposable = packageNameSwift.PayloadBuffer;
             using var userIdSwift = new SwiftString(userId);
             using PayloadBuffer<SwiftString.Buffer> userIdDisposable = userIdSwift.PayloadBuffer;
-            PInvoke_init_00FB2E7D(swiftIndirectResult, product.Payload.DangerousGetHandle(), platform.Payload.DangerousGetHandle(), packageNameDisposable.Buffer, userIdDisposable.Buffer);
+            PInvoke_init_02A6F3BD(swiftIndirectResult, product.Payload.DangerousGetHandle(), platform.Payload.DangerousGetHandle(), packageNameDisposable.Buffer, userIdDisposable.Buffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV7product8platform11packageName6userIdA2C7ProductO_AC8PlatformOS2StcfC")]
-        private static extern void PInvoke_init_00FB2E7D( SwiftIndirectResult swiftIndirectResult,  IntPtr product,  IntPtr platform,  Swift.SwiftString.Buffer packageName,  Swift.SwiftString.Buffer userId);
+        private static extern void PInvoke_init_02A6F3BD( SwiftIndirectResult swiftIndirectResult,  IntPtr product,  IntPtr platform,  Swift.SwiftString.Buffer packageName,  Swift.SwiftString.Buffer userId);
         
         
         public unsafe SdkInitStartPinglet( Swift.Runtime.ExistentialContainer1 from)
@@ -18652,7 +18652,7 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<SdkInitStartPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_56D70A51(swiftIndirectResult, from, out var error);
+            PInvoke_init_025A59C2(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -18663,7 +18663,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_56D70A51( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_025A59C2( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -18677,7 +18677,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_encode_70E68A5E(to, self, out var error);
+                PInvoke_encode_1C72F3CB(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -18697,7 +18697,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19SdkInitStartPingletV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_70E68A5E( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_1C72F3CB( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -18711,7 +18711,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaName_Get_628AFBD7();
+                var result = PInvoke_schemaName_Get_103B7025();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -18726,7 +18726,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23CameraPermissionPingletV10schemaNameSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_628AFBD7();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_103B7025();
         
         public static Swift.SwiftString SchemaName
         {
@@ -18739,7 +18739,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaVersion_Get_091DD15B();
+                var result = PInvoke_schemaVersion_Get_2ED401B5();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -18754,7 +18754,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23CameraPermissionPingletV13schemaVersionSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_091DD15B();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_2ED401B5();
         
         public static Swift.SwiftString SchemaVersion
         {
@@ -18775,7 +18775,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_eventType_Get_44498661(swiftIndirectResult, self);
+                PInvoke_eventType_Get_575829F0(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.CameraPermissionPinglet.EventType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -18790,7 +18790,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23CameraPermissionPingletV9eventTypeAC05EventG0Ovg")]
-        private static extern void PInvoke_eventType_Get_44498661( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_eventType_Get_575829F0( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.CameraPermissionPinglet.EventType EventTypeValue
         {
@@ -18807,7 +18807,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_cameraPermissionGranted_Get_6480F420(self);
+                var result = PInvoke_cameraPermissionGranted_Get_78C95AB8(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Boolean>>(new IntPtr(&result));
             }
@@ -18822,7 +18822,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23CameraPermissionPingletV06cameraD7GrantedSbSgvg")]
-        private static extern IntPtr PInvoke_cameraPermissionGranted_Get_6480F420( SwiftSelf self);
+        private static extern IntPtr PInvoke_cameraPermissionGranted_Get_78C95AB8( SwiftSelf self);
         
         public Swift.SwiftOptional<System.Boolean> CameraPermissionGranted
         {
@@ -19078,7 +19078,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_510E9630(self);
+                    var result = PInvoke_rawValue_Get_473EE734(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -19093,7 +19093,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID23CameraPermissionPingletV9EventTypeO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_510E9630( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_473EE734( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -19106,7 +19106,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_778B1B31();
+                    var result = PInvoke_allCases_Get_42F00D2E();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.CameraPermissionPinglet.EventType>>(new IntPtr(&result));
                 }
@@ -19119,7 +19119,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID23CameraPermissionPingletV9EventTypeO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_778B1B31();
+            private static extern IntPtr PInvoke_allCases_Get_42F00D2E();
             
             public static Swift.SwiftArray<Swift.BlinkID.CameraPermissionPinglet.EventType> AllCases
             {
@@ -19201,13 +19201,13 @@ namespace Swift.BlinkID
             using var cameraPermissionGrantedSwift = cameraPermissionGranted is {} cameraPermissionGrantedValue ? SwiftOptional<System.Boolean>.NewSome(cameraPermissionGrantedValue) : SwiftOptional<System.Boolean>.NewNone();
             using PayloadBuffer<IntPtr> cameraPermissionGrantedDisposable = cameraPermissionGrantedSwift.PayloadBuffer;
             IntPtr cameraPermissionGrantedBuffer = cameraPermissionGrantedDisposable.Buffer;
-            PInvoke_init_3B2652CC(swiftIndirectResult, eventType.Payload.DangerousGetHandle(), cameraPermissionGrantedBuffer);
+            PInvoke_init_4E378288(swiftIndirectResult, eventType.Payload.DangerousGetHandle(), cameraPermissionGrantedBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23CameraPermissionPingletV9eventType06cameraD7GrantedA2C05EventG0O_SbSgtcfC")]
-        private static extern void PInvoke_init_3B2652CC( SwiftIndirectResult swiftIndirectResult,  IntPtr eventType,  IntPtr cameraPermissionGrantedBuffer);
+        private static extern void PInvoke_init_4E378288( SwiftIndirectResult swiftIndirectResult,  IntPtr eventType,  IntPtr cameraPermissionGrantedBuffer);
         
         
         public unsafe CameraPermissionPinglet( Swift.Runtime.ExistentialContainer1 from)
@@ -19215,7 +19215,7 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<CameraPermissionPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_550058B8(swiftIndirectResult, from, out var error);
+            PInvoke_init_2D66FF63(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -19226,7 +19226,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23CameraPermissionPingletV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_550058B8( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_2D66FF63( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -19240,7 +19240,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_encode_70B359C0(to, self, out var error);
+                PInvoke_encode_60148C4A(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -19260,7 +19260,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23CameraPermissionPingletV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_70B359C0( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_60148C4A( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -19274,7 +19274,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaName_Get_0210A7F2();
+                var result = PInvoke_schemaName_Get_0FC9E672();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -19289,7 +19289,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV10schemaNameSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_0210A7F2();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_0FC9E672();
         
         public static Swift.SwiftString SchemaName
         {
@@ -19302,7 +19302,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaVersion_Get_320D96C9();
+                var result = PInvoke_schemaVersion_Get_0A22FCCE();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -19317,7 +19317,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV13schemaVersionSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_320D96C9();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_0A22FCCE();
         
         public static Swift.SwiftString SchemaVersion
         {
@@ -19338,7 +19338,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_errorType_Get_6B53E96D(swiftIndirectResult, self);
+                PInvoke_errorType_Get_2ADC1A08(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ErrorPinglet.ErrorType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -19353,7 +19353,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV9errorTypeAC0cF0Ovg")]
-        private static extern void PInvoke_errorType_Get_6B53E96D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_errorType_Get_2ADC1A08( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ErrorPinglet.ErrorType ErrorTypeValue
         {
@@ -19370,7 +19370,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_errorMessage_Get_183EA02D(self);
+                var result = PInvoke_errorMessage_Get_57C1CB57(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -19387,7 +19387,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV12errorMessageSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_errorMessage_Get_183EA02D( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_errorMessage_Get_57C1CB57( SwiftSelf self);
         
         public Swift.SwiftString ErrorMessage
         {
@@ -19404,7 +19404,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_stackTrace_Get_52591329(self);
+                var result = PInvoke_stackTrace_Get_4E1F33BC(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -19419,7 +19419,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV10stackTraceSSSgvg")]
-        private static extern IntPtr PInvoke_stackTrace_Get_52591329( SwiftSelf self);
+        private static extern IntPtr PInvoke_stackTrace_Get_4E1F33BC( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> StackTrace
         {
@@ -19658,7 +19658,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_57E0DC15(self);
+                    var result = PInvoke_rawValue_Get_6B79336D(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -19673,7 +19673,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV0C4TypeO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_57E0DC15( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_6B79336D( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -19686,7 +19686,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_6373ED9C();
+                    var result = PInvoke_allCases_Get_3035184D();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.ErrorPinglet.ErrorType>>(new IntPtr(&result));
                 }
@@ -19699,7 +19699,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV0C4TypeO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_6373ED9C();
+            private static extern IntPtr PInvoke_allCases_Get_3035184D();
             
             public static Swift.SwiftArray<Swift.BlinkID.ErrorPinglet.ErrorType> AllCases
             {
@@ -19783,13 +19783,13 @@ namespace Swift.BlinkID
             using var stackTraceSwift = stackTrace is {} stackTraceValue ? SwiftOptional<Swift.SwiftString>.NewSome(stackTraceValue) : SwiftOptional<Swift.SwiftString>.NewNone();
             using PayloadBuffer<IntPtr> stackTraceDisposable = stackTraceSwift.PayloadBuffer;
             IntPtr stackTraceBuffer = stackTraceDisposable.Buffer;
-            PInvoke_init_03829DEA(swiftIndirectResult, errorType.Payload.DangerousGetHandle(), errorMessageDisposable.Buffer, stackTraceBuffer);
+            PInvoke_init_5BEEE51F(swiftIndirectResult, errorType.Payload.DangerousGetHandle(), errorMessageDisposable.Buffer, stackTraceBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV9errorType0E7Message10stackTraceA2C0cF0O_S2SSgtcfC")]
-        private static extern void PInvoke_init_03829DEA( SwiftIndirectResult swiftIndirectResult,  IntPtr errorType,  Swift.SwiftString.Buffer errorMessage,  IntPtr stackTraceBuffer);
+        private static extern void PInvoke_init_5BEEE51F( SwiftIndirectResult swiftIndirectResult,  IntPtr errorType,  Swift.SwiftString.Buffer errorMessage,  IntPtr stackTraceBuffer);
         
         
         public unsafe ErrorPinglet( Swift.Runtime.ExistentialContainer1 from)
@@ -19797,7 +19797,7 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<ErrorPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_396F00C1(swiftIndirectResult, from, out var error);
+            PInvoke_init_5D95A65E(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -19808,7 +19808,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_396F00C1( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_5D95A65E( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -19822,7 +19822,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_encode_55C1C458(to, self, out var error);
+                PInvoke_encode_2BA24D32(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -19842,7 +19842,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ErrorPingletV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_55C1C458( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_2BA24D32( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -19856,7 +19856,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaName_Get_250B6714();
+                var result = PInvoke_schemaName_Get_2A36909F();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -19871,7 +19871,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV10schemaNameSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_250B6714();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaName_Get_2A36909F();
         
         public static Swift.SwiftString SchemaName
         {
@@ -19884,7 +19884,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_schemaVersion_Get_1C04805B();
+                var result = PInvoke_schemaVersion_Get_352C9E70();
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -19899,7 +19899,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV13schemaVersionSSvgZ")]
-        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_1C04805B();
+        private static extern Swift.SwiftString.Buffer PInvoke_schemaVersion_Get_352C9E70();
         
         public static Swift.SwiftString SchemaVersion
         {
@@ -19920,7 +19920,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_cameraFacing_Get_1054625E(swiftIndirectResult, self);
+                PInvoke_cameraFacing_Get_7A7B2EAB(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.CameraInputInfoPinglet.CameraFacing>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -19935,7 +19935,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV12cameraFacingAC0cH0Ovg")]
-        private static extern void PInvoke_cameraFacing_Get_1054625E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_cameraFacing_Get_7A7B2EAB( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.CameraInputInfoPinglet.CameraFacing CameraFacingValue
         {
@@ -19952,7 +19952,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_cameraFrameWidth_Get_75021CF6(self);
+                var result = PInvoke_cameraFrameWidth_Get_660D7B5C(self);
                 
                 return result;
             }
@@ -19967,7 +19967,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV16cameraFrameWidths5Int64Vvg")]
-        private static extern System.Int64 PInvoke_cameraFrameWidth_Get_75021CF6( SwiftSelf self);
+        private static extern System.Int64 PInvoke_cameraFrameWidth_Get_660D7B5C( SwiftSelf self);
         
         public System.Int64 CameraFrameWidth
         {
@@ -19984,7 +19984,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_cameraFrameHeight_Get_041A3091(self);
+                var result = PInvoke_cameraFrameHeight_Get_3B12F490(self);
                 
                 return result;
             }
@@ -19999,7 +19999,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV17cameraFrameHeights5Int64Vvg")]
-        private static extern System.Int64 PInvoke_cameraFrameHeight_Get_041A3091( SwiftSelf self);
+        private static extern System.Int64 PInvoke_cameraFrameHeight_Get_3B12F490( SwiftSelf self);
         
         public System.Int64 CameraFrameHeight
         {
@@ -20016,7 +20016,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_roiWidth_Get_759568D8(self);
+                var result = PInvoke_roiWidth_Get_119D9CF3(self);
                 
                 return result;
             }
@@ -20031,7 +20031,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV8roiWidths5Int64Vvg")]
-        private static extern System.Int64 PInvoke_roiWidth_Get_759568D8( SwiftSelf self);
+        private static extern System.Int64 PInvoke_roiWidth_Get_119D9CF3( SwiftSelf self);
         
         public System.Int64 RoiWidth
         {
@@ -20048,7 +20048,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_roiHeight_Get_77AA36D9(self);
+                var result = PInvoke_roiHeight_Get_2F204D7F(self);
                 
                 return result;
             }
@@ -20063,7 +20063,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV9roiHeights5Int64Vvg")]
-        private static extern System.Int64 PInvoke_roiHeight_Get_77AA36D9( SwiftSelf self);
+        private static extern System.Int64 PInvoke_roiHeight_Get_2F204D7F( SwiftSelf self);
         
         public System.Int64 RoiHeight
         {
@@ -20080,7 +20080,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_viewPortAspectRatio_Get_5CAA60D4(self);
+                var result = PInvoke_viewPortAspectRatio_Get_7A434C3F(self);
                 
                 return result;
             }
@@ -20095,7 +20095,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV19viewPortAspectRatioSdvg")]
-        private static extern System.Double PInvoke_viewPortAspectRatio_Get_5CAA60D4( SwiftSelf self);
+        private static extern System.Double PInvoke_viewPortAspectRatio_Get_7A434C3F( SwiftSelf self);
         
         public System.Double ViewPortAspectRatio
         {
@@ -20351,7 +20351,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_06EB8D84(self);
+                    var result = PInvoke_rawValue_Get_4A90DC14(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -20366,7 +20366,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV0C6FacingO8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_06EB8D84( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_4A90DC14( SwiftSelf self);
             
             public Swift.SwiftString RawValue
             {
@@ -20379,7 +20379,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_3D9FE34B();
+                    var result = PInvoke_allCases_Get_12F100A1();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.CameraInputInfoPinglet.CameraFacing>>(new IntPtr(&result));
                 }
@@ -20392,7 +20392,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV0C6FacingO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_3D9FE34B();
+            private static extern IntPtr PInvoke_allCases_Get_12F100A1();
             
             public static Swift.SwiftArray<Swift.BlinkID.CameraInputInfoPinglet.CameraFacing> AllCases
             {
@@ -20471,13 +20471,13 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<CameraInputInfoPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_25DBFC34(swiftIndirectResult, cameraFacing.Payload.DangerousGetHandle(), cameraFrameWidth, cameraFrameHeight, roiWidth, roiHeight, viewPortAspectRatio);
+            PInvoke_init_54BC0F09(swiftIndirectResult, cameraFacing.Payload.DangerousGetHandle(), cameraFrameWidth, cameraFrameHeight, roiWidth, roiHeight, viewPortAspectRatio);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV12cameraFacing0G10FrameWidth0gI6Height03roiJ00lK019viewPortAspectRatioA2C0cH0O_s5Int64VA3MSdtcfC")]
-        private static extern void PInvoke_init_25DBFC34( SwiftIndirectResult swiftIndirectResult,  IntPtr cameraFacing,  System.Int64 cameraFrameWidth,  System.Int64 cameraFrameHeight,  System.Int64 roiWidth,  System.Int64 roiHeight,  System.Double viewPortAspectRatio);
+        private static extern void PInvoke_init_54BC0F09( SwiftIndirectResult swiftIndirectResult,  IntPtr cameraFacing,  System.Int64 cameraFrameWidth,  System.Int64 cameraFrameHeight,  System.Int64 roiWidth,  System.Int64 roiHeight,  System.Double viewPortAspectRatio);
         
         
         public unsafe CameraInputInfoPinglet( Swift.Runtime.ExistentialContainer1 from)
@@ -20485,7 +20485,7 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<CameraInputInfoPinglet>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_17E3EA6D(swiftIndirectResult, from, out var error);
+            PInvoke_init_29DEDB26(swiftIndirectResult, from, out var error);
             
             if (error.Value != null)
             {
@@ -20496,7 +20496,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV4fromACs7Decoder_p_tKcfC")]
-        private static extern void PInvoke_init_17E3EA6D( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
+        private static extern void PInvoke_init_29DEDB26( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 from, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
@@ -20510,7 +20510,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_encode_1185356E(to, self, out var error);
+                PInvoke_encode_7D98F99A(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -20530,7 +20530,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22CameraInputInfoPingletV6encode2toys7Encoder_p_tKF")]
-        private static extern void PInvoke_encode_1185356E( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_encode_7D98F99A( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -20544,7 +20544,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_shared_Get_7386E258();
+                var result = PInvoke_shared_Get_323B8635();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -20559,7 +20559,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC6sharedACvgZ")]
-        private static extern IntPtr PInvoke_shared_Get_7386E258();
+        private static extern IntPtr PInvoke_shared_Get_323B8635();
         
         public static Swift.BlinkID.CrashMonitor Shared
         {
@@ -20784,7 +20784,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_description_Get_6030A866(self);
+                    var result = PInvoke_description_Get_6618E95A(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -20799,7 +20799,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC04TestC4TypeO11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_6030A866( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_6618E95A( SwiftSelf self);
             
             public Swift.SwiftString Description
             {
@@ -20814,7 +20814,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_0873E279(self);
+                    var result = PInvoke_hashValue_Get_35B6CCC3(self);
                     
                     return result;
                 }
@@ -20827,7 +20827,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC04TestC4TypeO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_0873E279( SwiftSelf self);
+            private static extern System.IntPtr PInvoke_hashValue_Get_35B6CCC3( SwiftSelf self);
             
             public System.IntPtr HashValue
             {
@@ -20840,7 +20840,7 @@ namespace Swift.BlinkID
                 {
                     
                     
-                    var result = PInvoke_allCases_Get_036BA25F();
+                    var result = PInvoke_allCases_Get_6669AF0A();
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.CrashMonitor.TestCrashType>>(new IntPtr(&result));
                 }
@@ -20853,7 +20853,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC04TestC4TypeO8allCasesSayAEGvgZ")]
-            private static extern IntPtr PInvoke_allCases_Get_036BA25F();
+            private static extern IntPtr PInvoke_allCases_Get_6669AF0A();
             
             public static Swift.SwiftArray<Swift.BlinkID.CrashMonitor.TestCrashType> AllCases
             {
@@ -20932,7 +20932,7 @@ namespace Swift.BlinkID
                     
                     
                     
-                    PInvoke_hash_259256B6(into.Payload, self);
+                    PInvoke_hash_2E55986F(into.Payload, self);
                     
                     return;
                 }
@@ -20945,7 +20945,7 @@ namespace Swift.BlinkID
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC04TestC4TypeO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_259256B6( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_2E55986F( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -20961,7 +20961,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_startMonitoring_301A1ECD(enableDebugLogging, self);
+                PInvoke_startMonitoring_2BF0BE8E(enableDebugLogging, self);
                 
                 return;
             }
@@ -20976,7 +20976,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC15startMonitoring18enableDebugLoggingySb_tF")]
-        private static extern void PInvoke_startMonitoring_301A1ECD( System.Boolean enableDebugLogging,  SwiftSelf self);
+        private static extern void PInvoke_startMonitoring_2BF0BE8E( System.Boolean enableDebugLogging,  SwiftSelf self);
         
         
         public unsafe void StopMonitoring()
@@ -20989,7 +20989,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_stopMonitoring_4753E372(self);
+                PInvoke_stopMonitoring_4FFD79C1(self);
                 
                 return;
             }
@@ -21004,7 +21004,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC14stopMonitoringyyF")]
-        private static extern void PInvoke_stopMonitoring_4753E372( SwiftSelf self);
+        private static extern void PInvoke_stopMonitoring_4FFD79C1( SwiftSelf self);
         
         
         public unsafe void SimulateCrash( Swift.BlinkID.CrashMonitor.TestCrashType type)
@@ -21017,7 +21017,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_simulateCrash_15E1BEFD(type.Payload.DangerousGetHandle(), self);
+                PInvoke_simulateCrash_1FD8D5B8(type.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -21032,7 +21032,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC08simulateC04typeyAC04TestC4TypeO_tF")]
-        private static extern void PInvoke_simulateCrash_15E1BEFD( IntPtr type,  SwiftSelf self);
+        private static extern void PInvoke_simulateCrash_1FD8D5B8( IntPtr type,  SwiftSelf self);
         
         
         public unsafe void TestCrashReporting( Swift.BlinkID.CrashMonitor.TestCrashType type)
@@ -21045,7 +21045,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_testCrashReporting_5BAA3360(type.Payload.DangerousGetHandle(), self);
+                PInvoke_testCrashReporting_14EFC5A9(type.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -21060,7 +21060,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC04testC9Reporting4typeyAC04TestC4TypeO_tF")]
-        private static extern void PInvoke_testCrashReporting_5BAA3360( IntPtr type,  SwiftSelf self);
+        private static extern void PInvoke_testCrashReporting_14EFC5A9( IntPtr type,  SwiftSelf self);
         
         
         public unsafe void TestCrashReportingSync( Swift.BlinkID.CrashMonitor.TestCrashType type)
@@ -21073,7 +21073,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_testCrashReportingSync_1504CFD3(type.Payload.DangerousGetHandle(), self);
+                PInvoke_testCrashReportingSync_7E44DCC2(type.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -21088,7 +21088,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC04testC13ReportingSync4typeyAC04TestC4TypeO_tF")]
-        private static extern void PInvoke_testCrashReportingSync_1504CFD3( IntPtr type,  SwiftSelf self);
+        private static extern void PInvoke_testCrashReportingSync_7E44DCC2( IntPtr type,  SwiftSelf self);
         
         
         public unsafe void VerifyPingManagerIntegration()
@@ -21101,7 +21101,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_verifyPingManagerIntegration_5E0CFF25(self);
+                PInvoke_verifyPingManagerIntegration_60BAE3C5(self);
                 
                 return;
             }
@@ -21116,7 +21116,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12CrashMonitorC28verifyPingManagerIntegrationyyF")]
-        private static extern void PInvoke_verifyPingManagerIntegration_5E0CFF25( SwiftSelf self);
+        private static extern void PInvoke_verifyPingManagerIntegration_60BAE3C5( SwiftSelf self);
         
         
     }
@@ -21321,7 +21321,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_5BF8CFEA(self);
+                var result = PInvoke_hashValue_Get_6F54E93E(self);
                 
                 return result;
             }
@@ -21334,7 +21334,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15MRZDocumentTypeO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_5BF8CFEA( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_6F54E93E( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -21347,7 +21347,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_2BA1DA47();
+                var result = PInvoke_allCases_Get_69781CB1();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.MRZDocumentType>>(new IntPtr(&result));
             }
@@ -21360,7 +21360,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15MRZDocumentTypeO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_2BA1DA47();
+        private static extern IntPtr PInvoke_allCases_Get_69781CB1();
         
         public static Swift.SwiftArray<Swift.BlinkID.MRZDocumentType> AllCases
         {
@@ -21439,7 +21439,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_697B4C30(into.Payload, self);
+                PInvoke_hash_03EADA9D(into.Payload, self);
                 
                 return;
             }
@@ -21452,7 +21452,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15MRZDocumentTypeO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_697B4C30( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_03EADA9D( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -21470,7 +21470,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_firstName_Get_4B7CB62A(self);
+                var result = PInvoke_firstName_Get_5E07184B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21485,7 +21485,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV9firstNameAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_firstName_Get_4B7CB62A( SwiftSelf self);
+        private static extern IntPtr PInvoke_firstName_Get_5E07184B( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> FirstName
         {
@@ -21502,7 +21502,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_lastName_Get_62E145F2(self);
+                var result = PInvoke_lastName_Get_389263C9(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21517,7 +21517,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV8lastNameAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_lastName_Get_62E145F2( SwiftSelf self);
+        private static extern IntPtr PInvoke_lastName_Get_389263C9( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> LastName
         {
@@ -21534,7 +21534,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_fullName_Get_58FC2393(self);
+                var result = PInvoke_fullName_Get_30C1C5D5(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21549,7 +21549,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV8fullNameAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_fullName_Get_58FC2393( SwiftSelf self);
+        private static extern IntPtr PInvoke_fullName_Get_30C1C5D5( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> FullName
         {
@@ -21566,7 +21566,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_additionalNameInformation_Get_62E0B207(self);
+                var result = PInvoke_additionalNameInformation_Get_016ACE2B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21581,7 +21581,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV25additionalNameInformationAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_additionalNameInformation_Get_62E0B207( SwiftSelf self);
+        private static extern IntPtr PInvoke_additionalNameInformation_Get_016ACE2B( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> AdditionalNameInformation
         {
@@ -21598,7 +21598,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_localizedName_Get_27E75166(self);
+                var result = PInvoke_localizedName_Get_488304EC(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21613,7 +21613,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV13localizedNameAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_localizedName_Get_27E75166( SwiftSelf self);
+        private static extern IntPtr PInvoke_localizedName_Get_488304EC( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> LocalizedName
         {
@@ -21630,7 +21630,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_fathersName_Get_3DF32C75(self);
+                var result = PInvoke_fathersName_Get_5D1D2188(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21645,7 +21645,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV11fathersNameAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_fathersName_Get_3DF32C75( SwiftSelf self);
+        private static extern IntPtr PInvoke_fathersName_Get_5D1D2188( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> FathersName
         {
@@ -21662,7 +21662,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_mothersName_Get_52544375(self);
+                var result = PInvoke_mothersName_Get_425F8A8E(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21677,7 +21677,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV11mothersNameAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_mothersName_Get_52544375( SwiftSelf self);
+        private static extern IntPtr PInvoke_mothersName_Get_425F8A8E( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MothersName
         {
@@ -21694,7 +21694,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_address_Get_28BE0043(self);
+                var result = PInvoke_address_Get_26AB84CA(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21709,7 +21709,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV7addressAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_address_Get_28BE0043( SwiftSelf self);
+        private static extern IntPtr PInvoke_address_Get_26AB84CA( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Address
         {
@@ -21726,7 +21726,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_additionalAddressInformation_Get_32453B5D(self);
+                var result = PInvoke_additionalAddressInformation_Get_3DEF95F7(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21741,7 +21741,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV28additionalAddressInformationAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_additionalAddressInformation_Get_32453B5D( SwiftSelf self);
+        private static extern IntPtr PInvoke_additionalAddressInformation_Get_3DEF95F7( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> AdditionalAddressInformation
         {
@@ -21758,7 +21758,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_additionalOptionalAddressInformation_Get_713914AA(self);
+                var result = PInvoke_additionalOptionalAddressInformation_Get_38858365(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21773,7 +21773,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV36additionalOptionalAddressInformationAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_additionalOptionalAddressInformation_Get_713914AA( SwiftSelf self);
+        private static extern IntPtr PInvoke_additionalOptionalAddressInformation_Get_38858365( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> AdditionalOptionalAddressInformation
         {
@@ -21790,7 +21790,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_placeOfBirth_Get_08FEB4F8(self);
+                var result = PInvoke_placeOfBirth_Get_417D7D4B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21805,7 +21805,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV12placeOfBirthAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_placeOfBirth_Get_08FEB4F8( SwiftSelf self);
+        private static extern IntPtr PInvoke_placeOfBirth_Get_417D7D4B( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> PlaceOfBirth
         {
@@ -21822,7 +21822,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_nationality_Get_715DCE5B(self);
+                var result = PInvoke_nationality_Get_6A9C3690(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21837,7 +21837,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV11nationalityAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_nationality_Get_715DCE5B( SwiftSelf self);
+        private static extern IntPtr PInvoke_nationality_Get_6A9C3690( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Nationality
         {
@@ -21854,7 +21854,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_race_Get_161E6B49(self);
+                var result = PInvoke_race_Get_1E45C48C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21869,7 +21869,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV4raceAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_race_Get_161E6B49( SwiftSelf self);
+        private static extern IntPtr PInvoke_race_Get_1E45C48C( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Race
         {
@@ -21886,7 +21886,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_religion_Get_473284DA(self);
+                var result = PInvoke_religion_Get_21E63016(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21901,7 +21901,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV8religionAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_religion_Get_473284DA( SwiftSelf self);
+        private static extern IntPtr PInvoke_religion_Get_21E63016( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Religion
         {
@@ -21918,7 +21918,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_profession_Get_34A055C7(self);
+                var result = PInvoke_profession_Get_4C164009(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21933,7 +21933,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV10professionAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_profession_Get_34A055C7( SwiftSelf self);
+        private static extern IntPtr PInvoke_profession_Get_4C164009( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Profession
         {
@@ -21950,7 +21950,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_maritalStatus_Get_136466B9(self);
+                var result = PInvoke_maritalStatus_Get_1D1D9B0D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21965,7 +21965,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV13maritalStatusAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_maritalStatus_Get_136466B9( SwiftSelf self);
+        private static extern IntPtr PInvoke_maritalStatus_Get_1D1D9B0D( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MaritalStatus
         {
@@ -21982,7 +21982,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_residentialStatus_Get_6ACEEFCD(self);
+                var result = PInvoke_residentialStatus_Get_6C8FDE2C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -21997,7 +21997,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV17residentialStatusAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_residentialStatus_Get_6ACEEFCD( SwiftSelf self);
+        private static extern IntPtr PInvoke_residentialStatus_Get_6C8FDE2C( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> ResidentialStatus
         {
@@ -22014,7 +22014,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_employer_Get_6626166A(self);
+                var result = PInvoke_employer_Get_237BE462(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22029,7 +22029,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV8employerAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_employer_Get_6626166A( SwiftSelf self);
+        private static extern IntPtr PInvoke_employer_Get_237BE462( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Employer
         {
@@ -22046,7 +22046,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sex_Get_26B8C15D(self);
+                var result = PInvoke_sex_Get_0D8B653D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22061,7 +22061,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV3sexAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_sex_Get_26B8C15D( SwiftSelf self);
+        private static extern IntPtr PInvoke_sex_Get_0D8B653D( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Sex
         {
@@ -22078,7 +22078,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sponsor_Get_2E07232A(self);
+                var result = PInvoke_sponsor_Get_01D458A9(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22093,7 +22093,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV7sponsorAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_sponsor_Get_2E07232A( SwiftSelf self);
+        private static extern IntPtr PInvoke_sponsor_Get_01D458A9( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Sponsor
         {
@@ -22110,7 +22110,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_bloodType_Get_4AD15B4B(self);
+                var result = PInvoke_bloodType_Get_2C9CA10C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22125,7 +22125,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV9bloodTypeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_bloodType_Get_4AD15B4B( SwiftSelf self);
+        private static extern IntPtr PInvoke_bloodType_Get_2C9CA10C( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> BloodType
         {
@@ -22142,7 +22142,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfBirth_Get_67FE17FF(self);
+                var result = PInvoke_dateOfBirth_Get_4938A6E6(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -22157,7 +22157,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV11dateOfBirthAA10DateResultVyAA0A5IDSDKV06StringH0VGSgvg")]
-        private static extern IntPtr PInvoke_dateOfBirth_Get_67FE17FF( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfBirth_Get_4938A6E6( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>> DateOfBirth
         {
@@ -22174,7 +22174,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfIssue_Get_0448B7CC(self);
+                var result = PInvoke_dateOfIssue_Get_43A22F6F(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -22189,7 +22189,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV11dateOfIssueAA10DateResultVyAA0A5IDSDKV06StringH0VGSgvg")]
-        private static extern IntPtr PInvoke_dateOfIssue_Get_0448B7CC( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfIssue_Get_43A22F6F( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>> DateOfIssue
         {
@@ -22206,7 +22206,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfExpiry_Get_74AEEA19(self);
+                var result = PInvoke_dateOfExpiry_Get_4B7866A9(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -22221,7 +22221,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV12dateOfExpiryAA10DateResultVyAA0A5IDSDKV06StringH0VGSgvg")]
-        private static extern IntPtr PInvoke_dateOfExpiry_Get_74AEEA19( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfExpiry_Get_4B7866A9( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>> DateOfExpiry
         {
@@ -22238,7 +22238,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfEntry_Get_13B8D51D(self);
+                var result = PInvoke_dateOfEntry_Get_7B344161(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -22253,7 +22253,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV11dateOfEntryAA10DateResultVyAA0A5IDSDKV06StringH0VGSgvg")]
-        private static extern IntPtr PInvoke_dateOfEntry_Get_13B8D51D( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfEntry_Get_7B344161( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>> DateOfEntry
         {
@@ -22270,7 +22270,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfExpiryPermanent_Get_0DE6373D(self);
+                var result = PInvoke_dateOfExpiryPermanent_Get_2BCBFBE1(self);
                 
                 return result;
             }
@@ -22285,7 +22285,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV21dateOfExpiryPermanentSbvg")]
-        private static extern System.Boolean PInvoke_dateOfExpiryPermanent_Get_0DE6373D( SwiftSelf self);
+        private static extern System.Boolean PInvoke_dateOfExpiryPermanent_Get_2BCBFBE1( SwiftSelf self);
         
         public System.Boolean DateOfExpiryPermanent
         {
@@ -22302,7 +22302,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentNumber_Get_71C02BDC(self);
+                var result = PInvoke_documentNumber_Get_2361AC1C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22317,7 +22317,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV14documentNumberAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_documentNumber_Get_71C02BDC( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentNumber_Get_2361AC1C( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> DocumentNumber
         {
@@ -22334,7 +22334,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_personalIdNumber_Get_2B648AC1(self);
+                var result = PInvoke_personalIdNumber_Get_1BBB890C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22349,7 +22349,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV16personalIdNumberAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_personalIdNumber_Get_2B648AC1( SwiftSelf self);
+        private static extern IntPtr PInvoke_personalIdNumber_Get_1BBB890C( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> PersonalIdNumber
         {
@@ -22366,7 +22366,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentAdditionalNumber_Get_479BBC86(self);
+                var result = PInvoke_documentAdditionalNumber_Get_7C691DDD(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22381,7 +22381,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV24documentAdditionalNumberAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_documentAdditionalNumber_Get_479BBC86( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentAdditionalNumber_Get_7C691DDD( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> DocumentAdditionalNumber
         {
@@ -22398,7 +22398,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentOptionalAdditionalNumber_Get_15385ADD(self);
+                var result = PInvoke_documentOptionalAdditionalNumber_Get_639F787C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22413,7 +22413,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV32documentOptionalAdditionalNumberAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_documentOptionalAdditionalNumber_Get_15385ADD( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentOptionalAdditionalNumber_Get_639F787C( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> DocumentOptionalAdditionalNumber
         {
@@ -22430,7 +22430,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_additionalPersonalIdNumber_Get_722D91E8(self);
+                var result = PInvoke_additionalPersonalIdNumber_Get_3623A8BB(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22445,7 +22445,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV26additionalPersonalIdNumberAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_additionalPersonalIdNumber_Get_722D91E8( SwiftSelf self);
+        private static extern IntPtr PInvoke_additionalPersonalIdNumber_Get_3623A8BB( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> AdditionalPersonalIdNumber
         {
@@ -22462,7 +22462,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_issuingAuthority_Get_43A585F1(self);
+                var result = PInvoke_issuingAuthority_Get_5274827C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22477,7 +22477,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV16issuingAuthorityAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_issuingAuthority_Get_43A585F1( SwiftSelf self);
+        private static extern IntPtr PInvoke_issuingAuthority_Get_5274827C( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> IssuingAuthority
         {
@@ -22494,7 +22494,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_visaType_Get_7DA3404B(self);
+                var result = PInvoke_visaType_Get_4AD4AFCE(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22509,7 +22509,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV8visaTypeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_visaType_Get_7DA3404B( SwiftSelf self);
+        private static extern IntPtr PInvoke_visaType_Get_4AD4AFCE( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> VisaType
         {
@@ -22526,7 +22526,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_certificateNumber_Get_01795132(self);
+                var result = PInvoke_certificateNumber_Get_3F5BA17B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22541,7 +22541,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV17certificateNumberAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_certificateNumber_Get_01795132( SwiftSelf self);
+        private static extern IntPtr PInvoke_certificateNumber_Get_3F5BA17B( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> CertificateNumber
         {
@@ -22558,7 +22558,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_countryCode_Get_0C47AD3A(self);
+                var result = PInvoke_countryCode_Get_0CE695CF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22573,7 +22573,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV11countryCodeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_countryCode_Get_0C47AD3A( SwiftSelf self);
+        private static extern IntPtr PInvoke_countryCode_Get_0CE695CF( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> CountryCode
         {
@@ -22590,7 +22590,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_driverLicenseDetailedInfo_Get_3839F31A(self);
+                var result = PInvoke_driverLicenseDetailedInfo_Get_436EBFE0(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DriverLicenseDetailedInfo<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -22605,7 +22605,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV25driverLicenseDetailedInfoAA06DriverefG0VyAA0A5IDSDKV12StringResultVGSgvg")]
-        private static extern IntPtr PInvoke_driverLicenseDetailedInfo_Get_3839F31A( SwiftSelf self);
+        private static extern IntPtr PInvoke_driverLicenseDetailedInfo_Get_436EBFE0( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DriverLicenseDetailedInfo<Swift.BlinkID.BlinkIDSDK.StringResult>> DriverLicenseDetailedInfo
         {
@@ -22622,7 +22622,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentSubtype_Get_2DD68D7F(self);
+                var result = PInvoke_documentSubtype_Get_3A5F0864(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22637,7 +22637,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV15documentSubtypeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_documentSubtype_Get_2DD68D7F( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentSubtype_Get_3A5F0864( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> DocumentSubtype
         {
@@ -22654,7 +22654,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_remarks_Get_76604B55(self);
+                var result = PInvoke_remarks_Get_08F63712(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22669,7 +22669,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV7remarksAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_remarks_Get_76604B55( SwiftSelf self);
+        private static extern IntPtr PInvoke_remarks_Get_08F63712( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Remarks
         {
@@ -22686,7 +22686,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_residencePermitType_Get_1D9B231F(self);
+                var result = PInvoke_residencePermitType_Get_1703C0D4(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22701,7 +22701,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV19residencePermitTypeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_residencePermitType_Get_1D9B231F( SwiftSelf self);
+        private static extern IntPtr PInvoke_residencePermitType_Get_1703C0D4( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> ResidencePermitType
         {
@@ -22718,7 +22718,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_manufacturingYear_Get_0467BF27(self);
+                var result = PInvoke_manufacturingYear_Get_77248948(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22733,7 +22733,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV17manufacturingYearAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_manufacturingYear_Get_0467BF27( SwiftSelf self);
+        private static extern IntPtr PInvoke_manufacturingYear_Get_77248948( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> ManufacturingYear
         {
@@ -22750,7 +22750,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_nationalInsuranceNumber_Get_72053E38(self);
+                var result = PInvoke_nationalInsuranceNumber_Get_06BDF50F(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22765,7 +22765,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV23nationalInsuranceNumberAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_nationalInsuranceNumber_Get_72053E38( SwiftSelf self);
+        private static extern IntPtr PInvoke_nationalInsuranceNumber_Get_06BDF50F( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> NationalInsuranceNumber
         {
@@ -22782,7 +22782,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_vehicleType_Get_0DEDC06D(self);
+                var result = PInvoke_vehicleType_Get_71B7EFA7(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22797,7 +22797,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV11vehicleTypeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_vehicleType_Get_0DEDC06D( SwiftSelf self);
+        private static extern IntPtr PInvoke_vehicleType_Get_71B7EFA7( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> VehicleType
         {
@@ -22814,7 +22814,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_eligibilityCategory_Get_48F92700(self);
+                var result = PInvoke_eligibilityCategory_Get_226DCD21(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22829,7 +22829,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV19eligibilityCategoryAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_eligibilityCategory_Get_48F92700( SwiftSelf self);
+        private static extern IntPtr PInvoke_eligibilityCategory_Get_226DCD21( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> EligibilityCategory
         {
@@ -22846,7 +22846,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_specificDocumentValidity_Get_071CC456(self);
+                var result = PInvoke_specificDocumentValidity_Get_2CF79F7D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22861,7 +22861,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV24specificDocumentValidityAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_specificDocumentValidity_Get_071CC456( SwiftSelf self);
+        private static extern IntPtr PInvoke_specificDocumentValidity_Get_2CF79F7D( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> SpecificDocumentValidity
         {
@@ -22878,7 +22878,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dependentsInfo_Get_4F8ECF15(self);
+                var result = PInvoke_dependentsInfo_Get_41BC16CF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DependentInfo>>>(new IntPtr(&result));
             }
@@ -22893,7 +22893,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV14dependentsInfoSayAA09DependentE0VGSgvg")]
-        private static extern IntPtr PInvoke_dependentsInfo_Get_4F8ECF15( SwiftSelf self);
+        private static extern IntPtr PInvoke_dependentsInfo_Get_41BC16CF( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DependentInfo>> DependentsInfo
         {
@@ -22910,7 +22910,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_vehicleOwner_Get_15958269(self);
+                var result = PInvoke_vehicleOwner_Get_6EE0C1A9(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22925,7 +22925,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV12vehicleOwnerAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_vehicleOwner_Get_15958269( SwiftSelf self);
+        private static extern IntPtr PInvoke_vehicleOwner_Get_6EE0C1A9( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> VehicleOwner
         {
@@ -22942,7 +22942,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_localityCode_Get_735D3FD5(self);
+                var result = PInvoke_localityCode_Get_62B6B337(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22957,7 +22957,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV12localityCodeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_localityCode_Get_735D3FD5( SwiftSelf self);
+        private static extern IntPtr PInvoke_localityCode_Get_62B6B337( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> LocalityCode
         {
@@ -22974,7 +22974,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_maidenName_Get_004748A2(self);
+                var result = PInvoke_maidenName_Get_66391CA6(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -22989,7 +22989,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV10maidenNameAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_maidenName_Get_004748A2( SwiftSelf self);
+        private static extern IntPtr PInvoke_maidenName_Get_66391CA6( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MaidenName
         {
@@ -23006,7 +23006,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_municipalityCode_Get_1862F47B(self);
+                var result = PInvoke_municipalityCode_Get_02CE87A6(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -23021,7 +23021,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV16municipalityCodeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_municipalityCode_Get_1862F47B( SwiftSelf self);
+        private static extern IntPtr PInvoke_municipalityCode_Get_02CE87A6( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MunicipalityCode
         {
@@ -23038,7 +23038,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_municipalityOfRegistration_Get_7C7FA924(self);
+                var result = PInvoke_municipalityOfRegistration_Get_0C049681(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -23053,7 +23053,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV26municipalityOfRegistrationAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_municipalityOfRegistration_Get_7C7FA924( SwiftSelf self);
+        private static extern IntPtr PInvoke_municipalityOfRegistration_Get_0C049681( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MunicipalityOfRegistration
         {
@@ -23070,7 +23070,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_pollingStationCode_Get_02C8255B(self);
+                var result = PInvoke_pollingStationCode_Get_07AE218B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -23085,7 +23085,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV18pollingStationCodeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_pollingStationCode_Get_02C8255B( SwiftSelf self);
+        private static extern IntPtr PInvoke_pollingStationCode_Get_07AE218B( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> PollingStationCode
         {
@@ -23102,7 +23102,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_registrationCenterCode_Get_1236E0B3(self);
+                var result = PInvoke_registrationCenterCode_Get_62857E80(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -23117,7 +23117,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV22registrationCenterCodeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_registrationCenterCode_Get_1236E0B3( SwiftSelf self);
+        private static extern IntPtr PInvoke_registrationCenterCode_Get_62857E80( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> RegistrationCenterCode
         {
@@ -23134,7 +23134,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sectionCode_Get_1A76FF38(self);
+                var result = PInvoke_sectionCode_Get_4FDD4618(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -23149,7 +23149,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV11sectionCodeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_sectionCode_Get_1A76FF38( SwiftSelf self);
+        private static extern IntPtr PInvoke_sectionCode_Get_4FDD4618( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> SectionCode
         {
@@ -23166,7 +23166,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_stateCode_Get_5E9BE56F(self);
+                var result = PInvoke_stateCode_Get_1C714D05(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -23181,7 +23181,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV9stateCodeAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_stateCode_Get_5E9BE56F( SwiftSelf self);
+        private static extern IntPtr PInvoke_stateCode_Get_1C714D05( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> StateCode
         {
@@ -23198,7 +23198,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_stateName_Get_55446271(self);
+                var result = PInvoke_stateName_Get_029169CC(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -23213,7 +23213,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9VIZResultV9stateNameAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_stateName_Get_55446271( SwiftSelf self);
+        private static extern IntPtr PInvoke_stateName_Get_029169CC( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> StateName
         {
@@ -23323,7 +23323,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawMRZString_Get_546F5F79(self);
+                var result = PInvoke_rawMRZString_Get_6A155B9C(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23340,7 +23340,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV12rawMRZStringSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawMRZString_Get_546F5F79( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawMRZString_Get_6A155B9C( SwiftSelf self);
         
         public Swift.SwiftString RawMRZString
         {
@@ -23357,7 +23357,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentCode_Get_7021BD6B(self);
+                var result = PInvoke_documentCode_Get_59B8092E(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23374,7 +23374,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV12documentCodeSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_documentCode_Get_7021BD6B( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_documentCode_Get_59B8092E( SwiftSelf self);
         
         public Swift.SwiftString DocumentCode
         {
@@ -23391,7 +23391,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_issuer_Get_31A1A8C7(self);
+                var result = PInvoke_issuer_Get_2C5E32B2(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23408,7 +23408,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV6issuerSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_issuer_Get_31A1A8C7( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_issuer_Get_2C5E32B2( SwiftSelf self);
         
         public Swift.SwiftString Issuer
         {
@@ -23425,7 +23425,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentNumber_Get_54BC9FFD(self);
+                var result = PInvoke_documentNumber_Get_42A480C2(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23442,7 +23442,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV14documentNumberSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_documentNumber_Get_54BC9FFD( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_documentNumber_Get_42A480C2( SwiftSelf self);
         
         public Swift.SwiftString DocumentNumber
         {
@@ -23459,7 +23459,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_opt1_Get_6BA207B6(self);
+                var result = PInvoke_opt1_Get_1711CF5A(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23476,7 +23476,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV4opt1SSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_opt1_Get_6BA207B6( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_opt1_Get_1711CF5A( SwiftSelf self);
         
         public Swift.SwiftString Opt1
         {
@@ -23493,7 +23493,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_opt2_Get_23AE2DCA(self);
+                var result = PInvoke_opt2_Get_2EF837A6(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23510,7 +23510,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV4opt2SSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_opt2_Get_23AE2DCA( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_opt2_Get_2EF837A6( SwiftSelf self);
         
         public Swift.SwiftString Opt2
         {
@@ -23527,7 +23527,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_gender_Get_4950303C(self);
+                var result = PInvoke_gender_Get_5AE29BDB(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23544,7 +23544,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV6genderSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_gender_Get_4950303C( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_gender_Get_5AE29BDB( SwiftSelf self);
         
         public Swift.SwiftString Gender
         {
@@ -23561,7 +23561,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_nationality_Get_07A8C831(self);
+                var result = PInvoke_nationality_Get_05CFCF41(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23578,7 +23578,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV11nationalitySSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_nationality_Get_07A8C831( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_nationality_Get_05CFCF41( SwiftSelf self);
         
         public Swift.SwiftString Nationality
         {
@@ -23595,7 +23595,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_primaryID_Get_29394F6B(self);
+                var result = PInvoke_primaryID_Get_194E8BEE(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23612,7 +23612,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV07primaryB0SSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_primaryID_Get_29394F6B( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_primaryID_Get_194E8BEE( SwiftSelf self);
         
         public Swift.SwiftString PrimaryID
         {
@@ -23629,7 +23629,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_secondaryID_Get_1E421DBC(self);
+                var result = PInvoke_secondaryID_Get_34513E04(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23646,7 +23646,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV09secondaryB0SSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_secondaryID_Get_1E421DBC( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_secondaryID_Get_34513E04( SwiftSelf self);
         
         public Swift.SwiftString SecondaryID
         {
@@ -23663,7 +23663,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_issuerName_Get_6401C3C7(self);
+                var result = PInvoke_issuerName_Get_7E9C5DE2(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23680,7 +23680,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV10issuerNameSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_issuerName_Get_6401C3C7( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_issuerName_Get_7E9C5DE2( SwiftSelf self);
         
         public Swift.SwiftString IssuerName
         {
@@ -23697,7 +23697,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_nationalityName_Get_32CFB168(self);
+                var result = PInvoke_nationalityName_Get_1B70CC4F(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23714,7 +23714,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV15nationalityNameSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_nationalityName_Get_32CFB168( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_nationalityName_Get_1B70CC4F( SwiftSelf self);
         
         public Swift.SwiftString NationalityName
         {
@@ -23731,7 +23731,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_verified_Get_4C67C80C(self);
+                var result = PInvoke_verified_Get_1DFACFEF(self);
                 
                 return result;
             }
@@ -23746,7 +23746,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV8verifiedSbvg")]
-        private static extern System.Boolean PInvoke_verified_Get_4C67C80C( SwiftSelf self);
+        private static extern System.Boolean PInvoke_verified_Get_1DFACFEF( SwiftSelf self);
         
         public System.Boolean Verified
         {
@@ -23763,7 +23763,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfBirth_Get_7714FE8D(self);
+                var result = PInvoke_dateOfBirth_Get_62501EA5(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DateResult<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -23778,7 +23778,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV11dateOfBirthAA10DateResultVySSGvg")]
-        private static extern Swift.AnyType PInvoke_dateOfBirth_Get_7714FE8D( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_dateOfBirth_Get_62501EA5( SwiftSelf self);
         
         public Swift.BlinkID.DateResult<Swift.SwiftString> DateOfBirth
         {
@@ -23795,7 +23795,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfExpiry_Get_609326B6(self);
+                var result = PInvoke_dateOfExpiry_Get_4F7FE221(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DateResult<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -23810,7 +23810,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV12dateOfExpiryAA10DateResultVySSGvg")]
-        private static extern Swift.AnyType PInvoke_dateOfExpiry_Get_609326B6( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_dateOfExpiry_Get_4F7FE221( SwiftSelf self);
         
         public Swift.BlinkID.DateResult<Swift.SwiftString> DateOfExpiry
         {
@@ -23831,7 +23831,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentType_Get_16F71E7C(swiftIndirectResult, self);
+                PInvoke_documentType_Get_787A6555(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.MRZDocumentType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -23846,7 +23846,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV12documentTypeAA011MRZDocumentE0Ovg")]
-        private static extern void PInvoke_documentType_Get_16F71E7C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentType_Get_787A6555( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.MRZDocumentType DocumentType
         {
@@ -23863,7 +23863,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sanitizedOpt1_Get_757D3ED9(self);
+                var result = PInvoke_sanitizedOpt1_Get_721CDDB3(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23880,7 +23880,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV13sanitizedOpt1SSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedOpt1_Get_757D3ED9( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedOpt1_Get_721CDDB3( SwiftSelf self);
         
         public Swift.SwiftString SanitizedOpt1
         {
@@ -23897,7 +23897,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sanitizedOpt2_Get_206DDFB3(self);
+                var result = PInvoke_sanitizedOpt2_Get_3243EBA1(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23914,7 +23914,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV13sanitizedOpt2SSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedOpt2_Get_206DDFB3( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedOpt2_Get_3243EBA1( SwiftSelf self);
         
         public Swift.SwiftString SanitizedOpt2
         {
@@ -23931,7 +23931,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sanitizedNationality_Get_712555E9(self);
+                var result = PInvoke_sanitizedNationality_Get_70B05F90(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23948,7 +23948,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV20sanitizedNationalitySSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedNationality_Get_712555E9( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedNationality_Get_70B05F90( SwiftSelf self);
         
         public Swift.SwiftString SanitizedNationality
         {
@@ -23965,7 +23965,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sanitizedIssuer_Get_2D5F70E6(self);
+                var result = PInvoke_sanitizedIssuer_Get_16B5EFD8(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -23982,7 +23982,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV15sanitizedIssuerSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedIssuer_Get_2D5F70E6( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedIssuer_Get_16B5EFD8( SwiftSelf self);
         
         public Swift.SwiftString SanitizedIssuer
         {
@@ -23999,7 +23999,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sanitizedDocumentCode_Get_2AE086F1(self);
+                var result = PInvoke_sanitizedDocumentCode_Get_6C9FA40C(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -24016,7 +24016,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV21sanitizedDocumentCodeSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedDocumentCode_Get_2AE086F1( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedDocumentCode_Get_6C9FA40C( SwiftSelf self);
         
         public Swift.SwiftString SanitizedDocumentCode
         {
@@ -24033,7 +24033,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sanitizedDocumentNumber_Get_442D62AE(self);
+                var result = PInvoke_sanitizedDocumentNumber_Get_325D3956(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -24050,7 +24050,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9MRZResultV23sanitizedDocumentNumberSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedDocumentNumber_Get_442D62AE( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_sanitizedDocumentNumber_Get_325D3956( SwiftSelf self);
         
         public Swift.SwiftString SanitizedDocumentNumber
         {
@@ -24160,7 +24160,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_street_Get_65645C3C(self);
+                var result = PInvoke_street_Get_3057DEED(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -24175,7 +24175,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19AddressDetailedInfoV6streetSSSgvg")]
-        private static extern IntPtr PInvoke_street_Get_65645C3C( SwiftSelf self);
+        private static extern IntPtr PInvoke_street_Get_3057DEED( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> Street
         {
@@ -24192,7 +24192,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_postalCode_Get_1886FDFA(self);
+                var result = PInvoke_postalCode_Get_3185BF91(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -24207,7 +24207,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19AddressDetailedInfoV10postalCodeSSSgvg")]
-        private static extern IntPtr PInvoke_postalCode_Get_1886FDFA( SwiftSelf self);
+        private static extern IntPtr PInvoke_postalCode_Get_3185BF91( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> PostalCode
         {
@@ -24224,7 +24224,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_city_Get_1B8F6BA2(self);
+                var result = PInvoke_city_Get_2DD801AB(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -24239,7 +24239,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19AddressDetailedInfoV4citySSSgvg")]
-        private static extern IntPtr PInvoke_city_Get_1B8F6BA2( SwiftSelf self);
+        private static extern IntPtr PInvoke_city_Get_2DD801AB( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> City
         {
@@ -24256,7 +24256,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_jurisdiction_Get_1EFA1CDA(self);
+                var result = PInvoke_jurisdiction_Get_0F1A699E(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -24271,7 +24271,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19AddressDetailedInfoV12jurisdictionSSSgvg")]
-        private static extern IntPtr PInvoke_jurisdiction_Get_1EFA1CDA( SwiftSelf self);
+        private static extern IntPtr PInvoke_jurisdiction_Get_0F1A699E( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> Jurisdiction
         {
@@ -24619,7 +24619,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_5A32CCBA(self);
+                var result = PInvoke_hashValue_Get_50F4C9E7(self);
                 
                 return result;
             }
@@ -24632,7 +24632,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11BarcodeTypeO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_5A32CCBA( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_50F4C9E7( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -24645,7 +24645,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_12C48EA3();
+                var result = PInvoke_allCases_Get_3AB578ED();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.BarcodeType>>(new IntPtr(&result));
             }
@@ -24658,7 +24658,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11BarcodeTypeO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_12C48EA3();
+        private static extern IntPtr PInvoke_allCases_Get_3AB578ED();
         
         public static Swift.SwiftArray<Swift.BlinkID.BarcodeType> AllCases
         {
@@ -24737,7 +24737,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_01B6C29F(into.Payload, self);
+                PInvoke_hash_7C30D47D(into.Payload, self);
                 
                 return;
             }
@@ -24750,7 +24750,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11BarcodeTypeO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_01B6C29F( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_7C30D47D( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -24768,7 +24768,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawData_Get_7E83DEDC(self);
+                var result = PInvoke_rawData_Get_460EE5C9(self);
                 
                 return result;
             }
@@ -24783,7 +24783,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11BarcodeDataV03rawD010Foundation0D0Vvg")]
-        private static extern Swift.Data PInvoke_rawData_Get_7E83DEDC( SwiftSelf self);
+        private static extern Swift.Data PInvoke_rawData_Get_460EE5C9( SwiftSelf self);
         
         public Swift.Data RawData
         {
@@ -24800,7 +24800,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_stringData_Get_48707DC5(self);
+                var result = PInvoke_stringData_Get_0186ED16(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -24817,7 +24817,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11BarcodeDataV06stringD0SSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_stringData_Get_48707DC5( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_stringData_Get_0186ED16( SwiftSelf self);
         
         public Swift.SwiftString StringData
         {
@@ -24838,7 +24838,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_barcodeType_Get_630184DE(swiftIndirectResult, self);
+                PInvoke_barcodeType_Get_5A8E3AC4(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BarcodeType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -24853,7 +24853,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11BarcodeDataV11barcodeTypeAA0cF0Ovg")]
-        private static extern void PInvoke_barcodeType_Get_630184DE( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_barcodeType_Get_5A8E3AC4( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.BarcodeType BarcodeType
         {
@@ -24870,7 +24870,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_uncertain_Get_528D25C9(self);
+                var result = PInvoke_uncertain_Get_5BAE2DF3(self);
                 
                 return result;
             }
@@ -24885,7 +24885,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11BarcodeDataV9uncertainSbvg")]
-        private static extern System.Boolean PInvoke_uncertain_Get_528D25C9( SwiftSelf self);
+        private static extern System.Boolean PInvoke_uncertain_Get_5BAE2DF3( SwiftSelf self);
         
         public System.Boolean Uncertain
         {
@@ -25083,7 +25083,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_getValue_7D411F30(_for.Payload.DangerousGetHandle(), self);
+                var result = PInvoke_getValue_2A6887AB(_for.Payload.DangerousGetHandle(), self);
                 
                 unsafe {
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
@@ -25101,7 +25101,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15BarcodeElementsV8getValue3forSSAA0C10ElementKeyO_tF")]
-        private static extern Swift.SwiftString.Buffer PInvoke_getValue_7D411F30( IntPtr _for,  SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_getValue_2A6887AB( IntPtr _for,  SwiftSelf self);
         
         
     }
@@ -25123,7 +25123,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_barcodeData_Get_6F93492F(swiftIndirectResult, self);
+                PInvoke_barcodeData_Get_59EE3BFC(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BarcodeData>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25138,7 +25138,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV11barcodeDataAA0cF0Vvg")]
-        private static extern void PInvoke_barcodeData_Get_6F93492F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_barcodeData_Get_59EE3BFC( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.BarcodeData BarcodeData
         {
@@ -25155,7 +25155,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_parsed_Get_7B0DCC3C(self);
+                var result = PInvoke_parsed_Get_3967D9A1(self);
                 
                 return result;
             }
@@ -25170,7 +25170,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV6parsedSbvg")]
-        private static extern System.Boolean PInvoke_parsed_Get_7B0DCC3C( SwiftSelf self);
+        private static extern System.Boolean PInvoke_parsed_Get_3967D9A1( SwiftSelf self);
         
         public System.Boolean Parsed
         {
@@ -25187,7 +25187,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_firstName_Get_4A412A9A(self);
+                var result = PInvoke_firstName_Get_66342470(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25204,7 +25204,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV9firstNameSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_firstName_Get_4A412A9A( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_firstName_Get_66342470( SwiftSelf self);
         
         public Swift.SwiftString FirstName
         {
@@ -25221,7 +25221,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_middleName_Get_0D654930(self);
+                var result = PInvoke_middleName_Get_6952A53A(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25238,7 +25238,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV10middleNameSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_middleName_Get_0D654930( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_middleName_Get_6952A53A( SwiftSelf self);
         
         public Swift.SwiftString MiddleName
         {
@@ -25255,7 +25255,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_lastName_Get_5AF76D2F(self);
+                var result = PInvoke_lastName_Get_698365C8(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25272,7 +25272,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV8lastNameSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_lastName_Get_5AF76D2F( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_lastName_Get_698365C8( SwiftSelf self);
         
         public Swift.SwiftString LastName
         {
@@ -25289,7 +25289,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_fullName_Get_7D9ED04A(self);
+                var result = PInvoke_fullName_Get_241B1664(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25306,7 +25306,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV8fullNameSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_fullName_Get_7D9ED04A( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_fullName_Get_241B1664( SwiftSelf self);
         
         public Swift.SwiftString FullName
         {
@@ -25323,7 +25323,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_additionalNameInformation_Get_58EDCF3F(self);
+                var result = PInvoke_additionalNameInformation_Get_6A648272(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25340,7 +25340,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV25additionalNameInformationSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_additionalNameInformation_Get_58EDCF3F( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_additionalNameInformation_Get_6A648272( SwiftSelf self);
         
         public Swift.SwiftString AdditionalNameInformation
         {
@@ -25357,7 +25357,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_address_Get_3A92006F(self);
+                var result = PInvoke_address_Get_32CBDBF1(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25374,7 +25374,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV7addressSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_address_Get_3A92006F( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_address_Get_32CBDBF1( SwiftSelf self);
         
         public Swift.SwiftString Address
         {
@@ -25391,7 +25391,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_placeOfBirth_Get_60361B68(self);
+                var result = PInvoke_placeOfBirth_Get_74285615(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25408,7 +25408,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV12placeOfBirthSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_placeOfBirth_Get_60361B68( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_placeOfBirth_Get_74285615( SwiftSelf self);
         
         public Swift.SwiftString PlaceOfBirth
         {
@@ -25425,7 +25425,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_nationality_Get_3F25B1E2(self);
+                var result = PInvoke_nationality_Get_40CF1A5D(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25442,7 +25442,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV11nationalitySSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_nationality_Get_3F25B1E2( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_nationality_Get_40CF1A5D( SwiftSelf self);
         
         public Swift.SwiftString Nationality
         {
@@ -25459,7 +25459,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_race_Get_65EBEF11(self);
+                var result = PInvoke_race_Get_62E3E74A(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25476,7 +25476,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV4raceSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_race_Get_65EBEF11( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_race_Get_62E3E74A( SwiftSelf self);
         
         public Swift.SwiftString Race
         {
@@ -25493,7 +25493,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_religion_Get_4239F086(self);
+                var result = PInvoke_religion_Get_42E7CE93(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25510,7 +25510,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV8religionSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_religion_Get_4239F086( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_religion_Get_42E7CE93( SwiftSelf self);
         
         public Swift.SwiftString Religion
         {
@@ -25527,7 +25527,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_profession_Get_6E704EE0(self);
+                var result = PInvoke_profession_Get_2EF497FC(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25544,7 +25544,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV10professionSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_profession_Get_6E704EE0( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_profession_Get_2EF497FC( SwiftSelf self);
         
         public Swift.SwiftString Profession
         {
@@ -25561,7 +25561,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_maritalStatus_Get_7A65D00F(self);
+                var result = PInvoke_maritalStatus_Get_4C10A0D2(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25578,7 +25578,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV13maritalStatusSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_maritalStatus_Get_7A65D00F( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_maritalStatus_Get_4C10A0D2( SwiftSelf self);
         
         public Swift.SwiftString MaritalStatus
         {
@@ -25595,7 +25595,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_residentialStatus_Get_775DA14E(self);
+                var result = PInvoke_residentialStatus_Get_218B6A89(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25612,7 +25612,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV17residentialStatusSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_residentialStatus_Get_775DA14E( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_residentialStatus_Get_218B6A89( SwiftSelf self);
         
         public Swift.SwiftString ResidentialStatus
         {
@@ -25629,7 +25629,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_employer_Get_23B8481C(self);
+                var result = PInvoke_employer_Get_3871A96C(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25646,7 +25646,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV8employerSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_employer_Get_23B8481C( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_employer_Get_3871A96C( SwiftSelf self);
         
         public Swift.SwiftString Employer
         {
@@ -25663,7 +25663,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sex_Get_3910C8A1(self);
+                var result = PInvoke_sex_Get_753DAF18(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25680,7 +25680,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV3sexSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_sex_Get_3910C8A1( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_sex_Get_753DAF18( SwiftSelf self);
         
         public Swift.SwiftString Sex
         {
@@ -25697,7 +25697,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfBirth_Get_1BA05F10(self);
+                var result = PInvoke_dateOfBirth_Get_4921C29F(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DateResult<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -25712,7 +25712,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV11dateOfBirthAA04DateD0VySSGvg")]
-        private static extern Swift.AnyType PInvoke_dateOfBirth_Get_1BA05F10( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_dateOfBirth_Get_4921C29F( SwiftSelf self);
         
         public Swift.BlinkID.DateResult<Swift.SwiftString> DateOfBirth
         {
@@ -25729,7 +25729,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfIssue_Get_53D2E65F(self);
+                var result = PInvoke_dateOfIssue_Get_318BA639(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DateResult<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -25744,7 +25744,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV11dateOfIssueAA04DateD0VySSGvg")]
-        private static extern Swift.AnyType PInvoke_dateOfIssue_Get_53D2E65F( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_dateOfIssue_Get_318BA639( SwiftSelf self);
         
         public Swift.BlinkID.DateResult<Swift.SwiftString> DateOfIssue
         {
@@ -25761,7 +25761,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfExpiry_Get_6ED55B54(self);
+                var result = PInvoke_dateOfExpiry_Get_3325EEF8(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DateResult<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -25776,7 +25776,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV12dateOfExpiryAA04DateD0VySSGvg")]
-        private static extern Swift.AnyType PInvoke_dateOfExpiry_Get_6ED55B54( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_dateOfExpiry_Get_3325EEF8( SwiftSelf self);
         
         public Swift.BlinkID.DateResult<Swift.SwiftString> DateOfExpiry
         {
@@ -25793,7 +25793,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentNumber_Get_55991697(self);
+                var result = PInvoke_documentNumber_Get_60115860(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25810,7 +25810,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV14documentNumberSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_documentNumber_Get_55991697( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_documentNumber_Get_60115860( SwiftSelf self);
         
         public Swift.SwiftString DocumentNumber
         {
@@ -25827,7 +25827,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_personalIdNumber_Get_0D75CA1F(self);
+                var result = PInvoke_personalIdNumber_Get_23ED25F6(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25844,7 +25844,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV16personalIdNumberSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_personalIdNumber_Get_0D75CA1F( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_personalIdNumber_Get_23ED25F6( SwiftSelf self);
         
         public Swift.SwiftString PersonalIdNumber
         {
@@ -25861,7 +25861,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentAdditionalNumber_Get_536EF90A(self);
+                var result = PInvoke_documentAdditionalNumber_Get_2EA5774B(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25878,7 +25878,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV24documentAdditionalNumberSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_documentAdditionalNumber_Get_536EF90A( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_documentAdditionalNumber_Get_2EA5774B( SwiftSelf self);
         
         public Swift.SwiftString DocumentAdditionalNumber
         {
@@ -25895,7 +25895,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_issuingAuthority_Get_710061F9(self);
+                var result = PInvoke_issuingAuthority_Get_2849653A(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -25912,7 +25912,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV16issuingAuthoritySSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_issuingAuthority_Get_710061F9( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_issuingAuthority_Get_2849653A( SwiftSelf self);
         
         public Swift.SwiftString IssuingAuthority
         {
@@ -25933,7 +25933,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_addressDetailedInfo_Get_2464D5BB(swiftIndirectResult, self);
+                PInvoke_addressDetailedInfo_Get_26121923(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.AddressDetailedInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -25948,7 +25948,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV19addressDetailedInfoAA07AddressfG0Vvg")]
-        private static extern void PInvoke_addressDetailedInfo_Get_2464D5BB( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_addressDetailedInfo_Get_26121923( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.AddressDetailedInfo AddressDetailedInfo
         {
@@ -25965,7 +25965,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_driverLicenseDetailedInfo_Get_1F3DBB27(self);
+                var result = PInvoke_driverLicenseDetailedInfo_Get_522CA164(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DriverLicenseDetailedInfo<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -25980,7 +25980,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV25driverLicenseDetailedInfoAA06DriverfgH0VySSGvg")]
-        private static extern Swift.AnyType PInvoke_driverLicenseDetailedInfo_Get_1F3DBB27( SwiftSelf self);
+        private static extern Swift.AnyType PInvoke_driverLicenseDetailedInfo_Get_522CA164( SwiftSelf self);
         
         public Swift.BlinkID.DriverLicenseDetailedInfo<Swift.SwiftString> DriverLicenseDetailedInfo
         {
@@ -26001,7 +26001,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_extendedElements_Get_57890EE8(swiftIndirectResult, self);
+                PInvoke_extendedElements_Get_7504F94E(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BarcodeElements>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -26016,7 +26016,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13BarcodeResultV16extendedElementsAA0cF0Vvg")]
-        private static extern void PInvoke_extendedElements_Get_57890EE8( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_extendedElements_Get_7504F94E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.BarcodeElements ExtendedElements
         {
@@ -26126,7 +26126,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_viz_Get_292656B6(self);
+                var result = PInvoke_viz_Get_24F70C0F(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.VIZResult>>(new IntPtr(&result));
             }
@@ -26141,7 +26141,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV3vizAA9VIZResultVSgvg")]
-        private static extern IntPtr PInvoke_viz_Get_292656B6( SwiftSelf self);
+        private static extern IntPtr PInvoke_viz_Get_24F70C0F( SwiftSelf self);
         
         private unsafe void Viz_Set( Swift.SwiftOptional<Swift.BlinkID.VIZResult> value)
         {
@@ -26155,7 +26155,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_viz_Set_36521F27(valueBuffer, self);
+                PInvoke_viz_Set_0307EFC5(valueBuffer, self);
                 
                 return;
             }
@@ -26170,7 +26170,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV3vizAA9VIZResultVSgvs")]
-        private static extern void PInvoke_viz_Set_36521F27( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_viz_Set_0307EFC5( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.VIZResult> Viz
         {
@@ -26188,7 +26188,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_mrz_Get_6478566C(self);
+                var result = PInvoke_mrz_Get_1C41C81D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.MRZResult>>(new IntPtr(&result));
             }
@@ -26203,7 +26203,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV3mrzAA9MRZResultVSgvg")]
-        private static extern IntPtr PInvoke_mrz_Get_6478566C( SwiftSelf self);
+        private static extern IntPtr PInvoke_mrz_Get_1C41C81D( SwiftSelf self);
         
         private unsafe void Mrz_Set( Swift.SwiftOptional<Swift.BlinkID.MRZResult> value)
         {
@@ -26217,7 +26217,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_mrz_Set_195E4974(valueBuffer, self);
+                PInvoke_mrz_Set_7ACCC5C1(valueBuffer, self);
                 
                 return;
             }
@@ -26232,7 +26232,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV3mrzAA9MRZResultVSgvs")]
-        private static extern void PInvoke_mrz_Set_195E4974( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_mrz_Set_7ACCC5C1( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.MRZResult> Mrz
         {
@@ -26250,7 +26250,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_barcode_Get_6F3A568F(self);
+                var result = PInvoke_barcode_Get_2F218DD7(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BarcodeResult>>(new IntPtr(&result));
             }
@@ -26265,7 +26265,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV7barcodeAA07BarcodeF0VSgvg")]
-        private static extern IntPtr PInvoke_barcode_Get_6F3A568F( SwiftSelf self);
+        private static extern IntPtr PInvoke_barcode_Get_2F218DD7( SwiftSelf self);
         
         private unsafe void Barcode_Set( Swift.SwiftOptional<Swift.BlinkID.BarcodeResult> value)
         {
@@ -26279,7 +26279,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_barcode_Set_0B0C8302(valueBuffer, self);
+                PInvoke_barcode_Set_7D104572(valueBuffer, self);
                 
                 return;
             }
@@ -26294,7 +26294,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV7barcodeAA07BarcodeF0VSgvs")]
-        private static extern void PInvoke_barcode_Set_0B0C8302( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_barcode_Set_7D104572( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BarcodeResult> Barcode
         {
@@ -26312,7 +26312,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_inputImage_Get_05854155(self);
+                var result = PInvoke_inputImage_Get_6A19D56B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.InputImageResult>>(new IntPtr(&result));
             }
@@ -26327,7 +26327,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV10inputImageAA05InputhF0VSgvg")]
-        private static extern IntPtr PInvoke_inputImage_Get_05854155( SwiftSelf self);
+        private static extern IntPtr PInvoke_inputImage_Get_6A19D56B( SwiftSelf self);
         
         private unsafe void InputImage_Set( Swift.SwiftOptional<Swift.BlinkID.InputImageResult> value)
         {
@@ -26341,7 +26341,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_inputImage_Set_38197490(valueBuffer, self);
+                PInvoke_inputImage_Set_463D7A53(valueBuffer, self);
                 
                 return;
             }
@@ -26356,7 +26356,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV10inputImageAA05InputhF0VSgvs")]
-        private static extern void PInvoke_inputImage_Set_38197490( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_inputImage_Set_463D7A53( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.InputImageResult> InputImage
         {
@@ -26374,7 +26374,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_barcodeInputImage_Get_51A88784(self);
+                var result = PInvoke_barcodeInputImage_Get_6D4623B6(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.InputImageResult>>(new IntPtr(&result));
             }
@@ -26389,7 +26389,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV17barcodeInputImageAA0hiF0VSgvg")]
-        private static extern IntPtr PInvoke_barcodeInputImage_Get_51A88784( SwiftSelf self);
+        private static extern IntPtr PInvoke_barcodeInputImage_Get_6D4623B6( SwiftSelf self);
         
         private unsafe void BarcodeInputImage_Set( Swift.SwiftOptional<Swift.BlinkID.InputImageResult> value)
         {
@@ -26403,7 +26403,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_barcodeInputImage_Set_3D5755BB(valueBuffer, self);
+                PInvoke_barcodeInputImage_Set_2628D3F8(valueBuffer, self);
                 
                 return;
             }
@@ -26418,7 +26418,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV17barcodeInputImageAA0hiF0VSgvs")]
-        private static extern void PInvoke_barcodeInputImage_Set_3D5755BB( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_barcodeInputImage_Set_2628D3F8( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.InputImageResult> BarcodeInputImage
         {
@@ -26436,7 +26436,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentImage_Get_15633BE3(self);
+                var result = PInvoke_documentImage_Get_21C74CDC(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.CroppedImageResult>>(new IntPtr(&result));
             }
@@ -26451,7 +26451,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV13documentImageAA07CroppedhF0VSgvg")]
-        private static extern IntPtr PInvoke_documentImage_Get_15633BE3( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentImage_Get_21C74CDC( SwiftSelf self);
         
         private unsafe void DocumentImage_Set( Swift.SwiftOptional<Swift.BlinkID.CroppedImageResult> value)
         {
@@ -26465,7 +26465,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_documentImage_Set_267FD489(valueBuffer, self);
+                PInvoke_documentImage_Set_631E5AAF(valueBuffer, self);
                 
                 return;
             }
@@ -26480,7 +26480,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV13documentImageAA07CroppedhF0VSgvs")]
-        private static extern void PInvoke_documentImage_Set_267FD489( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_documentImage_Set_631E5AAF( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.CroppedImageResult> DocumentImage
         {
@@ -26498,7 +26498,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_faceImage_Get_4333A8F0(self);
+                var result = PInvoke_faceImage_Get_433C86AC(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DetailedCroppedImageResult>>(new IntPtr(&result));
             }
@@ -26513,7 +26513,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV9faceImageAA015DetailedCroppedhF0VSgvg")]
-        private static extern IntPtr PInvoke_faceImage_Get_4333A8F0( SwiftSelf self);
+        private static extern IntPtr PInvoke_faceImage_Get_433C86AC( SwiftSelf self);
         
         private unsafe void FaceImage_Set( Swift.SwiftOptional<Swift.BlinkID.DetailedCroppedImageResult> value)
         {
@@ -26527,7 +26527,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_faceImage_Set_41C5FD22(valueBuffer, self);
+                PInvoke_faceImage_Set_020AB4B4(valueBuffer, self);
                 
                 return;
             }
@@ -26542,7 +26542,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV9faceImageAA015DetailedCroppedhF0VSgvs")]
-        private static extern void PInvoke_faceImage_Set_41C5FD22( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_faceImage_Set_020AB4B4( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DetailedCroppedImageResult> FaceImage
         {
@@ -26560,7 +26560,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_signatureImage_Get_52CFB52B(self);
+                var result = PInvoke_signatureImage_Get_5F1AC841(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DetailedCroppedImageResult>>(new IntPtr(&result));
             }
@@ -26575,7 +26575,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV14signatureImageAA015DetailedCroppedhF0VSgvg")]
-        private static extern IntPtr PInvoke_signatureImage_Get_52CFB52B( SwiftSelf self);
+        private static extern IntPtr PInvoke_signatureImage_Get_5F1AC841( SwiftSelf self);
         
         private unsafe void SignatureImage_Set( Swift.SwiftOptional<Swift.BlinkID.DetailedCroppedImageResult> value)
         {
@@ -26589,7 +26589,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_signatureImage_Set_32C929EA(valueBuffer, self);
+                PInvoke_signatureImage_Set_28047BA6(valueBuffer, self);
                 
                 return;
             }
@@ -26604,7 +26604,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24SingleSideScanningResultV14signatureImageAA015DetailedCroppedhF0VSgvs")]
-        private static extern void PInvoke_signatureImage_Set_32C929EA( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_signatureImage_Set_28047BA6( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DetailedCroppedImageResult> SignatureImage
         {
@@ -26802,7 +26802,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_cancelActiveProcessing_6531716F(self);
+                PInvoke_cancelActiveProcessing_7B2601F9(self);
                 
                 return;
             }
@@ -26817,7 +26817,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A9IDSessionC22cancelActiveProcessingyyF")]
-        private static extern void PInvoke_cancelActiveProcessing_6531716F( SwiftSelf self);
+        private static extern void PInvoke_cancelActiveProcessing_7B2601F9( SwiftSelf self);
         
         
         public unsafe void ResumeActiveProcessing()
@@ -26830,7 +26830,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_resumeActiveProcessing_39428537(self);
+                PInvoke_resumeActiveProcessing_0B1D0C1E(self);
                 
                 return;
             }
@@ -26845,7 +26845,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A9IDSessionC22resumeActiveProcessingyyF")]
-        private static extern void PInvoke_resumeActiveProcessing_39428537( SwiftSelf self);
+        private static extern void PInvoke_resumeActiveProcessing_0B1D0C1E( SwiftSelf self);
         
         
         public unsafe Swift.BlinkID.FrameProcessResult Process( Swift.BlinkID.InputImage inputImage)
@@ -26862,7 +26862,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_process_68559AF9(swiftIndirectResult, inputImage.Payload, self);
+                PInvoke_process_1BBE1193(swiftIndirectResult, inputImage.Payload, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.FrameProcessResult>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -26877,7 +26877,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A9IDSessionC7process10inputImageAA18FrameProcessResultVAA05InputF0C_tF")]
-        private static extern void PInvoke_process_68559AF9( SwiftIndirectResult swiftIndirectResult,  SafeHandle inputImage,  SwiftSelf self);
+        private static extern void PInvoke_process_1BBE1193( SwiftIndirectResult swiftIndirectResult,  SafeHandle inputImage,  SwiftSelf self);
         
         
         public unsafe void Reset()
@@ -26890,7 +26890,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_reset_53660ED6(self, out var error);
+                PInvoke_reset_11C644C6(self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -26910,7 +26910,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A9IDSessionC5resetyyKF")]
-        private static extern void PInvoke_reset_53660ED6( SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_reset_11C644C6( SwiftSelf self, out SwiftError error);
         
         
         public unsafe Swift.BlinkID.BlinkIDScanningResult GetResult()
@@ -26927,7 +26927,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_getResult_0B9FA297(swiftIndirectResult, self);
+                PInvoke_getResult_2388C694(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BlinkIDScanningResult>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -26942,7 +26942,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A9IDSessionC9getResultAA0a10IDScanningE0VyF")]
-        private static extern void PInvoke_getResult_0B9FA297( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_getResult_2388C694( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         
         public unsafe string GetSessionId()
@@ -26955,7 +26955,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_getSessionId_67F57CED(self);
+                var result = PInvoke_getSessionId_14332C21(self);
                 
                 unsafe {
                     var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
@@ -26973,7 +26973,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A9IDSessionC12getSessionIdSSyF")]
-        private static extern Swift.SwiftString.Buffer PInvoke_getSessionId_67F57CED( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_getSessionId_14332C21( SwiftSelf self);
         
         
         public unsafe System.IntPtr GetSessionNumber()
@@ -26986,7 +26986,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_getSessionNumber_7BC5F1EA(self);
+                var result = PInvoke_getSessionNumber_485532E9(self);
                 
                 return result;
             }
@@ -27001,7 +27001,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A9IDSessionC16getSessionNumberSiyF")]
-        private static extern System.IntPtr PInvoke_getSessionNumber_7BC5F1EA( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_getSessionNumber_485532E9( SwiftSelf self);
         
         
     }
@@ -27185,7 +27185,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_id_Get_0C7C65A6(self);
+                var result = PInvoke_id_Get_6F8F1110(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -27200,7 +27200,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17AnonymizationModeO2idSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_id_Get_0C7C65A6( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_id_Get_6F8F1110( SwiftSelf self);
         
         public Swift.SwiftString Id
         {
@@ -27215,7 +27215,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_68E0875E(self);
+                var result = PInvoke_rawValue_Get_16984A4C(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -27230,7 +27230,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17AnonymizationModeO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_68E0875E( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_16984A4C( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -27243,7 +27243,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_7CE3E6FC();
+                var result = PInvoke_allCases_Get_4A4F31BA();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.AnonymizationMode>>(new IntPtr(&result));
             }
@@ -27256,7 +27256,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17AnonymizationModeO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_7CE3E6FC();
+        private static extern IntPtr PInvoke_allCases_Get_4A4F31BA();
         
         public static Swift.SwiftArray<Swift.BlinkID.AnonymizationMode> AllCases
         {
@@ -27712,7 +27712,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_49EE636D(self);
+                var result = PInvoke_rawValue_Get_504F68A9(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -27727,7 +27727,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ProcessingStatusO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_49EE636D( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_504F68A9( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -27881,7 +27881,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_4CAFE26F(self);
+                var result = PInvoke_hashValue_Get_219C3CC2(self);
                 
                 return result;
             }
@@ -27894,7 +27894,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16InputImageSourceO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_4CAFE26F( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_219C3CC2( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -27973,7 +27973,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_7761B694(into.Payload, self);
+                PInvoke_hash_45FEB26E(into.Payload, self);
                 
                 return;
             }
@@ -27986,7 +27986,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16InputImageSourceO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_7761B694( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_45FEB26E( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -28072,7 +28072,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_14507ED3(self);
+                var result = PInvoke_hashValue_Get_17BEEF96(self);
                 
                 return result;
             }
@@ -28085,7 +28085,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ScanningModeO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_14507ED3( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_17BEEF96( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -28098,7 +28098,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_0DF60BC0();
+                var result = PInvoke_allCases_Get_3AC97CB9();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.ScanningMode>>(new IntPtr(&result));
             }
@@ -28111,7 +28111,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ScanningModeO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_0DF60BC0();
+        private static extern IntPtr PInvoke_allCases_Get_3AC97CB9();
         
         public static Swift.SwiftArray<Swift.BlinkID.ScanningMode> AllCases
         {
@@ -28190,7 +28190,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_77724728(into.Payload, self);
+                PInvoke_hash_432631A5(into.Payload, self);
                 
                 return;
             }
@@ -28203,7 +28203,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ScanningModeO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_77724728( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_432631A5( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -28323,7 +28323,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_7E438319(self);
+                var result = PInvoke_hashValue_Get_4E6E93B4(self);
                 
                 return result;
             }
@@ -28336,7 +28336,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DetectionLevelO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_7E438319( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_4E6E93B4( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -28349,7 +28349,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_76BB49B0();
+                var result = PInvoke_allCases_Get_601623D1();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.DetectionLevel>>(new IntPtr(&result));
             }
@@ -28362,7 +28362,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DetectionLevelO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_76BB49B0();
+        private static extern IntPtr PInvoke_allCases_Get_601623D1();
         
         public static Swift.SwiftArray<Swift.BlinkID.DetectionLevel> AllCases
         {
@@ -28441,7 +28441,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_17091D76(into.Payload, self);
+                PInvoke_hash_116322DA(into.Payload, self);
                 
                 return;
             }
@@ -28454,7 +28454,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DetectionLevelO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_17091D76( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_116322DA( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -28472,7 +28472,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dotsPerInch_Get_56DD7888(self);
+                var result = PInvoke_dotsPerInch_Get_4D886763(self);
                 
                 return result;
             }
@@ -28487,7 +28487,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV11dotsPerInchSivg")]
-        private static extern System.IntPtr PInvoke_dotsPerInch_Get_56DD7888( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_dotsPerInch_Get_4D886763( SwiftSelf self);
         
         private unsafe void DotsPerInch_Set( System.IntPtr value)
         {
@@ -28499,7 +28499,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_dotsPerInch_Set_13F05931(value, self);
+                PInvoke_dotsPerInch_Set_0EC64C05(value, self);
                 
                 return;
             }
@@ -28514,7 +28514,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV11dotsPerInchSivs")]
-        private static extern void PInvoke_dotsPerInch_Set_13F05931( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_dotsPerInch_Set_0EC64C05( System.IntPtr value,  SwiftSelf self);
         
         public System.IntPtr DotsPerInch
         {
@@ -28532,7 +28532,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_extensionFactor_Get_597EBFC9(self);
+                var result = PInvoke_extensionFactor_Get_297DCC64(self);
                 
                 return result;
             }
@@ -28547,7 +28547,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV15extensionFactorSfvg")]
-        private static extern System.Single PInvoke_extensionFactor_Get_597EBFC9( SwiftSelf self);
+        private static extern System.Single PInvoke_extensionFactor_Get_297DCC64( SwiftSelf self);
         
         private unsafe void ExtensionFactor_Set( System.Single value)
         {
@@ -28559,7 +28559,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_extensionFactor_Set_0B37E22E(value, self);
+                PInvoke_extensionFactor_Set_4ED9CB54(value, self);
                 
                 return;
             }
@@ -28574,7 +28574,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV15extensionFactorSfvs")]
-        private static extern void PInvoke_extensionFactor_Set_0B37E22E( System.Single value,  SwiftSelf self);
+        private static extern void PInvoke_extensionFactor_Set_4ED9CB54( System.Single value,  SwiftSelf self);
         
         public System.Single ExtensionFactor
         {
@@ -28592,7 +28592,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_returnDocumentImage_Get_1E73C284(self);
+                var result = PInvoke_returnDocumentImage_Get_34664DF3(self);
                 
                 return result;
             }
@@ -28607,7 +28607,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV014returnDocumentD0Sbvg")]
-        private static extern System.Boolean PInvoke_returnDocumentImage_Get_1E73C284( SwiftSelf self);
+        private static extern System.Boolean PInvoke_returnDocumentImage_Get_34664DF3( SwiftSelf self);
         
         private unsafe void ReturnDocumentImage_Set( System.Boolean value)
         {
@@ -28619,7 +28619,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_returnDocumentImage_Set_364B8F43(value, self);
+                PInvoke_returnDocumentImage_Set_4309D1EB(value, self);
                 
                 return;
             }
@@ -28634,7 +28634,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV014returnDocumentD0Sbvs")]
-        private static extern void PInvoke_returnDocumentImage_Set_364B8F43( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_returnDocumentImage_Set_4309D1EB( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ReturnDocumentImage
         {
@@ -28652,7 +28652,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_returnFaceImage_Get_7E5F4593(self);
+                var result = PInvoke_returnFaceImage_Get_77671838(self);
                 
                 return result;
             }
@@ -28667,7 +28667,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV010returnFaceD0Sbvg")]
-        private static extern System.Boolean PInvoke_returnFaceImage_Get_7E5F4593( SwiftSelf self);
+        private static extern System.Boolean PInvoke_returnFaceImage_Get_77671838( SwiftSelf self);
         
         private unsafe void ReturnFaceImage_Set( System.Boolean value)
         {
@@ -28679,7 +28679,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_returnFaceImage_Set_700144A8(value, self);
+                PInvoke_returnFaceImage_Set_2781C35B(value, self);
                 
                 return;
             }
@@ -28694,7 +28694,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV010returnFaceD0Sbvs")]
-        private static extern void PInvoke_returnFaceImage_Set_700144A8( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_returnFaceImage_Set_2781C35B( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ReturnFaceImage
         {
@@ -28712,7 +28712,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_returnSignatureImage_Get_3217A60D(self);
+                var result = PInvoke_returnSignatureImage_Get_23F05180(self);
                 
                 return result;
             }
@@ -28727,7 +28727,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV015returnSignatureD0Sbvg")]
-        private static extern System.Boolean PInvoke_returnSignatureImage_Get_3217A60D( SwiftSelf self);
+        private static extern System.Boolean PInvoke_returnSignatureImage_Get_23F05180( SwiftSelf self);
         
         private unsafe void ReturnSignatureImage_Set( System.Boolean value)
         {
@@ -28739,7 +28739,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_returnSignatureImage_Set_68C48684(value, self);
+                PInvoke_returnSignatureImage_Set_04B68FD9(value, self);
                 
                 return;
             }
@@ -28754,7 +28754,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV015returnSignatureD0Sbvs")]
-        private static extern void PInvoke_returnSignatureImage_Set_68C48684( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_returnSignatureImage_Set_04B68FD9( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ReturnSignatureImage
         {
@@ -28855,13 +28855,13 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<CroppedImageSettings>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_14842888(swiftIndirectResult, dotsPerInch, extensionFactor, returnDocumentImage, returnFaceImage, returnSignatureImage);
+            PInvoke_init_7C68619B(swiftIndirectResult, dotsPerInch, extensionFactor, returnDocumentImage, returnFaceImage, returnSignatureImage);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID20CroppedImageSettingsV11dotsPerInch15extensionFactor014returnDocumentD00k4FaceD00k9SignatureD0ACSi_SfS3btcfC")]
-        private static extern void PInvoke_init_14842888( SwiftIndirectResult swiftIndirectResult,  System.IntPtr dotsPerInch,  System.Single extensionFactor,  System.Boolean returnDocumentImage,  System.Boolean returnFaceImage,  System.Boolean returnSignatureImage);
+        private static extern void PInvoke_init_7C68619B( SwiftIndirectResult swiftIndirectResult,  System.IntPtr dotsPerInch,  System.Single extensionFactor,  System.Boolean returnDocumentImage,  System.Boolean returnFaceImage,  System.Boolean returnSignatureImage);
         
         
     }
@@ -28879,7 +28879,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_country_Get_47216B58(self);
+                var result = PInvoke_country_Get_1E43686D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.Country>>(new IntPtr(&result));
             }
@@ -28894,7 +28894,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DocumentFilterV7countryAA7CountryOSgvg")]
-        private static extern IntPtr PInvoke_country_Get_47216B58( SwiftSelf self);
+        private static extern IntPtr PInvoke_country_Get_1E43686D( SwiftSelf self);
         
         private unsafe void Country_Set( Swift.SwiftOptional<Swift.BlinkID.Country> value)
         {
@@ -28908,7 +28908,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_country_Set_715264FB(valueBuffer, self);
+                PInvoke_country_Set_591817BD(valueBuffer, self);
                 
                 return;
             }
@@ -28923,7 +28923,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DocumentFilterV7countryAA7CountryOSgvs")]
-        private static extern void PInvoke_country_Set_715264FB( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_country_Set_591817BD( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.Country> Country
         {
@@ -28941,7 +28941,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_region_Get_0C329683(self);
+                var result = PInvoke_region_Get_5333A2D8(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.Region>>(new IntPtr(&result));
             }
@@ -28956,7 +28956,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DocumentFilterV6regionAA6RegionOSgvg")]
-        private static extern IntPtr PInvoke_region_Get_0C329683( SwiftSelf self);
+        private static extern IntPtr PInvoke_region_Get_5333A2D8( SwiftSelf self);
         
         private unsafe void Region_Set( Swift.SwiftOptional<Swift.BlinkID.Region> value)
         {
@@ -28970,7 +28970,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_region_Set_39C29567(valueBuffer, self);
+                PInvoke_region_Set_6E99CD05(valueBuffer, self);
                 
                 return;
             }
@@ -28985,7 +28985,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DocumentFilterV6regionAA6RegionOSgvs")]
-        private static extern void PInvoke_region_Set_39C29567( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_region_Set_6E99CD05( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.Region> Region
         {
@@ -29003,7 +29003,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentType_Get_1D59655A(self);
+                var result = PInvoke_documentType_Get_4CF7E082(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DocumentType>>(new IntPtr(&result));
             }
@@ -29018,7 +29018,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DocumentFilterV12documentTypeAA0cF0OSgvg")]
-        private static extern IntPtr PInvoke_documentType_Get_1D59655A( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentType_Get_4CF7E082( SwiftSelf self);
         
         private unsafe void DocumentType_Set( Swift.SwiftOptional<Swift.BlinkID.DocumentType> value)
         {
@@ -29032,7 +29032,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_documentType_Set_20E360BC(valueBuffer, self);
+                PInvoke_documentType_Set_7C030B6D(valueBuffer, self);
                 
                 return;
             }
@@ -29047,7 +29047,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DocumentFilterV12documentTypeAA0cF0OSgvs")]
-        private static extern void PInvoke_documentType_Set_20E360BC( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_documentType_Set_7C030B6D( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DocumentType> DocumentType
         {
@@ -29157,13 +29157,13 @@ namespace Swift.BlinkID
             using var documentTypeSwift = documentType is {} documentTypeValue ? SwiftOptional<Swift.BlinkID.DocumentType>.NewSome(documentTypeValue) : SwiftOptional<Swift.BlinkID.DocumentType>.NewNone();
             using PayloadBuffer<IntPtr> documentTypeDisposable = documentTypeSwift.PayloadBuffer;
             IntPtr documentTypeBuffer = documentTypeDisposable.Buffer;
-            PInvoke_init_1C8DB1EB(swiftIndirectResult, countryBuffer, regionBuffer, documentTypeBuffer);
+            PInvoke_init_7585FDC7(swiftIndirectResult, countryBuffer, regionBuffer, documentTypeBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DocumentFilterV7country6region12documentTypeAcA7CountryOSg_AA6RegionOSgAA0cH0OSgtcfC")]
-        private static extern void PInvoke_init_1C8DB1EB( SwiftIndirectResult swiftIndirectResult,  IntPtr countryBuffer,  IntPtr regionBuffer,  IntPtr documentTypeBuffer);
+        private static extern void PInvoke_init_7585FDC7( SwiftIndirectResult swiftIndirectResult,  IntPtr countryBuffer,  IntPtr regionBuffer,  IntPtr documentTypeBuffer);
         
         
     }
@@ -29181,7 +29181,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_prefixDigitsVisible_Get_0B6148A5(self);
+                var result = PInvoke_prefixDigitsVisible_Get_63616093(self);
                 
                 return result;
             }
@@ -29196,7 +29196,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID35DocumentNumberAnonymizationSettingsV19prefixDigitsVisibleSivg")]
-        private static extern System.IntPtr PInvoke_prefixDigitsVisible_Get_0B6148A5( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_prefixDigitsVisible_Get_63616093( SwiftSelf self);
         
         private unsafe void PrefixDigitsVisible_Set( System.IntPtr value)
         {
@@ -29208,7 +29208,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_prefixDigitsVisible_Set_418B35FB(value, self);
+                PInvoke_prefixDigitsVisible_Set_4AEC8B28(value, self);
                 
                 return;
             }
@@ -29223,7 +29223,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID35DocumentNumberAnonymizationSettingsV19prefixDigitsVisibleSivs")]
-        private static extern void PInvoke_prefixDigitsVisible_Set_418B35FB( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_prefixDigitsVisible_Set_4AEC8B28( System.IntPtr value,  SwiftSelf self);
         
         public System.IntPtr PrefixDigitsVisible
         {
@@ -29241,7 +29241,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_suffixDigitsVisible_Get_10D6B9B5(self);
+                var result = PInvoke_suffixDigitsVisible_Get_476E0F23(self);
                 
                 return result;
             }
@@ -29256,7 +29256,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID35DocumentNumberAnonymizationSettingsV19suffixDigitsVisibleSivg")]
-        private static extern System.IntPtr PInvoke_suffixDigitsVisible_Get_10D6B9B5( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_suffixDigitsVisible_Get_476E0F23( SwiftSelf self);
         
         private unsafe void SuffixDigitsVisible_Set( System.IntPtr value)
         {
@@ -29268,7 +29268,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_suffixDigitsVisible_Set_60996042(value, self);
+                PInvoke_suffixDigitsVisible_Set_2FF7C02C(value, self);
                 
                 return;
             }
@@ -29283,7 +29283,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID35DocumentNumberAnonymizationSettingsV19suffixDigitsVisibleSivs")]
-        private static extern void PInvoke_suffixDigitsVisible_Set_60996042( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_suffixDigitsVisible_Set_2FF7C02C( System.IntPtr value,  SwiftSelf self);
         
         public System.IntPtr SuffixDigitsVisible
         {
@@ -29384,13 +29384,13 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<DocumentNumberAnonymizationSettings>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_4CE4E2EB(swiftIndirectResult, prefixDigitsVisible, suffixDigitsVisible);
+            PInvoke_init_5C41C1C7(swiftIndirectResult, prefixDigitsVisible, suffixDigitsVisible);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID35DocumentNumberAnonymizationSettingsV19prefixDigitsVisible06suffixhI0ACSi_SitcfC")]
-        private static extern void PInvoke_init_4CE4E2EB( SwiftIndirectResult swiftIndirectResult,  System.IntPtr prefixDigitsVisible,  System.IntPtr suffixDigitsVisible);
+        private static extern void PInvoke_init_5C41C1C7( SwiftIndirectResult swiftIndirectResult,  System.IntPtr prefixDigitsVisible,  System.IntPtr suffixDigitsVisible);
         
         
     }
@@ -29412,7 +29412,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentFilter_Get_02A1CBE9(swiftIndirectResult, self);
+                PInvoke_documentFilter_Get_6B5D5F32(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DocumentFilter>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -29427,7 +29427,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID29DocumentAnonymizationSettingsV14documentFilterAA0cG0Vvg")]
-        private static extern void PInvoke_documentFilter_Get_02A1CBE9( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentFilter_Get_6B5D5F32( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void DocumentFilter_Set( Swift.BlinkID.DocumentFilter value)
         {
@@ -29439,7 +29439,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentFilter_Set_592771DD(value.Payload, self);
+                PInvoke_documentFilter_Set_4C32CF1A(value.Payload, self);
                 
                 return;
             }
@@ -29454,7 +29454,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID29DocumentAnonymizationSettingsV14documentFilterAA0cG0Vvs")]
-        private static extern void PInvoke_documentFilter_Set_592771DD( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_documentFilter_Set_4C32CF1A( SafeHandle value,  SwiftSelf self);
         
         public Swift.BlinkID.DocumentFilter DocumentFilter
         {
@@ -29472,7 +29472,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_fields_Get_499C6D4D(self);
+                var result = PInvoke_fields_Get_5219E396(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.FieldType>>(new IntPtr(&result));
             }
@@ -29487,7 +29487,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID29DocumentAnonymizationSettingsV6fieldsSayAA9FieldTypeOGvg")]
-        private static extern IntPtr PInvoke_fields_Get_499C6D4D( SwiftSelf self);
+        private static extern IntPtr PInvoke_fields_Get_5219E396( SwiftSelf self);
         
         private unsafe void Fields_Set( Swift.SwiftArray<Swift.BlinkID.FieldType> value)
         {
@@ -29501,7 +29501,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_fields_Set_41DD7662(valueBuffer, self);
+                PInvoke_fields_Set_222DD5FE(valueBuffer, self);
                 
                 return;
             }
@@ -29516,7 +29516,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID29DocumentAnonymizationSettingsV6fieldsSayAA9FieldTypeOGvs")]
-        private static extern void PInvoke_fields_Set_41DD7662( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_fields_Set_222DD5FE( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.FieldType> Fields
         {
@@ -29534,7 +29534,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentNumberAnonymizationSettings_Get_0CDBBAB1(self);
+                var result = PInvoke_documentNumberAnonymizationSettings_Get_3A4F736C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DocumentNumberAnonymizationSettings>>(new IntPtr(&result));
             }
@@ -29549,7 +29549,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID29DocumentAnonymizationSettingsV014documentNumberdE0AA0cgdE0VSgvg")]
-        private static extern IntPtr PInvoke_documentNumberAnonymizationSettings_Get_0CDBBAB1( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentNumberAnonymizationSettings_Get_3A4F736C( SwiftSelf self);
         
         private unsafe void DocumentNumberAnonymizationSettings_Set( Swift.SwiftOptional<Swift.BlinkID.DocumentNumberAnonymizationSettings> value)
         {
@@ -29563,7 +29563,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_documentNumberAnonymizationSettings_Set_34B96BE9(valueBuffer, self);
+                PInvoke_documentNumberAnonymizationSettings_Set_449D9C78(valueBuffer, self);
                 
                 return;
             }
@@ -29578,7 +29578,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID29DocumentAnonymizationSettingsV014documentNumberdE0AA0cgdE0VSgvs")]
-        private static extern void PInvoke_documentNumberAnonymizationSettings_Set_34B96BE9( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_documentNumberAnonymizationSettings_Set_449D9C78( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DocumentNumberAnonymizationSettings> DocumentNumberAnonymizationSettings
         {
@@ -29685,13 +29685,13 @@ namespace Swift.BlinkID
             using var documentNumberAnonymizationSettingsSwift = documentNumberAnonymizationSettings is {} documentNumberAnonymizationSettingsValue ? SwiftOptional<Swift.BlinkID.DocumentNumberAnonymizationSettings>.NewSome(documentNumberAnonymizationSettingsValue) : SwiftOptional<Swift.BlinkID.DocumentNumberAnonymizationSettings>.NewNone();
             using PayloadBuffer<IntPtr> documentNumberAnonymizationSettingsDisposable = documentNumberAnonymizationSettingsSwift.PayloadBuffer;
             IntPtr documentNumberAnonymizationSettingsBuffer = documentNumberAnonymizationSettingsDisposable.Buffer;
-            PInvoke_init_632A30BA(swiftIndirectResult, documentFilter.Payload, fieldsBuffer, documentNumberAnonymizationSettingsBuffer);
+            PInvoke_init_040C4E93(swiftIndirectResult, documentFilter.Payload, fieldsBuffer, documentNumberAnonymizationSettingsBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID29DocumentAnonymizationSettingsV14documentFilter6fields0f6NumberdE0AcA0cG0V_SayAA9FieldTypeOGAA0cidE0VSgtcfC")]
-        private static extern void PInvoke_init_632A30BA( SwiftIndirectResult swiftIndirectResult,  SafeHandle documentFilter,  IntPtr fieldsBuffer,  IntPtr documentNumberAnonymizationSettingsBuffer);
+        private static extern void PInvoke_init_040C4E93( SwiftIndirectResult swiftIndirectResult,  SafeHandle documentFilter,  IntPtr fieldsBuffer,  IntPtr documentNumberAnonymizationSettingsBuffer);
         
         
     }
@@ -29713,7 +29713,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_fieldType_Get_4ABC3219(swiftIndirectResult, self);
+                PInvoke_fieldType_Get_04E41A66(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.FieldType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -29728,7 +29728,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17DetailedFieldTypeV05fieldE0AA0dE0Ovg")]
-        private static extern void PInvoke_fieldType_Get_4ABC3219( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_fieldType_Get_04E41A66( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void FieldType_Set( Swift.BlinkID.FieldType value)
         {
@@ -29740,7 +29740,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_fieldType_Set_1FE6BE5B(value.Payload.DangerousGetHandle(), self);
+                PInvoke_fieldType_Set_747C9ADE(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -29755,7 +29755,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17DetailedFieldTypeV05fieldE0AA0dE0Ovs")]
-        private static extern void PInvoke_fieldType_Set_1FE6BE5B( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_fieldType_Set_747C9ADE( IntPtr value,  SwiftSelf self);
         
         public Swift.BlinkID.FieldType FieldType
         {
@@ -29777,7 +29777,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_alphabetType_Get_6C809E69(swiftIndirectResult, self);
+                PInvoke_alphabetType_Get_4211BB2C(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.AlphabetType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -29792,7 +29792,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17DetailedFieldTypeV08alphabetE0AA08AlphabetE0Ovg")]
-        private static extern void PInvoke_alphabetType_Get_6C809E69( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_alphabetType_Get_4211BB2C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void AlphabetType_Set( Swift.BlinkID.AlphabetType value)
         {
@@ -29804,7 +29804,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_alphabetType_Set_63F8379C(value.Payload.DangerousGetHandle(), self);
+                PInvoke_alphabetType_Set_29EC0A30(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -29819,7 +29819,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17DetailedFieldTypeV08alphabetE0AA08AlphabetE0Ovs")]
-        private static extern void PInvoke_alphabetType_Set_63F8379C( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_alphabetType_Set_29EC0A30( IntPtr value,  SwiftSelf self);
         
         public Swift.BlinkID.AlphabetType AlphabetType
         {
@@ -29920,13 +29920,13 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<DetailedFieldType>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_7036F619(swiftIndirectResult, fieldType.Payload.DangerousGetHandle(), alphabetType.Payload.DangerousGetHandle());
+            PInvoke_init_4E8263A3(swiftIndirectResult, fieldType.Payload.DangerousGetHandle(), alphabetType.Payload.DangerousGetHandle());
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17DetailedFieldTypeV05fieldE008alphabetE0AcA0dE0O_AA08AlphabetE0OtcfC")]
-        private static extern void PInvoke_init_7036F619( SwiftIndirectResult swiftIndirectResult,  IntPtr fieldType,  IntPtr alphabetType);
+        private static extern void PInvoke_init_4E8263A3( SwiftIndirectResult swiftIndirectResult,  IntPtr fieldType,  IntPtr alphabetType);
         
         
     }
@@ -29948,7 +29948,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentFilter_Get_0AA9A610(swiftIndirectResult, self);
+                PInvoke_documentFilter_Get_052CCF40(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DocumentFilter>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -29963,7 +29963,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13DocumentRulesV14documentFilterAA0cF0Vvg")]
-        private static extern void PInvoke_documentFilter_Get_0AA9A610( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentFilter_Get_052CCF40( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void DocumentFilter_Set( Swift.BlinkID.DocumentFilter value)
         {
@@ -29975,7 +29975,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentFilter_Set_6FFDAB5E(value.Payload, self);
+                PInvoke_documentFilter_Set_46ED5782(value.Payload, self);
                 
                 return;
             }
@@ -29990,7 +29990,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13DocumentRulesV14documentFilterAA0cF0Vvs")]
-        private static extern void PInvoke_documentFilter_Set_6FFDAB5E( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_documentFilter_Set_46ED5782( SafeHandle value,  SwiftSelf self);
         
         public Swift.BlinkID.DocumentFilter DocumentFilter
         {
@@ -30008,7 +30008,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_fields_Get_436251B3(self);
+                var result = PInvoke_fields_Get_65F52E37(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.DetailedFieldType>>(new IntPtr(&result));
             }
@@ -30023,7 +30023,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13DocumentRulesV6fieldsSayAA17DetailedFieldTypeVGvg")]
-        private static extern IntPtr PInvoke_fields_Get_436251B3( SwiftSelf self);
+        private static extern IntPtr PInvoke_fields_Get_65F52E37( SwiftSelf self);
         
         private unsafe void Fields_Set( Swift.SwiftArray<Swift.BlinkID.DetailedFieldType> value)
         {
@@ -30037,7 +30037,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_fields_Set_04B53CA7(valueBuffer, self);
+                PInvoke_fields_Set_54555549(valueBuffer, self);
                 
                 return;
             }
@@ -30052,7 +30052,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13DocumentRulesV6fieldsSayAA17DetailedFieldTypeVGvs")]
-        private static extern void PInvoke_fields_Set_04B53CA7( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_fields_Set_54555549( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.DetailedFieldType> Fields
         {
@@ -30156,13 +30156,13 @@ namespace Swift.BlinkID
             using var fieldsSwift = SwiftArray<Swift.BlinkID.DetailedFieldType>.FromEnumerable(fields);
             using PayloadBuffer<IntPtr> fieldsDisposable = fieldsSwift.PayloadBuffer;
             IntPtr fieldsBuffer = fieldsDisposable.Buffer;
-            PInvoke_init_1A8E1C50(swiftIndirectResult, documentFilter.Payload, fieldsBuffer);
+            PInvoke_init_08B5D06B(swiftIndirectResult, documentFilter.Payload, fieldsBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13DocumentRulesV14documentFilter6fieldsAcA0cF0V_SayAA17DetailedFieldTypeVGtcfC")]
-        private static extern void PInvoke_init_1A8E1C50( SwiftIndirectResult swiftIndirectResult,  SafeHandle documentFilter,  IntPtr fieldsBuffer);
+        private static extern void PInvoke_init_08B5D06B( SwiftIndirectResult swiftIndirectResult,  SafeHandle documentFilter,  IntPtr fieldsBuffer);
         
         
     }
@@ -30180,7 +30180,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_enableMrzId_Get_00673032(self);
+                var result = PInvoke_enableMrzId_Get_13BBD7AB(self);
                 
                 return result;
             }
@@ -30195,7 +30195,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV11enableMrzIdSbvg")]
-        private static extern System.Boolean PInvoke_enableMrzId_Get_00673032( SwiftSelf self);
+        private static extern System.Boolean PInvoke_enableMrzId_Get_13BBD7AB( SwiftSelf self);
         
         private unsafe void EnableMrzId_Set( System.Boolean value)
         {
@@ -30207,7 +30207,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_enableMrzId_Set_097BF63A(value, self);
+                PInvoke_enableMrzId_Set_2F54195C(value, self);
                 
                 return;
             }
@@ -30222,7 +30222,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV11enableMrzIdSbvs")]
-        private static extern void PInvoke_enableMrzId_Set_097BF63A( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_enableMrzId_Set_2F54195C( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean EnableMrzId
         {
@@ -30240,7 +30240,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_enableMrzVisa_Get_61D137DD(self);
+                var result = PInvoke_enableMrzVisa_Get_04CD76D8(self);
                 
                 return result;
             }
@@ -30255,7 +30255,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV13enableMrzVisaSbvg")]
-        private static extern System.Boolean PInvoke_enableMrzVisa_Get_61D137DD( SwiftSelf self);
+        private static extern System.Boolean PInvoke_enableMrzVisa_Get_04CD76D8( SwiftSelf self);
         
         private unsafe void EnableMrzVisa_Set( System.Boolean value)
         {
@@ -30267,7 +30267,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_enableMrzVisa_Set_3B6F2507(value, self);
+                PInvoke_enableMrzVisa_Set_546E704F(value, self);
                 
                 return;
             }
@@ -30282,7 +30282,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV13enableMrzVisaSbvs")]
-        private static extern void PInvoke_enableMrzVisa_Set_3B6F2507( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_enableMrzVisa_Set_546E704F( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean EnableMrzVisa
         {
@@ -30300,7 +30300,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_enableMrzPassport_Get_16AD7897(self);
+                var result = PInvoke_enableMrzPassport_Get_5D4A1003(self);
                 
                 return result;
             }
@@ -30315,7 +30315,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV17enableMrzPassportSbvg")]
-        private static extern System.Boolean PInvoke_enableMrzPassport_Get_16AD7897( SwiftSelf self);
+        private static extern System.Boolean PInvoke_enableMrzPassport_Get_5D4A1003( SwiftSelf self);
         
         private unsafe void EnableMrzPassport_Set( System.Boolean value)
         {
@@ -30327,7 +30327,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_enableMrzPassport_Set_2C9B00D9(value, self);
+                PInvoke_enableMrzPassport_Set_299D13D3(value, self);
                 
                 return;
             }
@@ -30342,7 +30342,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV17enableMrzPassportSbvs")]
-        private static extern void PInvoke_enableMrzPassport_Set_2C9B00D9( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_enableMrzPassport_Set_299D13D3( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean EnableMrzPassport
         {
@@ -30360,7 +30360,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_enablePhotoId_Get_09F1BFB8(self);
+                var result = PInvoke_enablePhotoId_Get_51586195(self);
                 
                 return result;
             }
@@ -30375,7 +30375,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV13enablePhotoIdSbvg")]
-        private static extern System.Boolean PInvoke_enablePhotoId_Get_09F1BFB8( SwiftSelf self);
+        private static extern System.Boolean PInvoke_enablePhotoId_Get_51586195( SwiftSelf self);
         
         private unsafe void EnablePhotoId_Set( System.Boolean value)
         {
@@ -30387,7 +30387,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_enablePhotoId_Set_5AA2A755(value, self);
+                PInvoke_enablePhotoId_Set_6F373CFC(value, self);
                 
                 return;
             }
@@ -30402,7 +30402,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV13enablePhotoIdSbvs")]
-        private static extern void PInvoke_enablePhotoId_Set_5AA2A755( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_enablePhotoId_Set_6F373CFC( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean EnablePhotoId
         {
@@ -30420,7 +30420,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_enableBarcodeId_Get_12B33B46(self);
+                var result = PInvoke_enableBarcodeId_Get_147041BB(self);
                 
                 return result;
             }
@@ -30435,7 +30435,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV15enableBarcodeIdSbvg")]
-        private static extern System.Boolean PInvoke_enableBarcodeId_Get_12B33B46( SwiftSelf self);
+        private static extern System.Boolean PInvoke_enableBarcodeId_Get_147041BB( SwiftSelf self);
         
         private unsafe void EnableBarcodeId_Set( System.Boolean value)
         {
@@ -30447,7 +30447,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_enableBarcodeId_Set_6527693A(value, self);
+                PInvoke_enableBarcodeId_Set_3A9DC77A(value, self);
                 
                 return;
             }
@@ -30462,7 +30462,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV15enableBarcodeIdSbvs")]
-        private static extern void PInvoke_enableBarcodeId_Set_6527693A( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_enableBarcodeId_Set_3A9DC77A( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean EnableBarcodeId
         {
@@ -30480,7 +30480,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_enableFullDocumentRecognition_Get_4E0F708F(self);
+                var result = PInvoke_enableFullDocumentRecognition_Get_060BDF92(self);
                 
                 return result;
             }
@@ -30495,7 +30495,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV018enableFullDocumentC0Sbvg")]
-        private static extern System.Boolean PInvoke_enableFullDocumentRecognition_Get_4E0F708F( SwiftSelf self);
+        private static extern System.Boolean PInvoke_enableFullDocumentRecognition_Get_060BDF92( SwiftSelf self);
         
         private unsafe void EnableFullDocumentRecognition_Set( System.Boolean value)
         {
@@ -30507,7 +30507,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_enableFullDocumentRecognition_Set_43030C98(value, self);
+                PInvoke_enableFullDocumentRecognition_Set_3488A9B3(value, self);
                 
                 return;
             }
@@ -30522,7 +30522,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV018enableFullDocumentC0Sbvs")]
-        private static extern void PInvoke_enableFullDocumentRecognition_Set_43030C98( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_enableFullDocumentRecognition_Set_3488A9B3( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean EnableFullDocumentRecognition
         {
@@ -30623,13 +30623,13 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<RecognitionModeFilter>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_290F9266(swiftIndirectResult, enableMrzId, enableMrzVisa, enableMrzPassport, enablePhotoId, enableBarcodeId, enableFullDocumentRecognition);
+            PInvoke_init_49206B1A(swiftIndirectResult, enableMrzId, enableMrzVisa, enableMrzPassport, enablePhotoId, enableBarcodeId, enableFullDocumentRecognition);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID21RecognitionModeFilterV11enableMrzId0fG4Visa0fG8Passport0f5PhotoH00f7BarcodeH00f12FullDocumentC0ACSb_S5btcfC")]
-        private static extern void PInvoke_init_290F9266( SwiftIndirectResult swiftIndirectResult,  System.Boolean enableMrzId,  System.Boolean enableMrzVisa,  System.Boolean enableMrzPassport,  System.Boolean enablePhotoId,  System.Boolean enableBarcodeId,  System.Boolean enableFullDocumentRecognition);
+        private static extern void PInvoke_init_49206B1A( SwiftIndirectResult swiftIndirectResult,  System.Boolean enableMrzId,  System.Boolean enableMrzVisa,  System.Boolean enableMrzPassport,  System.Boolean enablePhotoId,  System.Boolean enableBarcodeId,  System.Boolean enableFullDocumentRecognition);
         
         
     }
@@ -30651,7 +30651,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_blurDetectionLevel_Get_6EBE1568(swiftIndirectResult, self);
+                PInvoke_blurDetectionLevel_Get_18F54E94(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DetectionLevel>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -30666,7 +30666,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV18blurDetectionLevelAA0fG0Ovg")]
-        private static extern void PInvoke_blurDetectionLevel_Get_6EBE1568( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_blurDetectionLevel_Get_18F54E94( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void BlurDetectionLevel_Set( Swift.BlinkID.DetectionLevel value)
         {
@@ -30678,7 +30678,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_blurDetectionLevel_Set_41E7DA1C(value.Payload.DangerousGetHandle(), self);
+                PInvoke_blurDetectionLevel_Set_36CF37CB(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -30693,7 +30693,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV18blurDetectionLevelAA0fG0Ovs")]
-        private static extern void PInvoke_blurDetectionLevel_Set_41E7DA1C( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_blurDetectionLevel_Set_36CF37CB( IntPtr value,  SwiftSelf self);
         
         public Swift.BlinkID.DetectionLevel BlurDetectionLevel
         {
@@ -30711,7 +30711,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_skipImagesWithBlur_Get_0314A190(self);
+                var result = PInvoke_skipImagesWithBlur_Get_6F778CFF(self);
                 
                 return result;
             }
@@ -30726,7 +30726,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV18skipImagesWithBlurSbvg")]
-        private static extern System.Boolean PInvoke_skipImagesWithBlur_Get_0314A190( SwiftSelf self);
+        private static extern System.Boolean PInvoke_skipImagesWithBlur_Get_6F778CFF( SwiftSelf self);
         
         private unsafe void SkipImagesWithBlur_Set( System.Boolean value)
         {
@@ -30738,7 +30738,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_skipImagesWithBlur_Set_04E3BBEC(value, self);
+                PInvoke_skipImagesWithBlur_Set_5A54A3BE(value, self);
                 
                 return;
             }
@@ -30753,7 +30753,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV18skipImagesWithBlurSbvs")]
-        private static extern void PInvoke_skipImagesWithBlur_Set_04E3BBEC( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_skipImagesWithBlur_Set_5A54A3BE( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean SkipImagesWithBlur
         {
@@ -30775,7 +30775,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_glareDetectionLevel_Get_0815B4A3(swiftIndirectResult, self);
+                PInvoke_glareDetectionLevel_Get_7863F48C(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DetectionLevel>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -30790,7 +30790,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV19glareDetectionLevelAA0fG0Ovg")]
-        private static extern void PInvoke_glareDetectionLevel_Get_0815B4A3( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_glareDetectionLevel_Get_7863F48C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void GlareDetectionLevel_Set( Swift.BlinkID.DetectionLevel value)
         {
@@ -30802,7 +30802,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_glareDetectionLevel_Set_4FE1CBCC(value.Payload.DangerousGetHandle(), self);
+                PInvoke_glareDetectionLevel_Set_073C0622(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -30817,7 +30817,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV19glareDetectionLevelAA0fG0Ovs")]
-        private static extern void PInvoke_glareDetectionLevel_Set_4FE1CBCC( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_glareDetectionLevel_Set_073C0622( IntPtr value,  SwiftSelf self);
         
         public Swift.BlinkID.DetectionLevel GlareDetectionLevel
         {
@@ -30835,7 +30835,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_skipImagesWithGlare_Get_368B3293(self);
+                var result = PInvoke_skipImagesWithGlare_Get_37658B88(self);
                 
                 return result;
             }
@@ -30850,7 +30850,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV19skipImagesWithGlareSbvg")]
-        private static extern System.Boolean PInvoke_skipImagesWithGlare_Get_368B3293( SwiftSelf self);
+        private static extern System.Boolean PInvoke_skipImagesWithGlare_Get_37658B88( SwiftSelf self);
         
         private unsafe void SkipImagesWithGlare_Set( System.Boolean value)
         {
@@ -30862,7 +30862,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_skipImagesWithGlare_Set_0CDEEFEF(value, self);
+                PInvoke_skipImagesWithGlare_Set_0EE2134E(value, self);
                 
                 return;
             }
@@ -30877,7 +30877,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV19skipImagesWithGlareSbvs")]
-        private static extern void PInvoke_skipImagesWithGlare_Set_0CDEEFEF( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_skipImagesWithGlare_Set_0EE2134E( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean SkipImagesWithGlare
         {
@@ -30899,7 +30899,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_tiltDetectionLevel_Get_09E06991(swiftIndirectResult, self);
+                PInvoke_tiltDetectionLevel_Get_76F3425C(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DetectionLevel>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -30914,7 +30914,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV18tiltDetectionLevelAA0fG0Ovg")]
-        private static extern void PInvoke_tiltDetectionLevel_Get_09E06991( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_tiltDetectionLevel_Get_76F3425C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void TiltDetectionLevel_Set( Swift.BlinkID.DetectionLevel value)
         {
@@ -30926,7 +30926,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_tiltDetectionLevel_Set_6F0A6E7A(value.Payload.DangerousGetHandle(), self);
+                PInvoke_tiltDetectionLevel_Set_0F036026(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -30941,7 +30941,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV18tiltDetectionLevelAA0fG0Ovs")]
-        private static extern void PInvoke_tiltDetectionLevel_Set_6F0A6E7A( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_tiltDetectionLevel_Set_0F036026( IntPtr value,  SwiftSelf self);
         
         public Swift.BlinkID.DetectionLevel TiltDetectionLevel
         {
@@ -30959,7 +30959,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_skipImagesWithInadequateLightingConditions_Get_216DE8F3(self);
+                var result = PInvoke_skipImagesWithInadequateLightingConditions_Get_6068FD13(self);
                 
                 return result;
             }
@@ -30974,7 +30974,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV42skipImagesWithInadequateLightingConditionsSbvg")]
-        private static extern System.Boolean PInvoke_skipImagesWithInadequateLightingConditions_Get_216DE8F3( SwiftSelf self);
+        private static extern System.Boolean PInvoke_skipImagesWithInadequateLightingConditions_Get_6068FD13( SwiftSelf self);
         
         private unsafe void SkipImagesWithInadequateLightingConditions_Set( System.Boolean value)
         {
@@ -30986,7 +30986,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_skipImagesWithInadequateLightingConditions_Set_7F75EB3F(value, self);
+                PInvoke_skipImagesWithInadequateLightingConditions_Set_26D4C169(value, self);
                 
                 return;
             }
@@ -31001,7 +31001,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV42skipImagesWithInadequateLightingConditionsSbvs")]
-        private static extern void PInvoke_skipImagesWithInadequateLightingConditions_Set_7F75EB3F( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_skipImagesWithInadequateLightingConditions_Set_26D4C169( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean SkipImagesWithInadequateLightingConditions
         {
@@ -31019,7 +31019,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_skipImagesOccludedByHand_Get_11BA5909(self);
+                var result = PInvoke_skipImagesOccludedByHand_Get_0FB2D9B4(self);
                 
                 return result;
             }
@@ -31034,7 +31034,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV24skipImagesOccludedByHandSbvg")]
-        private static extern System.Boolean PInvoke_skipImagesOccludedByHand_Get_11BA5909( SwiftSelf self);
+        private static extern System.Boolean PInvoke_skipImagesOccludedByHand_Get_0FB2D9B4( SwiftSelf self);
         
         private unsafe void SkipImagesOccludedByHand_Set( System.Boolean value)
         {
@@ -31046,7 +31046,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_skipImagesOccludedByHand_Set_01264146(value, self);
+                PInvoke_skipImagesOccludedByHand_Set_7A87C2AE(value, self);
                 
                 return;
             }
@@ -31061,7 +31061,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV24skipImagesOccludedByHandSbvs")]
-        private static extern void PInvoke_skipImagesOccludedByHand_Set_01264146( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_skipImagesOccludedByHand_Set_7A87C2AE( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean SkipImagesOccludedByHand
         {
@@ -31079,7 +31079,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_combineResultsFromMultipleInputImages_Get_68530B14(self);
+                var result = PInvoke_combineResultsFromMultipleInputImages_Get_45D278D6(self);
                 
                 return result;
             }
@@ -31094,7 +31094,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV37combineResultsFromMultipleInputImagesSbvg")]
-        private static extern System.Boolean PInvoke_combineResultsFromMultipleInputImages_Get_68530B14( SwiftSelf self);
+        private static extern System.Boolean PInvoke_combineResultsFromMultipleInputImages_Get_45D278D6( SwiftSelf self);
         
         private unsafe void CombineResultsFromMultipleInputImages_Set( System.Boolean value)
         {
@@ -31106,7 +31106,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_combineResultsFromMultipleInputImages_Set_675D33F9(value, self);
+                PInvoke_combineResultsFromMultipleInputImages_Set_72C61B02(value, self);
                 
                 return;
             }
@@ -31121,7 +31121,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV37combineResultsFromMultipleInputImagesSbvs")]
-        private static extern void PInvoke_combineResultsFromMultipleInputImages_Set_675D33F9( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_combineResultsFromMultipleInputImages_Set_72C61B02( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean CombineResultsFromMultipleInputImages
         {
@@ -31139,7 +31139,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_enableBarcodeScanOnly_Get_55116243(self);
+                var result = PInvoke_enableBarcodeScanOnly_Get_4E1FE1F0(self);
                 
                 return result;
             }
@@ -31154,7 +31154,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV21enableBarcodeScanOnlySbvg")]
-        private static extern System.Boolean PInvoke_enableBarcodeScanOnly_Get_55116243( SwiftSelf self);
+        private static extern System.Boolean PInvoke_enableBarcodeScanOnly_Get_4E1FE1F0( SwiftSelf self);
         
         private unsafe void EnableBarcodeScanOnly_Set( System.Boolean value)
         {
@@ -31166,7 +31166,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_enableBarcodeScanOnly_Set_0557356F(value, self);
+                PInvoke_enableBarcodeScanOnly_Set_557C6725(value, self);
                 
                 return;
             }
@@ -31181,7 +31181,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV21enableBarcodeScanOnlySbvs")]
-        private static extern void PInvoke_enableBarcodeScanOnly_Set_0557356F( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_enableBarcodeScanOnly_Set_557C6725( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean EnableBarcodeScanOnly
         {
@@ -31199,7 +31199,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_customDocumentRules_Get_0F4236CC(self);
+                var result = PInvoke_customDocumentRules_Get_073EF063(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DocumentRules>>>(new IntPtr(&result));
             }
@@ -31214,7 +31214,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV19customDocumentRulesSayAA0fG0VGSgvg")]
-        private static extern IntPtr PInvoke_customDocumentRules_Get_0F4236CC( SwiftSelf self);
+        private static extern IntPtr PInvoke_customDocumentRules_Get_073EF063( SwiftSelf self);
         
         private unsafe void CustomDocumentRules_Set( Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DocumentRules>> value)
         {
@@ -31228,7 +31228,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_customDocumentRules_Set_0CACC20D(valueBuffer, self);
+                PInvoke_customDocumentRules_Set_186E3262(valueBuffer, self);
                 
                 return;
             }
@@ -31243,7 +31243,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV19customDocumentRulesSayAA0fG0VGSgvs")]
-        private static extern void PInvoke_customDocumentRules_Set_0CACC20D( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_customDocumentRules_Set_186E3262( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DocumentRules>> CustomDocumentRules
         {
@@ -31265,7 +31265,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_anonymizationMode_Get_036A1BCB(swiftIndirectResult, self);
+                PInvoke_anonymizationMode_Get_298C5AEB(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.AnonymizationMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -31280,7 +31280,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV17anonymizationModeAA013AnonymizationF0Ovg")]
-        private static extern void PInvoke_anonymizationMode_Get_036A1BCB( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_anonymizationMode_Get_298C5AEB( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void AnonymizationMode_Set( Swift.BlinkID.AnonymizationMode value)
         {
@@ -31292,7 +31292,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_anonymizationMode_Set_2AB8CA1E(value.Payload.DangerousGetHandle(), self);
+                PInvoke_anonymizationMode_Set_07C6A2F7(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -31307,7 +31307,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV17anonymizationModeAA013AnonymizationF0Ovs")]
-        private static extern void PInvoke_anonymizationMode_Set_2AB8CA1E( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_anonymizationMode_Set_07C6A2F7( IntPtr value,  SwiftSelf self);
         
         public Swift.BlinkID.AnonymizationMode AnonymizationMode
         {
@@ -31325,7 +31325,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_customDocumentAnonymizationSettings_Get_07E9C87C(self);
+                var result = PInvoke_customDocumentAnonymizationSettings_Get_6AB44B7E(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DocumentAnonymizationSettings>>>(new IntPtr(&result));
             }
@@ -31340,7 +31340,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV027customDocumentAnonymizationD0SayAA0fgD0VGSgvg")]
-        private static extern IntPtr PInvoke_customDocumentAnonymizationSettings_Get_07E9C87C( SwiftSelf self);
+        private static extern IntPtr PInvoke_customDocumentAnonymizationSettings_Get_6AB44B7E( SwiftSelf self);
         
         private unsafe void CustomDocumentAnonymizationSettings_Set( Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DocumentAnonymizationSettings>> value)
         {
@@ -31354,7 +31354,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_customDocumentAnonymizationSettings_Set_60003684(valueBuffer, self);
+                PInvoke_customDocumentAnonymizationSettings_Set_2D7B1D43(valueBuffer, self);
                 
                 return;
             }
@@ -31369,7 +31369,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV027customDocumentAnonymizationD0SayAA0fgD0VGSgvs")]
-        private static extern void PInvoke_customDocumentAnonymizationSettings_Set_60003684( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_customDocumentAnonymizationSettings_Set_2D7B1D43( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DocumentAnonymizationSettings>> CustomDocumentAnonymizationSettings
         {
@@ -31387,7 +31387,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_returnInputImages_Get_34B67D5C(self);
+                var result = PInvoke_returnInputImages_Get_155563B8(self);
                 
                 return result;
             }
@@ -31402,7 +31402,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV17returnInputImagesSbvg")]
-        private static extern System.Boolean PInvoke_returnInputImages_Get_34B67D5C( SwiftSelf self);
+        private static extern System.Boolean PInvoke_returnInputImages_Get_155563B8( SwiftSelf self);
         
         private unsafe void ReturnInputImages_Set( System.Boolean value)
         {
@@ -31414,7 +31414,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_returnInputImages_Set_77700005(value, self);
+                PInvoke_returnInputImages_Set_3A61DE63(value, self);
                 
                 return;
             }
@@ -31429,7 +31429,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV17returnInputImagesSbvs")]
-        private static extern void PInvoke_returnInputImages_Set_77700005( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_returnInputImages_Set_3A61DE63( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ReturnInputImages
         {
@@ -31447,7 +31447,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_scanCroppedDocumentImage_Get_39844B09(self);
+                var result = PInvoke_scanCroppedDocumentImage_Get_0F2F3C6E(self);
                 
                 return result;
             }
@@ -31462,7 +31462,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV24scanCroppedDocumentImageSbvg")]
-        private static extern System.Boolean PInvoke_scanCroppedDocumentImage_Get_39844B09( SwiftSelf self);
+        private static extern System.Boolean PInvoke_scanCroppedDocumentImage_Get_0F2F3C6E( SwiftSelf self);
         
         private unsafe void ScanCroppedDocumentImage_Set( System.Boolean value)
         {
@@ -31474,7 +31474,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_scanCroppedDocumentImage_Set_791BEB28(value, self);
+                PInvoke_scanCroppedDocumentImage_Set_1E361FAB(value, self);
                 
                 return;
             }
@@ -31489,7 +31489,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV24scanCroppedDocumentImageSbvs")]
-        private static extern void PInvoke_scanCroppedDocumentImage_Set_791BEB28( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_scanCroppedDocumentImage_Set_1E361FAB( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ScanCroppedDocumentImage
         {
@@ -31511,7 +31511,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_recognitionModeFilter_Get_03532D1B(swiftIndirectResult, self);
+                PInvoke_recognitionModeFilter_Get_314B0680(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.RecognitionModeFilter>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -31526,7 +31526,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV21recognitionModeFilterAA011RecognitionfG0Vvg")]
-        private static extern void PInvoke_recognitionModeFilter_Get_03532D1B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_recognitionModeFilter_Get_314B0680( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void RecognitionModeFilter_Set( Swift.BlinkID.RecognitionModeFilter value)
         {
@@ -31538,7 +31538,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_recognitionModeFilter_Set_4E1E6847(value.Payload, self);
+                PInvoke_recognitionModeFilter_Set_0D33A352(value.Payload, self);
                 
                 return;
             }
@@ -31553,7 +31553,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV21recognitionModeFilterAA011RecognitionfG0Vvs")]
-        private static extern void PInvoke_recognitionModeFilter_Set_4E1E6847( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_recognitionModeFilter_Set_0D33A352( SafeHandle value,  SwiftSelf self);
         
         public Swift.BlinkID.RecognitionModeFilter RecognitionModeFilter
         {
@@ -31571,7 +31571,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_enableCharacterValidation_Get_54E97CEB(self);
+                var result = PInvoke_enableCharacterValidation_Get_43188670(self);
                 
                 return result;
             }
@@ -31586,7 +31586,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV25enableCharacterValidationSbvg")]
-        private static extern System.Boolean PInvoke_enableCharacterValidation_Get_54E97CEB( SwiftSelf self);
+        private static extern System.Boolean PInvoke_enableCharacterValidation_Get_43188670( SwiftSelf self);
         
         private unsafe void EnableCharacterValidation_Set( System.Boolean value)
         {
@@ -31598,7 +31598,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_enableCharacterValidation_Set_19E77308(value, self);
+                PInvoke_enableCharacterValidation_Set_085C68AC(value, self);
                 
                 return;
             }
@@ -31613,7 +31613,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV25enableCharacterValidationSbvs")]
-        private static extern void PInvoke_enableCharacterValidation_Set_19E77308( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_enableCharacterValidation_Set_085C68AC( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean EnableCharacterValidation
         {
@@ -31631,7 +31631,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_inputImageMargin_Get_37B60ADD(self);
+                var result = PInvoke_inputImageMargin_Get_3909B1F0(self);
                 
                 return result;
             }
@@ -31646,7 +31646,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV16inputImageMarginSfvg")]
-        private static extern System.Single PInvoke_inputImageMargin_Get_37B60ADD( SwiftSelf self);
+        private static extern System.Single PInvoke_inputImageMargin_Get_3909B1F0( SwiftSelf self);
         
         private unsafe void InputImageMargin_Set( System.Single value)
         {
@@ -31658,7 +31658,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_inputImageMargin_Set_6BD8FB16(value, self);
+                PInvoke_inputImageMargin_Set_5EE723E4(value, self);
                 
                 return;
             }
@@ -31673,7 +31673,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV16inputImageMarginSfvs")]
-        private static extern void PInvoke_inputImageMargin_Set_6BD8FB16( System.Single value,  SwiftSelf self);
+        private static extern void PInvoke_inputImageMargin_Set_5EE723E4( System.Single value,  SwiftSelf self);
         
         public System.Single InputImageMargin
         {
@@ -31691,7 +31691,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_scanUnsupportedBack_Get_6503880D(self);
+                var result = PInvoke_scanUnsupportedBack_Get_4BB56DA2(self);
                 
                 return result;
             }
@@ -31706,7 +31706,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV19scanUnsupportedBackSbvg")]
-        private static extern System.Boolean PInvoke_scanUnsupportedBack_Get_6503880D( SwiftSelf self);
+        private static extern System.Boolean PInvoke_scanUnsupportedBack_Get_4BB56DA2( SwiftSelf self);
         
         private unsafe void ScanUnsupportedBack_Set( System.Boolean value)
         {
@@ -31718,7 +31718,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_scanUnsupportedBack_Set_6FFEE2E9(value, self);
+                PInvoke_scanUnsupportedBack_Set_7C51365B(value, self);
                 
                 return;
             }
@@ -31733,7 +31733,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV19scanUnsupportedBackSbvs")]
-        private static extern void PInvoke_scanUnsupportedBack_Set_6FFEE2E9( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_scanUnsupportedBack_Set_7C51365B( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ScanUnsupportedBack
         {
@@ -31751,7 +31751,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_allowUncertainFrontSideScan_Get_5BF52146(self);
+                var result = PInvoke_allowUncertainFrontSideScan_Get_57E3F0CA(self);
                 
                 return result;
             }
@@ -31766,7 +31766,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV27allowUncertainFrontSideScanSbvg")]
-        private static extern System.Boolean PInvoke_allowUncertainFrontSideScan_Get_5BF52146( SwiftSelf self);
+        private static extern System.Boolean PInvoke_allowUncertainFrontSideScan_Get_57E3F0CA( SwiftSelf self);
         
         private unsafe void AllowUncertainFrontSideScan_Set( System.Boolean value)
         {
@@ -31778,7 +31778,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_allowUncertainFrontSideScan_Set_70DACBF2(value, self);
+                PInvoke_allowUncertainFrontSideScan_Set_1BD914DA(value, self);
                 
                 return;
             }
@@ -31793,7 +31793,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV27allowUncertainFrontSideScanSbvs")]
-        private static extern void PInvoke_allowUncertainFrontSideScan_Set_70DACBF2( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_allowUncertainFrontSideScan_Set_1BD914DA( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean AllowUncertainFrontSideScan
         {
@@ -31811,7 +31811,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_maxAllowedMismatchesPerField_Get_64A76317(self);
+                var result = PInvoke_maxAllowedMismatchesPerField_Get_2DF54757(self);
                 
                 return result;
             }
@@ -31826,7 +31826,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV28maxAllowedMismatchesPerFieldSivg")]
-        private static extern System.IntPtr PInvoke_maxAllowedMismatchesPerField_Get_64A76317( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_maxAllowedMismatchesPerField_Get_2DF54757( SwiftSelf self);
         
         private unsafe void MaxAllowedMismatchesPerField_Set( System.IntPtr value)
         {
@@ -31838,7 +31838,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_maxAllowedMismatchesPerField_Set_1076A1AA(value, self);
+                PInvoke_maxAllowedMismatchesPerField_Set_3DDDEE0D(value, self);
                 
                 return;
             }
@@ -31853,7 +31853,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV28maxAllowedMismatchesPerFieldSivs")]
-        private static extern void PInvoke_maxAllowedMismatchesPerField_Set_1076A1AA( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_maxAllowedMismatchesPerField_Set_3DDDEE0D( System.IntPtr value,  SwiftSelf self);
         
         public System.IntPtr MaxAllowedMismatchesPerField
         {
@@ -31871,7 +31871,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_scanPassportDataPageOnly_Get_6757D6D5(self);
+                var result = PInvoke_scanPassportDataPageOnly_Get_11DB411A(self);
                 
                 return result;
             }
@@ -31886,7 +31886,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV24scanPassportDataPageOnlySbvg")]
-        private static extern System.Boolean PInvoke_scanPassportDataPageOnly_Get_6757D6D5( SwiftSelf self);
+        private static extern System.Boolean PInvoke_scanPassportDataPageOnly_Get_11DB411A( SwiftSelf self);
         
         private unsafe void ScanPassportDataPageOnly_Set( System.Boolean value)
         {
@@ -31898,7 +31898,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_scanPassportDataPageOnly_Set_6F9C50C6(value, self);
+                PInvoke_scanPassportDataPageOnly_Set_156F7BA5(value, self);
                 
                 return;
             }
@@ -31913,7 +31913,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV24scanPassportDataPageOnlySbvs")]
-        private static extern void PInvoke_scanPassportDataPageOnly_Set_6F9C50C6( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_scanPassportDataPageOnly_Set_156F7BA5( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ScanPassportDataPageOnly
         {
@@ -31935,7 +31935,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_croppedImageSettings_Get_1A369A03(swiftIndirectResult, self);
+                PInvoke_croppedImageSettings_Get_7CAF0B7F(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.CroppedImageSettings>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -31950,7 +31950,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV012croppedImageD0AA07CroppedfD0Vvg")]
-        private static extern void PInvoke_croppedImageSettings_Get_1A369A03( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_croppedImageSettings_Get_7CAF0B7F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void CroppedImageSettings_Set( Swift.BlinkID.CroppedImageSettings value)
         {
@@ -31962,7 +31962,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_croppedImageSettings_Set_6563AD9B(value.Payload, self);
+                PInvoke_croppedImageSettings_Set_3FBE597A(value.Payload, self);
                 
                 return;
             }
@@ -31977,7 +31977,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV012croppedImageD0AA07CroppedfD0Vvs")]
-        private static extern void PInvoke_croppedImageSettings_Set_6563AD9B( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_croppedImageSettings_Set_3FBE597A( SafeHandle value,  SwiftSelf self);
         
         public Swift.BlinkID.CroppedImageSettings CroppedImageSettings
         {
@@ -32084,13 +32084,13 @@ namespace Swift.BlinkID
             using var customDocumentAnonymizationSettingsSwift = customDocumentAnonymizationSettings is {} customDocumentAnonymizationSettingsValue ? SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DocumentAnonymizationSettings>>.NewSome(customDocumentAnonymizationSettingsValue) : SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DocumentAnonymizationSettings>>.NewNone();
             using PayloadBuffer<IntPtr> customDocumentAnonymizationSettingsDisposable = customDocumentAnonymizationSettingsSwift.PayloadBuffer;
             IntPtr customDocumentAnonymizationSettingsBuffer = customDocumentAnonymizationSettingsDisposable.Buffer;
-            PInvoke_init_112B86E5(swiftIndirectResult, blurDetectionLevel.Payload.DangerousGetHandle(), skipImagesWithBlur, glareDetectionLevel.Payload.DangerousGetHandle(), skipImagesWithGlare, tiltDetectionLevel.Payload.DangerousGetHandle(), skipImagesWithInadequateLightingConditions, skipImagesOccludedByHand, combineResultsFromMultipleInputImages, enableBarcodeScanOnly, customDocumentRulesBuffer, anonymizationMode.Payload.DangerousGetHandle(), customDocumentAnonymizationSettingsBuffer, returnInputImages, scanCroppedDocumentImage, enableCharacterValidation, recognitionModeFilter.Payload, inputImageMargin, scanUnsupportedBack, allowUncertainFrontSideScan, maxAllowedMismatchesPerField, scanPassportDataPageOnly, croppedImageSettings.Payload);
+            PInvoke_init_22D0CA3B(swiftIndirectResult, blurDetectionLevel.Payload.DangerousGetHandle(), skipImagesWithBlur, glareDetectionLevel.Payload.DangerousGetHandle(), skipImagesWithGlare, tiltDetectionLevel.Payload.DangerousGetHandle(), skipImagesWithInadequateLightingConditions, skipImagesOccludedByHand, combineResultsFromMultipleInputImages, enableBarcodeScanOnly, customDocumentRulesBuffer, anonymizationMode.Payload.DangerousGetHandle(), customDocumentAnonymizationSettingsBuffer, returnInputImages, scanCroppedDocumentImage, enableCharacterValidation, recognitionModeFilter.Payload, inputImageMargin, scanUnsupportedBack, allowUncertainFrontSideScan, maxAllowedMismatchesPerField, scanPassportDataPageOnly, croppedImageSettings.Payload);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ScanningSettingsV18blurDetectionLevel18skipImagesWithBlur05glarefG00hiJ5Glare04tiltfG00hiJ28InadequateLightingConditions0hI14OccludedByHand031combineResultsFromMultipleInputI021enableBarcodeScanOnly19customDocumentRules17anonymizationMode027customDocumentAnonymizationD006returnyI024scanCroppedDocumentImage0Z19CharacterValidation21recognitionModeFilter16inputImageMargin19scanUnsupportedBack27allowUncertainFrontSideScan28maxAllowedMismatchesPerField24scanPassportDataPageOnly012croppedImageD0AcA0fG0O_SbA_SbA_S4bSayAA13DocumentRulesVGSgAA17AnonymizationModeOSayAA021DocumentAnonymizationD0VGSgS3bAA21RecognitionModeFilterVSfS2bSiSbAA012CroppedImageD0VtcfC")]
-        private static extern void PInvoke_init_112B86E5( SwiftIndirectResult swiftIndirectResult,  IntPtr blurDetectionLevel,  System.Boolean skipImagesWithBlur,  IntPtr glareDetectionLevel,  System.Boolean skipImagesWithGlare,  IntPtr tiltDetectionLevel,  System.Boolean skipImagesWithInadequateLightingConditions,  System.Boolean skipImagesOccludedByHand,  System.Boolean combineResultsFromMultipleInputImages,  System.Boolean enableBarcodeScanOnly,  IntPtr customDocumentRulesBuffer,  IntPtr anonymizationMode,  IntPtr customDocumentAnonymizationSettingsBuffer,  System.Boolean returnInputImages,  System.Boolean scanCroppedDocumentImage,  System.Boolean enableCharacterValidation,  SafeHandle recognitionModeFilter,  System.Single inputImageMargin,  System.Boolean scanUnsupportedBack,  System.Boolean allowUncertainFrontSideScan,  System.IntPtr maxAllowedMismatchesPerField,  System.Boolean scanPassportDataPageOnly,  SafeHandle croppedImageSettings);
+        private static extern void PInvoke_init_22D0CA3B( SwiftIndirectResult swiftIndirectResult,  IntPtr blurDetectionLevel,  System.Boolean skipImagesWithBlur,  IntPtr glareDetectionLevel,  System.Boolean skipImagesWithGlare,  IntPtr tiltDetectionLevel,  System.Boolean skipImagesWithInadequateLightingConditions,  System.Boolean skipImagesOccludedByHand,  System.Boolean combineResultsFromMultipleInputImages,  System.Boolean enableBarcodeScanOnly,  IntPtr customDocumentRulesBuffer,  IntPtr anonymizationMode,  IntPtr customDocumentAnonymizationSettingsBuffer,  System.Boolean returnInputImages,  System.Boolean scanCroppedDocumentImage,  System.Boolean enableCharacterValidation,  SafeHandle recognitionModeFilter,  System.Single inputImageMargin,  System.Boolean scanUnsupportedBack,  System.Boolean allowUncertainFrontSideScan,  System.IntPtr maxAllowedMismatchesPerField,  System.Boolean scanPassportDataPageOnly,  SafeHandle croppedImageSettings);
         
         
     }
@@ -32112,7 +32112,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_inputImageSource_Get_1DF6399F(swiftIndirectResult, self);
+                PInvoke_inputImageSource_Get_49150D4F(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.InputImageSource>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -32127,7 +32127,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A17IDSessionSettingsV16inputImageSourceAA05InputfG0Ovg")]
-        private static extern void PInvoke_inputImageSource_Get_1DF6399F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_inputImageSource_Get_49150D4F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void InputImageSource_Set( Swift.BlinkID.InputImageSource value)
         {
@@ -32139,7 +32139,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_inputImageSource_Set_402B7A78(value.Payload.DangerousGetHandle(), self);
+                PInvoke_inputImageSource_Set_154C2FAC(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -32154,7 +32154,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A17IDSessionSettingsV16inputImageSourceAA05InputfG0Ovs")]
-        private static extern void PInvoke_inputImageSource_Set_402B7A78( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_inputImageSource_Set_154C2FAC( IntPtr value,  SwiftSelf self);
         
         public Swift.BlinkID.InputImageSource InputImageSource
         {
@@ -32176,7 +32176,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_scanningMode_Get_323F0BD3(swiftIndirectResult, self);
+                PInvoke_scanningMode_Get_5E28910C(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ScanningMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -32191,7 +32191,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A17IDSessionSettingsV12scanningModeAA08ScanningF0Ovg")]
-        private static extern void PInvoke_scanningMode_Get_323F0BD3( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_scanningMode_Get_5E28910C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void ScanningMode_Set( Swift.BlinkID.ScanningMode value)
         {
@@ -32203,7 +32203,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_scanningMode_Set_4343FF30(value.Payload.DangerousGetHandle(), self);
+                PInvoke_scanningMode_Set_4ADE6637(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -32218,7 +32218,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A17IDSessionSettingsV12scanningModeAA08ScanningF0Ovs")]
-        private static extern void PInvoke_scanningMode_Set_4343FF30( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_scanningMode_Set_4ADE6637( IntPtr value,  SwiftSelf self);
         
         public Swift.BlinkID.ScanningMode ScanningMode
         {
@@ -32240,7 +32240,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_scanningSettings_Get_790DD0EB(swiftIndirectResult, self);
+                PInvoke_scanningSettings_Get_685C36DE(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ScanningSettings>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -32255,7 +32255,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A17IDSessionSettingsV08scanningD0AA08ScanningD0Vvg")]
-        private static extern void PInvoke_scanningSettings_Get_790DD0EB( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_scanningSettings_Get_685C36DE( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void ScanningSettings_Set( Swift.BlinkID.ScanningSettings value)
         {
@@ -32267,7 +32267,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_scanningSettings_Set_1BDBC745(value.Payload, self);
+                PInvoke_scanningSettings_Set_2E3B6725(value.Payload, self);
                 
                 return;
             }
@@ -32282,7 +32282,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A17IDSessionSettingsV08scanningD0AA08ScanningD0Vvs")]
-        private static extern void PInvoke_scanningSettings_Set_1BDBC745( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_scanningSettings_Set_2E3B6725( SafeHandle value,  SwiftSelf self);
         
         public Swift.BlinkID.ScanningSettings ScanningSettings
         {
@@ -32300,7 +32300,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_stepTimeoutDuration_Get_06F0AF04(self);
+                var result = PInvoke_stepTimeoutDuration_Get_52B5AF79(self);
                 
                 return result;
             }
@@ -32315,7 +32315,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A17IDSessionSettingsV19stepTimeoutDurationSdvg")]
-        private static extern System.Double PInvoke_stepTimeoutDuration_Get_06F0AF04( SwiftSelf self);
+        private static extern System.Double PInvoke_stepTimeoutDuration_Get_52B5AF79( SwiftSelf self);
         
         private unsafe void StepTimeoutDuration_Set( System.Double value)
         {
@@ -32327,7 +32327,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_stepTimeoutDuration_Set_272E872B(value, self);
+                PInvoke_stepTimeoutDuration_Set_4EAC7D90(value, self);
                 
                 return;
             }
@@ -32342,7 +32342,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A17IDSessionSettingsV19stepTimeoutDurationSdvs")]
-        private static extern void PInvoke_stepTimeoutDuration_Set_272E872B( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_stepTimeoutDuration_Set_4EAC7D90( System.Double value,  SwiftSelf self);
         
         public System.Double StepTimeoutDuration
         {
@@ -32443,13 +32443,13 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<BlinkIDSessionSettings>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_6CC79BC7(swiftIndirectResult, inputImageSource.Payload.DangerousGetHandle(), scanningMode.Payload.DangerousGetHandle(), scanningSettings.Payload, stepTimeoutDuration);
+            PInvoke_init_605B8815(swiftIndirectResult, inputImageSource.Payload.DangerousGetHandle(), scanningMode.Payload.DangerousGetHandle(), scanningSettings.Payload, stepTimeoutDuration);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A17IDSessionSettingsV16inputImageSource12scanningMode0hD019stepTimeoutDurationAcA05InputfG0O_AA08ScanningI0OAA0nD0VSdtcfC")]
-        private static extern void PInvoke_init_6CC79BC7( SwiftIndirectResult swiftIndirectResult,  IntPtr inputImageSource,  IntPtr scanningMode,  SafeHandle scanningSettings,  System.Double stepTimeoutDuration);
+        private static extern void PInvoke_init_605B8815( SwiftIndirectResult swiftIndirectResult,  IntPtr inputImageSource,  IntPtr scanningMode,  SafeHandle scanningSettings,  System.Double stepTimeoutDuration);
         
         
     }
@@ -32569,7 +32569,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_3E714048(self);
+                var result = PInvoke_hashValue_Get_1991BDA2(self);
                 
                 return result;
             }
@@ -32582,7 +32582,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID27ImageAnalysisLightingStatusO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_3E714048( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_1991BDA2( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -32661,7 +32661,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_55056327(into.Payload, self);
+                PInvoke_hash_6267CDCF(into.Payload, self);
                 
                 return;
             }
@@ -32674,7 +32674,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID27ImageAnalysisLightingStatusO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_55056327( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_6267CDCF( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -32777,7 +32777,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_0572EF68(self);
+                var result = PInvoke_hashValue_Get_07663DD9(self);
                 
                 return result;
             }
@@ -32790,7 +32790,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19ImageExtractionTypeO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_0572EF68( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_07663DD9( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -32869,7 +32869,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_349EB500(into.Payload, self);
+                PInvoke_hash_462009CE(into.Payload, self);
                 
                 return;
             }
@@ -32882,7 +32882,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID19ImageExtractionTypeO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_349EB500( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_462009CE( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -32904,7 +32904,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_processingStatus_Get_46D36E04(swiftIndirectResult, self);
+                PInvoke_processingStatus_Get_1E77776B(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ProcessingStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -32919,7 +32919,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV16processingStatusAA010ProcessingH0Ovg")]
-        private static extern void PInvoke_processingStatus_Get_46D36E04( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_processingStatus_Get_1E77776B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ProcessingStatus ProcessingStatus
         {
@@ -32936,7 +32936,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_missingMandatoryFields_Get_29051D6B(self);
+                var result = PInvoke_missingMandatoryFields_Get_7B8B083A(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.FieldType>>(new IntPtr(&result));
             }
@@ -32951,7 +32951,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV22missingMandatoryFieldsSayAA9FieldTypeOGvg")]
-        private static extern IntPtr PInvoke_missingMandatoryFields_Get_29051D6B( SwiftSelf self);
+        private static extern IntPtr PInvoke_missingMandatoryFields_Get_7B8B083A( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.FieldType> MissingMandatoryFields
         {
@@ -32968,7 +32968,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_extractedFields_Get_194D74A5(self);
+                var result = PInvoke_extractedFields_Get_5AE1AD34(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.FieldType>>(new IntPtr(&result));
             }
@@ -32983,7 +32983,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV15extractedFieldsSayAA9FieldTypeOGvg")]
-        private static extern IntPtr PInvoke_extractedFields_Get_194D74A5( SwiftSelf self);
+        private static extern IntPtr PInvoke_extractedFields_Get_5AE1AD34( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.FieldType> ExtractedFields
         {
@@ -33000,7 +33000,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_invalidCharacterFields_Get_2F0A6CDF(self);
+                var result = PInvoke_invalidCharacterFields_Get_3467C466(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.FieldType>>(new IntPtr(&result));
             }
@@ -33015,7 +33015,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV22invalidCharacterFieldsSayAA9FieldTypeOGvg")]
-        private static extern IntPtr PInvoke_invalidCharacterFields_Get_2F0A6CDF( SwiftSelf self);
+        private static extern IntPtr PInvoke_invalidCharacterFields_Get_3467C466( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.FieldType> InvalidCharacterFields
         {
@@ -33032,7 +33032,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_extraPresentFields_Get_3CBF104B(self);
+                var result = PInvoke_extraPresentFields_Get_37F90D3B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.FieldType>>(new IntPtr(&result));
             }
@@ -33047,7 +33047,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV18extraPresentFieldsSayAA9FieldTypeOGvg")]
-        private static extern IntPtr PInvoke_extraPresentFields_Get_3CBF104B( SwiftSelf self);
+        private static extern IntPtr PInvoke_extraPresentFields_Get_37F90D3B( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.FieldType> ExtraPresentFields
         {
@@ -33064,7 +33064,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_imageExtractionFailures_Get_5D355614(self);
+                var result = PInvoke_imageExtractionFailures_Get_7A68FA02(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.ImageExtractionType>>(new IntPtr(&result));
             }
@@ -33079,7 +33079,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV23imageExtractionFailuresSayAA0dH4TypeOGvg")]
-        private static extern IntPtr PInvoke_imageExtractionFailures_Get_5D355614( SwiftSelf self);
+        private static extern IntPtr PInvoke_imageExtractionFailures_Get_7A68FA02( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.ImageExtractionType> ImageExtractionFailures
         {
@@ -33100,7 +33100,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_scanningSide_Get_58887A9A(swiftIndirectResult, self);
+                PInvoke_scanningSide_Get_7A3EC3AA(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ScanningSide>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33115,7 +33115,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV12scanningSideAA08ScanningH0Ovg")]
-        private static extern void PInvoke_scanningSide_Get_58887A9A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_scanningSide_Get_7A3EC3AA( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ScanningSide ScanningSide
         {
@@ -33136,7 +33136,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentDetectionStatus_Get_08695F26(swiftIndirectResult, self);
+                PInvoke_documentDetectionStatus_Get_023ED1DE(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DetectionStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33151,7 +33151,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV23documentDetectionStatusAA0hI0Ovg")]
-        private static extern void PInvoke_documentDetectionStatus_Get_08695F26( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentDetectionStatus_Get_023ED1DE( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.DetectionStatus DocumentDetectionStatus
         {
@@ -33168,7 +33168,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentLocation_Get_07ADBBFA(self);
+                var result = PInvoke_documentLocation_Get_227A780D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.Quadrilateral>>(new IntPtr(&result));
             }
@@ -33183,7 +33183,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV16documentLocationAA13QuadrilateralVSgvg")]
-        private static extern IntPtr PInvoke_documentLocation_Get_07ADBBFA( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentLocation_Get_227A780D( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.Quadrilateral> DocumentLocation
         {
@@ -33204,7 +33204,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentClassInfo_Get_0CD08503(swiftIndirectResult, self);
+                PInvoke_documentClassInfo_Get_6DAFCF03(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BlinkIDSDK.DocumentClassInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33219,7 +33219,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV17documentClassInfoAA0A5IDSDKV08DocumenthI0Vvg")]
-        private static extern void PInvoke_documentClassInfo_Get_0CD08503( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentClassInfo_Get_6DAFCF03( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.BlinkIDSDK.DocumentClassInfo DocumentClassInfo
         {
@@ -33240,7 +33240,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_blurDetectionStatus_Get_26E63F11(swiftIndirectResult, self);
+                PInvoke_blurDetectionStatus_Get_61AC6DDA(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ImageAnalysisDetectionStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33255,7 +33255,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV19blurDetectionStatusAA0dehI0Ovg")]
-        private static extern void PInvoke_blurDetectionStatus_Get_26E63F11( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_blurDetectionStatus_Get_61AC6DDA( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ImageAnalysisDetectionStatus BlurDetectionStatus
         {
@@ -33276,7 +33276,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_glareDetectionStatus_Get_68DB97E9(swiftIndirectResult, self);
+                PInvoke_glareDetectionStatus_Get_0E970D82(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ImageAnalysisDetectionStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33291,7 +33291,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV20glareDetectionStatusAA0dehI0Ovg")]
-        private static extern void PInvoke_glareDetectionStatus_Get_68DB97E9( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_glareDetectionStatus_Get_0E970D82( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ImageAnalysisDetectionStatus GlareDetectionStatus
         {
@@ -33312,7 +33312,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentColorStatus_Get_2481DF66(swiftIndirectResult, self);
+                PInvoke_documentColorStatus_Get_082EEB6C(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DocumentImageColorStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33327,7 +33327,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV19documentColorStatusAA08DocumentdhI0Ovg")]
-        private static extern void PInvoke_documentColorStatus_Get_2481DF66( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentColorStatus_Get_082EEB6C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.DocumentImageColorStatus DocumentColorStatus
         {
@@ -33348,7 +33348,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentMoireStatus_Get_70611DE9(swiftIndirectResult, self);
+                PInvoke_documentMoireStatus_Get_53E2768F(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ImageAnalysisDetectionStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33363,7 +33363,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV19documentMoireStatusAA0de9DetectionI0Ovg")]
-        private static extern void PInvoke_documentMoireStatus_Get_70611DE9( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentMoireStatus_Get_53E2768F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ImageAnalysisDetectionStatus DocumentMoireStatus
         {
@@ -33384,7 +33384,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_faceDetectionStatus_Get_0725497F(swiftIndirectResult, self);
+                PInvoke_faceDetectionStatus_Get_37B0842F(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ImageAnalysisDetectionStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33399,7 +33399,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV19faceDetectionStatusAA0dehI0Ovg")]
-        private static extern void PInvoke_faceDetectionStatus_Get_0725497F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_faceDetectionStatus_Get_37B0842F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ImageAnalysisDetectionStatus FaceDetectionStatus
         {
@@ -33420,7 +33420,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_mrzDetectionStatus_Get_0C02E68C(swiftIndirectResult, self);
+                PInvoke_mrzDetectionStatus_Get_2E56AA6D(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ImageAnalysisDetectionStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33435,7 +33435,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV18mrzDetectionStatusAA0dehI0Ovg")]
-        private static extern void PInvoke_mrzDetectionStatus_Get_0C02E68C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_mrzDetectionStatus_Get_2E56AA6D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ImageAnalysisDetectionStatus MrzDetectionStatus
         {
@@ -33456,7 +33456,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_barcodeDetectionStatus_Get_37EAD183(swiftIndirectResult, self);
+                PInvoke_barcodeDetectionStatus_Get_61D4847D(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ImageAnalysisDetectionStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33471,7 +33471,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV22barcodeDetectionStatusAA0dehI0Ovg")]
-        private static extern void PInvoke_barcodeDetectionStatus_Get_37EAD183( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_barcodeDetectionStatus_Get_61D4847D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ImageAnalysisDetectionStatus BarcodeDetectionStatus
         {
@@ -33492,7 +33492,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_realIDDetectionStatus_Get_0AE49D96(swiftIndirectResult, self);
+                PInvoke_realIDDetectionStatus_Get_6604F463(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ImageAnalysisDetectionStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33507,7 +33507,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV21realIDDetectionStatusAA0de9DetectionI0Ovg")]
-        private static extern void PInvoke_realIDDetectionStatus_Get_0AE49D96( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_realIDDetectionStatus_Get_6604F463( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ImageAnalysisDetectionStatus RealIDDetectionStatus
         {
@@ -33528,7 +33528,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentLightingStatus_Get_151B5B79(swiftIndirectResult, self);
+                PInvoke_documentLightingStatus_Get_6DF65592(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ImageAnalysisLightingStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33543,7 +33543,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV22documentLightingStatusAA0dehI0Ovg")]
-        private static extern void PInvoke_documentLightingStatus_Get_151B5B79( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentLightingStatus_Get_6DF65592( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ImageAnalysisLightingStatus DocumentLightingStatus
         {
@@ -33564,7 +33564,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentHandOcclusionStatus_Get_5F841787(swiftIndirectResult, self);
+                PInvoke_documentHandOcclusionStatus_Get_16D04492(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ImageAnalysisDetectionStatus>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33579,7 +33579,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV27documentHandOcclusionStatusAA0de9DetectionJ0Ovg")]
-        private static extern void PInvoke_documentHandOcclusionStatus_Get_5F841787( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentHandOcclusionStatus_Get_16D04492( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ImageAnalysisDetectionStatus DocumentHandOcclusionStatus
         {
@@ -33600,7 +33600,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentOrientation_Get_7722BB4E(swiftIndirectResult, self);
+                PInvoke_documentOrientation_Get_58E478D6(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DocumentOrientation>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33615,7 +33615,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV19documentOrientationAA08DocumentH0Ovg")]
-        private static extern void PInvoke_documentOrientation_Get_7722BB4E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentOrientation_Get_58E478D6( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.DocumentOrientation DocumentOrientation
         {
@@ -33636,7 +33636,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentRotation_Get_4FC3D7A2(swiftIndirectResult, self);
+                PInvoke_documentRotation_Get_26D6E5C7(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DocumentRotation>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -33651,7 +33651,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID24InputImageAnalysisResultV16documentRotationAA08DocumentH0Ovg")]
-        private static extern void PInvoke_documentRotation_Get_4FC3D7A2( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentRotation_Get_26D6E5C7( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.DocumentRotation DocumentRotation
         {
@@ -33880,7 +33880,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_69F5D322(self);
+                var result = PInvoke_hashValue_Get_6B969047(self);
                 
                 return result;
             }
@@ -33893,7 +33893,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14ScanningStatusO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_69F5D322( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_6B969047( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -33972,7 +33972,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_501CB1AD(into.Payload, self);
+                PInvoke_hash_1C40D29C(into.Payload, self);
                 
                 return;
             }
@@ -33985,7 +33985,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14ScanningStatusO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_501CB1AD( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_1C40D29C( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -34071,7 +34071,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_4FAB910B(self);
+                var result = PInvoke_hashValue_Get_1C261164(self);
                 
                 return result;
             }
@@ -34084,7 +34084,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12SessionErrorO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_4FAB910B( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_1C261164( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -34163,7 +34163,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_4B7A3DA7(into.Payload, self);
+                PInvoke_hash_4AB9BF71(into.Payload, self);
                 
                 return;
             }
@@ -34176,7 +34176,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12SessionErrorO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_4B7A3DA7( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_4AB9BF71( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -34194,7 +34194,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_processResult_Get_49DCFCCC(self);
+                var result = PInvoke_processResult_Get_268E361E(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.ProcessResult>>(new IntPtr(&result));
             }
@@ -34209,7 +34209,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18FrameProcessResultV07processE0AA0A5IDSDKV0dE0VSgvg")]
-        private static extern IntPtr PInvoke_processResult_Get_49DCFCCC( SwiftSelf self);
+        private static extern IntPtr PInvoke_processResult_Get_268E361E( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.ProcessResult> ProcessResult
         {
@@ -34226,7 +34226,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sessionError_Get_5F58BD7A(self);
+                var result = PInvoke_sessionError_Get_760CEFB7(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.SessionError>>(new IntPtr(&result));
             }
@@ -34241,7 +34241,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18FrameProcessResultV12sessionErrorAA07SessionG0OSgvg")]
-        private static extern IntPtr PInvoke_sessionError_Get_5F58BD7A( SwiftSelf self);
+        private static extern IntPtr PInvoke_sessionError_Get_760CEFB7( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.SessionError> SessionError
         {
@@ -34521,7 +34521,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_2B9F6397(self);
+                var result = PInvoke_hashValue_Get_735595FE(self);
                 
                 return result;
             }
@@ -34534,7 +34534,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ImageOrientationO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_2B9F6397( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_735595FE( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -34613,7 +34613,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_6594C360(into.Payload, self);
+                PInvoke_hash_5E43FDF7(into.Payload, self);
                 
                 return;
             }
@@ -34626,7 +34626,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16ImageOrientationO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_6594C360( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_5E43FDF7( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -34644,7 +34644,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_x_Get_0F657B5A(self);
+                var result = PInvoke_x_Get_3A54BB62(self);
                 
                 return result;
             }
@@ -34659,7 +34659,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16RegionOfInterestV1xSfvg")]
-        private static extern System.Single PInvoke_x_Get_0F657B5A( SwiftSelf self);
+        private static extern System.Single PInvoke_x_Get_3A54BB62( SwiftSelf self);
         
         public System.Single X
         {
@@ -34676,7 +34676,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_y_Get_1EFDBD6F(self);
+                var result = PInvoke_y_Get_2493FC9F(self);
                 
                 return result;
             }
@@ -34691,7 +34691,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16RegionOfInterestV1ySfvg")]
-        private static extern System.Single PInvoke_y_Get_1EFDBD6F( SwiftSelf self);
+        private static extern System.Single PInvoke_y_Get_2493FC9F( SwiftSelf self);
         
         public System.Single Y
         {
@@ -34708,7 +34708,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_width_Get_668A4A81(self);
+                var result = PInvoke_width_Get_42079A1C(self);
                 
                 return result;
             }
@@ -34723,7 +34723,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16RegionOfInterestV5widthSfvg")]
-        private static extern System.Single PInvoke_width_Get_668A4A81( SwiftSelf self);
+        private static extern System.Single PInvoke_width_Get_42079A1C( SwiftSelf self);
         
         public System.Single Width
         {
@@ -34740,7 +34740,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_height_Get_5AA3BCBE(self);
+                var result = PInvoke_height_Get_30A46E7A(self);
                 
                 return result;
             }
@@ -34755,7 +34755,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16RegionOfInterestV6heightSfvg")]
-        private static extern System.Single PInvoke_height_Get_5AA3BCBE( SwiftSelf self);
+        private static extern System.Single PInvoke_height_Get_30A46E7A( SwiftSelf self);
         
         public System.Single Height
         {
@@ -34855,13 +34855,13 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<RegionOfInterest>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_02A145D6(swiftIndirectResult, x, y, width, height);
+            PInvoke_init_0D1E27DE(swiftIndirectResult, x, y, width, height);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16RegionOfInterestV1x1y5width6heightACSf_S3ftcfC")]
-        private static extern void PInvoke_init_02A145D6( SwiftIndirectResult swiftIndirectResult,  System.Single x,  System.Single y,  System.Single width,  System.Single height);
+        private static extern void PInvoke_init_0D1E27DE( SwiftIndirectResult swiftIndirectResult,  System.Single x,  System.Single y,  System.Single width,  System.Single height);
         
         
     }
@@ -34981,7 +34981,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_7CC72FAC(self);
+                var result = PInvoke_hashValue_Get_6B6A2783(self);
                 
                 return result;
             }
@@ -34994,7 +34994,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID27CameraFrameVideoOrientationO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_7CC72FAC( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_6B6A2783( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -35073,7 +35073,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_12DB8D28(into.Payload, self);
+                PInvoke_hash_17AF1B6B(into.Payload, self);
                 
                 return;
             }
@@ -35086,7 +35086,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID27CameraFrameVideoOrientationO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_12DB8D28( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_17AF1B6B( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -35108,7 +35108,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_roi_Get_35151B39(swiftIndirectResult, self);
+                PInvoke_roi_Get_4DBD4B70(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.RegionOfInterest>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -35123,7 +35123,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11CameraFrameV3roiAA16RegionOfInterestVvg")]
-        private static extern void PInvoke_roi_Get_35151B39( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_roi_Get_4DBD4B70( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.RegionOfInterest Roi
         {
@@ -35144,7 +35144,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_orientation_Get_1200A21D(swiftIndirectResult, self);
+                PInvoke_orientation_Get_7DCDCB76(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.CameraFrameVideoOrientation>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -35159,7 +35159,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11CameraFrameV11orientationAA0cD16VideoOrientationOvg")]
-        private static extern void PInvoke_orientation_Get_1200A21D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_orientation_Get_7DCDCB76( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.CameraFrameVideoOrientation Orientation
         {
@@ -35176,7 +35176,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_width_Get_1C9001EF(self);
+                var result = PInvoke_width_Get_107DB2D2(self);
                 
                 return result;
             }
@@ -35191,7 +35191,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11CameraFrameV5widthSivg")]
-        private static extern System.IntPtr PInvoke_width_Get_1C9001EF( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_width_Get_107DB2D2( SwiftSelf self);
         
         public System.IntPtr Width
         {
@@ -35208,7 +35208,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_height_Get_1A4C84E4(self);
+                var result = PInvoke_height_Get_6B761983(self);
                 
                 return result;
             }
@@ -35223,7 +35223,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11CameraFrameV6heightSivg")]
-        private static extern System.IntPtr PInvoke_height_Get_1A4C84E4( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_height_Get_6B761983( SwiftSelf self);
         
         public System.IntPtr Height
         {
@@ -35422,7 +35422,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_init_402C155D(swiftIndirectResult, uiImageHandle, regionOfInterest.Payload);
+                PInvoke_init_1EC47691(swiftIndirectResult, uiImageHandle, regionOfInterest.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.InputImage>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -35435,7 +35435,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10InputImageC02uiD016regionOfInterestACSo7UIImageC_AA06RegiongH0VtcfC")]
-        private static extern void PInvoke_init_402C155D( SwiftIndirectResult swiftIndirectResult,  IntPtr uiImage,  SafeHandle regionOfInterest);
+        private static extern void PInvoke_init_1EC47691( SwiftIndirectResult swiftIndirectResult,  IntPtr uiImage,  SafeHandle regionOfInterest);
         
         
         public unsafe Swift.BlinkID.InputImage Init( Swift.BlinkID.CameraFrame cameraFrame)
@@ -35448,7 +35448,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_init_6D07AC31(swiftIndirectResult, cameraFrame.Payload);
+                PInvoke_init_0005D60D(swiftIndirectResult, cameraFrame.Payload);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.InputImage>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -35461,7 +35461,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10InputImageC11cameraFrameAcA06CameraF0V_tcfC")]
-        private static extern void PInvoke_init_6D07AC31( SwiftIndirectResult swiftIndirectResult,  SafeHandle cameraFrame);
+        private static extern void PInvoke_init_0005D60D( SwiftIndirectResult swiftIndirectResult,  SafeHandle cameraFrame);
         
         
     }
@@ -35479,7 +35479,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfBirth_Get_0D8EAE66(self);
+                var result = PInvoke_dateOfBirth_Get_7D99136A(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -35494,7 +35494,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13DependentInfoV11dateOfBirthAA10DateResultVyAA0A5IDSDKV06StringI0VGSgvg")]
-        private static extern IntPtr PInvoke_dateOfBirth_Get_0D8EAE66( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfBirth_Get_7D99136A( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>> DateOfBirth
         {
@@ -35511,7 +35511,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sex_Get_002BB390(self);
+                var result = PInvoke_sex_Get_4F0AE15D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -35526,7 +35526,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13DependentInfoV3sexAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_sex_Get_002BB390( SwiftSelf self);
+        private static extern IntPtr PInvoke_sex_Get_4F0AE15D( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Sex
         {
@@ -35543,7 +35543,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentNumber_Get_1102693B(self);
+                var result = PInvoke_documentNumber_Get_6C842153(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -35558,7 +35558,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13DependentInfoV14documentNumberAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_documentNumber_Get_1102693B( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentNumber_Get_6C842153( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> DocumentNumber
         {
@@ -35575,7 +35575,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_fullName_Get_4EFBE80A(self);
+                var result = PInvoke_fullName_Get_23901FBE(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -35590,7 +35590,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13DependentInfoV8fullNameAA0A5IDSDKV12StringResultVSgvg")]
-        private static extern IntPtr PInvoke_fullName_Get_4EFBE80A( SwiftSelf self);
+        private static extern IntPtr PInvoke_fullName_Get_23901FBE( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> FullName
         {
@@ -35701,7 +35701,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = VehicleClassInfo_PInvoke.PInvoke_vehicleClass_Get_6CCF4C7C(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = VehicleClassInfo_PInvoke.PInvoke_vehicleClass_Get_3A05484F(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<T0>>(new IntPtr(&result));
             }
@@ -35731,7 +35731,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = VehicleClassInfo_PInvoke.PInvoke_licenceType_Get_3A659CF5(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = VehicleClassInfo_PInvoke.PInvoke_licenceType_Get_5FBEF60A(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<T0>>(new IntPtr(&result));
             }
@@ -35761,7 +35761,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = VehicleClassInfo_PInvoke.PInvoke_effectiveDate_Get_155C6D65(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = VehicleClassInfo_PInvoke.PInvoke_effectiveDate_Get_5BDCC405(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<T0>>>(new IntPtr(&result));
             }
@@ -35791,7 +35791,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = VehicleClassInfo_PInvoke.PInvoke_expiryDate_Get_494D49E8(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = VehicleClassInfo_PInvoke.PInvoke_expiryDate_Get_09D3E23D(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<T0>>>(new IntPtr(&result));
             }
@@ -35900,19 +35900,19 @@ namespace Swift.BlinkID
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16VehicleClassInfoV07vehicleD0xSgvg")]
-        internal static extern IntPtr PInvoke_vehicleClass_Get_6CCF4C7C( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_vehicleClass_Get_3A05484F( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16VehicleClassInfoV11licenceTypexSgvg")]
-        internal static extern IntPtr PInvoke_licenceType_Get_3A659CF5( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_licenceType_Get_5FBEF60A( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16VehicleClassInfoV13effectiveDateAA0G6ResultVyxGSgvg")]
-        internal static extern IntPtr PInvoke_effectiveDate_Get_155C6D65( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_effectiveDate_Get_5BDCC405( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16VehicleClassInfoV10expiryDateAA0G6ResultVyxGSgvg")]
-        internal static extern IntPtr PInvoke_expiryDate_Get_494D49E8( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_expiryDate_Get_09D3E23D( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16VehicleClassInfoVMa")]
@@ -35934,7 +35934,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_restrictions_Get_349CAB83(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_restrictions_Get_253C8BEE(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<T0>>(new IntPtr(&result));
             }
@@ -35964,7 +35964,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_endorsements_Get_7C7A1308(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_endorsements_Get_39CC0951(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<T0>>(new IntPtr(&result));
             }
@@ -35994,7 +35994,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_vehicleClass_Get_1CF12FDC(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_vehicleClass_Get_693FDB9E(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<T0>>(new IntPtr(&result));
             }
@@ -36024,7 +36024,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_conditions_Get_3E82682C(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_conditions_Get_64EDC784(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<T0>>(new IntPtr(&result));
             }
@@ -36054,7 +36054,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_vehicleClassesInfo_Get_722A9868(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DriverLicenseDetailedInfo_PInvoke.PInvoke_vehicleClassesInfo_Get_119FF8BE(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.VehicleClassInfo<T0>>>>(new IntPtr(&result));
             }
@@ -36163,23 +36163,23 @@ namespace Swift.BlinkID
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25DriverLicenseDetailedInfoV12restrictionsxSgvg")]
-        internal static extern IntPtr PInvoke_restrictions_Get_349CAB83( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_restrictions_Get_253C8BEE( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25DriverLicenseDetailedInfoV12endorsementsxSgvg")]
-        internal static extern IntPtr PInvoke_endorsements_Get_7C7A1308( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_endorsements_Get_39CC0951( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25DriverLicenseDetailedInfoV12vehicleClassxSgvg")]
-        internal static extern IntPtr PInvoke_vehicleClass_Get_1CF12FDC( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_vehicleClass_Get_693FDB9E( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25DriverLicenseDetailedInfoV10conditionsxSgvg")]
-        internal static extern IntPtr PInvoke_conditions_Get_3E82682C( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_conditions_Get_64EDC784( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25DriverLicenseDetailedInfoV014vehicleClassesF0SayAA012VehicleClassF0VyxGGSgvg")]
-        internal static extern IntPtr PInvoke_vehicleClassesInfo_Get_722A9868( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_vehicleClassesInfo_Get_119FF8BE( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID25DriverLicenseDetailedInfoVMa")]
@@ -36204,7 +36204,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_recognitionMode_Get_57525585(swiftIndirectResult, self);
+                PInvoke_recognitionMode_Get_431348F4(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.RecognitionMode>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -36219,7 +36219,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV15recognitionModeAA011RecognitionF0Ovg")]
-        private static extern void PInvoke_recognitionMode_Get_57525585( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_recognitionMode_Get_431348F4( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.RecognitionMode RecognitionMode
         {
@@ -36240,7 +36240,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_documentClassInfo_Get_220064C5(swiftIndirectResult, self);
+                PInvoke_documentClassInfo_Get_1C151F55(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BlinkIDSDK.DocumentClassInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -36255,7 +36255,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV17documentClassInfoAA0A5IDSDKV08DocumentfG0Vvg")]
-        private static extern void PInvoke_documentClassInfo_Get_220064C5( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_documentClassInfo_Get_1C151F55( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.BlinkIDSDK.DocumentClassInfo DocumentClassInfo
         {
@@ -36272,7 +36272,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dataMatchResult_Get_265C9C16(self);
+                var result = PInvoke_dataMatchResult_Get_3E0A3F16(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DataMatchResult>>(new IntPtr(&result));
             }
@@ -36287,7 +36287,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV09dataMatchD0AA04DatafD0VSgvg")]
-        private static extern IntPtr PInvoke_dataMatchResult_Get_265C9C16( SwiftSelf self);
+        private static extern IntPtr PInvoke_dataMatchResult_Get_3E0A3F16( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DataMatchResult> DataMatchResult
         {
@@ -36304,7 +36304,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_firstName_Get_02F7ABDF(self);
+                var result = PInvoke_firstName_Get_48306360(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36319,7 +36319,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV9firstNameAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_firstName_Get_02F7ABDF( SwiftSelf self);
+        private static extern IntPtr PInvoke_firstName_Get_48306360( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> FirstName
         {
@@ -36336,7 +36336,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_lastName_Get_58D54BB6(self);
+                var result = PInvoke_lastName_Get_521414BF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36351,7 +36351,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV8lastNameAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_lastName_Get_58D54BB6( SwiftSelf self);
+        private static extern IntPtr PInvoke_lastName_Get_521414BF( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> LastName
         {
@@ -36368,7 +36368,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_fullName_Get_65368696(self);
+                var result = PInvoke_fullName_Get_61DF6E29(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36383,7 +36383,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV8fullNameAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_fullName_Get_65368696( SwiftSelf self);
+        private static extern IntPtr PInvoke_fullName_Get_61DF6E29( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> FullName
         {
@@ -36400,7 +36400,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_additionalNameInformation_Get_40BD8376(self);
+                var result = PInvoke_additionalNameInformation_Get_019FF085(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36415,7 +36415,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV25additionalNameInformationAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_additionalNameInformation_Get_40BD8376( SwiftSelf self);
+        private static extern IntPtr PInvoke_additionalNameInformation_Get_019FF085( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> AdditionalNameInformation
         {
@@ -36432,7 +36432,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_localizedName_Get_578E1107(self);
+                var result = PInvoke_localizedName_Get_08ACD553(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36447,7 +36447,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV13localizedNameAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_localizedName_Get_578E1107( SwiftSelf self);
+        private static extern IntPtr PInvoke_localizedName_Get_08ACD553( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> LocalizedName
         {
@@ -36464,7 +36464,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_fathersName_Get_57131E1A(self);
+                var result = PInvoke_fathersName_Get_1E948920(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36479,7 +36479,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV11fathersNameAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_fathersName_Get_57131E1A( SwiftSelf self);
+        private static extern IntPtr PInvoke_fathersName_Get_1E948920( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> FathersName
         {
@@ -36496,7 +36496,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_mothersName_Get_252DA0AA(self);
+                var result = PInvoke_mothersName_Get_22FE63B7(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36511,7 +36511,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV11mothersNameAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_mothersName_Get_252DA0AA( SwiftSelf self);
+        private static extern IntPtr PInvoke_mothersName_Get_22FE63B7( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MothersName
         {
@@ -36528,7 +36528,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_address_Get_0FEA409E(self);
+                var result = PInvoke_address_Get_253B7000(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36543,7 +36543,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV7addressAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_address_Get_0FEA409E( SwiftSelf self);
+        private static extern IntPtr PInvoke_address_Get_253B7000( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Address
         {
@@ -36560,7 +36560,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_additionalAddressInformation_Get_18F2FFAE(self);
+                var result = PInvoke_additionalAddressInformation_Get_6F9196BA(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36575,7 +36575,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV28additionalAddressInformationAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_additionalAddressInformation_Get_18F2FFAE( SwiftSelf self);
+        private static extern IntPtr PInvoke_additionalAddressInformation_Get_6F9196BA( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> AdditionalAddressInformation
         {
@@ -36592,7 +36592,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_additionalOptionalAddressInformation_Get_65DC0E7D(self);
+                var result = PInvoke_additionalOptionalAddressInformation_Get_3551F6DE(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36607,7 +36607,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV36additionalOptionalAddressInformationAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_additionalOptionalAddressInformation_Get_65DC0E7D( SwiftSelf self);
+        private static extern IntPtr PInvoke_additionalOptionalAddressInformation_Get_3551F6DE( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> AdditionalOptionalAddressInformation
         {
@@ -36624,7 +36624,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_placeOfBirth_Get_4F5EF29D(self);
+                var result = PInvoke_placeOfBirth_Get_6B4E3EBB(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36639,7 +36639,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV12placeOfBirthAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_placeOfBirth_Get_4F5EF29D( SwiftSelf self);
+        private static extern IntPtr PInvoke_placeOfBirth_Get_6B4E3EBB( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> PlaceOfBirth
         {
@@ -36656,7 +36656,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_nationality_Get_7DBF849D(self);
+                var result = PInvoke_nationality_Get_3EFC4FAE(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36671,7 +36671,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV11nationalityAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_nationality_Get_7DBF849D( SwiftSelf self);
+        private static extern IntPtr PInvoke_nationality_Get_3EFC4FAE( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Nationality
         {
@@ -36688,7 +36688,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_race_Get_64A52010(self);
+                var result = PInvoke_race_Get_05B7F59D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36703,7 +36703,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV4raceAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_race_Get_64A52010( SwiftSelf self);
+        private static extern IntPtr PInvoke_race_Get_05B7F59D( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Race
         {
@@ -36720,7 +36720,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_religion_Get_06B2FA60(self);
+                var result = PInvoke_religion_Get_7703E09B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36735,7 +36735,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV8religionAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_religion_Get_06B2FA60( SwiftSelf self);
+        private static extern IntPtr PInvoke_religion_Get_7703E09B( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Religion
         {
@@ -36752,7 +36752,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_profession_Get_458D995B(self);
+                var result = PInvoke_profession_Get_097A7954(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36767,7 +36767,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV10professionAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_profession_Get_458D995B( SwiftSelf self);
+        private static extern IntPtr PInvoke_profession_Get_097A7954( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Profession
         {
@@ -36784,7 +36784,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_maritalStatus_Get_26C349D9(self);
+                var result = PInvoke_maritalStatus_Get_2C3887A3(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36799,7 +36799,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV13maritalStatusAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_maritalStatus_Get_26C349D9( SwiftSelf self);
+        private static extern IntPtr PInvoke_maritalStatus_Get_2C3887A3( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MaritalStatus
         {
@@ -36816,7 +36816,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_residentialStatus_Get_74AC3D9C(self);
+                var result = PInvoke_residentialStatus_Get_20091B7A(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36831,7 +36831,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV17residentialStatusAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_residentialStatus_Get_74AC3D9C( SwiftSelf self);
+        private static extern IntPtr PInvoke_residentialStatus_Get_20091B7A( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> ResidentialStatus
         {
@@ -36848,7 +36848,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_employer_Get_4E585834(self);
+                var result = PInvoke_employer_Get_5E0886C6(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36863,7 +36863,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV8employerAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_employer_Get_4E585834( SwiftSelf self);
+        private static extern IntPtr PInvoke_employer_Get_5E0886C6( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Employer
         {
@@ -36880,7 +36880,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sex_Get_1C4C0958(self);
+                var result = PInvoke_sex_Get_0EBEB67A(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36895,7 +36895,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV3sexAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_sex_Get_1C4C0958( SwiftSelf self);
+        private static extern IntPtr PInvoke_sex_Get_0EBEB67A( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Sex
         {
@@ -36912,7 +36912,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sponsor_Get_7864A568(self);
+                var result = PInvoke_sponsor_Get_29F6E590(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36927,7 +36927,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV7sponsorAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_sponsor_Get_7864A568( SwiftSelf self);
+        private static extern IntPtr PInvoke_sponsor_Get_29F6E590( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Sponsor
         {
@@ -36944,7 +36944,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_bloodType_Get_193FCFF3(self);
+                var result = PInvoke_bloodType_Get_563E6948(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36959,7 +36959,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV9bloodTypeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_bloodType_Get_193FCFF3( SwiftSelf self);
+        private static extern IntPtr PInvoke_bloodType_Get_563E6948( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> BloodType
         {
@@ -36976,7 +36976,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentNumber_Get_440740B5(self);
+                var result = PInvoke_documentNumber_Get_3028F4DD(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -36991,7 +36991,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV14documentNumberAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_documentNumber_Get_440740B5( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentNumber_Get_3028F4DD( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> DocumentNumber
         {
@@ -37008,7 +37008,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_personalIdNumber_Get_11B2BF17(self);
+                var result = PInvoke_personalIdNumber_Get_0FAD51FD(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37023,7 +37023,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV16personalIdNumberAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_personalIdNumber_Get_11B2BF17( SwiftSelf self);
+        private static extern IntPtr PInvoke_personalIdNumber_Get_0FAD51FD( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> PersonalIdNumber
         {
@@ -37040,7 +37040,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentAdditionalNumber_Get_2AD69028(self);
+                var result = PInvoke_documentAdditionalNumber_Get_7D0CB558(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37055,7 +37055,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV24documentAdditionalNumberAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_documentAdditionalNumber_Get_2AD69028( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentAdditionalNumber_Get_7D0CB558( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> DocumentAdditionalNumber
         {
@@ -37072,7 +37072,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentOptionalAdditionalNumber_Get_4D43C2D1(self);
+                var result = PInvoke_documentOptionalAdditionalNumber_Get_53019395(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37087,7 +37087,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV32documentOptionalAdditionalNumberAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_documentOptionalAdditionalNumber_Get_4D43C2D1( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentOptionalAdditionalNumber_Get_53019395( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> DocumentOptionalAdditionalNumber
         {
@@ -37104,7 +37104,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_additionalPersonalIdNumber_Get_66E20D4E(self);
+                var result = PInvoke_additionalPersonalIdNumber_Get_7A543AB1(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37119,7 +37119,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV26additionalPersonalIdNumberAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_additionalPersonalIdNumber_Get_66E20D4E( SwiftSelf self);
+        private static extern IntPtr PInvoke_additionalPersonalIdNumber_Get_7A543AB1( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> AdditionalPersonalIdNumber
         {
@@ -37136,7 +37136,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_issuingAuthority_Get_7AFFF90E(self);
+                var result = PInvoke_issuingAuthority_Get_4957D406(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37151,7 +37151,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV16issuingAuthorityAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_issuingAuthority_Get_7AFFF90E( SwiftSelf self);
+        private static extern IntPtr PInvoke_issuingAuthority_Get_4957D406( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> IssuingAuthority
         {
@@ -37168,7 +37168,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_documentSubtype_Get_2C593F26(self);
+                var result = PInvoke_documentSubtype_Get_5C4C76ED(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37183,7 +37183,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV15documentSubtypeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_documentSubtype_Get_2C593F26( SwiftSelf self);
+        private static extern IntPtr PInvoke_documentSubtype_Get_5C4C76ED( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> DocumentSubtype
         {
@@ -37200,7 +37200,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_remarks_Get_391D4F83(self);
+                var result = PInvoke_remarks_Get_5417E1E6(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37215,7 +37215,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV7remarksAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_remarks_Get_391D4F83( SwiftSelf self);
+        private static extern IntPtr PInvoke_remarks_Get_5417E1E6( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> Remarks
         {
@@ -37232,7 +37232,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_residencePermitType_Get_7FB83268(self);
+                var result = PInvoke_residencePermitType_Get_2F27A353(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37247,7 +37247,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV19residencePermitTypeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_residencePermitType_Get_7FB83268( SwiftSelf self);
+        private static extern IntPtr PInvoke_residencePermitType_Get_2F27A353( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> ResidencePermitType
         {
@@ -37264,7 +37264,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_manufacturingYear_Get_6E83E89A(self);
+                var result = PInvoke_manufacturingYear_Get_685E9049(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37279,7 +37279,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV17manufacturingYearAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_manufacturingYear_Get_6E83E89A( SwiftSelf self);
+        private static extern IntPtr PInvoke_manufacturingYear_Get_685E9049( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> ManufacturingYear
         {
@@ -37296,7 +37296,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_vehicleType_Get_3E54A852(self);
+                var result = PInvoke_vehicleType_Get_49729087(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37311,7 +37311,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV11vehicleTypeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_vehicleType_Get_3E54A852( SwiftSelf self);
+        private static extern IntPtr PInvoke_vehicleType_Get_49729087( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> VehicleType
         {
@@ -37328,7 +37328,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_eligibilityCategory_Get_2791AB81(self);
+                var result = PInvoke_eligibilityCategory_Get_40B873BF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37343,7 +37343,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV19eligibilityCategoryAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_eligibilityCategory_Get_2791AB81( SwiftSelf self);
+        private static extern IntPtr PInvoke_eligibilityCategory_Get_40B873BF( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> EligibilityCategory
         {
@@ -37360,7 +37360,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_specificDocumentValidity_Get_2A3350C5(self);
+                var result = PInvoke_specificDocumentValidity_Get_0AEF4CB6(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37375,7 +37375,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV24specificDocumentValidityAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_specificDocumentValidity_Get_2A3350C5( SwiftSelf self);
+        private static extern IntPtr PInvoke_specificDocumentValidity_Get_0AEF4CB6( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> SpecificDocumentValidity
         {
@@ -37392,7 +37392,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_visaType_Get_6E582411(self);
+                var result = PInvoke_visaType_Get_6EC9BAD0(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37407,7 +37407,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV8visaTypeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_visaType_Get_6E582411( SwiftSelf self);
+        private static extern IntPtr PInvoke_visaType_Get_6EC9BAD0( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> VisaType
         {
@@ -37424,7 +37424,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_vehicleOwner_Get_20E96551(self);
+                var result = PInvoke_vehicleOwner_Get_07098CAF(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37439,7 +37439,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV12vehicleOwnerAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_vehicleOwner_Get_20E96551( SwiftSelf self);
+        private static extern IntPtr PInvoke_vehicleOwner_Get_07098CAF( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> VehicleOwner
         {
@@ -37456,7 +37456,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_certificateNumber_Get_3651CE0A(self);
+                var result = PInvoke_certificateNumber_Get_327035C7(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37471,7 +37471,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV17certificateNumberAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_certificateNumber_Get_3651CE0A( SwiftSelf self);
+        private static extern IntPtr PInvoke_certificateNumber_Get_327035C7( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> CertificateNumber
         {
@@ -37488,7 +37488,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_countryCode_Get_77C6D588(self);
+                var result = PInvoke_countryCode_Get_415D918E(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37503,7 +37503,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV11countryCodeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_countryCode_Get_77C6D588( SwiftSelf self);
+        private static extern IntPtr PInvoke_countryCode_Get_415D918E( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> CountryCode
         {
@@ -37520,7 +37520,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_nationalInsuranceNumber_Get_5CE923CC(self);
+                var result = PInvoke_nationalInsuranceNumber_Get_6E85619C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37535,7 +37535,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV23nationalInsuranceNumberAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_nationalInsuranceNumber_Get_5CE923CC( SwiftSelf self);
+        private static extern IntPtr PInvoke_nationalInsuranceNumber_Get_6E85619C( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> NationalInsuranceNumber
         {
@@ -37552,7 +37552,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_localityCode_Get_51255AF8(self);
+                var result = PInvoke_localityCode_Get_268CEE6D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37567,7 +37567,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV12localityCodeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_localityCode_Get_51255AF8( SwiftSelf self);
+        private static extern IntPtr PInvoke_localityCode_Get_268CEE6D( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> LocalityCode
         {
@@ -37584,7 +37584,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_maidenName_Get_046B09A5(self);
+                var result = PInvoke_maidenName_Get_63D92711(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37599,7 +37599,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV10maidenNameAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_maidenName_Get_046B09A5( SwiftSelf self);
+        private static extern IntPtr PInvoke_maidenName_Get_63D92711( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MaidenName
         {
@@ -37616,7 +37616,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_municipalityCode_Get_6481125D(self);
+                var result = PInvoke_municipalityCode_Get_69A94783(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37631,7 +37631,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV16municipalityCodeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_municipalityCode_Get_6481125D( SwiftSelf self);
+        private static extern IntPtr PInvoke_municipalityCode_Get_69A94783( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MunicipalityCode
         {
@@ -37648,7 +37648,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_municipalityOfRegistration_Get_418F101B(self);
+                var result = PInvoke_municipalityOfRegistration_Get_75D1C938(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37663,7 +37663,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV26municipalityOfRegistrationAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_municipalityOfRegistration_Get_418F101B( SwiftSelf self);
+        private static extern IntPtr PInvoke_municipalityOfRegistration_Get_75D1C938( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> MunicipalityOfRegistration
         {
@@ -37680,7 +37680,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_pollingStationCode_Get_2A33E7FC(self);
+                var result = PInvoke_pollingStationCode_Get_63CA5DA5(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37695,7 +37695,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV18pollingStationCodeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_pollingStationCode_Get_2A33E7FC( SwiftSelf self);
+        private static extern IntPtr PInvoke_pollingStationCode_Get_63CA5DA5( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> PollingStationCode
         {
@@ -37712,7 +37712,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_registrationCenterCode_Get_7E666FAC(self);
+                var result = PInvoke_registrationCenterCode_Get_4A87AB65(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37727,7 +37727,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV22registrationCenterCodeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_registrationCenterCode_Get_7E666FAC( SwiftSelf self);
+        private static extern IntPtr PInvoke_registrationCenterCode_Get_4A87AB65( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> RegistrationCenterCode
         {
@@ -37744,7 +37744,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_sectionCode_Get_03B155CB(self);
+                var result = PInvoke_sectionCode_Get_3A003754(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37759,7 +37759,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV11sectionCodeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_sectionCode_Get_03B155CB( SwiftSelf self);
+        private static extern IntPtr PInvoke_sectionCode_Get_3A003754( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> SectionCode
         {
@@ -37776,7 +37776,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_stateCode_Get_068F8A42(self);
+                var result = PInvoke_stateCode_Get_41530BFA(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37791,7 +37791,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV9stateCodeAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_stateCode_Get_068F8A42( SwiftSelf self);
+        private static extern IntPtr PInvoke_stateCode_Get_41530BFA( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> StateCode
         {
@@ -37808,7 +37808,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_stateName_Get_5561704B(self);
+                var result = PInvoke_stateName_Get_20E0FC2C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult>>(new IntPtr(&result));
             }
@@ -37823,7 +37823,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV9stateNameAA0A5IDSDKV06StringD0VSgvg")]
-        private static extern IntPtr PInvoke_stateName_Get_5561704B( SwiftSelf self);
+        private static extern IntPtr PInvoke_stateName_Get_20E0FC2C( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.BlinkIDSDK.StringResult> StateName
         {
@@ -37840,7 +37840,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfBirth_Get_1A1E5A78(self);
+                var result = PInvoke_dateOfBirth_Get_4C6FEBD6(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -37855,7 +37855,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV11dateOfBirthAA04DateD0VyAA0A5IDSDKV06StringD0VGSgvg")]
-        private static extern IntPtr PInvoke_dateOfBirth_Get_1A1E5A78( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfBirth_Get_4C6FEBD6( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>> DateOfBirth
         {
@@ -37872,7 +37872,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfIssue_Get_69C9671E(self);
+                var result = PInvoke_dateOfIssue_Get_4BEB87D9(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -37887,7 +37887,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV11dateOfIssueAA04DateD0VyAA0A5IDSDKV06StringD0VGSgvg")]
-        private static extern IntPtr PInvoke_dateOfIssue_Get_69C9671E( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfIssue_Get_4BEB87D9( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>> DateOfIssue
         {
@@ -37904,7 +37904,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfExpiry_Get_51ED0665(self);
+                var result = PInvoke_dateOfExpiry_Get_25BA7D1F(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -37919,7 +37919,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV12dateOfExpiryAA04DateD0VyAA0A5IDSDKV06StringD0VGSgvg")]
-        private static extern IntPtr PInvoke_dateOfExpiry_Get_51ED0665( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfExpiry_Get_25BA7D1F( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>> DateOfExpiry
         {
@@ -37936,7 +37936,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfEntry_Get_39447C81(self);
+                var result = PInvoke_dateOfEntry_Get_60D39611(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -37951,7 +37951,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV11dateOfEntryAA04DateD0VyAA0A5IDSDKV06StringD0VGSgvg")]
-        private static extern IntPtr PInvoke_dateOfEntry_Get_39447C81( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfEntry_Get_60D39611( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DateResult<Swift.BlinkID.BlinkIDSDK.StringResult>> DateOfEntry
         {
@@ -37968,7 +37968,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dateOfExpiryPermanent_Get_17936BBD(self);
+                var result = PInvoke_dateOfExpiryPermanent_Get_3055119E(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Boolean>>(new IntPtr(&result));
             }
@@ -37983,7 +37983,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV21dateOfExpiryPermanentSbSgvg")]
-        private static extern IntPtr PInvoke_dateOfExpiryPermanent_Get_17936BBD( SwiftSelf self);
+        private static extern IntPtr PInvoke_dateOfExpiryPermanent_Get_3055119E( SwiftSelf self);
         
         public Swift.SwiftOptional<System.Boolean> DateOfExpiryPermanent
         {
@@ -38000,7 +38000,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_driverLicenseDetailedInfo_Get_636132FC(self);
+                var result = PInvoke_driverLicenseDetailedInfo_Get_37E283BA(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DriverLicenseDetailedInfo<Swift.BlinkID.BlinkIDSDK.StringResult>>>(new IntPtr(&result));
             }
@@ -38015,7 +38015,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV25driverLicenseDetailedInfoAA06DriverfgH0VyAA0A5IDSDKV06StringD0VGSgvg")]
-        private static extern IntPtr PInvoke_driverLicenseDetailedInfo_Get_636132FC( SwiftSelf self);
+        private static extern IntPtr PInvoke_driverLicenseDetailedInfo_Get_37E283BA( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.DriverLicenseDetailedInfo<Swift.BlinkID.BlinkIDSDK.StringResult>> DriverLicenseDetailedInfo
         {
@@ -38032,7 +38032,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_dependentsInfo_Get_6DF78CE9(self);
+                var result = PInvoke_dependentsInfo_Get_56EC0C74(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DependentInfo>>>(new IntPtr(&result));
             }
@@ -38047,7 +38047,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV14dependentsInfoSayAA09DependentF0VGSgvg")]
-        private static extern IntPtr PInvoke_dependentsInfo_Get_6DF78CE9( SwiftSelf self);
+        private static extern IntPtr PInvoke_dependentsInfo_Get_56EC0C74( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftArray<Swift.BlinkID.DependentInfo>> DependentsInfo
         {
@@ -38064,7 +38064,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_subResults_Get_52842C4F(self);
+                var result = PInvoke_subResults_Get_7774615B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.SingleSideScanningResult>>(new IntPtr(&result));
             }
@@ -38079,7 +38079,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV10subResultsSayAA018SingleSideScanningD0VGvg")]
-        private static extern IntPtr PInvoke_subResults_Get_52842C4F( SwiftSelf self);
+        private static extern IntPtr PInvoke_subResults_Get_7774615B( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.SingleSideScanningResult> SubResults
         {
@@ -38184,7 +38184,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_getInputImage_3E8887EB(scanningSide.Payload.DangerousGetHandle(), self);
+                var result = PInvoke_getInputImage_1F12375A(scanningSide.Payload.DangerousGetHandle(), self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.InputImageResult>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -38200,7 +38200,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV13getInputImage12scanningSideAA0fgD0VSgAA08ScanningI0O_tF")]
-        private static extern IntPtr PInvoke_getInputImage_3E8887EB( IntPtr scanningSide,  SwiftSelf self);
+        private static extern IntPtr PInvoke_getInputImage_1F12375A( IntPtr scanningSide,  SwiftSelf self);
         
         
         public unsafe Swift.BlinkID.InputImageResult? GetBarcodeInputImage()
@@ -38213,7 +38213,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_getBarcodeInputImage_11282C89(self);
+                var result = PInvoke_getBarcodeInputImage_7F17C7FB(self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.InputImageResult>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -38229,7 +38229,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV20getBarcodeInputImageAA0ghD0VSgyF")]
-        private static extern IntPtr PInvoke_getBarcodeInputImage_11282C89( SwiftSelf self);
+        private static extern IntPtr PInvoke_getBarcodeInputImage_7F17C7FB( SwiftSelf self);
         
         
         public unsafe Swift.BlinkID.CroppedImageResult? GetDocumentImage( Swift.BlinkID.ScanningSide scanningSide)
@@ -38242,7 +38242,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_getDocumentImage_2ABA083E(scanningSide.Payload.DangerousGetHandle(), self);
+                var result = PInvoke_getDocumentImage_780E4F79(scanningSide.Payload.DangerousGetHandle(), self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.CroppedImageResult>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -38258,7 +38258,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV16getDocumentImage12scanningSideAA07CroppedgD0VSgAA08ScanningI0O_tF")]
-        private static extern IntPtr PInvoke_getDocumentImage_2ABA083E( IntPtr scanningSide,  SwiftSelf self);
+        private static extern IntPtr PInvoke_getDocumentImage_780E4F79( IntPtr scanningSide,  SwiftSelf self);
         
         
         public unsafe Swift.BlinkID.DetailedCroppedImageResult? GetFaceImage()
@@ -38271,7 +38271,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_getFaceImage_4F7B3F45(self);
+                var result = PInvoke_getFaceImage_0AE3ACF0(self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DetailedCroppedImageResult>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -38287,7 +38287,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV12getFaceImageAA015DetailedCroppedgD0VSgyF")]
-        private static extern IntPtr PInvoke_getFaceImage_4F7B3F45( SwiftSelf self);
+        private static extern IntPtr PInvoke_getFaceImage_0AE3ACF0( SwiftSelf self);
         
         
         public unsafe Swift.BlinkID.DetailedCroppedImageResult? GetSignatureImage()
@@ -38300,7 +38300,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_getSignatureImage_685F70E7(self);
+                var result = PInvoke_getSignatureImage_620A5CCF(self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.DetailedCroppedImageResult>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -38316,7 +38316,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A16IDScanningResultV17getSignatureImageAA015DetailedCroppedgD0VSgyF")]
-        private static extern IntPtr PInvoke_getSignatureImage_685F70E7( SwiftSelf self);
+        private static extern IntPtr PInvoke_getSignatureImage_620A5CCF( SwiftSelf self);
         
         
     }
@@ -38334,7 +38334,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_licenseKey_Get_5285136E(self);
+                var result = PInvoke_licenseKey_Get_706EC22C(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -38351,7 +38351,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV10licenseKeySSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_licenseKey_Get_5285136E( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_licenseKey_Get_706EC22C( SwiftSelf self);
         
         private unsafe void LicenseKey_Set( Swift.SwiftString value)
         {
@@ -38364,7 +38364,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_licenseKey_Set_3B93D406(valueDisposable.Buffer, self);
+                PInvoke_licenseKey_Set_76C2BF2B(valueDisposable.Buffer, self);
                 
                 return;
             }
@@ -38379,7 +38379,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV10licenseKeySSvs")]
-        private static extern void PInvoke_licenseKey_Set_3B93D406( Swift.SwiftString.Buffer value,  SwiftSelf self);
+        private static extern void PInvoke_licenseKey_Set_76C2BF2B( Swift.SwiftString.Buffer value,  SwiftSelf self);
         
         public Swift.SwiftString LicenseKey
         {
@@ -38397,7 +38397,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_licensee_Get_6D2CF900(self);
+                var result = PInvoke_licensee_Get_2847782B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -38412,7 +38412,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV8licenseeSSSgvg")]
-        private static extern IntPtr PInvoke_licensee_Get_6D2CF900( SwiftSelf self);
+        private static extern IntPtr PInvoke_licensee_Get_2847782B( SwiftSelf self);
         
         private unsafe void Licensee_Set( Swift.SwiftOptional<Swift.SwiftString> value)
         {
@@ -38426,7 +38426,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_licensee_Set_45E00BC5(valueBuffer, self);
+                PInvoke_licensee_Set_5B49D66A(valueBuffer, self);
                 
                 return;
             }
@@ -38441,7 +38441,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV8licenseeSSSgvs")]
-        private static extern void PInvoke_licensee_Set_45E00BC5( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_licensee_Set_5B49D66A( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> Licensee
         {
@@ -38459,7 +38459,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_helloLogEnabled_Get_1B95EB75(self);
+                var result = PInvoke_helloLogEnabled_Get_5DB70C51(self);
                 
                 return result;
             }
@@ -38474,7 +38474,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV15helloLogEnabledSbvg")]
-        private static extern System.Boolean PInvoke_helloLogEnabled_Get_1B95EB75( SwiftSelf self);
+        private static extern System.Boolean PInvoke_helloLogEnabled_Get_5DB70C51( SwiftSelf self);
         
         private unsafe void HelloLogEnabled_Set( System.Boolean value)
         {
@@ -38486,7 +38486,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_helloLogEnabled_Set_531AF1A9(value, self);
+                PInvoke_helloLogEnabled_Set_05964A57(value, self);
                 
                 return;
             }
@@ -38501,7 +38501,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV15helloLogEnabledSbvs")]
-        private static extern void PInvoke_helloLogEnabled_Set_531AF1A9( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_helloLogEnabled_Set_05964A57( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean HelloLogEnabled
         {
@@ -38519,7 +38519,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_downloadResources_Get_084F26CF(self);
+                var result = PInvoke_downloadResources_Get_6D3B6AE3(self);
                 
                 return result;
             }
@@ -38534,7 +38534,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV17downloadResourcesSbvg")]
-        private static extern System.Boolean PInvoke_downloadResources_Get_084F26CF( SwiftSelf self);
+        private static extern System.Boolean PInvoke_downloadResources_Get_6D3B6AE3( SwiftSelf self);
         
         private unsafe void DownloadResources_Set( System.Boolean value)
         {
@@ -38546,7 +38546,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_downloadResources_Set_2EA1D868(value, self);
+                PInvoke_downloadResources_Set_42BBA647(value, self);
                 
                 return;
             }
@@ -38561,7 +38561,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV17downloadResourcesSbvs")]
-        private static extern void PInvoke_downloadResources_Set_2EA1D868( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_downloadResources_Set_42BBA647( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean DownloadResources
         {
@@ -38579,7 +38579,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_resourceDownloadUrl_Get_7D9F78E0(self);
+                var result = PInvoke_resourceDownloadUrl_Get_192CF742(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -38596,7 +38596,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV19resourceDownloadUrlSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_resourceDownloadUrl_Get_7D9F78E0( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_resourceDownloadUrl_Get_192CF742( SwiftSelf self);
         
         private unsafe void ResourceDownloadUrl_Set( Swift.SwiftString value)
         {
@@ -38609,7 +38609,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_resourceDownloadUrl_Set_264FD9B0(valueDisposable.Buffer, self);
+                PInvoke_resourceDownloadUrl_Set_71C7A248(valueDisposable.Buffer, self);
                 
                 return;
             }
@@ -38624,7 +38624,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV19resourceDownloadUrlSSvs")]
-        private static extern void PInvoke_resourceDownloadUrl_Set_264FD9B0( Swift.SwiftString.Buffer value,  SwiftSelf self);
+        private static extern void PInvoke_resourceDownloadUrl_Set_71C7A248( Swift.SwiftString.Buffer value,  SwiftSelf self);
         
         public Swift.SwiftString ResourceDownloadUrl
         {
@@ -38642,7 +38642,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_resourceLocalFolder_Get_0BA740D8(self);
+                var result = PInvoke_resourceLocalFolder_Get_7C1FA6B9(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -38659,7 +38659,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV19resourceLocalFolderSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_resourceLocalFolder_Get_0BA740D8( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_resourceLocalFolder_Get_7C1FA6B9( SwiftSelf self);
         
         private unsafe void ResourceLocalFolder_Set( Swift.SwiftString value)
         {
@@ -38672,7 +38672,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_resourceLocalFolder_Set_5F9EAACC(valueDisposable.Buffer, self);
+                PInvoke_resourceLocalFolder_Set_56044B07(valueDisposable.Buffer, self);
                 
                 return;
             }
@@ -38687,7 +38687,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV19resourceLocalFolderSSvs")]
-        private static extern void PInvoke_resourceLocalFolder_Set_5F9EAACC( Swift.SwiftString.Buffer value,  SwiftSelf self);
+        private static extern void PInvoke_resourceLocalFolder_Set_56044B07( Swift.SwiftString.Buffer value,  SwiftSelf self);
         
         public Swift.SwiftString ResourceLocalFolder
         {
@@ -38705,7 +38705,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_bundleURL_Get_451AC26F(self);
+                var result = PInvoke_bundleURL_Get_111A2E92(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.URL>>(new IntPtr(&result));
             }
@@ -38720,7 +38720,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV9bundleURL10Foundation0F0VSgvg")]
-        private static extern IntPtr PInvoke_bundleURL_Get_451AC26F( SwiftSelf self);
+        private static extern IntPtr PInvoke_bundleURL_Get_111A2E92( SwiftSelf self);
         
         private unsafe void BundleURL_Set( Swift.SwiftOptional<Swift.URL> value)
         {
@@ -38734,7 +38734,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_bundleURL_Set_3D8C48CC(valueBuffer, self);
+                PInvoke_bundleURL_Set_598F0B6C(valueBuffer, self);
                 
                 return;
             }
@@ -38749,7 +38749,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV9bundleURL10Foundation0F0VSgvs")]
-        private static extern void PInvoke_bundleURL_Set_3D8C48CC( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_bundleURL_Set_598F0B6C( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.URL> BundleURL
         {
@@ -38771,7 +38771,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_resourceRequestTimeout_Get_27614290(swiftIndirectResult, self);
+                PInvoke_resourceRequestTimeout_Get_042F7404(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.RequestTimeout>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -38786,7 +38786,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV22resourceRequestTimeoutAA0fG0Vvg")]
-        private static extern void PInvoke_resourceRequestTimeout_Get_27614290( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_resourceRequestTimeout_Get_042F7404( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void ResourceRequestTimeout_Set( Swift.BlinkID.RequestTimeout value)
         {
@@ -38798,7 +38798,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_resourceRequestTimeout_Set_109167DD(value.Payload, self);
+                PInvoke_resourceRequestTimeout_Set_785BC9DF(value.Payload, self);
                 
                 return;
             }
@@ -38813,7 +38813,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV22resourceRequestTimeoutAA0fG0Vvs")]
-        private static extern void PInvoke_resourceRequestTimeout_Set_109167DD( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_resourceRequestTimeout_Set_785BC9DF( SafeHandle value,  SwiftSelf self);
         
         public Swift.BlinkID.RequestTimeout ResourceRequestTimeout
         {
@@ -38831,7 +38831,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_microblinkProxyURL_Get_36E2A410(self);
+                var result = PInvoke_microblinkProxyURL_Get_68B97A1E(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -38846,7 +38846,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV18microblinkProxyURLSSSgvg")]
-        private static extern IntPtr PInvoke_microblinkProxyURL_Get_36E2A410( SwiftSelf self);
+        private static extern IntPtr PInvoke_microblinkProxyURL_Get_68B97A1E( SwiftSelf self);
         
         private unsafe void MicroblinkProxyURL_Set( Swift.SwiftOptional<Swift.SwiftString> value)
         {
@@ -38860,7 +38860,7 @@ namespace Swift.BlinkID
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_microblinkProxyURL_Set_781AA6A7(valueBuffer, self);
+                PInvoke_microblinkProxyURL_Set_265FE8B5(valueBuffer, self);
                 
                 return;
             }
@@ -38875,7 +38875,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV18microblinkProxyURLSSSgvs")]
-        private static extern void PInvoke_microblinkProxyURL_Set_781AA6A7( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_microblinkProxyURL_Set_265FE8B5( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> MicroblinkProxyURL
         {
@@ -38991,13 +38991,13 @@ namespace Swift.BlinkID
             using var microblinkProxyURLSwift = microblinkProxyURL is {} microblinkProxyURLValue ? SwiftOptional<Swift.SwiftString>.NewSome(microblinkProxyURLValue) : SwiftOptional<Swift.SwiftString>.NewNone();
             using PayloadBuffer<IntPtr> microblinkProxyURLDisposable = microblinkProxyURLSwift.PayloadBuffer;
             IntPtr microblinkProxyURLBuffer = microblinkProxyURLDisposable.Buffer;
-            PInvoke_init_1ED3F80C(swiftIndirectResult, licenseKeyDisposable.Buffer, licenseeBuffer, helloLogEnabled, downloadResources, resourceDownloadUrlDisposable.Buffer, resourceLocalFolderDisposable.Buffer, bundleURLBuffer, resourceRequestTimeout.Payload, microblinkProxyURLBuffer);
+            PInvoke_init_05BAA842(swiftIndirectResult, licenseKeyDisposable.Buffer, licenseeBuffer, helloLogEnabled, downloadResources, resourceDownloadUrlDisposable.Buffer, resourceLocalFolderDisposable.Buffer, bundleURLBuffer, resourceRequestTimeout.Payload, microblinkProxyURLBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A13IDSdkSettingsV10licenseKey8licensee15helloLogEnabled17downloadResources19resourceDownloadUrl0M11LocalFolder9bundleURL0M14RequestTimeout015microblinkProxyS0ACSS_SSSgS2bS2S10Foundation0S0VSgAA0tU0VAMtcfC")]
-        private static extern void PInvoke_init_1ED3F80C( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer licenseKey,  IntPtr licenseeBuffer,  System.Boolean helloLogEnabled,  System.Boolean downloadResources,  Swift.SwiftString.Buffer resourceDownloadUrl,  Swift.SwiftString.Buffer resourceLocalFolder,  IntPtr bundleURLBuffer,  SafeHandle resourceRequestTimeout,  IntPtr microblinkProxyURLBuffer);
+        private static extern void PInvoke_init_05BAA842( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer licenseKey,  IntPtr licenseeBuffer,  System.Boolean helloLogEnabled,  System.Boolean downloadResources,  Swift.SwiftString.Buffer resourceDownloadUrl,  Swift.SwiftString.Buffer resourceLocalFolder,  IntPtr bundleURLBuffer,  SafeHandle resourceRequestTimeout,  IntPtr microblinkProxyURLBuffer);
         
         
     }
@@ -39092,38 +39092,36 @@ namespace Swift.BlinkID
             return ProtocolConformanceDescriptor.LoadFromSymbol("BlinkID", symbolName);
         }
         
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_createScanningSessionCallback_5D9246EE = &createScanningSessionOnComplete_5D9246EE;
+                        [System.Runtime.InteropServices.DllImport("SwiftBindings", EntryPoint = "SBW_Free_BlinkID")]
+        private static extern void SBW_Free(IntPtr ptr);
+private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_createScanningSessionCallback_4203E5DD = &createScanningSessionOnComplete_4203E5DD;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void createScanningSessionOnComplete_5D9246EE(IntPtr rawResult, IntPtr task)
+        private static void createScanningSessionOnComplete_4203E5DD(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
+                            // Read object pointer from buffer (for class types, buffer contains the object reference)
+                            IntPtr _retainedObjPtr = *(IntPtr*)resultPtr;
             try
             {
-                var result = SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BlinkIDSession>(new IntPtr(&rawResult));
-                var metadata = SwiftObjectHelper<Swift.BlinkID.BlinkIDSession>.GetTypeMetadata();
-                Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];
-                IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));
-                SwiftMarshal.MarshalToSwift(result, ref payloadSpan);
+                // Read result from pointer (Swift allocated memory and stored the value)
+                var result = SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BlinkIDSession>(resultPtr);
+
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.BlinkID.BlinkIDSession> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
                         {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
                         }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
                         {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
                         }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -39137,18 +39135,22 @@ namespace Swift.BlinkID
             }
             finally
             {
+                                // Release the retain added by Swift (must use dereferenced object pointer, not buffer pointer)
+                                Arc.Release(_retainedObjPtr);
+                // Free Swift-allocated memory
+                SBW_Free(resultPtr);
                 handle.Free();
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_createScanningSessionErrorCallback_5D9246EE = &createScanningSessionOnError_5D9246EE;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_createScanningSessionErrorCallback_4203E5DD = &createScanningSessionOnError_4203E5DD;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void createScanningSessionOnError_5D9246EE(IntPtr errorMessagePtr, IntPtr task)
+        private static void createScanningSessionOnError_4203E5DD(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
             {
-                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                 var exception = new SwiftException(errorMessage);
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -39163,12 +39165,10 @@ namespace Swift.BlinkID
                         }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
                         {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
                         }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -39206,7 +39206,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                PInvoke_createScanningSession_5D9246EE(s_createScanningSessionCallback_5D9246EE, s_createScanningSessionErrorCallback_5D9246EE, GCHandle.ToIntPtr(handle), sessionSettingsHandle, *(IntPtr*)_payload.DangerousGetHandle());
+                PInvoke_createScanningSession_4203E5DD(s_createScanningSessionCallback_4203E5DD, s_createScanningSessionErrorCallback_4203E5DD, GCHandle.ToIntPtr(handle), sessionSettingsHandle, *(IntPtr*)_payload.DangerousGetHandle());
                 
                 return task.Task;
             }
@@ -39219,41 +39219,37 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s7BlinkID0A5IDSdkC21createScanningSession15sessionSettingsAA0A9IDSessionCAA0aiH0V_tYaKF_async")]
-        private static extern void PInvoke_createScanningSession_5D9246EE( void* s_createScanningSessionCallback_5D9246EE,  void* s_createScanningSessionErrorCallback_5D9246EE,  IntPtr handle,  IntPtr sessionSettings,  IntPtr _selfClass);
+        private static extern void PInvoke_createScanningSession_4203E5DD( void* s_createScanningSessionCallback_4203E5DD,  void* s_createScanningSessionErrorCallback_4203E5DD,  IntPtr handle,  IntPtr sessionSettings,  IntPtr _selfClass);
         
         
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_createBlinkIDSdkCallback_48D22935 = &createBlinkIDSdkOnComplete_48D22935;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_createBlinkIDSdkCallback_3EF1C001 = &createBlinkIDSdkOnComplete_3EF1C001;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void createBlinkIDSdkOnComplete_48D22935(IntPtr rawResult, IntPtr task)
+        private static void createBlinkIDSdkOnComplete_3EF1C001(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
+                            // Read object pointer from buffer (for class types, buffer contains the object reference)
+                            IntPtr _retainedObjPtr = *(IntPtr*)resultPtr;
             try
             {
-                var result = SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BlinkIDSdk>(new IntPtr(&rawResult));
-                var metadata = SwiftObjectHelper<Swift.BlinkID.BlinkIDSdk>.GetTypeMetadata();
-                Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];
-                IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));
-                SwiftMarshal.MarshalToSwift(result, ref payloadSpan);
+                // Read result from pointer (Swift allocated memory and stored the value)
+                var result = SwiftMarshal.MarshalFromSwift<Swift.BlinkID.BlinkIDSdk>(resultPtr);
+
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.BlinkID.BlinkIDSdk> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
                         {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
                         }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
                         {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
                         }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -39267,18 +39263,22 @@ namespace Swift.BlinkID
             }
             finally
             {
+                                // Release the retain added by Swift (must use dereferenced object pointer, not buffer pointer)
+                                Arc.Release(_retainedObjPtr);
+                // Free Swift-allocated memory
+                SBW_Free(resultPtr);
                 handle.Free();
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_createBlinkIDSdkErrorCallback_48D22935 = &createBlinkIDSdkOnError_48D22935;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_createBlinkIDSdkErrorCallback_3EF1C001 = &createBlinkIDSdkOnError_3EF1C001;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void createBlinkIDSdkOnError_48D22935(IntPtr errorMessagePtr, IntPtr task)
+        private static void createBlinkIDSdkOnError_3EF1C001(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
             {
-                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                 var exception = new SwiftException(errorMessage);
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -39293,12 +39293,10 @@ namespace Swift.BlinkID
                         }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
                         {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
                         }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -39332,7 +39330,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                PInvoke_createBlinkIDSdk_48D22935(s_createBlinkIDSdkCallback_48D22935, s_createBlinkIDSdkErrorCallback_48D22935, GCHandle.ToIntPtr(handle), withSettingsHandle);
+                PInvoke_createBlinkIDSdk_3EF1C001(s_createBlinkIDSdkCallback_3EF1C001, s_createBlinkIDSdkErrorCallback_3EF1C001, GCHandle.ToIntPtr(handle), withSettingsHandle);
                 
                 return task.Task;
             }
@@ -39345,12 +39343,12 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s7BlinkID0A5IDSdkC06createaC012withSettingsAcA0acF0V_tYaKFZ_async")]
-        private static extern void PInvoke_createBlinkIDSdk_48D22935( void* s_createBlinkIDSdkCallback_48D22935,  void* s_createBlinkIDSdkErrorCallback_48D22935,  IntPtr handle,  IntPtr withSettings);
+        private static extern void PInvoke_createBlinkIDSdk_3EF1C001( void* s_createBlinkIDSdkCallback_3EF1C001,  void* s_createBlinkIDSdkErrorCallback_3EF1C001,  IntPtr handle,  IntPtr withSettings);
         
         
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_refreshLicenseLeaseCallback_5255252A = &refreshLicenseLeaseOnComplete_5255252A;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_refreshLicenseLeaseCallback_31E4C4FB = &refreshLicenseLeaseOnComplete_31E4C4FB;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void refreshLicenseLeaseOnComplete_5255252A(IntPtr task)
+        private static void refreshLicenseLeaseOnComplete_31E4C4FB(IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -39397,9 +39395,9 @@ namespace Swift.BlinkID
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_refreshLicenseLeaseErrorCallback_5255252A = &refreshLicenseLeaseOnError_5255252A;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_refreshLicenseLeaseErrorCallback_31E4C4FB = &refreshLicenseLeaseOnError_31E4C4FB;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void refreshLicenseLeaseOnError_5255252A(IntPtr errorMessagePtr, IntPtr task)
+        private static void refreshLicenseLeaseOnError_31E4C4FB(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -39449,7 +39447,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                PInvoke_refreshLicenseLease_5255252A(s_refreshLicenseLeaseCallback_5255252A, s_refreshLicenseLeaseErrorCallback_5255252A, GCHandle.ToIntPtr(handle));
+                PInvoke_refreshLicenseLease_31E4C4FB(s_refreshLicenseLeaseCallback_31E4C4FB, s_refreshLicenseLeaseErrorCallback_31E4C4FB, GCHandle.ToIntPtr(handle));
                 
                 return task.Task;
             }
@@ -39462,7 +39460,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s7BlinkID0A5IDSdkC19refreshLicenseLeaseyyYaKFZ_async")]
-        private static extern void PInvoke_refreshLicenseLease_5255252A( void* s_refreshLicenseLeaseCallback_5255252A,  void* s_refreshLicenseLeaseErrorCallback_5255252A,  IntPtr handle);
+        private static extern void PInvoke_refreshLicenseLease_31E4C4FB( void* s_refreshLicenseLeaseCallback_31E4C4FB,  void* s_refreshLicenseLeaseErrorCallback_31E4C4FB,  IntPtr handle);
         
         
         public static void TerminateBlinkIDSdk()
@@ -39471,7 +39469,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                PInvoke_terminateBlinkIDSdk_462854BB();
+                PInvoke_terminateBlinkIDSdk_21D4333A();
                 
                 return;
             }
@@ -39484,7 +39482,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSdkC09terminateaC0yyFZ")]
-        private static extern void PInvoke_terminateBlinkIDSdk_462854BB();
+        private static extern void PInvoke_terminateBlinkIDSdk_21D4333A();
         
         
         public static void TerminateBlinkIDSdkAndDeleteCachedResources()
@@ -39493,7 +39491,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                PInvoke_terminateBlinkIDSdkAndDeleteCachedResources_102D19B4();
+                PInvoke_terminateBlinkIDSdkAndDeleteCachedResources_6B75E2AA();
                 
                 return;
             }
@@ -39506,7 +39504,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID0A5IDSdkC09terminateaC24AndDeleteCachedResourcesyyFZ")]
-        private static extern void PInvoke_terminateBlinkIDSdkAndDeleteCachedResources_102D19B4();
+        private static extern void PInvoke_terminateBlinkIDSdkAndDeleteCachedResources_6B75E2AA();
         
         
     }
@@ -39767,7 +39765,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawData_Get_79C87BFD(self);
+                var result = PInvoke_rawData_Get_212718E9(self);
                 
                 return result;
             }
@@ -39782,7 +39780,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16InputImageResultV7rawData10Foundation0G0Vvg")]
-        private static extern Swift.Data PInvoke_rawData_Get_79C87BFD( SwiftSelf self);
+        private static extern Swift.Data PInvoke_rawData_Get_212718E9( SwiftSelf self);
         
         private unsafe void RawData_Set( Swift.Data value)
         {
@@ -39794,7 +39792,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_rawData_Set_2E76013C(value, self);
+                PInvoke_rawData_Set_26F9A4E9(value, self);
                 
                 return;
             }
@@ -39809,7 +39807,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16InputImageResultV7rawData10Foundation0G0Vvs")]
-        private static extern void PInvoke_rawData_Set_2E76013C( Swift.Data value,  SwiftSelf self);
+        private static extern void PInvoke_rawData_Set_26F9A4E9( Swift.Data value,  SwiftSelf self);
         
         public Swift.Data RawData
         {
@@ -39827,7 +39825,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_uiImage_Get_4369FFD1(self);
+                var result = PInvoke_uiImage_Get_35B79239(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
             }
@@ -39842,7 +39840,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID16InputImageResultV02uiD0So7UIImageCSgvg")]
-        private static extern IntPtr PInvoke_uiImage_Get_4369FFD1( SwiftSelf self);
+        private static extern IntPtr PInvoke_uiImage_Get_35B79239( SwiftSelf self);
         
         public Swift.SwiftOptional<UIKit.UIImage> UiImage
         {
@@ -39952,7 +39950,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawData_Get_4AE659C4(self);
+                var result = PInvoke_rawData_Get_4B5C9BB4(self);
                 
                 return result;
             }
@@ -39967,7 +39965,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18CroppedImageResultV7rawData10Foundation0G0Vvg")]
-        private static extern Swift.Data PInvoke_rawData_Get_4AE659C4( SwiftSelf self);
+        private static extern Swift.Data PInvoke_rawData_Get_4B5C9BB4( SwiftSelf self);
         
         private unsafe void RawData_Set( Swift.Data value)
         {
@@ -39979,7 +39977,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_rawData_Set_6FC87024(value, self);
+                PInvoke_rawData_Set_2C358373(value, self);
                 
                 return;
             }
@@ -39994,7 +39992,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18CroppedImageResultV7rawData10Foundation0G0Vvs")]
-        private static extern void PInvoke_rawData_Set_6FC87024( Swift.Data value,  SwiftSelf self);
+        private static extern void PInvoke_rawData_Set_2C358373( Swift.Data value,  SwiftSelf self);
         
         public Swift.Data RawData
         {
@@ -40012,7 +40010,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_uiImage_Get_53028809(self);
+                var result = PInvoke_uiImage_Get_0FCF3D39(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
             }
@@ -40027,7 +40025,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18CroppedImageResultV02uiD0So7UIImageCSgvg")]
-        private static extern IntPtr PInvoke_uiImage_Get_53028809( SwiftSelf self);
+        private static extern IntPtr PInvoke_uiImage_Get_0FCF3D39( SwiftSelf self);
         
         public Swift.SwiftOptional<UIKit.UIImage> UiImage
         {
@@ -40137,7 +40135,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawData_Get_3BC05D7B(self);
+                var result = PInvoke_rawData_Get_2FBA1B99(self);
                 
                 return result;
             }
@@ -40152,7 +40150,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID26DetailedCroppedImageResultV7rawData10Foundation0H0Vvg")]
-        private static extern Swift.Data PInvoke_rawData_Get_3BC05D7B( SwiftSelf self);
+        private static extern Swift.Data PInvoke_rawData_Get_2FBA1B99( SwiftSelf self);
         
         private unsafe void RawData_Set( Swift.Data value)
         {
@@ -40164,7 +40162,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_rawData_Set_6541AC03(value, self);
+                PInvoke_rawData_Set_68D15641(value, self);
                 
                 return;
             }
@@ -40179,7 +40177,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID26DetailedCroppedImageResultV7rawData10Foundation0H0Vvs")]
-        private static extern void PInvoke_rawData_Set_6541AC03( Swift.Data value,  SwiftSelf self);
+        private static extern void PInvoke_rawData_Set_68D15641( Swift.Data value,  SwiftSelf self);
         
         public Swift.Data RawData
         {
@@ -40197,7 +40195,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_side_Get_449795C6(self);
+                var result = PInvoke_side_Get_3B007E57(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.ScanningSide>>(new IntPtr(&result));
             }
@@ -40212,7 +40210,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID26DetailedCroppedImageResultV4sideAA12ScanningSideOSgvg")]
-        private static extern IntPtr PInvoke_side_Get_449795C6( SwiftSelf self);
+        private static extern IntPtr PInvoke_side_Get_3B007E57( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.ScanningSide> Side
         {
@@ -40229,7 +40227,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_location_Get_600D8021(self);
+                var result = PInvoke_location_Get_56C07FAA(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.BlinkID.RectangleF>>(new IntPtr(&result));
             }
@@ -40244,7 +40242,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID26DetailedCroppedImageResultV8locationAA10RectangleFVSgvg")]
-        private static extern IntPtr PInvoke_location_Get_600D8021( SwiftSelf self);
+        private static extern IntPtr PInvoke_location_Get_56C07FAA( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.BlinkID.RectangleF> Location
         {
@@ -40261,7 +40259,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_uiImage_Get_6B7DD7FE(self);
+                var result = PInvoke_uiImage_Get_408C3C0B(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
             }
@@ -40276,7 +40274,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID26DetailedCroppedImageResultV02uiE0So7UIImageCSgvg")]
-        private static extern IntPtr PInvoke_uiImage_Get_6B7DD7FE( SwiftSelf self);
+        private static extern IntPtr PInvoke_uiImage_Get_408C3C0B( SwiftSelf self);
         
         public Swift.SwiftOptional<UIKit.UIImage> UiImage
         {
@@ -40603,7 +40601,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_117AE8C9(self);
+                var result = PInvoke_rawValue_Get_20C86F0A(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -40618,7 +40616,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15RecognitionModeO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_117AE8C9( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_20C86F0A( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -40631,7 +40629,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_2B9C4698();
+                var result = PInvoke_allCases_Get_17F964FE();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.RecognitionMode>>(new IntPtr(&result));
             }
@@ -40644,7 +40642,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15RecognitionModeO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_2B9C4698();
+        private static extern IntPtr PInvoke_allCases_Get_17F964FE();
         
         public static Swift.SwiftArray<Swift.BlinkID.RecognitionMode> AllCases
         {
@@ -42243,7 +42241,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_75EA9386(self);
+                var result = PInvoke_hashValue_Get_7E099AE5(self);
                 
                 return result;
             }
@@ -42256,7 +42254,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17BarcodeElementKeyO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_75EA9386( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_7E099AE5( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -42335,7 +42333,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_7C399740(into.Payload, self);
+                PInvoke_hash_709AF833(into.Payload, self);
                 
                 return;
             }
@@ -42348,7 +42346,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17BarcodeElementKeyO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_7C399740( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_709AF833( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -42363,7 +42361,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_shared_Get_271FD660();
+                var result = PInvoke_shared_Get_5757F7E9();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -42378,7 +42376,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID11PingManagerC6sharedACvgZ")]
-        private static extern IntPtr PInvoke_shared_Get_271FD660();
+        private static extern IntPtr PInvoke_shared_Get_5757F7E9();
         
         public static Swift.BlinkID.PingManager Shared
         {
@@ -42472,9 +42470,9 @@ namespace Swift.BlinkID
             return ProtocolConformanceDescriptor.LoadFromSymbol("BlinkID", symbolName);
         }
         
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_addPingletCallback_150341B2 = &addPingletOnComplete_150341B2;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, void> s_addPingletCallback_1BC72B9E = &addPingletOnComplete_1BC72B9E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void addPingletOnComplete_150341B2(IntPtr task)
+        private static void addPingletOnComplete_1BC72B9E(IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -42521,9 +42519,9 @@ namespace Swift.BlinkID
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_addPingletErrorCallback_150341B2 = &addPingletOnError_150341B2;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_addPingletErrorCallback_1BC72B9E = &addPingletOnError_1BC72B9E;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void addPingletOnError_150341B2(IntPtr errorMessagePtr, IntPtr task)
+        private static void addPingletOnError_1BC72B9E(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -42585,7 +42583,7 @@ namespace Swift.BlinkID
                 
                 var T0PingletPWT = ProtocolWitnessTable.GetOrThrow<T0, ISwiftPinglet>();
                 
-                PInvoke_addPinglet_150341B2(s_addPingletCallback_150341B2, s_addPingletErrorCallback_150341B2, GCHandle.ToIntPtr(handle), pingletPayload, sessionNumber, T0Metadata, T0PingletPWT);
+                PInvoke_addPinglet_1BC72B9E(s_addPingletCallback_1BC72B9E, s_addPingletErrorCallback_1BC72B9E, GCHandle.ToIntPtr(handle), pingletPayload, sessionNumber, T0Metadata, T0PingletPWT);
                 
                 return task.Task;
             }
@@ -42598,41 +42596,37 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s7BlinkID11PingManagerC10addPinglet7pinglet13sessionNumberyx_SitYaAA0F0RzlF_async")]
-        private static extern void PInvoke_addPinglet_150341B2( void* s_addPingletCallback_150341B2,  void* s_addPingletErrorCallback_150341B2,  IntPtr handle,  IntPtr pingletPayload,  System.IntPtr sessionNumber,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0PingletPWT);
+        private static extern void PInvoke_addPinglet_1BC72B9E( void* s_addPingletCallback_1BC72B9E,  void* s_addPingletErrorCallback_1BC72B9E,  IntPtr handle,  IntPtr pingletPayload,  System.IntPtr sessionNumber,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0PingletPWT);
         
         
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_sendPingletsCallback_5E7DCB85 = &sendPingletsOnComplete_5E7DCB85;
+                        [System.Runtime.InteropServices.DllImport("SwiftBindings", EntryPoint = "SBW_Free_BlinkID")]
+        private static extern void SBW_Free(IntPtr ptr);
+private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_sendPingletsCallback_3B2A271C = &sendPingletsOnComplete_3B2A271C;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void sendPingletsOnComplete_5E7DCB85(IntPtr rawResult, IntPtr task)
+        private static void sendPingletsOnComplete_3B2A271C(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
             {
-                var result = SwiftMarshal.MarshalFromSwift<Swift.BlinkID.PingStatus>(new IntPtr(&rawResult));
-                var metadata = SwiftObjectHelper<Swift.BlinkID.PingStatus>.GetTypeMetadata();
-                Span<byte> payloadSpan = stackalloc byte[(int)metadata.Size];
-                IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(payloadSpan));
-                SwiftMarshal.MarshalToSwift(result, ref payloadSpan);
+                // Read result from pointer (Swift allocated memory and stored the value)
+                var result = SwiftMarshal.MarshalFromSwift<Swift.BlinkID.PingStatus>(resultPtr);
+
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.BlinkID.PingStatus> holderTcs)
                 {
                     // Free copy buffer memory for non-frozen params and release retained self
-                    // Note: Original params in holder keep internal storage alive
                     for (int i = 1; i < holder.Length; i++)
                     {
                         if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
                         {
-                            // Release the extra retain added for async safety
                             Arc.Release(retained.Ptr);
                         }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
                         {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
                         }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -42646,18 +42640,20 @@ namespace Swift.BlinkID
             }
             finally
             {
+                // Free Swift-allocated memory
+                SBW_Free(resultPtr);
                 handle.Free();
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_sendPingletsErrorCallback_5E7DCB85 = &sendPingletsOnError_5E7DCB85;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_sendPingletsErrorCallback_3B2A271C = &sendPingletsOnError_3B2A271C;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void sendPingletsOnError_5E7DCB85(IntPtr errorMessagePtr, IntPtr task)
+        private static void sendPingletsOnError_3B2A271C(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
             {
-                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                 var exception = new SwiftException(errorMessage);
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
@@ -42672,12 +42668,10 @@ namespace Swift.BlinkID
                         }
                         else if (holder[i] is DeferredSafeHandleRelease deferred)
                         {
-                            // Release the SafeHandle that was kept alive for async safety
                             deferred.Handle.DangerousRelease();
                         }
                         else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                         {
-                            // Call Destroy to release Swift references, then free buffer
                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                             NativeMemory.Free((void*)copyBuffer.Buffer);
                         }
@@ -42707,7 +42701,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                PInvoke_sendPinglets_5E7DCB85(s_sendPingletsCallback_5E7DCB85, s_sendPingletsErrorCallback_5E7DCB85, GCHandle.ToIntPtr(handle));
+                PInvoke_sendPinglets_3B2A271C(s_sendPingletsCallback_3B2A271C, s_sendPingletsErrorCallback_3B2A271C, GCHandle.ToIntPtr(handle));
                 
                 return task.Task;
             }
@@ -42720,7 +42714,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s7BlinkID11PingManagerC12sendPingletsAA0C6StatusOyYaF_async")]
-        private static extern void PInvoke_sendPinglets_5E7DCB85( void* s_sendPingletsCallback_5E7DCB85,  void* s_sendPingletsErrorCallback_5E7DCB85,  IntPtr handle);
+        private static extern void PInvoke_sendPinglets_3B2A271C( void* s_sendPingletsCallback_3B2A271C,  void* s_sendPingletsErrorCallback_3B2A271C,  IntPtr handle);
         
         
     }
@@ -43924,7 +43918,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_1D9F894C(self);
+                var result = PInvoke_rawValue_Get_52D67E44(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -43939,7 +43933,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9FieldTypeO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_1D9F894C( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_52D67E44( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -43952,7 +43946,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_6128F5F5();
+                var result = PInvoke_allCases_Get_59B554F5();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.FieldType>>(new IntPtr(&result));
             }
@@ -43965,7 +43959,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID9FieldTypeO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_6128F5F5();
+        private static extern IntPtr PInvoke_allCases_Get_59B554F5();
         
         public static Swift.SwiftArray<Swift.BlinkID.FieldType> AllCases
         {
@@ -44217,7 +44211,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_6E2C7A6D(self);
+                var result = PInvoke_rawValue_Get_62A708EC(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -44232,7 +44226,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12AlphabetTypeO8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_6E2C7A6D( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_62A708EC( SwiftSelf self);
         
         public Swift.SwiftString RawValue
         {
@@ -44245,7 +44239,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_0C05E89F();
+                var result = PInvoke_allCases_Get_7CCE36F8();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.AlphabetType>>(new IntPtr(&result));
             }
@@ -44258,7 +44252,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12AlphabetTypeO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_0C05E89F();
+        private static extern IntPtr PInvoke_allCases_Get_7CCE36F8();
         
         public static Swift.SwiftArray<Swift.BlinkID.AlphabetType> AllCases
         {
@@ -44344,7 +44338,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_x_Get_67912857(self);
+                var result = PInvoke_x_Get_7E3328B4(self);
                 
                 return result;
             }
@@ -44359,7 +44353,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15RectangleFPointV1xSfvg")]
-        private static extern System.Single PInvoke_x_Get_67912857( SwiftSelf self);
+        private static extern System.Single PInvoke_x_Get_7E3328B4( SwiftSelf self);
         
         public System.Single X
         {
@@ -44376,7 +44370,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_y_Get_610AFF53(self);
+                var result = PInvoke_y_Get_0EEDACFD(self);
                 
                 return result;
             }
@@ -44391,7 +44385,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15RectangleFPointV1ySfvg")]
-        private static extern System.Single PInvoke_y_Get_610AFF53( SwiftSelf self);
+        private static extern System.Single PInvoke_y_Get_0EEDACFD( SwiftSelf self);
         
         public System.Single Y
         {
@@ -44505,7 +44499,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_origin_Get_6ED362B4(swiftIndirectResult, self);
+                PInvoke_origin_Get_4779A8AE(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.RectangleFPoint>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -44520,7 +44514,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10RectangleFV6originAA0C6FPointVvg")]
-        private static extern void PInvoke_origin_Get_6ED362B4( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_origin_Get_4779A8AE( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.RectangleFPoint Origin
         {
@@ -44537,7 +44531,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_width_Get_51F415B1(self);
+                var result = PInvoke_width_Get_188E26F3(self);
                 
                 return result;
             }
@@ -44552,7 +44546,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10RectangleFV5widthSfvg")]
-        private static extern System.Single PInvoke_width_Get_51F415B1( SwiftSelf self);
+        private static extern System.Single PInvoke_width_Get_188E26F3( SwiftSelf self);
         
         public System.Single Width
         {
@@ -44569,7 +44563,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_height_Get_6379CB58(self);
+                var result = PInvoke_height_Get_5E289710(self);
                 
                 return result;
             }
@@ -44584,7 +44578,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10RectangleFV6heightSfvg")]
-        private static extern System.Single PInvoke_height_Get_6379CB58( SwiftSelf self);
+        private static extern System.Single PInvoke_height_Get_5E289710( SwiftSelf self);
         
         public System.Single Height
         {
@@ -44695,7 +44689,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DateResult_PInvoke.PInvoke_day_Get_291007C7(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DateResult_PInvoke.PInvoke_day_Get_0F2046C9(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
             }
@@ -44725,7 +44719,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DateResult_PInvoke.PInvoke_month_Get_63287523(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DateResult_PInvoke.PInvoke_month_Get_1A17427D(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
             }
@@ -44755,7 +44749,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DateResult_PInvoke.PInvoke_year_Get_2238DFD7(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DateResult_PInvoke.PInvoke_year_Get_7744E718(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
             }
@@ -44785,7 +44779,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DateResult_PInvoke.PInvoke_date_Get_7A3833D7(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DateResult_PInvoke.PInvoke_date_Get_77F410D8(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.DateTimeOffset>>(new IntPtr(&result));
             }
@@ -44815,7 +44809,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DateResult_PInvoke.PInvoke_filledByDomainKnowledge_Get_6F865C6F(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DateResult_PInvoke.PInvoke_filledByDomainKnowledge_Get_431DA812(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return result;
             }
@@ -44845,7 +44839,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = DateResult_PInvoke.PInvoke_successfullyParsed_Get_40476379(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = DateResult_PInvoke.PInvoke_successfullyParsed_Get_20EC5126(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return result;
             }
@@ -44879,7 +44873,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                DateResult_PInvoke.PInvoke_originalString_Get_18CC10FA(swiftIndirectResult, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                DateResult_PInvoke.PInvoke_originalString_Get_1D95EDD8(swiftIndirectResult, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<T0>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -44988,31 +44982,31 @@ namespace Swift.BlinkID
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10DateResultV3daySiSgvg")]
-        internal static extern IntPtr PInvoke_day_Get_291007C7( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_day_Get_0F2046C9( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10DateResultV5monthSiSgvg")]
-        internal static extern IntPtr PInvoke_month_Get_63287523( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_month_Get_1A17427D( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10DateResultV4yearSiSgvg")]
-        internal static extern IntPtr PInvoke_year_Get_2238DFD7( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_year_Get_7744E718( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10DateResultV4date10Foundation0C0VSgvg")]
-        internal static extern IntPtr PInvoke_date_Get_7A3833D7( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern IntPtr PInvoke_date_Get_77F410D8( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10DateResultV23filledByDomainKnowledgeSbvg")]
-        internal static extern System.Boolean PInvoke_filledByDomainKnowledge_Get_6F865C6F( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern System.Boolean PInvoke_filledByDomainKnowledge_Get_431DA812( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10DateResultV18successfullyParsedSbvg")]
-        internal static extern System.Boolean PInvoke_successfullyParsed_Get_40476379( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern System.Boolean PInvoke_successfullyParsed_Get_20EC5126( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10DateResultV14originalStringxvg")]
-        internal static extern void PInvoke_originalString_Get_18CC10FA( SwiftIndirectResult swiftIndirectResult,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern void PInvoke_originalString_Get_1D95EDD8( SwiftIndirectResult swiftIndirectResult,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10DateResultVMa")]
@@ -45033,7 +45027,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_message_Get_68D2A9EC(self);
+                var result = PInvoke_message_Get_61707059(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -45050,7 +45044,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID22InvalidLicenseKeyErrorV7messageSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_message_Get_68D2A9EC( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_message_Get_61707059( SwiftSelf self);
         
         public Swift.SwiftString Message
         {
@@ -45253,7 +45247,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_message_Get_7E71400A(self);
+                var result = PInvoke_message_Get_4F5700D0(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -45270,7 +45264,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID13MissingBundleV7messageSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_message_Get_7E71400A( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_message_Get_4F5700D0( SwiftSelf self);
         
         public Swift.SwiftString Message
         {
@@ -45582,7 +45576,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_errorDescription_Get_7CE291B0(self);
+                var result = PInvoke_errorDescription_Get_39F24959(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -45595,7 +45589,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14ResourcesErrorO16errorDescriptionSSSgvg")]
-        private static extern IntPtr PInvoke_errorDescription_Get_7CE291B0( SwiftSelf self);
+        private static extern IntPtr PInvoke_errorDescription_Get_39F24959( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> ErrorDescription
         {
@@ -45681,7 +45675,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_name_Get_52F27AA0(self);
+                var result = PInvoke_name_Get_0E917CA5(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -45698,7 +45692,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17ResourceLoadErrorV4nameSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_name_Get_52F27AA0( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_name_Get_0E917CA5( SwiftSelf self);
         
         public Swift.SwiftString Name
         {
@@ -45719,7 +45713,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_error_Get_6F419ADB(swiftIndirectResult, self);
+                PInvoke_error_Get_5C602630(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.ModelLoadError>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -45734,7 +45728,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID17ResourceLoadErrorV5errorAA05ModeldE0Ovg")]
-        private static extern void PInvoke_error_Get_6F419ADB( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_error_Get_5C602630( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.ModelLoadError Error
         {
@@ -45930,7 +45924,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_errorDescription_Get_4218344A(self);
+                var result = PInvoke_errorDescription_Get_1E1F77B2(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -45943,7 +45937,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14ModelLoadErrorO16errorDescriptionSSSgvg")]
-        private static extern IntPtr PInvoke_errorDescription_Get_4218344A( SwiftSelf self);
+        private static extern IntPtr PInvoke_errorDescription_Get_1E1F77B2( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> ErrorDescription
         {
@@ -45958,7 +45952,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_555CBA24(self);
+                var result = PInvoke_hashValue_Get_05A5CABC(self);
                 
                 return result;
             }
@@ -45971,7 +45965,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14ModelLoadErrorO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_555CBA24( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_05A5CABC( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -46050,7 +46044,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_7B55E13D(into.Payload, self);
+                PInvoke_hash_00D2D7DE(into.Payload, self);
                 
                 return;
             }
@@ -46063,7 +46057,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14ModelLoadErrorO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_7B55E13D( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_00D2D7DE( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -46081,7 +46075,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_minRequiredMemory_Get_03BD5F33(self);
+                var result = PInvoke_minRequiredMemory_Get_1E39DA69(self);
                 
                 return result;
             }
@@ -46096,7 +46090,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18MemoryReserveErrorV011minRequiredC0Sivg")]
-        private static extern System.IntPtr PInvoke_minRequiredMemory_Get_03BD5F33( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_minRequiredMemory_Get_1E39DA69( SwiftSelf self);
         
         public System.IntPtr MinRequiredMemory
         {
@@ -46196,13 +46190,13 @@ namespace Swift.BlinkID
             _payload = new SwiftSafeHandle<MemoryReserveError>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_25F77839(swiftIndirectResult, minRequiredMemory);
+            PInvoke_init_5D4A1711(swiftIndirectResult, minRequiredMemory);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18MemoryReserveErrorV011minRequiredC0ACSi_tcfC")]
-        private static extern void PInvoke_init_25F77839( SwiftIndirectResult swiftIndirectResult,  System.IntPtr minRequiredMemory);
+        private static extern void PInvoke_init_5D4A1711( SwiftIndirectResult swiftIndirectResult,  System.IntPtr minRequiredMemory);
         
         
     }
@@ -46383,7 +46377,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_errorDescription_Get_58E5F00D(self);
+                var result = PInvoke_errorDescription_Get_4C02F711(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -46396,7 +46390,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12SDKInitErrorO16errorDescriptionSSSgvg")]
-        private static extern IntPtr PInvoke_errorDescription_Get_58E5F00D( SwiftSelf self);
+        private static extern IntPtr PInvoke_errorDescription_Get_4C02F711( SwiftSelf self);
         
         public Swift.SwiftOptional<Swift.SwiftString> ErrorDescription
         {
@@ -46822,7 +46816,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_rawValue_Get_2DF575A4(self);
+                var result = PInvoke_rawValue_Get_46F77AB4(self);
                 
                 return result;
             }
@@ -46835,7 +46829,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ScanningSideO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_2DF575A4( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_rawValue_Get_46F77AB4( SwiftSelf self);
         
         public System.IntPtr RawValue
         {
@@ -46848,7 +46842,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_2E01C25B();
+                var result = PInvoke_allCases_Get_036434E6();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.ScanningSide>>(new IntPtr(&result));
             }
@@ -46861,7 +46855,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID12ScanningSideO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_2E01C25B();
+        private static extern IntPtr PInvoke_allCases_Get_036434E6();
         
         public static Swift.SwiftArray<Swift.BlinkID.ScanningSide> AllCases
         {
@@ -47032,7 +47026,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_6DF710CE(self);
+                var result = PInvoke_hashValue_Get_12B8CA1F(self);
                 
                 return result;
             }
@@ -47045,7 +47039,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DataMatchStateO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_6DF710CE( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_12B8CA1F( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -47058,7 +47052,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_2426743E();
+                var result = PInvoke_allCases_Get_37334AE0();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.DataMatchState>>(new IntPtr(&result));
             }
@@ -47071,7 +47065,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DataMatchStateO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_2426743E();
+        private static extern IntPtr PInvoke_allCases_Get_37334AE0();
         
         public static Swift.SwiftArray<Swift.BlinkID.DataMatchState> AllCases
         {
@@ -47150,7 +47144,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_5FCF1B57(into.Payload, self);
+                PInvoke_hash_4ABB88FF(into.Payload, self);
                 
                 return;
             }
@@ -47163,7 +47157,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID14DataMatchStateO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_5FCF1B57( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_4ABB88FF( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -47317,7 +47311,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_hashValue_Get_411E5E1D(self);
+                var result = PInvoke_hashValue_Get_371830DA(self);
                 
                 return result;
             }
@@ -47330,7 +47324,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18DataMatchFieldTypeO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_411E5E1D( SwiftSelf self);
+        private static extern System.IntPtr PInvoke_hashValue_Get_371830DA( SwiftSelf self);
         
         public System.IntPtr HashValue
         {
@@ -47343,7 +47337,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_allCases_Get_77157BC8();
+                var result = PInvoke_allCases_Get_4C142051();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.DataMatchFieldType>>(new IntPtr(&result));
             }
@@ -47356,7 +47350,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18DataMatchFieldTypeO8allCasesSayACGvgZ")]
-        private static extern IntPtr PInvoke_allCases_Get_77157BC8();
+        private static extern IntPtr PInvoke_allCases_Get_4C142051();
         
         public static Swift.SwiftArray<Swift.BlinkID.DataMatchFieldType> AllCases
         {
@@ -47435,7 +47429,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_hash_2469CA53(into.Payload, self);
+                PInvoke_hash_2C9AA166(into.Payload, self);
                 
                 return;
             }
@@ -47448,7 +47442,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID18DataMatchFieldTypeO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_2469CA53( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_2C9AA166( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -47470,7 +47464,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_fieldType_Get_4013DA50(swiftIndirectResult, self);
+                PInvoke_fieldType_Get_14889A9A(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DataMatchFieldType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -47485,7 +47479,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10FieldStateV9fieldTypeAA09DataMatchcF0Ovg")]
-        private static extern void PInvoke_fieldType_Get_4013DA50( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_fieldType_Get_14889A9A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.DataMatchFieldType FieldType
         {
@@ -47506,7 +47500,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_state_Get_2FC67CEE(swiftIndirectResult, self);
+                PInvoke_state_Get_24BB7D31(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DataMatchState>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -47521,7 +47515,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID10FieldStateV5stateAA09DataMatchD0Ovg")]
-        private static extern void PInvoke_state_Get_2FC67CEE( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_state_Get_24BB7D31( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.DataMatchState State
         {
@@ -47631,7 +47625,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_states_Get_6377C724(self);
+                var result = PInvoke_states_Get_7E5B084E(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.BlinkID.FieldState>>(new IntPtr(&result));
             }
@@ -47646,7 +47640,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15DataMatchResultV6statesSayAA10FieldStateVGvg")]
-        private static extern IntPtr PInvoke_states_Get_6377C724( SwiftSelf self);
+        private static extern IntPtr PInvoke_states_Get_7E5B084E( SwiftSelf self);
         
         public Swift.SwiftArray<Swift.BlinkID.FieldState> States
         {
@@ -47667,7 +47661,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_overallState_Get_0144F358(swiftIndirectResult, self);
+                PInvoke_overallState_Get_69C44EA0(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DataMatchState>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -47682,7 +47676,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15DataMatchResultV12overallStateAA0cdG0Ovg")]
-        private static extern void PInvoke_overallState_Get_0144F358( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_overallState_Get_69C44EA0( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.BlinkID.DataMatchState OverallState
         {
@@ -47791,7 +47785,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_getState_4D544949(swiftIndirectResult, _for.Payload.DangerousGetHandle(), self);
+                PInvoke_getState_775D6E23(swiftIndirectResult, _for.Payload.DangerousGetHandle(), self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.BlinkID.DataMatchState>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -47806,7 +47800,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID15DataMatchResultV8getState3forAA0cdG0OAA0cD9FieldTypeO_tF")]
-        private static extern void PInvoke_getState_4D544949( SwiftIndirectResult swiftIndirectResult,  IntPtr _for,  SwiftSelf self);
+        private static extern void PInvoke_getState_775D6E23( SwiftIndirectResult swiftIndirectResult,  IntPtr _for,  SwiftSelf self);
         
         
     }
@@ -48502,7 +48496,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_showDemoOverlay_Get_36785CA1(self);
+                var result = PInvoke_showDemoOverlay_Get_5EB51712(self);
                 
                 return result;
             }
@@ -48517,7 +48511,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23UXLicenseProviderBridgeC15showDemoOverlaySbvg")]
-        private static extern System.Boolean PInvoke_showDemoOverlay_Get_36785CA1( SwiftSelf self);
+        private static extern System.Boolean PInvoke_showDemoOverlay_Get_5EB51712( SwiftSelf self);
         
         private unsafe void ShowDemoOverlay_Set( System.Boolean value)
         {
@@ -48529,7 +48523,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_showDemoOverlay_Set_6F3321B4(value, self);
+                PInvoke_showDemoOverlay_Set_6AF58EB2(value, self);
                 
                 return;
             }
@@ -48544,7 +48538,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23UXLicenseProviderBridgeC15showDemoOverlaySbvs")]
-        private static extern void PInvoke_showDemoOverlay_Set_6F3321B4( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_showDemoOverlay_Set_6AF58EB2( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ShowDemoOverlay
         {
@@ -48562,7 +48556,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                var result = PInvoke_showProductionOverlay_Get_4E978E97(self);
+                var result = PInvoke_showProductionOverlay_Get_3ECD138B(self);
                 
                 return result;
             }
@@ -48577,7 +48571,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23UXLicenseProviderBridgeC21showProductionOverlaySbvg")]
-        private static extern System.Boolean PInvoke_showProductionOverlay_Get_4E978E97( SwiftSelf self);
+        private static extern System.Boolean PInvoke_showProductionOverlay_Get_3ECD138B( SwiftSelf self);
         
         private unsafe void ShowProductionOverlay_Set( System.Boolean value)
         {
@@ -48589,7 +48583,7 @@ namespace Swift.BlinkID
                 
                 
                 
-                PInvoke_showProductionOverlay_Set_36E3A9F6(value, self);
+                PInvoke_showProductionOverlay_Set_7FE170F5(value, self);
                 
                 return;
             }
@@ -48604,7 +48598,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23UXLicenseProviderBridgeC21showProductionOverlaySbvs")]
-        private static extern void PInvoke_showProductionOverlay_Set_36E3A9F6( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_showProductionOverlay_Set_7FE170F5( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean ShowProductionOverlay
         {
@@ -48618,7 +48612,7 @@ namespace Swift.BlinkID
             {
                 
                 
-                var result = PInvoke_shared_Get_6D2AABC2();
+                var result = PInvoke_shared_Get_1FE8A968();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -48633,7 +48627,7 @@ namespace Swift.BlinkID
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("BlinkID", EntryPoint = "$s7BlinkID23UXLicenseProviderBridgeC6sharedACvgZ")]
-        private static extern IntPtr PInvoke_shared_Get_6D2AABC2();
+        private static extern IntPtr PInvoke_shared_Get_1FE8A968();
         
         public static Swift.BlinkID.UXLicenseProviderBridge Shared
         {

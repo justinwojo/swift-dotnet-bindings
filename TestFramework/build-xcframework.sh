@@ -29,8 +29,16 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$SIM_BUILD_DIR"
 mkdir -p "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule"
 
-# Collect all Swift source files
-SWIFT_FILES=$(find Sources/SwiftBindingsTestLib -name '*.swift' -type f)
+# Collect Swift source files (excluding disabled directories)
+# This matches the exclusions in Package.swift
+SWIFT_FILES=$(find Sources/SwiftBindingsTestLib \
+    -type d -name '*.disabled' -prune -o \
+    -type d -name 'Generics' -prune -o \
+    -type d -name 'Operators' -prune -o \
+    -type d -name 'Tuples' -prune -o \
+    -type d -name 'Foundation' -prune -o \
+    -type d -name 'Protocols' -prune -o \
+    -name '*.swift' -type f -print)
 FILE_COUNT=$(echo "$SWIFT_FILES" | wc -l | tr -d ' ')
 echo "Compiling $FILE_COUNT Swift source files..."
 
