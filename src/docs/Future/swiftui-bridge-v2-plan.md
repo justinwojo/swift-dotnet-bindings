@@ -1,7 +1,7 @@
 # SwiftUI Bridge v2: Coverage-Driven Expansion
 
 **Date**: February 2026
-**Status**: Planning
+**Status**: Phase 1A complete (2026-02-06)
 **Prerequisite**: v1 (Deliverable 2) complete and validated
 **Parent**: [SwiftUI Bridge Design](../swiftui-bridge-design.md)
 
@@ -41,16 +41,16 @@ v1 (Deliverable 2) shipped and is validated: View detection, template pipeline, 
 
 **Objective**: Expand `InitAnalyzer.MapParameterType()` to support enums, `Optional<T>` (for primitives and enums), typed closures, and already-bound class parameters. Split into safe increments to isolate risk.
 
-### Prerequisite: Thread ITypeDatabase into Bridge Emitter
+### Prerequisite: Thread ITypeDatabase into Bridge Emitter (**Done**)
 
-The bridge emitter currently has no access to the TypeDatabase. Without it, we can't look up whether a parameter type is an already-bound enum, struct, or class.
+~~The bridge emitter currently has no access to the TypeDatabase.~~ `ITypeDatabase` is now threaded from `ModuleEmitter` → `EmitBridgeFiles()` → `BridgeContext` → `AnalyzeInitParameters()`.
 
-| File | Change |
-|------|--------|
-| `src/Swift.Bindings/src/Emitter/StringEmitter/ModuleEmitter.cs` | Pass `_typeDatabase` to `SwiftUIBridgeEmitter.EmitBridgeFiles()` |
-| `src/Swift.Bindings/src/Emitter/StringEmitter/SwiftUIBridgeEmitter.cs` | Accept `ITypeDatabase`, thread through as `BridgeContext` record to analysis methods |
+| File | Change | Status |
+|------|--------|--------|
+| `ModuleEmitter.cs` | Pass `_typeDatabase` to `SwiftUIBridgeEmitter.EmitBridgeFiles()` | **Done** |
+| `SwiftUIBridgeEmitter.cs` | Accept `ITypeDatabase`, thread through as `BridgeContext` record | **Done** |
 
-### Phase 1A: BoundEnum + Optional<Primitive|Enum>
+### Phase 1A: BoundEnum + Optional<Primitive|Enum> (**Done** — 2026-02-06)
 
 Safest increment. Enums cross the ABI as raw integer values. Optionals of primitives/enums use a hasValue flag + raw value.
 
@@ -69,6 +69,16 @@ OptionalWrapped  — Optional<T> where T is Primitive or BoundEnum only (v2.0)
 | `Optional<MyEnum>` | OptionalWrapped | `Int32` (hasValue) + `Int32` (rawValue) | `int, int` | `MyEnum?` |
 
 **Not included in 1A** (deferred): `Optional<T>` where T is a reference type (class/struct). This avoids the nullable-pointer vs flag ambiguity for now.
+
+**Implementation status (2026-02-06)**:
+- `BridgeContext` record holds `ITypeDatabase?` for type lookups
+- `BridgeParameterKind.BoundEnum` and `BridgeParameterKind.OptionalWrapped` added
+- `BridgeParameter` record extended with `BridgeTypeName`, `CSharpTypeName`, `InnerParameter`
+- `TypeRecord.RawValueTypeName` added — populated from `EnumDecl.RawValueTypeName` in `ModuleProcessor`
+- `MapEnumRawValueType()` supports all 10 Swift integer types; String/non-RawRepresentable → template fallback
+- C# call-site casts use mapped `CSharpPInvokeType` (not hardcoded `int`)
+- 25 new unit tests (all pass); existing 16/16 BlinkIDUX runtime tests unaffected
+- **Remaining for full acceptance**: runtime validation with a test View consuming `BoundEnum` and `OptionalWrapped` params (deferred — requires test app with enum-param View)
 
 ### Phase 1B: BoundType for Classes
 
@@ -452,9 +462,9 @@ New script: `generate-bridge-coverage.sh`
 ## Implementation Sequencing
 
 ```
-Phase 1A: Thread ITypeDatabase + BoundEnum + Optional<Primitive|Enum>
+Phase 1A: Thread ITypeDatabase + BoundEnum + Optional<Primitive|Enum>  ✅ (2026-02-06)
     ↓
-Phase 1B: BoundType for classes (retain/release)
+Phase 1B: BoundType for classes (retain/release)  ← NEXT
     ↓
   Validate: runtime test for BoundEnum + BoundType
     ↓

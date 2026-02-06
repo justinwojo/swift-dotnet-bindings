@@ -750,6 +750,358 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
+    #region BoundEnum (Phase 1A)
+
+    [Fact]
+    public void InitAnalyzer_BoundEnum_IsSupported_WithTypeDatabase()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("style", "TestModule.AlertStyle");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.BoundEnum, result[0].Kind);
+        Assert.Equal("style", result[0].Name);
+        Assert.Equal("Int32", result[0].SwiftAbiType);
+        Assert.Equal("int", result[0].CSharpPInvokeType);
+        Assert.Equal("AlertStyle", result[0].BridgeTypeName);
+        Assert.Equal("AlertStyle", result[0].CSharpTypeName);
+    }
+
+    [Fact]
+    public void InitAnalyzer_BoundEnum_FallsBackToTemplate_WithoutTypeDatabase()
+    {
+        // No TypeDatabase → unknown named type → template fallback
+        var ctor = CreateConstructorWithNamedType("style", "TestModule.AlertStyle");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_BoundEnum_FallsBackToTemplate_WhenTypeNotInDatabase()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("config", "TestModule.UnknownType");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_BoundEnum_FallsBackToTemplate_ForStringRawValueEnum()
+    {
+        // String raw-value enums can't cross ABI as integers
+        var typeDb = CreateStringEnumTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("level", "TestModule.LogLevel");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_BoundEnum_FallsBackToTemplate_ForNonRawRepresentableEnum()
+    {
+        // Enums without RawRepresentable conformance can't use rawValue init
+        var typeDb = CreateNonRawEnumTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("direction", "TestModule.Direction");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_BoundEnum_UsesCorrectAbiType_ForIntRawValue()
+    {
+        // Int raw value → nint ABI type (platform word size)
+        var typeDb = CreateEnumTypeDatabaseWithRawType("Int");
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("style", "TestModule.AlertStyle");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Equal("Int", result[0].SwiftAbiType);
+        Assert.Equal("nint", result[0].CSharpPInvokeType);
+    }
+
+    [Fact]
+    public void InitAnalyzer_BoundEnum_UsesCorrectAbiType_ForUInt8RawValue()
+    {
+        var typeDb = CreateEnumTypeDatabaseWithRawType("UInt8");
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("style", "TestModule.AlertStyle");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Equal("UInt8", result[0].SwiftAbiType);
+        Assert.Equal("byte", result[0].CSharpPInvokeType);
+    }
+
+    [Fact]
+    public void EmitBoundEnum_Swift_PassesRawValueToCdecl()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("_ style: Int32", swiftContent);
+        Assert.Contains("AlertStyle(rawValue: style)!", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBoundEnum_Swift_GeneratesFunctionalBridge()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_EnumView_Create\")", swiftContent);
+        Assert.Contains("SBW_TestModule_EnumView_Session", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBoundEnum_CSharp_CastsEnumToInt()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("AlertStyle style", csContent);
+        Assert.Contains("(int)style", csContent);
+        Assert.Contains("int style", csContent); // P/Invoke param
+    }
+
+    [Fact]
+    public void EmitBoundEnum_CSharp_UsesMappedCastType_ForUInt8Enum()
+    {
+        var typeDb = CreateEnumTypeDatabaseWithRawType("UInt8");
+        var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("AlertStyle style", csContent);       // Factory param uses C# enum type
+        Assert.Contains("(byte)style", csContent);            // Cast uses mapped type, not (int)
+        Assert.Contains("byte style", csContent);             // P/Invoke param uses mapped type
+        Assert.DoesNotContain("(int)style", csContent);       // No hardcoded int cast
+    }
+
+    [Fact]
+    public void EmitBoundEnum_CSharp_GeneratesNativeMethodsAndSession()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("EnumViewBridgeNativeMethods", csContent);
+        Assert.Contains("EnumViewSession : IDisposable", csContent);
+        Assert.Contains("DllImport", csContent);
+    }
+
+    #endregion
+
+    #region OptionalWrapped (Phase 1A)
+
+    [Fact]
+    public void InitAnalyzer_OptionalPrimitive_IsSupported()
+    {
+        var ctor = CreateConstructorWithOptionalPrimitive("count", "Swift.Int");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result[0].Kind);
+        Assert.Equal("count", result[0].Name);
+        Assert.NotNull(result[0].InnerParameter);
+        Assert.Equal(BridgeParameterKind.Primitive, result[0].InnerParameter!.Kind);
+        Assert.Equal("Int", result[0].InnerParameter!.SwiftAbiType);
+    }
+
+    [Fact]
+    public void InitAnalyzer_OptionalBool_IsSupported()
+    {
+        var ctor = CreateConstructorWithOptionalPrimitive("enabled", "Swift.Bool");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result[0].Kind);
+        Assert.NotNull(result[0].InnerParameter);
+        Assert.Equal(BridgeParameterKind.Primitive, result[0].InnerParameter!.Kind);
+        Assert.NotNull(result[0].InnerParameter!.SwiftConversion);
+    }
+
+    [Fact]
+    public void InitAnalyzer_OptionalEnum_IsSupported_WithTypeDatabase()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithOptionalType("style", "TestModule.AlertStyle");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result[0].Kind);
+        Assert.NotNull(result[0].InnerParameter);
+        Assert.Equal(BridgeParameterKind.BoundEnum, result[0].InnerParameter!.Kind);
+        Assert.Equal("AlertStyle", result[0].InnerParameter!.BridgeTypeName);
+    }
+
+    [Fact]
+    public void InitAnalyzer_OptionalString_IsNotSupported()
+    {
+        // Optional<String> is not supported in Phase 1A (reference type semantics)
+        var ctor = CreateConstructorWithOptionalPrimitive("title", "Swift.String");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result); // String has its own Kind, not Primitive → blocked
+    }
+
+    [Fact]
+    public void InitAnalyzer_OptionalUnknownType_FallsBackToTemplate()
+    {
+        var ctor = CreateConstructorWithOptionalType("config", "TestModule.UnknownType");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void EmitOptionalInt_Swift_UsesHasValueAndValue()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "count", "Swift.Int") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("_ countHasValue: Int32", swiftContent);
+        Assert.Contains("_ countValue: Int", swiftContent);
+        Assert.Contains("countHasValue != 0 ? countValue : nil", swiftContent);
+    }
+
+    [Fact]
+    public void EmitOptionalBool_Swift_ConvertsViaNonZero()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "enabled", "Swift.Bool") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("enabledHasValue != 0 ? enabledValue != 0 : nil", swiftContent);
+    }
+
+    [Fact]
+    public void EmitOptionalEnum_Swift_ConstructsFromRawValue()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithOptionalEnumInit("OptEnumView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("_ styleHasValue: Int32", swiftContent);
+        Assert.Contains("_ styleValue: Int32", swiftContent);
+        Assert.Contains("styleHasValue != 0 ? AlertStyle(rawValue: styleValue)! : nil", swiftContent);
+    }
+
+    [Fact]
+    public void EmitOptionalInt_CSharp_UsesNullableFactoryParam()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "count", "Swift.Int") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("nint? count", csContent); // Factory param
+        Assert.Contains("int countHasValue", csContent); // P/Invoke
+        Assert.Contains("nint countValue", csContent); // P/Invoke
+        Assert.Contains("count.HasValue ? 1 : 0", csContent); // Call arg
+        Assert.Contains("count ?? 0", csContent); // Call arg value
+    }
+
+    [Fact]
+    public void EmitOptionalEnum_CSharp_UsesNullableEnumFactoryParam()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithOptionalEnumInit("OptEnumView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("AlertStyle? style", csContent); // Factory param
+        Assert.Contains("int styleHasValue", csContent); // P/Invoke
+        Assert.Contains("int styleValue", csContent); // P/Invoke
+        Assert.Contains("style.HasValue ? 1 : 0", csContent);
+        Assert.Contains("(int)style.Value", csContent);
+    }
+
+    [Fact]
+    public void EmitOptionalEnum_CSharp_UsesMappedCastType_ForUInt8Enum()
+    {
+        var typeDb = CreateEnumTypeDatabaseWithRawType("UInt8");
+        var views = new List<TypeDecl> { CreateViewWithOptionalEnumInit("OptEnumView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("AlertStyle? style", csContent);       // Factory param
+        Assert.Contains("byte styleValue", csContent);         // P/Invoke uses mapped type
+        Assert.Contains("(byte)style.Value", csContent);       // Cast uses mapped type, not (int)
+        Assert.DoesNotContain("(int)style.Value", csContent);  // No hardcoded int cast
+    }
+
+    [Fact]
+    public void EmitOptionalBool_CSharp_UsesNullableBoolFactoryParam()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "enabled", "Swift.Bool") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("bool? enabled", csContent); // Factory param
+    }
+
+    [Fact]
+    public void EmitOptionalInt_GeneratesFunctionalBridge_NotTemplate()
+    {
+        var views = new List<TypeDecl> { CreateViewWithOptionalPrimitiveInit("OptView", "count", "Swift.Int") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_OptView_Create\")", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    #endregion
+
     #region Report Integration
 
     [Fact]
@@ -1084,6 +1436,187 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 },
             },
         };
+    }
+
+    private static MethodDecl CreateConstructorWithNamedType(string paramName, string typeName)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.TestView"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = paramName,
+                    PrivateName = paramName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec(typeName),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    private static MethodDecl CreateConstructorWithOptionalPrimitive(string paramName, string innerTypeName)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.TestView"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = paramName,
+                    PrivateName = paramName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(innerTypeName)),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    private static MethodDecl CreateConstructorWithOptionalType(string paramName, string innerTypeName)
+    {
+        return CreateConstructorWithOptionalPrimitive(paramName, innerTypeName);
+    }
+
+    private static StructDecl CreateViewWithEnumInit(string viewName, string paramName, string enumTypeName)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        view.Methods.Add(CreateConstructorWithNamedType(paramName, enumTypeName));
+        return view;
+    }
+
+    private static StructDecl CreateViewWithOptionalPrimitiveInit(string viewName, string paramName, string innerTypeName)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        view.Methods.Add(CreateConstructorWithOptionalPrimitive(paramName, innerTypeName));
+        return view;
+    }
+
+    private static StructDecl CreateViewWithOptionalEnumInit(string viewName, string paramName, string enumTypeName)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        view.Methods.Add(CreateConstructorWithOptionalPrimitive(paramName, enumTypeName));
+        return view;
+    }
+
+    private static ITypeDatabase CreateEnumTypeDatabase()
+    {
+        return CreateEnumTypeDatabaseWithRawType("Int32");
+    }
+
+    private static ITypeDatabase CreateEnumTypeDatabaseWithRawType(string rawValueType)
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.AlertStyle"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "AlertStyle"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AlertStyle"),
+                MetadataAccessor = "$s10TestModule10AlertStyleOMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = rawValueType,
+            },
+        });
+    }
+
+    private static ITypeDatabase CreateStringEnumTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.LogLevel"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "LogLevel"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LogLevel"),
+                MetadataAccessor = "$s10TestModule8LogLevelOMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "String",
+            },
+        });
+    }
+
+    private static ITypeDatabase CreateNonRawEnumTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.Direction"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
+                MetadataAccessor = "$s10TestModule9DirectionOMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = null, // Not RawRepresentable
+            },
+        });
+    }
+
+    private class BridgeTestTypeDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types;
+
+        public string AsyncLibraryName => null!;
+
+        public BridgeTestTypeDatabase(Dictionary<string, TypeRecord> types)
+        {
+            _types = types;
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record)
+        {
+            return _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record);
+        }
+
+        public string GetLibraryPath(string moduleName) => "";
     }
 
     #endregion

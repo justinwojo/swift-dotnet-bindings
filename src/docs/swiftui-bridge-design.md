@@ -1,7 +1,7 @@
 # SwiftUI Interop Bridge Design
 
 **Date**: February 2026
-**Status**: Step 3 Complete (test infrastructure implemented + validated 2026-02-05)
+**Status**: v2 Phase 1A complete (BoundEnum + Optional support — 2026-02-06)
 **Prerequisite**: Must be solved before repo goes public
 **Reviewers**: Claude, Codex
 
@@ -339,24 +339,24 @@ BindingTesting/BlinkId/
 └── validate-bridge.sh         # Run bridge tests on simulator
 ```
 
-### Deliverable 2: Generator Automation (Later)
+### Deliverable 2: Generator Automation (**Implemented**)
 
-Teach the generator to auto-detect SwiftUI Views and generate bridge code. Deferred until the manual bridge pattern is proven and stable.
+The generator auto-detects SwiftUI Views and generates bridge code. Detection via `SwiftUIViewDetector`, collection via `SwiftUIBridgeCollector`, emission via `SwiftUIBridgeEmitter`. 16/16 runtime tests + 75 unit tests.
 
-#### Detection Phase
-- Identify types conforming to `SwiftUI.View` / `SwiftUICore.View`
-- Change skip logic: View types → flag for bridge generation
-- Update binding report: `SwiftUIView` (bridge generated) vs `SwiftUIType` (skipped)
+#### Detection Phase (**Done**)
+- Types conforming to `SwiftUI.View` / `SwiftUICore.View` are detected and collected
+- View types are skipped by normal handlers, routed to bridge emitter
+- Binding report: `SwiftUIView` (bridge generated) vs `SwiftUIConstraint` (generic type param, skipped)
 
-#### Emission Phase
-- New `SwiftUIBridgeEmitter` generates the Swift wrapper file
-- Analyze View `init` parameters, trace dependency chain
-- Generate session class, C ABI functions, C# bridge class
-- Complex dependency chains may produce a template requiring manual review
+#### Emission Phase (**Done**, expanding in v2)
+- `SwiftUIBridgeEmitter` generates Swift + C# bridge files
+- `InitAnalyzer.MapParameterType()` classifies init params (v1: primitives, String, `() -> Void` closures; Phase 1A adds BoundEnum, OptionalWrapped)
+- Hard-coded `KnownAsyncPatterns` for async views (BlinkIDUXView); generalized inference planned for Phase 2
+- Unsupported params → entire View falls back to commented-out template
 
-#### Binding Report Additions
-- `BridgedViews` section listing each bridged View with wrapper details
-- New skip reasons: `SwiftUIView`, `SwiftUIType`, `CombinePublished`
+#### Binding Report Additions (**Done**)
+- `BridgedViews` section listing each bridged View with status (Generated/Template)
+- Skip reasons: `SwiftUIView`, `SwiftUIConstraint`, `CombinePublished`
 
 ---
 
@@ -414,21 +414,21 @@ Types like `BlinkIDTheme` use `SwiftUI.Color` and `SwiftUI.Font` properties. The
 
 ## v2 Roadmap: Coverage-Driven Expansion
 
-v1 (Deliverable 2) is validated with 16/16 runtime tests and 52 unit tests, but real-world coverage is limited: only views whose init parameters are primitives, `String`, or `() -> Void` closures get functional bridges. Everything else falls back to commented-out templates.
+v1 (Deliverable 2) is validated with 16/16 runtime tests and 52 unit tests. v2 expands parameter type coverage beyond the v1 set (primitives, `String`, `() -> Void` closures).
 
 **v2 expands the bridge to cover real-world SwiftUI libraries** by widening parameter type support, generalizing async inference, and adding a bridge hints escape hatch. The full plan is at [`src/docs/Future/swiftui-bridge-v2-plan.md`](Future/swiftui-bridge-v2-plan.md).
 
 ### Summary of Phases
 
-| Phase | Objective | Key Deliverable |
-|-------|-----------|-----------------|
-| **1A** | BoundEnum + Optional<Primitive\|Enum> | Enums and optional primitives cross the ABI |
-| **1B** | BoundType for classes | Class parameters via retain/release |
-| **1C** | TypedClosure | Closures with typed params (max 4) |
-| **1D** | Optional<BoundType> | Optional reference types via nullable pointer |
-| **2** | Generalized async factory | ABI-driven inference replaces hard-coded `KnownAsyncPatterns` |
-| **3** | Bridge hints file | JSON sidecar for user overrides and escape hatches |
-| **4** | Corpus + 3-tier metrics | Track generated/typechecked/runtime-validated across real libraries |
+| Phase | Objective | Key Deliverable | Status |
+|-------|-----------|-----------------|--------|
+| **1A** | BoundEnum + Optional<Primitive\|Enum> | Enums and optional primitives cross the ABI | **Done** (2026-02-06) |
+| **1B** | BoundType for classes | Class parameters via retain/release | Next |
+| **1C** | TypedClosure | Closures with typed params (max 4) | |
+| **1D** | Optional<BoundType> | Optional reference types via nullable pointer | |
+| **2** | Generalized async factory | ABI-driven inference replaces hard-coded `KnownAsyncPatterns` | |
+| **3** | Bridge hints file | JSON sidecar for user overrides and escape hatches | |
+| **4** | Corpus + 3-tier metrics | Track generated/typechecked/runtime-validated across real libraries | |
 
 ### Coverage Targets
 

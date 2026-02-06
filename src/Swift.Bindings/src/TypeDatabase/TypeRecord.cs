@@ -90,4 +90,10 @@ public record TypeRecord
     /// internal Swift wrapper type (e.g., Swift.URL). Conversion happens at the marshalling layer.
     /// </summary>
     public CSharpTypeName? NativeTypeName { get; init; }
+
+    /// <summary>
+    /// The raw value type name for RawRepresentable enums (e.g., "Int", "Int32", "String").
+    /// Null if the type is not an enum or does not conform to RawRepresentable.
+    /// </summary>
+    public string? RawValueTypeName { get; init; }
 }

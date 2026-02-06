@@ -76,7 +76,7 @@ namespace BindingsGeneration
                 if (collectedViews.Count > 0)
                 {
                     SwiftUIBridgeEmitter.EmitBridgeFiles(
-                        _outputDirectory, @namespace, moduleDecl.Name, collectedViews, _logger);
+                        _outputDirectory, @namespace, moduleDecl.Name, collectedViews, _logger, _typeDatabase);
                 }
             }
             else

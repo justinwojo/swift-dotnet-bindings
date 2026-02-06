@@ -21,7 +21,8 @@ public static partial class SwiftUIBridgeEmitter
         string @namespace,
         string moduleName,
         IReadOnlyList<TypeDecl> collectedViews,
-        ILogger logger)
+        ILogger logger,
+        ITypeDatabase? typeDatabase = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(@namespace);
@@ -32,6 +33,7 @@ public static partial class SwiftUIBridgeEmitter
         if (collectedViews.Count == 0)
             return;
 
+        var context = new BridgeContext(typeDatabase);
         var viewInfos = collectedViews.Select(v => AnalyzeView(v, moduleName)).ToList();
 
         // Determine which views can be functionally bridged
@@ -49,7 +51,7 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (info.Classification == ViewInitClassification.Simple && info.Constructors.Count > 0)
             {
-                bridgeParams = AnalyzeInitParameters(info.Constructors[0]);
+                bridgeParams = AnalyzeInitParameters(info.Constructors[0], context);
                 isFunctional = bridgeParams != null;
             }
             else if (info.Classification == ViewInitClassification.Simple && info.Constructors.Count == 0)
@@ -248,6 +250,11 @@ public static partial class SwiftUIBridgeEmitter
                 initParams.Add($"{param.Name}Ptr: UnsafePointer<UInt8>?");
                 initParams.Add($"{param.Name}Len: Int");
             }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+            {
+                initParams.Add($"{param.Name}HasValue: Int32");
+                initParams.Add($"{param.Name}Value: {param.InnerParameter!.SwiftAbiType}");
+            }
             else
             {
                 initParams.Add($"{param.Name}: {param.SwiftAbiType}");
@@ -293,6 +300,23 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"        }}");
                 viewInitArgs.Add($"{param.Name}: {param.Name}String");
             }
+            else if (param.Kind == BridgeParameterKind.BoundEnum)
+            {
+                // Construct enum from rawValue
+                viewInitArgs.Add($"{param.Name}: {param.BridgeTypeName}(rawValue: {param.Name})!");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+            {
+                var inner = param.InnerParameter!;
+                string valueExpr;
+                if (inner.Kind == BridgeParameterKind.BoundEnum)
+                    valueExpr = $"{inner.BridgeTypeName}(rawValue: {param.Name}Value)!";
+                else if (inner.SwiftConversion != null)
+                    valueExpr = $"{param.Name}Value {inner.SwiftConversion}";
+                else
+                    valueExpr = $"{param.Name}Value";
+                viewInitArgs.Add($"{param.Name}: {param.Name}HasValue != 0 ? {valueExpr} : nil");
+            }
             else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
             {
                 // Bool: Int32 != 0
@@ -337,6 +361,11 @@ public static partial class SwiftUIBridgeEmitter
                 createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
                 createParams.Add($"_ {param.Name}Len: Int");
             }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+            {
+                createParams.Add($"_ {param.Name}HasValue: Int32");
+                createParams.Add($"_ {param.Name}Value: {param.InnerParameter!.SwiftAbiType}");
+            }
             else
             {
                 createParams.Add($"_ {param.Name}: {param.SwiftAbiType}");
@@ -359,6 +388,11 @@ public static partial class SwiftUIBridgeEmitter
             {
                 sessionArgs.Add($"{param.Name}Ptr: {param.Name}Ptr");
                 sessionArgs.Add($"{param.Name}Len: {param.Name}Len");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+            {
+                sessionArgs.Add($"{param.Name}HasValue: {param.Name}HasValue");
+                sessionArgs.Add($"{param.Name}Value: {param.Name}Value");
             }
             else
             {
@@ -516,6 +550,11 @@ public static partial class SwiftUIBridgeEmitter
             {
                 createPInvokeParams.Add($"IntPtr {param.Name}Ptr");
                 createPInvokeParams.Add($"nint {param.Name}Len");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+            {
+                createPInvokeParams.Add($"int {param.Name}HasValue");
+                createPInvokeParams.Add($"{param.InnerParameter!.CSharpPInvokeType} {param.Name}Value");
             }
             else
             {
@@ -742,6 +781,21 @@ public static partial class SwiftUIBridgeEmitter
                 args.Add($"(IntPtr){param.Name}Ptr");
                 args.Add($"{param.Name}Bytes.Length");
             }
+            else if (param.Kind == BridgeParameterKind.BoundEnum)
+            {
+                args.Add($"({param.CSharpPInvokeType}){param.Name}");
+            }
+            else if (param.Kind == BridgeParameterKind.OptionalWrapped)
+            {
+                var inner = param.InnerParameter!;
+                args.Add($"{param.Name}.HasValue ? 1 : 0");
+                if (inner.Kind == BridgeParameterKind.BoundEnum)
+                    args.Add($"{param.Name}.HasValue ? ({inner.CSharpPInvokeType}){param.Name}.Value : 0");
+                else if (inner.CSharpConversion != null) // Bool
+                    args.Add($"{param.Name}.HasValue ? ({param.Name}.Value {inner.CSharpConversion}) : 0");
+                else
+                    args.Add($"{param.Name} ?? 0");
+            }
             else if (param.CSharpConversion != null)
             {
                 // Bool: value ? 1 : 0
@@ -760,8 +814,20 @@ public static partial class SwiftUIBridgeEmitter
         BridgeParameterKind.VoidClosure => "Action?",
         BridgeParameterKind.String => "string?",
         BridgeParameterKind.Primitive when param.CSharpConversion != null => "bool",
+        BridgeParameterKind.BoundEnum => param.CSharpTypeName!,
+        BridgeParameterKind.OptionalWrapped => GetOptionalFactoryType(param),
         _ => param.CSharpPInvokeType,
     };
+
+    private static string GetOptionalFactoryType(BridgeParameter param)
+    {
+        var inner = param.InnerParameter!;
+        if (inner.Kind == BridgeParameterKind.BoundEnum)
+            return $"{inner.CSharpTypeName}?";
+        if (inner.CSharpConversion != null) // Bool
+            return "bool?";
+        return $"{inner.CSharpPInvokeType}?";
+    }
 
     private static void EmitCSharpTemplate(StringBuilder sb, ViewBridgeInfo info)
     {

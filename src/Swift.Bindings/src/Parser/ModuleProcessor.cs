@@ -375,6 +375,7 @@ namespace BindingsGeneration
                 MetadataAccessor = enumDecl.MetadataAccessor,
                 Flags = flags,
                 Kind = TypeRecordKind.Enum,
+                RawValueTypeName = enumDecl.RawValueTypeName,
             };
 
             _moduleDatabase.RegisterType(enumDecl.SwiftTypeName, typeRecord);
