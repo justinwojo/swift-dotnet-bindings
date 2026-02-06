@@ -1,7 +1,7 @@
 # SwiftUI Bridge v2: Coverage-Driven Expansion
 
 **Date**: February 2026
-**Status**: Phase 1A complete (2026-02-06)
+**Status**: Phase 1B complete (2026-02-06)
 **Prerequisite**: v1 (Deliverable 2) complete and validated
 **Parent**: [SwiftUI Bridge Design](../swiftui-bridge-design.md)
 
@@ -80,7 +80,7 @@ OptionalWrapped  — Optional<T> where T is Primitive or BoundEnum only (v2.0)
 - 25 new unit tests (all pass); existing 16/16 BlinkIDUX runtime tests unaffected
 - **Remaining for full acceptance**: runtime validation with a test View consuming `BoundEnum` and `OptionalWrapped` params (deferred — requires test app with enum-param View)
 
-### Phase 1B: BoundType for Classes
+### Phase 1B: BoundType for Classes (**Done** — 2026-02-06)
 
 Class parameters cross the ABI as `UnsafeMutableRawPointer`. The session retains the pointer in Create and releases in Free.
 
@@ -88,9 +88,18 @@ Class parameters cross the ABI as `UnsafeMutableRawPointer`. The session retains
 |------------|------|-------------------|-------------|-----------------|
 | `MyClass` | BoundType | `UnsafeMutableRawPointer` | `IntPtr` | `MyClass` |
 
-**Retain/release contract**: `swift_retain` in session init, `swift_release` in Free. C# factory extracts handle via `obj.Payload.DangerousGetHandle()`.
+**Retain/release contract**: Session takes `takeUnretainedValue()` from opaque pointer. C# factory extracts handle via `obj.Payload.DangerousGetHandle()`. Session release handled by existing `Unmanaged.passRetained(session).release()` in Free.
 
 **Not included in 1B**: Non-frozen structs. Struct value copy via value witness table is significantly more complex (needs VWT lookup, `initializeWithCopy`, `destroy`). Deferred to v2.1 after class support is proven stable.
+
+**Implementation status (2026-02-06)**:
+- `BridgeParameterKind.BoundType` added — maps class types from TypeDatabase
+- `MapDatabaseType()` handles `TypeRecordKind.Class` → `BoundType`; `TypeRecordKind.Struct` → null (deferred)
+- Swift: `UnsafeMutableRawPointer` param → `Unmanaged<ClassName>.fromOpaque().takeUnretainedValue()` reconstruction
+- C#: `IntPtr` P/Invoke, typed factory param, `Payload.DangerousGetHandle()` call-site
+- `Optional<BoundType>` also implemented (Phase 1D preview): nullable pointer (`UnsafeMutableRawPointer?` / `IntPtr.Zero` = nil)
+- 14 new unit tests (all pass); existing 16/16 BlinkIDUX runtime tests unaffected
+- **Remaining for full acceptance**: runtime validation with a test View consuming `BoundType` param (deferred — requires test app with class-param View)
 
 ### Phase 1C: TypedClosure
 
@@ -104,9 +113,11 @@ Closures with typed parameters and/or return values. Max 4 closure parameters.
 
 Each typed closure generates a C# `[UnmanagedCallersOnly]` trampoline that unpacks `GCHandle → delegate`, converts args, calls delegate. Async and throwing closures remain unsupported (template fallback).
 
-### Phase 1D: Optional<BoundType> for Reference Types
+### Phase 1D: Optional<BoundType> for Reference Types (**Done** — 2026-02-06, shipped with Phase 1B)
 
-After class BoundType is stable, extend Optional to reference types using nullable pointers.
+~~After class BoundType is stable, extend Optional to reference types using nullable pointers.~~
+
+Implemented as part of Phase 1B since the nullable pointer pattern is simpler than value-type optionals.
 
 | Swift Type | Kind | Swift @_cdecl param | C# P/Invoke | C# Factory Type |
 |------------|------|-------------------|-------------|-----------------|
@@ -464,15 +475,15 @@ New script: `generate-bridge-coverage.sh`
 ```
 Phase 1A: Thread ITypeDatabase + BoundEnum + Optional<Primitive|Enum>  ✅ (2026-02-06)
     ↓
-Phase 1B: BoundType for classes (retain/release)  ← NEXT
+Phase 1B: BoundType for classes + Optional<BoundType>  ✅ (2026-02-06)
     ↓
   Validate: runtime test for BoundEnum + BoundType
     ↓
-Phase 1C: TypedClosure support
+Phase 1C: TypedClosure support  ← NEXT
     ↓
   Validate: runtime test for TypedClosure
     ↓
-Phase 1D: Optional<BoundType> for reference types
+Phase 1D: Optional<BoundType> for reference types  ✅ (shipped with 1B)
     ↓
   Validate: Lottie LottieSwitch/LottieButton bridgeable + runtime test
     ↓

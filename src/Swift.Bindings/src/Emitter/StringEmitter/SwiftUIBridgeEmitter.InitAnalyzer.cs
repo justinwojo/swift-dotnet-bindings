@@ -158,7 +158,24 @@ public static partial class SwiftUIBridgeEmitter
                 CSharpTypeName: csharpName);
         }
 
-        // Other TypeDatabase types (classes, structs) not yet supported — Phase 1B+
+        if (record.Kind == TypeRecordKind.Class)
+        {
+            // Class parameters cross the ABI as UnsafeMutableRawPointer.
+            // C# passes IntPtr via SafeHandle.DangerousGetHandle().
+            var dotIndex = namedSpec.Name.IndexOf('.');
+            var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
+            var csharpName = record.CSharpTypeName.Name;
+
+            return new BridgeParameter(
+                paramName,
+                BridgeParameterKind.BoundType,
+                SwiftAbiType: "UnsafeMutableRawPointer",
+                CSharpPInvokeType: "IntPtr",
+                BridgeTypeName: swiftSimpleName,
+                CSharpTypeName: csharpName);
+        }
+
+        // Other TypeDatabase types (structs) not yet supported — deferred to v2.1
         return null;
     }
 
@@ -201,7 +218,18 @@ public static partial class SwiftUIBridgeEmitter
         if (innerParam == null)
             return null;
 
-        // Only support Optional<Primitive> and Optional<BoundEnum> in Phase 1A
+        // Optional<BoundType> for reference types — nullable pointer, no hasValue flag needed
+        if (innerParam.Kind == BridgeParameterKind.BoundType)
+        {
+            return new BridgeParameter(
+                paramName,
+                BridgeParameterKind.OptionalWrapped,
+                SwiftAbiType: "UnsafeMutableRawPointer?",   // nullable pointer
+                CSharpPInvokeType: "IntPtr",                // IntPtr.Zero = nil
+                InnerParameter: innerParam);
+        }
+
+        // Optional<Primitive> and Optional<BoundEnum> use hasValue flag + raw value
         if (innerParam.Kind != BridgeParameterKind.Primitive && innerParam.Kind != BridgeParameterKind.BoundEnum)
             return null;
 
@@ -226,6 +254,7 @@ public enum BridgeParameterKind
     String,
     VoidClosure,
     BoundEnum,
+    BoundType,
     OptionalWrapped,
 }
 

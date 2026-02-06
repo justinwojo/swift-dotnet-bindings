@@ -1102,6 +1102,211 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
+    #region BoundType (Phase 1B)
+
+    [Fact]
+    public void InitAnalyzer_BoundType_IsSupported_ForClassInTypeDatabase()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("animation", "TestModule.LottieAnimation");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.BoundType, result[0].Kind);
+        Assert.Equal("animation", result[0].Name);
+        Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
+        Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
+        Assert.Equal("LottieAnimation", result[0].BridgeTypeName);
+        Assert.Equal("LottieAnimation", result[0].CSharpTypeName);
+    }
+
+    [Fact]
+    public void InitAnalyzer_BoundType_FallsBackToTemplate_WithoutTypeDatabase()
+    {
+        var ctor = CreateConstructorWithNamedType("animation", "TestModule.LottieAnimation");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_BoundType_FallsBackToTemplate_WhenTypeNotInDatabase()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("unknown", "TestModule.UnknownClass");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_BoundType_FallsBackToTemplate_ForStructInTypeDatabase()
+    {
+        // Non-frozen structs are deferred to v2.1
+        var typeDb = CreateStructTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("config", "TestModule.Config");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void EmitBoundType_Swift_PassesUnsafeMutableRawPointerToCdecl()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("_ animationPtr: UnsafeMutableRawPointer", swiftContent);
+        Assert.Contains("Unmanaged<LottieAnimation>.fromOpaque(animationPtr).takeUnretainedValue()", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBoundType_Swift_GeneratesFunctionalBridge()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_AnimView_Create\")", swiftContent);
+        Assert.Contains("SBW_TestModule_AnimView_Session", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBoundType_Swift_SessionStoresClassField()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("let animation: LottieAnimation", swiftContent);
+        Assert.Contains("animation: self.animation", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBoundType_CSharp_UsesIntPtrPInvoke()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("IntPtr animation", csContent); // P/Invoke param
+    }
+
+    [Fact]
+    public void EmitBoundType_CSharp_UsesTypedFactoryParam()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("LottieAnimation animation", csContent); // Factory param
+        Assert.Contains("animation.Payload.DangerousGetHandle()", csContent); // Call-site
+    }
+
+    [Fact]
+    public void EmitBoundType_CSharp_GeneratesNativeMethodsAndSession()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("AnimViewBridgeNativeMethods", csContent);
+        Assert.Contains("AnimViewSession : IDisposable", csContent);
+        Assert.Contains("DllImport", csContent);
+    }
+
+    #endregion
+
+    #region Optional<BoundType> (Phase 1B/1D)
+
+    [Fact]
+    public void InitAnalyzer_OptionalBoundType_IsSupported()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithOptionalType("animation", "TestModule.LottieAnimation");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result[0].Kind);
+        Assert.NotNull(result[0].InnerParameter);
+        Assert.Equal(BridgeParameterKind.BoundType, result[0].InnerParameter!.Kind);
+        Assert.Equal("LottieAnimation", result[0].InnerParameter!.BridgeTypeName);
+        // Nullable pointer: no hasValue flag
+        Assert.Equal("UnsafeMutableRawPointer?", result[0].SwiftAbiType);
+        Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
+    }
+
+    [Fact]
+    public void EmitOptionalBoundType_Swift_UsesNullablePointer()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithOptionalClassInit("OptAnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("_ animationPtr: UnsafeMutableRawPointer?", swiftContent);
+        Assert.Contains("Unmanaged<LottieAnimation>.fromOpaque($0).takeUnretainedValue()", swiftContent);
+    }
+
+    [Fact]
+    public void EmitOptionalBoundType_CSharp_UsesNullableFactoryParam()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithOptionalClassInit("OptAnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("LottieAnimation? animation", csContent); // Factory param
+        Assert.Contains("IntPtr animation", csContent); // P/Invoke (single IntPtr, no hasValue)
+        Assert.Contains("animation?.Payload.DangerousGetHandle() ?? IntPtr.Zero", csContent);
+    }
+
+    [Fact]
+    public void EmitOptionalBoundType_GeneratesFunctionalBridge_NotTemplate()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithOptionalClassInit("OptAnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_OptAnimView_Create\")", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    #endregion
+
     #region Report Integration
 
     [Fact]
@@ -1544,6 +1749,20 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         return view;
     }
 
+    private static StructDecl CreateViewWithClassInit(string viewName, string paramName, string classTypeName)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        view.Methods.Add(CreateConstructorWithNamedType(paramName, classTypeName));
+        return view;
+    }
+
+    private static StructDecl CreateViewWithOptionalClassInit(string viewName, string paramName, string classTypeName)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        view.Methods.Add(CreateConstructorWithOptionalPrimitive(paramName, classTypeName));
+        return view;
+    }
+
     private static ITypeDatabase CreateEnumTypeDatabase()
     {
         return CreateEnumTypeDatabaseWithRawType("Int32");
@@ -1577,6 +1796,36 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = "String",
+            },
+        });
+    }
+
+    private static ITypeDatabase CreateClassTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.LottieAnimation"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "LottieAnimation"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LottieAnimation"),
+                MetadataAccessor = "$s10TestModule15LottieAnimationCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+    }
+
+    private static ITypeDatabase CreateStructTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.Config"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Config"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
+                MetadataAccessor = "$s10TestModule6ConfigVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct,
             },
         });
     }
