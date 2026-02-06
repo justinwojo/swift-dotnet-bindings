@@ -163,8 +163,8 @@ Output: NuGet package with C# bindings
 
 ## Current Capabilities
 
-**Status** (February 2026 - Phase 61 + SwiftUI Bridge v2 Phase 2A):
-- **Unit Tests**: 1391 passed
+**Status** (February 2026 - Phase 61 + SwiftUI Bridge v2 Phase 2B):
+- **Unit Tests**: 1413 passed
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅ (runtime validated, 18/18 tests)
 - **BlinkIDUX**: 0 errors ✅ (SwiftUI bridge validated, 16/16 tests)
@@ -548,7 +548,7 @@ When a member is skipped, the binding report records a `SkipReason`. These are d
 - This means you accidentally (or intentionally) enabled a new feature
 - Consider promoting it: remove it from `KNOWN_UNSUPPORTED_FEATURES` in `generate-coverage-report.sh` to make it a must_pass feature going forward
 
-### Current Baseline (Phase 61 + SwiftUI Bridge v2 Phase 2A)
+### Current Baseline (Phase 61 + SwiftUI Bridge v2 Phase 2B)
 
 | Metric | Value |
 |--------|-------|

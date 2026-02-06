@@ -120,6 +120,8 @@ else
 fi
 
 # Check 4: swiftc typecheck on generated bridge (fast syntax validation)
+# For InferredAsync views (data-driven emission), typecheck errors are hard failures.
+# For legacy dictionary-based patterns, typecheck errors remain warnings.
 if [ -f "$BRIDGE_SWIFT" ]; then
     echo "=== Swift typecheck on generated bridge ==="
     SIM_SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
@@ -130,8 +132,27 @@ if [ -f "$BRIDGE_SWIFT" ]; then
       "$BRIDGE_SWIFT" 2>&1
     TC_EXIT=$?
     set -e
+
+    # Check if any InferredAsync views were Generated (data-driven emission)
+    HAS_INFERRED_ASYNC=false
+    if [ -f "$REPORT" ]; then
+        if command -v jq &>/dev/null; then
+            INFERRED_COUNT=$(jq '[.BridgedViews[]? | select(.InitClassification == "InferredAsync" and .BridgeStatus == "Generated")] | length' "$REPORT" 2>/dev/null || echo "0")
+        else
+            # Fallback: awk scans each JSON object block for both fields (order-independent)
+            INFERRED_COUNT=$(awk '/{/{a=0;b=0} /"InitClassification".*"InferredAsync"/{a=1} /"BridgeStatus".*"Generated"/{b=1} /}/{if(a&&b)n++;a=0;b=0} END{print n+0}' "$REPORT" 2>/dev/null || echo "0")
+        fi
+        if [ "$INFERRED_COUNT" -gt 0 ]; then
+            HAS_INFERRED_ASYNC=true
+            echo "  ($INFERRED_COUNT InferredAsync view(s) with Generated status)"
+        fi
+    fi
+
     if [ $TC_EXIT -eq 0 ]; then
         echo "OK: Generated bridge passes typecheck"
+    elif [ "$HAS_INFERRED_ASYNC" = true ]; then
+        echo "FAIL: Generated bridge has typecheck errors for InferredAsync views (exit code $TC_EXIT)"
+        PASS=false
     else
         echo "Warning: Generated bridge has typecheck errors (exit code $TC_EXIT)"
         echo "  (May need test helpers for full compilation)"

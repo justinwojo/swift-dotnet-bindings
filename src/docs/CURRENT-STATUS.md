@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 2A)
-**Unit Tests**: 1,391 passed
+**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 2B)
+**Unit Tests**: 1,413 passed
 **Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie
 
 ---
@@ -89,7 +89,7 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 - **Actor isolation enforcement** — Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
-- **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 Phase 1 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants (26/26 BridgeParamTest). Phase 2A adds ABI-driven async inference (constructor chain resolution, same-module only). Phase 2B (data-driven emission from inferred chains) pending.
+- **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 Phase 1 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants (26/26 BridgeParamTest). Phase 2A adds ABI-driven async inference (constructor chain resolution, same-module only). Phase 2B adds data-driven emission from inferred chains (mixed chain + leaf params, async detection fallback).
 - **Combine** — `@Published` properties and reactive streams not bridged
 
 ### Edge Cases
@@ -146,6 +146,7 @@ SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
 | v2 Phase 1C | TypedClosure `(T...) -> R` parameter support |
 | v2 Phase 1 | Runtime validation: 26/26 BridgeParamTest tests on iOS Simulator |
 | v2 Phase 2A | ABI-driven async inference (constructor chain resolution, cycle detection, depth limiting) |
+| v2 Phase 2B | Data-driven emission from inferred chains (mixed chain + leaf params, async mangled-name fallback) |
 
 TestFramework Phases A-D ran in parallel, adding ~184 runtime tests across string/enum/class/blittable marshalling, ownership lifecycle, negative paths, stress tests, arrays, optionals, tuples, pointers, operators, and closures.
 

@@ -943,4 +943,45 @@ public class SwiftABIParserTests
     }
 
     #endregion
+
+    #region DetectAsyncFromMangledName Tests
+
+    // Positive: real async mangled names
+    [Theory]
+    [InlineData("$s18BridgeParamTestLib12AsyncServiceC3keyACSS_tYaKcfc", true)]  // async throws ctor
+    [InlineData("$s10TestModule5ModelC3runyyYaF", true)]                          // async instance method
+    [InlineData("$s10TestModule5ModelC6fetchSiYaKF", true)]                       // async throws method
+    // Negative: sync mangled names
+    [InlineData("$s10TestModule5ModelC4nameSSvg", false)]                         // sync property getter
+    [InlineData("$s10TestModule5ModelC3fooyyF", false)]                           // sync void method
+    [InlineData("$s10TestModule5ModelCACycfc", false)]                            // sync parameterless ctor
+    public void DetectAsync_RealPatterns(string mangledName, bool expected)
+    {
+        Assert.Equal(expected, SwiftABIParser.DetectAsyncFromMangledName(mangledName));
+    }
+
+    // False-positive resistance: types whose names contain "Ya" (Yak, Yam, Yacht, etc.)
+    [Theory]
+    [InlineData("$s10TestModule3YakC4nameSSvg", false)]     // 3Yak — digit-prefixed
+    [InlineData("$s10TestModule3YamC4nameSSvg", false)]     // 3Yam — digit-prefixed
+    [InlineData("$s10TestModule5YachtC4sailyyF", false)]    // 5Ya — digit-prefixed
+    [InlineData("$s10TestModule7YankeerC3runyyF", false)]   // 7Ya — digit-prefixed
+    [InlineData("$s10TestModule2YaC4nameSSvg", false)]      // 2Ya — digit-prefixed
+    public void DetectAsync_FalsePositiveResistance(string mangledName, bool expected)
+    {
+        Assert.Equal(expected, SwiftABIParser.DetectAsyncFromMangledName(mangledName));
+    }
+
+    // Edge cases
+    [Theory]
+    [InlineData("", false)]       // empty string
+    [InlineData("Ya", true)]      // bare marker (not digit-preceded)
+    [InlineData("XYa", true)]     // letter-preceded
+    [InlineData("9Ya", false)]    // digit-preceded
+    public void DetectAsync_EdgeCases(string mangledName, bool expected)
+    {
+        Assert.Equal(expected, SwiftABIParser.DetectAsyncFromMangledName(mangledName));
+    }
+
+    #endregion
 }

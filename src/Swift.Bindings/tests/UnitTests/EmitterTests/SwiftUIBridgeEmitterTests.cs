@@ -2782,6 +2782,241 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal("val", best.CSSignature[1].Name);
     }
 
+    #endregion
+
+    #region Data-Driven Async Emission (Phase 2B)
+
+    [Fact]
+    public void DataDrivenSwift_AsyncServiceView_EmitsCdeclCreate()
+    {
+        // Build: AsyncService(key: String) async throws → AsyncServiceView(service: AsyncService)
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("AsyncServiceView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, moduleDecl: moduleDecl);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+
+        // @_cdecl signature present
+        Assert.Contains("@_cdecl(\"SBW_TestModule_AsyncServiceView_Create\")", swiftContent);
+        // String parameter pair
+        Assert.Contains("keyPtr: UnsafePointer<UInt8>?", swiftContent);
+        Assert.Contains("keyLen: Int", swiftContent);
+        // Callback typedefs
+        Assert.Contains("ReadyFn", swiftContent);
+        Assert.Contains("ErrorFn", swiftContent);
+        // Chain step: let service = try await AsyncService(key: key)
+        Assert.Contains("let service = try await AsyncService(key: key)", swiftContent);
+        // Session init
+        Assert.Contains("let session = SBW_TestModule_AsyncServiceView_Session(", swiftContent);
+        Assert.Contains("service: service", swiftContent);
+        // Session class with field
+        Assert.Contains("let service: AsyncService", swiftContent);
+        // View construction in Create scope (not session init — fixes mixed chain + leaf param issue)
+        Assert.Contains("let rootView = AsyncServiceView(service: service)", swiftContent);
+        // Session receives pre-built hosting controller
+        Assert.Contains("hostingController: hc", swiftContent);
+    }
+
+    [Fact]
+    public void DataDrivenSwift_DeepChainView_EmitsMultiStepChain()
+    {
+        // Build: AsyncService(key: String) async throws → Processor(service: AsyncService, mode: Int32) → DeepChainView(processor: Processor)
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var processor = CreateClassTypeDecl("Processor", "TestModule");
+        processor.Methods.Add(CreateCtorWithTwoParams(
+            "service", "TestModule.AsyncService",
+            "mode", "Swift.Int32"));
+        moduleDecl.Types.Add(processor);
+
+        var view = CreateSimpleViewStruct("DeepChainView");
+        view.Methods.Add(CreateCtorWithNamedParam("processor", "TestModule.Processor"));
+        moduleDecl.Types.Add(view);
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, moduleDecl: moduleDecl);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+
+        // Two chain steps: AsyncService first, then Processor
+        Assert.Contains("let service = try await AsyncService(key: key)", swiftContent);
+        Assert.Contains("let processor = Processor(service: service, mode: mode)", swiftContent);
+        // Session has two fields
+        Assert.Contains("let service: AsyncService", swiftContent);
+        Assert.Contains("let processor: Processor", swiftContent);
+        // Flattened params: key + mode
+        Assert.Contains("keyPtr: UnsafePointer<UInt8>?", swiftContent);
+        Assert.Contains("mode: Int32", swiftContent);
+    }
+
+    [Fact]
+    public void DataDrivenCSharp_AsyncServiceView_EmitsCreateAsync()
+    {
+        // Same setup as Swift test
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("AsyncServiceView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, moduleDecl: moduleDecl);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+
+        // CreateAsync factory with string parameter
+        Assert.Contains("CreateAsync(string key)", csContent);
+        // NativeMethods with P/Invoke
+        Assert.Contains("AsyncServiceViewBridgeNativeMethods", csContent);
+        Assert.Contains("EntryPoint = \"SBW_TestModule_AsyncServiceView_Create\"", csContent);
+        // TaskCompletionSource
+        Assert.Contains("TaskCompletionSource<AsyncServiceViewSession>", csContent);
+        // OnReady + OnError trampolines
+        Assert.Contains("OnReadyTrampoline", csContent);
+        Assert.Contains("OnErrorTrampoline", csContent);
+        // No result callback (data-driven never has it)
+        Assert.DoesNotContain("OnResultTrampoline", csContent);
+        // String encoding in C#
+        Assert.Contains("Encoding.UTF8.GetBytes(key", csContent);
+    }
+
+    [Fact]
+    public void LegacyAsync_BlinkIDUX_UnchangedByRefactor()
+    {
+        // Ensure the legacy BlinkIDUX path is completely unchanged
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("BlinkIDUXView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.BlinkIDUX", "BlinkIDUX", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.BlinkIDUX.SwiftUIBridge.swift"));
+
+        // Legacy hard-coded content must still be present
+        Assert.Contains("ScanningUXSettings(", swiftContent);
+        Assert.Contains("BlinkIDSdk.createBlinkIDSdk(withSettings: sdkSettings)", swiftContent);
+        Assert.Contains("BlinkIDEventStream()", swiftContent);
+        Assert.Contains("BlinkIDAnalyzer(", swiftContent);
+        Assert.Contains("BlinkIDUXModel(", swiftContent);
+        Assert.Contains("SBW_BlinkIDUX_BlinkIDUXView_Session", swiftContent);
+        Assert.Contains("ResultFn", swiftContent);
+        Assert.Contains("startResultMonitor", swiftContent);
+    }
+
+    [Fact]
+    public void DataDrivenSwift_BoolParam_EmitsConversion()
+    {
+        // View → AsyncService(key: String) async throws; View also takes enabled: Bool
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("BoolAsyncView");
+        view.Methods.Add(CreateCtorWithTwoParams(
+            "service", "TestModule.AsyncService",
+            "enabled", "Swift.Bool"));
+        moduleDecl.Types.Add(view);
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, moduleDecl: moduleDecl);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+
+        // Bool parameter ABI type
+        Assert.Contains("enabled: Int32", swiftContent);
+        // Bool conversion before Task
+        Assert.Contains("let enabledVal: Bool = enabled != 0", swiftContent);
+        // View construction uses enabledVal (converted) not enabled (Int32 ABI)
+        Assert.Contains("BoolAsyncView(service: service, enabled: enabledVal)", swiftContent);
+    }
+
+    [Fact]
+    public void DataDrivenSwift_MixedChainAndLeaf_ViewBuiltInCreateScope()
+    {
+        // View with async chain step (service) + direct leaf params (count: Int32, enabled: Bool)
+        // Validates P1 fix: View construction happens in Create scope, not session init,
+        // so leaf params are accessible alongside chain outputs.
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("MixedAsyncView");
+        view.Methods.Add(CreateCtorWithThreeParams(
+            "service", "TestModule.AsyncService",
+            "count", "Swift.Int32",
+            "enabled", "Swift.Bool"));
+        moduleDecl.Types.Add(view);
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, moduleDecl: moduleDecl);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+
+        // Chain step built in Create
+        Assert.Contains("let service = try await AsyncService(key: key)", swiftContent);
+        // View built in Create scope (not session init) with all three params
+        Assert.Contains("let rootView = MixedAsyncView(service: service, count: count, enabled: enabledVal)", swiftContent);
+        // Session gets pre-built hosting controller
+        Assert.Contains("hostingController: hc", swiftContent);
+        // Session class only has chain step field, not leaf params
+        Assert.Contains("let service: AsyncService", swiftContent);
+        Assert.DoesNotContain("let count: Int32", swiftContent);
+        Assert.DoesNotContain("let enabled: Bool", swiftContent);
+    }
+
+    [Fact]
+    public void DataDrivenCSharp_DeepChain_HasBothParams()
+    {
+        // Same setup as DeepChain Swift test
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var processor = CreateClassTypeDecl("Processor", "TestModule");
+        processor.Methods.Add(CreateCtorWithTwoParams(
+            "service", "TestModule.AsyncService",
+            "mode", "Swift.Int32"));
+        moduleDecl.Types.Add(processor);
+
+        var view = CreateSimpleViewStruct("DeepChainView");
+        view.Methods.Add(CreateCtorWithNamedParam("processor", "TestModule.Processor"));
+        moduleDecl.Types.Add(view);
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, moduleDecl: moduleDecl);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+
+        // P/Invoke has both flattened params
+        Assert.Contains("IntPtr keyPtr", csContent);
+        Assert.Contains("int mode", csContent);
+        // CreateAsync factory
+        Assert.Contains("CreateAsync(string key, int mode)", csContent);
+    }
+
     // --- Inference test helpers ---
 
     private static ModuleDecl CreateInferenceModuleDecl(string moduleName)
@@ -2914,6 +3149,53 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 {
                     Name = param2Name, PrivateName = param2Name, IsInOut = false, IsGeneric = false,
                     SwiftTypeSpec = new NamedTypeSpec(param2Type),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    private static MethodDecl CreateCtorWithThreeParams(
+        string param1Name, string param1Type,
+        string param2Name, string param2Type,
+        string param3Name, string param3Type)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s_init_3params",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Self"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = param1Name, PrivateName = param1Name, IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec(param1Type),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = param2Name, PrivateName = param2Name, IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec(param2Type),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = param3Name, PrivateName = param3Name, IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec(param3Type),
                     ParentDecl = null, ModuleDecl = null,
                 },
             },

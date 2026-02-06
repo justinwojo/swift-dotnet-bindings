@@ -131,3 +131,80 @@ public struct OptionalClassView: View {
         Text("OptionalClass: \(model?.getValue() ?? -1)")
     }
 }
+
+// MARK: - Async Chain Test Types (Phase 2B)
+
+/// Async service class for testing single-level async chain inference.
+/// init(key:) is `async throws` — the bridge must construct this in a Task.
+public class AsyncService {
+    public let key: String
+
+    public init(key: String) async throws {
+        // Simulate async initialization (e.g. network validation)
+        try await Task.sleep(nanoseconds: 1_000)
+        self.key = key
+    }
+
+    public func getKey() -> String { key }
+}
+
+/// View with a single async dependency: AsyncService.
+/// Inferred chain: AsyncService(key:) async throws → AsyncServiceView(service:)
+public struct AsyncServiceView: View {
+    public let service: AsyncService
+
+    public init(service: AsyncService) {
+        self.service = service
+    }
+
+    public var body: some View {
+        Text("AsyncService: \(service.getKey())")
+    }
+}
+
+/// Intermediate class that depends on AsyncService — for testing deep chains.
+/// init(service:, mode:) is synchronous but takes an async dependency.
+public class Processor {
+    public let service: AsyncService
+    public let mode: Int32
+
+    public init(service: AsyncService, mode: Int32) {
+        self.service = service
+        self.mode = mode
+    }
+
+    public func getMode() -> Int32 { mode }
+}
+
+/// View with a two-level async chain.
+/// Inferred chain: AsyncService(key:) async throws → Processor(service:, mode:) → DeepChainView(processor:)
+public struct DeepChainView: View {
+    public let processor: Processor
+
+    public init(processor: Processor) {
+        self.processor = processor
+    }
+
+    public var body: some View {
+        Text("DeepChain: \(processor.getMode())")
+    }
+}
+
+/// View with mixed chain + leaf params: async dependency AND direct primitive/bool params.
+/// This tests that non-chain leaf params are correctly passed through to the View init.
+/// Inferred chain: AsyncService(key:) async throws → MixedAsyncView(service:, count:, enabled:)
+public struct MixedAsyncView: View {
+    public let service: AsyncService
+    public let count: Int32
+    public let enabled: Bool
+
+    public init(service: AsyncService, count: Int32, enabled: Bool) {
+        self.service = service
+        self.count = count
+        self.enabled = enabled
+    }
+
+    public var body: some View {
+        Text("Mixed: \(service.getKey()) count=\(count) enabled=\(enabled)")
+    }
+}

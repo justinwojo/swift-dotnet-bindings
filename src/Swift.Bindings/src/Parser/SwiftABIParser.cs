@@ -2,10 +2,13 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using BindingsGeneration.Demangling;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+
+[assembly: InternalsVisibleTo("Swift.Bindings.Unit.Tests")]
 
 namespace BindingsGeneration
 {
@@ -630,7 +633,10 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = node.throwing ?? false,
-                IsAsync = functionReduction?.Function?.IsAsync ?? false,
+                // Primary source: demangler's FunctionReduction. Fallback: check mangled name
+                // for the "Ya" (async) marker when the demangler doesn't produce a FunctionReduction.
+                IsAsync = functionReduction?.Function?.IsAsync
+                    ?? DetectAsyncFromMangledName(mangledName),
                 Visibility = Visibility.Public,
             };
 
@@ -653,6 +659,29 @@ namespace BindingsGeneration
             }
 
             return methodDecl;
+        }
+
+        /// <summary>
+        /// Fallback async detection from the mangled name when the demangler
+        /// doesn't produce a FunctionReduction (e.g. for some constructors).
+        /// Checks for the "Ya" async marker in Swift's mangling scheme.
+        /// To avoid false positives from identifiers containing "Ya" (e.g. "Yak"),
+        /// we require "Ya" to NOT be preceded by a digit (identifier length prefix).
+        /// </summary>
+        internal static bool DetectAsyncFromMangledName(string mangledName)
+        {
+            int idx = 0;
+            while ((idx = mangledName.IndexOf("Ya", idx, StringComparison.Ordinal)) >= 0)
+            {
+                // If preceded by a digit, it's part of an identifier (e.g. "3Yak") — skip
+                if (idx > 0 && char.IsAsciiDigit(mangledName[idx - 1]))
+                {
+                    idx += 2;
+                    continue;
+                }
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
