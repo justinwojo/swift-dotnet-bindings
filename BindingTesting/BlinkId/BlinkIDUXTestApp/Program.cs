@@ -148,6 +148,33 @@ internal static class NativeMethods
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_BlinkIDUX_NoInternetView_FireRetry")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void NoInternetView_FireRetry(IntPtr handle);
+
+    // Scanning Session (Step 2)
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_BlinkIDUX_BlinkIDUXView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void BlinkIDUXView_Create(
+        IntPtr licenseKeyPtr, nint licenseKeyLen,
+        int showIntroductionAlert, int showHelpButton,
+        int allowHapticFeedback, int preferFrontCamera,
+        IntPtr onReady, IntPtr onError, IntPtr onResult,
+        IntPtr userData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_BlinkIDUX_BlinkIDUXView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr BlinkIDUXView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_BlinkIDUX_BlinkIDUXView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void BlinkIDUXView_Free(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_BlinkIDUX_BlinkIDUXView_Cancel")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void BlinkIDUXView_Cancel(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_BlinkIDUX_BlinkIDUXView_LiveHandleCount")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern nint BlinkIDUXView_LiveHandleCount();
 }
 
 #endregion
@@ -177,6 +204,38 @@ public class NoInternetViewSession : IDisposable
         {
             _disposed = true;
             NativeMethods.NoInternetView_Free(_handle);
+            _handle = IntPtr.Zero;
+        }
+    }
+}
+
+#endregion
+
+#region Scanning Session Wrapper
+
+public class BlinkIDUXViewSession : IDisposable
+{
+    private IntPtr _handle;
+    private bool _disposed;
+
+    public BlinkIDUXViewSession(IntPtr handle) => _handle = handle;
+
+    public IntPtr Handle => !_disposed
+        ? _handle
+        : throw new ObjectDisposedException(nameof(BlinkIDUXViewSession));
+
+    public IntPtr GetViewController() =>
+        NativeMethods.BlinkIDUXView_GetViewController(Handle);
+
+    public void Cancel() =>
+        NativeMethods.BlinkIDUXView_Cancel(Handle);
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            NativeMethods.BlinkIDUXView_Free(_handle);
             _handle = IntPtr.Zero;
         }
     }
@@ -217,6 +276,87 @@ internal static class RetryState
         LastUserData = userData;
         TestLogger.Info($"Retry callback fired! userData=0x{userData:X}, count={CallbackCount}");
         _callbackTcs?.TrySetResult(true);
+    }
+}
+
+#endregion
+
+#region Scanning Session Callbacks
+
+internal static class ScanningSessionState
+{
+    internal static volatile IntPtr ReadyHandle;
+    internal static string? ErrorMessage;
+    internal static volatile IntPtr LastUserData;
+    private static TaskCompletionSource<string>? _createTcs;
+
+    internal static volatile int ResultCode = -1;
+    private static TaskCompletionSource<int>? _resultTcs;
+
+    internal static void Reset()
+    {
+        ReadyHandle = IntPtr.Zero;
+        ErrorMessage = null;
+        LastUserData = IntPtr.Zero;
+        _createTcs = null;
+        ResultCode = -1;
+        _resultTcs = null;
+    }
+
+    /// Arms a TCS that resolves when onReady or onError fires.
+    /// Returns "ready", "error", or "TIMEOUT".
+    internal static async Task<string> PrepareForCreate(int timeoutMs = 10000)
+    {
+        _createTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = await Task.WhenAny(_createTcs.Task, Task.Delay(timeoutMs));
+        if (completed == _createTcs.Task)
+            return await _createTcs.Task;
+        return "TIMEOUT";
+    }
+
+    /// Arms a TCS that resolves when the result callback fires.
+    internal static async Task<int> PrepareForResult(int timeoutMs = 5000)
+    {
+        _resultTcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = await Task.WhenAny(_resultTcs.Task, Task.Delay(timeoutMs));
+        if (completed == _resultTcs.Task)
+            return await _resultTcs.Task;
+        return -1; // timeout
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnReady(IntPtr handle, IntPtr userData)
+    {
+        ReadyHandle = handle;
+        LastUserData = userData;
+        TestLogger.Info($"OnReady callback: handle=0x{handle:X}, userData=0x{userData:X}");
+        _createTcs?.TrySetResult("ready");
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnError(IntPtr msgPtr, nint msgLen, IntPtr userData)
+    {
+        if (msgPtr != IntPtr.Zero && msgLen > 0)
+        {
+            var bytes = new byte[(int)msgLen];
+            Marshal.Copy(msgPtr, bytes, 0, (int)msgLen);
+            ErrorMessage = Encoding.UTF8.GetString(bytes);
+        }
+        else
+        {
+            ErrorMessage = "(empty error)";
+        }
+        LastUserData = userData;
+        TestLogger.Info($"OnError callback: msg=\"{ErrorMessage}\", userData=0x{userData:X}");
+        _createTcs?.TrySetResult("error");
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnResult(int resultCode, IntPtr userData)
+    {
+        ResultCode = resultCode;
+        TestLogger.Info($"OnResult callback: code={resultCode}, userData=0x{userData:X}");
+        _resultTcs?.TrySetResult(resultCode);
     }
 }
 
@@ -396,6 +536,34 @@ public class MainViewController : UIViewController
             // Test 5: Cleanup
             await RunTestAsync("Cleanup", TestCleanup, results);
             await Task.Delay(100);
+
+            // ---- Scanning Session Tests (Step 2) ----
+            TestLogger.Info("");
+            TestLogger.Info("--- Scanning Session Tests ---");
+
+            // Test 6: Attempt SDK init with empty license key
+            await RunTestAsync("Scanning Create (error path)", TestScanningCreate, results);
+            await Task.Delay(100);
+
+            // Test 7: Validate error message content
+            await RunTestAsync("Error Message Content", TestScanningErrorMessage, results);
+            await Task.Delay(100);
+
+            // Test 8: Validate userData round-trip through error callback
+            await RunTestAsync("Error userData (0x43)", TestScanningErrorUserData, results);
+            await Task.Delay(100);
+
+            // Test 9: Verify no handle was leaked on error
+            await RunTestAsync("No Handle Leak", TestScanningNoHandleLeak, results);
+            await Task.Delay(100);
+
+            // Test 10: Null callback safety
+            await RunTestAsync("Null Callback Safety", TestScanningNullCallbacks, results);
+            await Task.Delay(100);
+
+            // Test 11: Scanning session cleanup (if SDK init succeeded)
+            await RunTestAsync("Scanning Cleanup", TestScanningCleanup, results);
+            await Task.Delay(100);
         }
         catch (Exception ex)
         {
@@ -443,9 +611,13 @@ public class MainViewController : UIViewController
 
     #region Shared State
 
-    // Session handle shared across tests (created in Test 1, disposed in Test 5)
+    // NoInternetView state (created in Test 1, disposed in Test 5)
     private NoInternetViewSession? _session;
     private UIViewController? _presentedVC;
+
+    // Scanning session state (Tests 6-11)
+    private bool _sdkInitFailed;
+    private BlinkIDUXViewSession? _scanningSession;
 
     #endregion
 
@@ -646,6 +818,189 @@ public class MainViewController : UIViewController
 
             _session = null;
         }
+    }
+
+    // ---- Scanning Session Tests (Step 2) ----
+
+    private async Task TestScanningCreate(TestResults results)
+    {
+        TestLogger.Info("Creating scanning session with empty license key...");
+
+        ScanningSessionState.Reset();
+        var createTask = ScanningSessionState.PrepareForCreate();
+
+        unsafe
+        {
+            delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> readyPtr = &ScanningSessionState.OnReady;
+            delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> errorPtr = &ScanningSessionState.OnError;
+            delegate* unmanaged[Cdecl]<int, IntPtr, void> resultPtr = &ScanningSessionState.OnResult;
+
+            NativeMethods.BlinkIDUXView_Create(
+                IntPtr.Zero, 0,  // empty license key
+                1, 1, 1, 0,     // default UX settings
+                (IntPtr)readyPtr, (IntPtr)errorPtr, (IntPtr)resultPtr,
+                new IntPtr(0x43) // userData sentinel
+            );
+        }
+
+        var result = await createTask;
+
+        if (result == "error")
+        {
+            _sdkInitFailed = true;
+            results.Pass("SDK init error callback received");
+        }
+        else if (result == "ready")
+        {
+            _sdkInitFailed = false;
+            _scanningSession = new BlinkIDUXViewSession(ScanningSessionState.ReadyHandle);
+            results.Pass("SDK init succeeded (trial mode or cached license)");
+
+            // Bonus: verify we can get a ViewController
+            var vcPtr = _scanningSession.GetViewController();
+            if (vcPtr != IntPtr.Zero)
+            {
+                TestLogger.Info($"Scanning ViewController: 0x{vcPtr:X}");
+                results.Pass("GetViewController from scanning session");
+            }
+            else
+            {
+                results.Fail("GetViewController from scanning session", "pointer is IntPtr.Zero");
+            }
+        }
+        else
+        {
+            results.Fail("Scanning Create", "Timed out waiting for callback");
+        }
+    }
+
+    private Task TestScanningErrorMessage(TestResults results)
+    {
+        if (!_sdkInitFailed)
+        {
+            results.Pass("Error message N/A (SDK init succeeded)");
+            return Task.CompletedTask;
+        }
+
+        if (ScanningSessionState.ErrorMessage != null &&
+            ScanningSessionState.ErrorMessage.Length > 0 &&
+            ScanningSessionState.ErrorMessage != "(empty error)")
+        {
+            TestLogger.Info($"Error message: \"{ScanningSessionState.ErrorMessage}\"");
+            results.Pass($"Error message non-empty ({ScanningSessionState.ErrorMessage.Length} chars)");
+        }
+        else
+        {
+            results.Fail("Error message content", $"Got: \"{ScanningSessionState.ErrorMessage}\"");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task TestScanningErrorUserData(TestResults results)
+    {
+        if (!_sdkInitFailed)
+        {
+            results.Pass("Error userData N/A (SDK init succeeded)");
+            return Task.CompletedTask;
+        }
+
+        if (ScanningSessionState.LastUserData == new IntPtr(0x43))
+        {
+            results.Pass("Error callback userData round-trip (0x43)");
+        }
+        else
+        {
+            results.Fail("Error userData round-trip",
+                $"Expected 0x43, got 0x{ScanningSessionState.LastUserData:X}");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task TestScanningNoHandleLeak(TestResults results)
+    {
+        if (!_sdkInitFailed)
+        {
+            results.Pass("Handle leak N/A (SDK init succeeded — handle expected)");
+            return Task.CompletedTask;
+        }
+
+        if (ScanningSessionState.ReadyHandle == IntPtr.Zero)
+        {
+            results.Pass("No handle produced on error (no leak)");
+        }
+        else
+        {
+            results.Fail("Handle leak", $"onReady was called with handle 0x{ScanningSessionState.ReadyHandle:X}");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task TestScanningNullCallbacks(TestResults results)
+    {
+        TestLogger.Info("Testing null callback safety (Create with all null callbacks)...");
+
+        // Snapshot live handle count before the call
+        var beforeCount = (int)NativeMethods.BlinkIDUXView_LiveHandleCount();
+        TestLogger.Info($"Live handle count before: {beforeCount}");
+
+        // Call Create with null onReady — the bridge should bail out immediately
+        // (onReady is required; null = no-op, no session created, no leak).
+        // onError and onResult are also null to verify no null-pointer dereference.
+        NativeMethods.BlinkIDUXView_Create(
+            IntPtr.Zero, 0,     // empty license key
+            1, 1, 1, 0,        // default UX settings
+            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, // null callbacks
+            IntPtr.Zero         // null userData
+        );
+
+        // Wait briefly — since onReady is null the bridge returns immediately
+        // (no async Task launched), but allow time for any unexpected side effects.
+        await Task.Delay(1000);
+
+        var afterCount = (int)NativeMethods.BlinkIDUXView_LiveHandleCount();
+        TestLogger.Info($"Live handle count after: {afterCount}");
+
+        if (afterCount == beforeCount)
+        {
+            results.Pass($"Null callbacks: no crash, no leak (handles: {afterCount})");
+        }
+        else
+        {
+            results.Fail("Null callbacks",
+                $"Handle count changed from {beforeCount} to {afterCount} (leaked session)");
+        }
+    }
+
+    private Task TestScanningCleanup(TestResults results)
+    {
+        if (_scanningSession != null)
+        {
+            TestLogger.Info("Disposing scanning session...");
+            _scanningSession.Dispose();
+            results.Pass("Scanning session disposed");
+
+            // Verify post-dispose access throws
+            try
+            {
+                _ = _scanningSession.Handle;
+                results.Fail("Post-dispose access", "Expected ObjectDisposedException");
+            }
+            catch (ObjectDisposedException)
+            {
+                results.Pass("Post-dispose throws ObjectDisposedException");
+            }
+
+            _scanningSession = null;
+        }
+        else
+        {
+            results.Pass("No scanning session to clean up (error path — expected)");
+        }
+
+        return Task.CompletedTask;
     }
 
     #endregion
