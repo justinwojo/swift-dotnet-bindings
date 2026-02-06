@@ -63,6 +63,278 @@ public static partial class SwiftUIBridgeEmitter
         return KnownAsyncPatterns.ContainsKey($"{info.ModuleName}.{info.ViewName}");
     }
 
+    #region Constructor Ranking
+
+    /// <summary>
+    /// Selects the best constructor from a list of candidates for async bridge generation.
+    /// Filters: non-failable, non-generic constructors only.
+    /// Ranks by: fewest parameters where all are bridgeable, then shallowest async depth, then ABI order.
+    /// </summary>
+    public static MethodDecl? SelectBestConstructor(
+        List<MethodDecl> constructors,
+        BridgeContext context)
+    {
+        var candidates = constructors
+            .Where(c => c.IsConstructor && !c.IsFailable && !c.IsGeneric)
+            .ToList();
+
+        if (candidates.Count == 0)
+            return null;
+
+        // Score each candidate: (paramCount where all bridgeable, asyncDepth, abiIndex)
+        // Lower is better for all dimensions.
+        MethodDecl? best = null;
+        int bestParamCount = int.MaxValue;
+        int bestAsyncDepth = int.MaxValue;
+        int bestAbiIndex = int.MaxValue;
+
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            var ctor = candidates[i];
+            var paramCount = ctor.CSSignature.Count - 1; // exclude return type at index 0
+
+            // Check if all params are bridgeable (leaf or resolvable module type).
+            // Module type resolution must be checked FIRST because when TypeDatabase
+            // is populated, MapParameterType maps same-module classes to BoundType (leaf),
+            // which would hide them from async depth counting.
+            bool allBridgeable = true;
+            int asyncDepth = 0;
+            for (int p = 1; p < ctor.CSSignature.Count; p++)
+            {
+                var param = ctor.CSSignature[p];
+
+                // Check module type first
+                if (param.SwiftTypeSpec is NamedTypeSpec namedSpec && context.ModuleDecl != null)
+                {
+                    var resolved = ResolveModuleType(namedSpec, context.ModuleDecl);
+                    if (resolved != null)
+                    {
+                        // Check if it has async/throws init (contributes to depth)
+                        var resolvedCtors = resolved.Methods.Where(m => m.IsConstructor).ToList();
+                        if (resolvedCtors.Any(c2 => c2.IsAsync || c2.Throws))
+                            asyncDepth++;
+                        continue;
+                    }
+                }
+
+                // Not a module type — check leaf mapping
+                var bridgeParam = MapParameterType(param, context);
+                if (bridgeParam != null)
+                    continue; // leaf type — bridgeable
+
+                allBridgeable = false;
+                break;
+            }
+
+            if (!allBridgeable)
+                continue;
+
+            // Compare: fewest params > shallowest async > ABI order
+            bool isBetter = paramCount < bestParamCount
+                || (paramCount == bestParamCount && asyncDepth < bestAsyncDepth)
+                || (paramCount == bestParamCount && asyncDepth == bestAsyncDepth && i < bestAbiIndex);
+
+            if (isBetter)
+            {
+                best = ctor;
+                bestParamCount = paramCount;
+                bestAsyncDepth = asyncDepth;
+                bestAbiIndex = i;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Resolves a named type spec to a TypeDecl within the same module.
+    /// Returns null if the type is not found (cross-module or unknown).
+    /// </summary>
+    private static TypeDecl? ResolveModuleType(NamedTypeSpec namedSpec, ModuleDecl moduleDecl)
+    {
+        // Named types come as "Module.TypeName" — match against module types
+        var fullName = namedSpec.ToString();
+        var expectedPrefix = moduleDecl.Name + ".";
+
+        // Only resolve same-module types
+        if (!fullName.StartsWith(expectedPrefix, StringComparison.Ordinal))
+            return null;
+
+        var simpleName = fullName.Substring(expectedPrefix.Length);
+        return moduleDecl.Types.FirstOrDefault(t => t.Name == simpleName);
+    }
+
+    #endregion
+
+    #region Async Pattern Inference
+
+    private const int MaxInferenceDepth = 3;
+
+    /// <summary>
+    /// Attempts to infer an async construction pattern for a View by analyzing its
+    /// constructor parameters and recursively resolving module-local type dependencies.
+    /// Returns null if the view doesn't have async dependencies, has cross-module deps,
+    /// or exceeds depth limits.
+    /// </summary>
+    public static AsyncViewPattern? InferAsyncPattern(
+        ViewBridgeInfo view,
+        BridgeContext context)
+    {
+        if (context.ModuleDecl == null)
+            return null;
+
+        var ctor = SelectBestConstructor(view.Constructors, context);
+        if (ctor == null)
+            return null;
+
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var chain = new List<AsyncConstructionStep>();
+        var flatParams = new List<AsyncFlatParam>();
+
+        if (!BuildConstructionChain(ctor, context, visited, chain, flatParams, depth: 0, view.ViewName))
+            return null;
+
+        // Must have at least one async step to be classified as async
+        if (!chain.Any(step => step.IsAsync || step.Throws))
+            return null;
+
+        return new AsyncViewPattern(
+            ViewName: view.ViewName,
+            SessionClassName: $"SBW_{view.ModuleName}_{view.ViewName}_Session",
+            ExtraSwiftImports: Array.Empty<string>(),
+            SessionFields: chain.Select(s => new AsyncSessionField(s.VariableName, s.SwiftTypeName)).ToArray(),
+            FlattenedParams: flatParams.ToArray(),
+            HasResultCallback: false,
+            ConstructionChain: chain);
+    }
+
+    /// <summary>
+    /// Recursively builds a construction chain for a constructor's parameters.
+    /// Returns false if any parameter can't be resolved (template fallback).
+    /// </summary>
+    private static bool BuildConstructionChain(
+        MethodDecl ctor,
+        BridgeContext context,
+        HashSet<string> visited,
+        List<AsyncConstructionStep> chain,
+        List<AsyncFlatParam> flatParams,
+        int depth,
+        string ownerTypeName)
+    {
+        if (depth > MaxInferenceDepth)
+            return false;
+
+        // CSSignature[0] is the return type; params start at index 1
+        for (int i = 1; i < ctor.CSSignature.Count; i++)
+        {
+            var param = ctor.CSSignature[i];
+
+            // Try to resolve as a same-module named type FIRST.
+            // This must happen before MapParameterType because when TypeDatabase is
+            // populated, MapParameterType maps same-module classes to BoundType (leaf),
+            // which would prevent inference from seeing them as chain dependencies.
+            if (param.SwiftTypeSpec is NamedTypeSpec namedSpec && context.ModuleDecl != null)
+            {
+                var resolved = ResolveModuleType(namedSpec, context.ModuleDecl);
+                if (resolved != null)
+                {
+                    // Same-module type — treat as chain dependency
+                    var resolvedCtors = resolved.Methods.Where(m => m.IsConstructor && !m.IsFailable && !m.IsGeneric).ToList();
+                    var bestCtor = SelectBestConstructor(resolvedCtors, context);
+                    if (bestCtor == null)
+                        return false;
+
+                    // Cycle detection: path-scoped (add before recurse, remove after)
+                    var ctorIndex = resolvedCtors.IndexOf(bestCtor);
+                    var visitKey = $"{resolved.Name}+{ctorIndex}";
+                    if (!visited.Add(visitKey))
+                        return false; // cycle detected
+
+                    // Recurse into this type's constructor
+                    bool recurseOk = BuildConstructionChain(bestCtor, context, visited, chain, flatParams, depth + 1, resolved.Name);
+                    visited.Remove(visitKey); // unwind — allows DAG (shared deps across branches)
+
+                    if (!recurseOk)
+                        return false;
+
+                    // After recursion, add this type as a chain step
+                    var args = new List<ConstructionArg>();
+                    for (int p = 1; p < bestCtor.CSSignature.Count; p++)
+                    {
+                        var innerParam = bestCtor.CSSignature[p];
+                        // Check if innerParam is itself a module type (chain ref) or a leaf
+                        bool isModuleType = innerParam.SwiftTypeSpec is NamedTypeSpec innerNamed
+                            && ResolveModuleType(innerNamed, context.ModuleDecl) != null;
+                        if (isModuleType)
+                        {
+                            args.Add(new ConstructionArg(innerParam.Name, ConstructionArgKind.ChainReference, ToVariableName(innerParam)));
+                        }
+                        else
+                        {
+                            args.Add(new ConstructionArg(innerParam.Name, ConstructionArgKind.FlattenedParam, innerParam.Name));
+                        }
+                    }
+
+                    var varName = ToVariableName(param);
+                    chain.Add(new AsyncConstructionStep(
+                        VariableName: varName,
+                        SwiftTypeName: resolved.Name,
+                        IsAsync: bestCtor.IsAsync,
+                        Throws: bestCtor.Throws,
+                        Args: args));
+                    continue;
+                }
+            }
+
+            // Not a same-module type — try leaf mapping (primitives, String, Bool, closures)
+            var bridgeParam = MapParameterType(param, context);
+            if (bridgeParam != null)
+            {
+                var flatParam = BridgeParamToFlatParam(bridgeParam);
+                if (flatParam == null)
+                    return false; // unsupported leaf kind for async flattening
+                flatParams.Add(flatParam);
+                continue;
+            }
+
+            // Neither a resolvable module type nor a supported leaf — can't infer
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Converts a BridgeParameter (from leaf analysis) to an AsyncFlatParam
+    /// for the async Create function signature.
+    /// </summary>
+    private static AsyncFlatParam? BridgeParamToFlatParam(BridgeParameter bp)
+    {
+        return bp.Kind switch
+        {
+            BridgeParameterKind.String => new AsyncFlatParam(
+                bp.Name, AsyncFlatParamKind.String, "String", "IntPtr", null, null),
+            BridgeParameterKind.Primitive when bp.SwiftConversion == "!= 0" => new AsyncFlatParam(
+                bp.Name, AsyncFlatParamKind.Bool, "Int32", "int", "!= 0", "? 1 : 0"),
+            BridgeParameterKind.Primitive => new AsyncFlatParam(
+                bp.Name, AsyncFlatParamKind.Primitive, bp.SwiftAbiType, bp.CSharpPInvokeType, null, null),
+            _ => null, // Closures, enums, etc. not supported in async flattening yet
+        };
+    }
+
+    /// <summary>
+    /// Generates a camelCase variable name from a parameter declaration.
+    /// </summary>
+    private static string ToVariableName(ArgumentDecl param)
+    {
+        var name = param.Name;
+        if (string.IsNullOrEmpty(name))
+            return "arg";
+        return char.ToLowerInvariant(name[0]) + name[1..];
+    }
+
+    #endregion
+
     #region Async Swift Generation
 
     internal static void EmitAsyncSwiftBridge(
@@ -591,6 +863,8 @@ public static partial class SwiftUIBridgeEmitter
 
 /// <summary>
 /// Configuration for a known async View bridge pattern.
+/// When ConstructionChain is null, legacy hard-coded emission is used (BlinkIDUX).
+/// When ConstructionChain is non-null, data-driven emission iterates the chain steps.
 /// </summary>
 public record AsyncViewPattern(
     string ViewName,
@@ -598,7 +872,43 @@ public record AsyncViewPattern(
     string[] ExtraSwiftImports,
     AsyncSessionField[] SessionFields,
     AsyncFlatParam[] FlattenedParams,
-    bool HasResultCallback);
+    bool HasResultCallback,
+    List<AsyncConstructionStep>? ConstructionChain = null);
+
+/// <summary>
+/// A single step in an async construction chain.
+/// Each step represents creating one intermediate object that the View depends on.
+/// </summary>
+public record AsyncConstructionStep(
+    string VariableName,
+    string SwiftTypeName,
+    bool IsAsync,
+    bool Throws,
+    List<ConstructionArg> Args,
+    string? FactoryMethod = null);
+
+/// <summary>
+/// An argument to a construction step.
+/// </summary>
+public record ConstructionArg(
+    string ParamLabel,
+    ConstructionArgKind Kind,
+    string Value);
+
+/// <summary>
+/// Kind of construction argument in an async chain step.
+/// </summary>
+public enum ConstructionArgKind
+{
+    /// <summary>Leaf value from C# (flattened parameter in Create()).</summary>
+    FlattenedParam,
+    /// <summary>Reference to a previous step's output variable.</summary>
+    ChainReference,
+    /// <summary>Field access on a previous step's output (step.fieldName).</summary>
+    FieldAccess,
+    /// <summary>A literal value.</summary>
+    Literal,
+}
 
 /// <summary>
 /// A field in the async session class.

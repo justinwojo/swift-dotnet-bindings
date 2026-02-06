@@ -2315,4 +2315,610 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     #endregion
+
+    #region Async Inference (Phase 2A)
+
+    [Fact]
+    public void InferAsyncPattern_ReturnsNull_WhenNoModuleDecl()
+    {
+        var view = CreateSimpleViewStruct("TestView");
+        var info = new ViewBridgeInfo("TestView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(TypeDatabase: null, ModuleDecl: null);
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InferAsyncPattern_ReturnsNull_WhenNoAsyncDeps()
+    {
+        // View with a constructor that takes only a primitive (leaf) — no async deps
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var view = CreateSimpleViewStruct("TestView");
+        view.Methods.Add(CreateConstructorWithPrimitive("count", "Swift.Int"));
+        moduleDecl.Types.Add(view);
+
+        var info = new ViewBridgeInfo("TestView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.Null(result); // No async steps → not an async view
+    }
+
+    [Fact]
+    public void InferAsyncPattern_ReturnsPattern_TwoLevelChain()
+    {
+        // View → AsyncService(key: String) async throws
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("AsyncServiceView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        var info = new ViewBridgeInfo("AsyncServiceView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result.ConstructionChain!);
+        Assert.Equal("AsyncService", result.ConstructionChain![0].SwiftTypeName);
+        Assert.True(result.ConstructionChain[0].IsAsync);
+        Assert.True(result.ConstructionChain[0].Throws);
+        Assert.Single(result.FlattenedParams);
+        Assert.Equal("key", result.FlattenedParams[0].Name);
+        Assert.Equal(AsyncFlatParamKind.String, result.FlattenedParams[0].Kind);
+    }
+
+    [Fact]
+    public void InferAsyncPattern_ReturnsPattern_ThreeLevelChain()
+    {
+        // View → Processor(service: AsyncService, mode: Int32) → AsyncService(key: String) async throws
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var processor = CreateClassTypeDecl("Processor", "TestModule");
+        processor.Methods.Add(CreateCtorWithTwoParams(
+            "service", "TestModule.AsyncService",
+            "mode", "Swift.Int32"));
+        moduleDecl.Types.Add(processor);
+
+        var view = CreateSimpleViewStruct("DeepChainView");
+        view.Methods.Add(CreateCtorWithNamedParam("processor", "TestModule.Processor"));
+        moduleDecl.Types.Add(view);
+
+        var info = new ViewBridgeInfo("DeepChainView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.ConstructionChain!.Count);
+        // AsyncService is built first (deeper dep), then Processor
+        Assert.Equal("AsyncService", result.ConstructionChain[0].SwiftTypeName);
+        Assert.Equal("Processor", result.ConstructionChain[1].SwiftTypeName);
+        // Flattened params: key (from AsyncService) + mode (from Processor)
+        Assert.Equal(2, result.FlattenedParams.Length);
+        Assert.Equal("key", result.FlattenedParams[0].Name);
+        Assert.Equal("mode", result.FlattenedParams[1].Name);
+    }
+
+    [Fact]
+    public void InferAsyncPattern_ReturnsNull_FourLevelChain()
+    {
+        // Depth > 3 should fail
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var level3 = CreateClassTypeDecl("Level3", "TestModule");
+        level3.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(level3);
+
+        var level2 = CreateClassTypeDecl("Level2", "TestModule");
+        level2.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.Level3"));
+        moduleDecl.Types.Add(level2);
+
+        var level1 = CreateClassTypeDecl("Level1", "TestModule");
+        level1.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.Level2"));
+        moduleDecl.Types.Add(level1);
+
+        var level0 = CreateClassTypeDecl("Level0", "TestModule");
+        level0.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.Level1"));
+        moduleDecl.Types.Add(level0);
+
+        var view = CreateSimpleViewStruct("DeepView");
+        view.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.Level0"));
+        moduleDecl.Types.Add(view);
+
+        var info = new ViewBridgeInfo("DeepView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.Null(result); // Exceeds depth limit
+    }
+
+    [Fact]
+    public void InferAsyncPattern_ReturnsNull_UnsupportedLeafParam()
+    {
+        // View → SomeType(config: SomeComplexType) where SomeComplexType is not in module
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var someType = CreateClassTypeDecl("SomeType", "TestModule");
+        someType.Methods.Add(CreateAsyncThrowsCtor("config", "OtherModule.ComplexType"));
+        moduleDecl.Types.Add(someType);
+
+        var view = CreateSimpleViewStruct("TestView");
+        view.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.SomeType"));
+        moduleDecl.Types.Add(view);
+
+        var info = new ViewBridgeInfo("TestView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.Null(result); // Cross-module dep in chain
+    }
+
+    [Fact]
+    public void InferAsyncPattern_ReturnsNull_CrossModuleType()
+    {
+        // View takes a cross-module type directly
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var view = CreateSimpleViewStruct("TestView");
+        view.Methods.Add(CreateCtorWithNamedParam("dep", "OtherModule.SomeClass"));
+        moduleDecl.Types.Add(view);
+
+        var info = new ViewBridgeInfo("TestView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InferAsyncPattern_ReturnsNull_CyclicDependency()
+    {
+        // CycleA(dep: CycleB) and CycleB(dep: CycleA) — infinite loop
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var cycleA = CreateClassTypeDecl("CycleA", "TestModule");
+        cycleA.Methods.Add(CreateAsyncThrowsCtor("dep", "TestModule.CycleB"));
+        moduleDecl.Types.Add(cycleA);
+
+        var cycleB = CreateClassTypeDecl("CycleB", "TestModule");
+        cycleB.Methods.Add(CreateAsyncThrowsCtor("dep", "TestModule.CycleA"));
+        moduleDecl.Types.Add(cycleB);
+
+        var view = CreateSimpleViewStruct("CycleView");
+        view.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.CycleA"));
+        moduleDecl.Types.Add(view);
+
+        var info = new ViewBridgeInfo("CycleView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void SelectBestConstructor_PrefersSmallestSurface()
+    {
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var ctors = new List<MethodDecl>
+        {
+            CreateCtorWithTwoParams("a", "Swift.Int", "b", "Swift.Bool"),
+            CreateConstructorWithPrimitive("x", "Swift.Int"),
+        };
+
+        var best = SwiftUIBridgeEmitter.SelectBestConstructor(ctors, context);
+
+        Assert.NotNull(best);
+        Assert.Equal(2, best.CSSignature.Count); // return type + 1 param
+    }
+
+    [Fact]
+    public void SelectBestConstructor_PrefersShallowerAsync()
+    {
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        // Add two types: one with async init, one without
+        var asyncType = CreateClassTypeDecl("AsyncDep", "TestModule");
+        asyncType.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncType);
+
+        var syncType = CreateClassTypeDecl("SyncDep", "TestModule");
+        syncType.Methods.Add(CreateConstructorWithPrimitive("val", "Swift.Int32"));
+        moduleDecl.Types.Add(syncType);
+
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        // Both ctors have 1 param, but one has async dep (deeper async)
+        var ctors = new List<MethodDecl>
+        {
+            CreateCtorWithNamedParam("dep", "TestModule.AsyncDep"),  // asyncDepth=1
+            CreateCtorWithNamedParam("dep", "TestModule.SyncDep"),   // asyncDepth=0
+        };
+
+        var best = SwiftUIBridgeEmitter.SelectBestConstructor(ctors, context);
+
+        Assert.NotNull(best);
+        // Should prefer SyncDep (shallower async depth)
+        Assert.Equal("TestModule.SyncDep",
+            (best.CSSignature[1].SwiftTypeSpec as NamedTypeSpec)?.Name);
+    }
+
+    [Fact]
+    public void SelectBestConstructor_UsesAbiOrder_OnTie()
+    {
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        // Two ctors with identical surface: both 1 primitive param
+        var ctors = new List<MethodDecl>
+        {
+            CreateConstructorWithPrimitive("first", "Swift.Int"),
+            CreateConstructorWithPrimitive("second", "Swift.Int"),
+        };
+
+        var best = SwiftUIBridgeEmitter.SelectBestConstructor(ctors, context);
+
+        Assert.NotNull(best);
+        Assert.Equal("first", best.CSSignature[1].Name); // ABI order: first wins
+    }
+
+    [Fact]
+    public void SelectBestConstructor_SkipsGenericCtors()
+    {
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var genericCtor = CreateConstructorWithPrimitive("val", "Swift.Int");
+        genericCtor.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T",
+            new List<GenericParameterConformance>(), new List<GenericParameterConformance>()));
+
+        var normalCtor = CreateConstructorWithPrimitive("count", "Swift.Int32");
+
+        var ctors = new List<MethodDecl> { genericCtor, normalCtor };
+
+        var best = SwiftUIBridgeEmitter.SelectBestConstructor(ctors, context);
+
+        Assert.NotNull(best);
+        Assert.Equal("count", best.CSSignature[1].Name); // Generic ctor skipped
+    }
+
+    [Fact]
+    public void SelectBestConstructor_SkipsFailableInits()
+    {
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var failableCtor = CreateConstructorWithPrimitive("val", "Swift.Int");
+        failableCtor.IsFailable = true;
+
+        var normalCtor = CreateConstructorWithPrimitive("count", "Swift.Int32");
+
+        var ctors = new List<MethodDecl> { failableCtor, normalCtor };
+
+        var best = SwiftUIBridgeEmitter.SelectBestConstructor(ctors, context);
+
+        Assert.NotNull(best);
+        Assert.Equal("count", best.CSSignature[1].Name); // Failable ctor skipped
+    }
+
+    [Fact]
+    public void AnalyzeView_KnownPattern_TakesPrecedence_OverInference()
+    {
+        // BlinkIDUXView in BlinkIDUX module is a known pattern — inference shouldn't run
+        var moduleDecl = CreateInferenceModuleDecl("BlinkIDUX");
+        var view = CreateSimpleViewStruct("BlinkIDUXView");
+        view.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("BlinkIDUX.BlinkIDUXView");
+        moduleDecl.Types.Add(view);
+
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.AnalyzeView(view, "BlinkIDUX", context);
+
+        Assert.Equal(ViewInitClassification.AsyncDependency, result.Classification);
+        Assert.Null(result.InferredPattern); // Known pattern, not inferred
+    }
+
+    [Fact]
+    public void AnalyzeView_InfersAsync_WhenModuleDeclAvailable()
+    {
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("AsyncServiceView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule", context);
+
+        Assert.Equal(ViewInitClassification.AsyncDependency, result.Classification);
+        Assert.NotNull(result.InferredPattern);
+        Assert.NotNull(result.InferredPattern.ConstructionChain);
+    }
+
+    [Fact]
+    public void InferAsyncPattern_WorksWithTypeDatabase_ClassDependency()
+    {
+        // Production path: TypeDatabase has the async dependency class registered.
+        // Inference should still resolve it as a chain dependency, not a leaf.
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("AsyncServiceView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        // TypeDatabase has AsyncService registered as a Class
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.AsyncService"] = new TypeRecord
+            {
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AsyncService"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "AsyncService"),
+                MetadataAccessor = "$s10TestModuleAsyncServiceMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var context = new BridgeContext(TypeDatabase: typeDb, ModuleDecl: moduleDecl);
+
+        var info = new ViewBridgeInfo("AsyncServiceView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result.ConstructionChain!);
+        Assert.Equal("AsyncService", result.ConstructionChain![0].SwiftTypeName);
+        Assert.True(result.ConstructionChain[0].IsAsync);
+    }
+
+    [Fact]
+    public void InferAsyncPattern_DAG_SharedDependencyNotFalseCycle()
+    {
+        // DAG: View → A(dep: Shared), B(dep: Shared) — Shared appears in two branches
+        // This should NOT be treated as a cycle.
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var shared = CreateClassTypeDecl("SharedService", "TestModule");
+        shared.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(shared);
+
+        var branchA = CreateClassTypeDecl("BranchA", "TestModule");
+        branchA.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.SharedService"));
+        moduleDecl.Types.Add(branchA);
+
+        var branchB = CreateClassTypeDecl("BranchB", "TestModule");
+        branchB.Methods.Add(CreateCtorWithNamedParam("dep", "TestModule.SharedService"));
+        moduleDecl.Types.Add(branchB);
+
+        var view = CreateSimpleViewStruct("DAGView");
+        view.Methods.Add(CreateCtorWithTwoParams(
+            "a", "TestModule.BranchA",
+            "b", "TestModule.BranchB"));
+        moduleDecl.Types.Add(view);
+
+        var info = new ViewBridgeInfo("DAGView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.NotNull(result);
+        // Chain should have: SharedService (from A's dep), BranchA, SharedService (from B's dep), BranchB
+        Assert.True(result.ConstructionChain!.Count >= 2);
+        // Verify both branches resolved (SharedService appears in chain for each branch)
+        var sharedSteps = result.ConstructionChain.Where(s => s.SwiftTypeName == "SharedService").ToList();
+        Assert.Equal(2, sharedSteps.Count);
+    }
+
+    [Fact]
+    public void SelectBestConstructor_WorksWithTypeDatabase_ModuleTypePrioritized()
+    {
+        // When TypeDatabase has the module type registered as Class,
+        // SelectBestConstructor should still count async depth correctly.
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncType = CreateClassTypeDecl("AsyncDep", "TestModule");
+        asyncType.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncType);
+
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.AsyncDep"] = new TypeRecord
+            {
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AsyncDep"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "AsyncDep"),
+                MetadataAccessor = "$s10TestModuleAsyncDepMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var context = new BridgeContext(TypeDatabase: typeDb, ModuleDecl: moduleDecl);
+
+        // Two ctors: one with async module dep, one with just a primitive
+        var ctors = new List<MethodDecl>
+        {
+            CreateCtorWithNamedParam("dep", "TestModule.AsyncDep"),   // asyncDepth=1
+            CreateConstructorWithPrimitive("val", "Swift.Int"),       // asyncDepth=0
+        };
+
+        var best = SwiftUIBridgeEmitter.SelectBestConstructor(ctors, context);
+
+        Assert.NotNull(best);
+        // Should prefer the primitive ctor (shallower async depth, same param count)
+        Assert.Equal("val", best.CSSignature[1].Name);
+    }
+
+    // --- Inference test helpers ---
+
+    private static ModuleDecl CreateInferenceModuleDecl(string moduleName)
+    {
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+    }
+
+    private static ClassDecl CreateClassTypeDecl(string name, string moduleName)
+    {
+        return new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{name}"),
+            MangledName = $"$s{moduleName}{name}",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+    }
+
+    private static MethodDecl CreateCtorWithNamedParam(string paramName, string swiftType)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Self"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = paramName, PrivateName = paramName, IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec(swiftType),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    private static MethodDecl CreateAsyncThrowsCtor(string paramName, string swiftType)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s_init_async",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = true,
+            IsAsync = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Self"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = paramName, PrivateName = paramName, IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec(swiftType),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    private static MethodDecl CreateCtorWithTwoParams(
+        string param1Name, string param1Type,
+        string param2Name, string param2Type)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s_init_2params",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Self"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = param1Name, PrivateName = param1Name, IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec(param1Type),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = param2Name, PrivateName = param2Name, IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec(param2Type),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    #endregion
 }

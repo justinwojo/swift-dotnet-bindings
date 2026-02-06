@@ -22,7 +22,8 @@ public static partial class SwiftUIBridgeEmitter
         string moduleName,
         IReadOnlyList<TypeDecl> collectedViews,
         ILogger logger,
-        ITypeDatabase? typeDatabase = null)
+        ITypeDatabase? typeDatabase = null,
+        ModuleDecl? moduleDecl = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(@namespace);
@@ -33,8 +34,8 @@ public static partial class SwiftUIBridgeEmitter
         if (collectedViews.Count == 0)
             return;
 
-        var context = new BridgeContext(typeDatabase);
-        var viewInfos = collectedViews.Select(v => AnalyzeView(v, moduleName)).ToList();
+        var context = new BridgeContext(typeDatabase, moduleDecl);
+        var viewInfos = collectedViews.Select(v => AnalyzeView(v, moduleName, context)).ToList();
 
         // Determine which views can be functionally bridged
         var bridgeResults = new List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional)>();
@@ -46,7 +47,7 @@ public static partial class SwiftUIBridgeEmitter
 
             if (info.Classification == ViewInitClassification.AsyncDependency)
             {
-                asyncPattern = GetAsyncPattern(info.ViewName, info.ModuleName);
+                asyncPattern = info.InferredPattern ?? GetAsyncPattern(info.ViewName, info.ModuleName);
                 isFunctional = asyncPattern != null;
             }
             else if (info.Classification == ViewInitClassification.Simple && info.Constructors.Count > 0)
@@ -64,11 +65,14 @@ public static partial class SwiftUIBridgeEmitter
         }
 
         // Record bridged views in report
-        foreach (var (info, _, _, isFunctional) in bridgeResults)
+        foreach (var (info, _, asyncPat, isFunctional) in bridgeResults)
         {
             var status = isFunctional ? "Generated" : "TemplatePending";
+            var classification = info.InferredPattern != null
+                ? "InferredAsync"
+                : info.Classification.ToString();
             ReportCollector.RecordBridgedView(
-                info.ViewName, moduleName, info.Classification.ToString(), status);
+                info.ViewName, moduleName, classification, status);
         }
 
         var swiftContent = GenerateSwiftBridge(moduleName, bridgeResults);
@@ -89,8 +93,18 @@ public static partial class SwiftUIBridgeEmitter
 
     /// <summary>
     /// Analyzes a View type and classifies its init for bridge generation.
+    /// Overload without context — calls through to the context-aware version.
     /// </summary>
     public static ViewBridgeInfo AnalyzeView(TypeDecl viewType, string moduleName)
+    {
+        return AnalyzeView(viewType, moduleName, context: null);
+    }
+
+    /// <summary>
+    /// Analyzes a View type and classifies its init for bridge generation.
+    /// When a BridgeContext with ModuleDecl is provided, attempts ABI-driven async inference.
+    /// </summary>
+    public static ViewBridgeInfo AnalyzeView(TypeDecl viewType, string moduleName, BridgeContext? context)
     {
         var constructors = viewType.Methods.Where(m => m.IsConstructor).ToList();
 
@@ -100,13 +114,22 @@ public static partial class SwiftUIBridgeEmitter
                 "Generic type parameter", constructors);
         }
 
-        // Check for known async dependency patterns (v1: explicit matching only).
-        // Must be checked before Simple classification since async views have a
-        // different code generation path regardless of their constructor shape.
+        // Check for known async dependency patterns (takes precedence over inference).
         if (KnownAsyncPatterns.ContainsKey($"{moduleName}.{viewType.Name}"))
         {
             return new ViewBridgeInfo(viewType.Name, moduleName, ViewInitClassification.AsyncDependency,
                 null, constructors);
+        }
+
+        // ABI-driven async inference (Phase 2).
+        if (context?.ModuleDecl != null)
+        {
+            var tempInfo = new ViewBridgeInfo(viewType.Name, moduleName,
+                ViewInitClassification.Simple, null, constructors);
+            var inferred = InferAsyncPattern(tempInfo, context);
+            if (inferred != null)
+                return new ViewBridgeInfo(viewType.Name, moduleName,
+                    ViewInitClassification.AsyncDependency, null, constructors, inferred);
         }
 
         if (constructors.Count == 0)
@@ -1128,4 +1151,5 @@ public record ViewBridgeInfo(
     string ModuleName,
     ViewInitClassification Classification,
     string? UnsupportedReason,
-    List<MethodDecl> Constructors);
+    List<MethodDecl> Constructors,
+    AsyncViewPattern? InferredPattern = null);

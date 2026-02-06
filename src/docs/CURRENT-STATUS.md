@@ -1,8 +1,8 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 61 Complete)
-**Unit Tests**: 1,239 passed
-**Libraries Tested**: Nuke, BlinkID, BlinkIDUX, Lottie
+**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 2A)
+**Unit Tests**: 1,391 passed
+**Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie
 
 ---
 
@@ -13,6 +13,7 @@
 | **Nuke** | 0 | Full runtime validation |
 | **BlinkID** | 0 | Full runtime validation (18/18 tests) |
 | **BlinkIDUX** | 0 | SwiftUI bridge validation (16/16 tests) |
+| **BridgeParamTest** | 0 | v2 param type validation (26/26 tests) |
 | **Lottie** | 0 | Full runtime validation (9/9 tests) |
 
 ### Binding Coverage
@@ -88,7 +89,7 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 - **Actor isolation enforcement** — Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
-- **SwiftUI Views** — Skipped by generator; manual interop bridge via UIHostingController implemented and validated for BlinkIDUX (Steps 1-3 complete, see `swiftui-bridge-design.md`). Generator automation (Deliverable 2) deferred.
+- **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 Phase 1 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants (26/26 BridgeParamTest). Phase 2A adds ABI-driven async inference (constructor chain resolution, same-module only). Phase 2B (data-driven emission from inferred chains) pending.
 - **Combine** — `@Published` properties and reactive streams not bridged
 
 ### Edge Cases
@@ -135,6 +136,16 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 | 59 | Async Array\<String> callback marshalling |
 | 60 | Async complex type callback marshalling (BlinkID 18/18) |
 | 61 | Fix IntPtr\<T> generic emission bug (integration tests 0 compile errors) |
+
+SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
+
+| Phase | Highlights |
+|-------|------------|
+| v2 Phase 1A | BoundEnum + Optional\<Primitive\|Enum> parameter support |
+| v2 Phase 1B | BoundType class parameter + Optional\<BoundType> support |
+| v2 Phase 1C | TypedClosure `(T...) -> R` parameter support |
+| v2 Phase 1 | Runtime validation: 26/26 BridgeParamTest tests on iOS Simulator |
+| v2 Phase 2A | ABI-driven async inference (constructor chain resolution, cycle detection, depth limiting) |
 
 TestFramework Phases A-D ran in parallel, adding ~184 runtime tests across string/enum/class/blittable marshalling, ownership lifecycle, negative paths, stress tests, arrays, optionals, tuples, pointers, operators, and closures.
 

@@ -33,8 +33,9 @@ public static partial class SwiftUIBridgeEmitter
     /// <summary>
     /// Maps a single Swift parameter to its bridge representation.
     /// Returns null if the parameter type is not supported.
+    /// Internal visibility allows the async inference algorithm to reuse leaf checks.
     /// </summary>
-    private static BridgeParameter? MapParameterType(ArgumentDecl param, BridgeContext? context)
+    internal static BridgeParameter? MapParameterType(ArgumentDecl param, BridgeContext? context)
     {
         var typeSpec = param.SwiftTypeSpec;
 
@@ -143,7 +144,7 @@ public static partial class SwiftUIBridgeEmitter
         return null;
     }
 
-    private static BridgeParameter? MapPrimitiveOrString(string paramName, NamedTypeSpec namedSpec)
+    internal static BridgeParameter? MapPrimitiveOrString(string paramName, NamedTypeSpec namedSpec)
     {
         var fullName = namedSpec.ToString();
 
@@ -306,7 +307,7 @@ public enum BridgeParameterKind
 /// <summary>
 /// Context for bridge parameter analysis. Holds shared services needed by the analyzer.
 /// </summary>
-public record BridgeContext(ITypeDatabase? TypeDatabase = null);
+public record BridgeContext(ITypeDatabase? TypeDatabase = null, ModuleDecl? ModuleDecl = null);
 
 /// <summary>
 /// Mapping of a Swift init parameter to its C ABI representation for bridge code.
