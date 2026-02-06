@@ -1,7 +1,7 @@
 # SwiftUI Interop Bridge Design
 
 **Date**: February 2026
-**Status**: Design
+**Status**: Step 1 Complete (NoInternetView POC validated, ABI hardened)
 **Prerequisite**: Must be solved before repo goes public
 **Reviewers**: Claude, Codex
 
@@ -66,34 +66,106 @@ The bridge pattern converts SwiftUI views into UIKit view controllers via `UIHos
 
 ### C ABI Contract
 
-The bridge surface is intentionally small and stable — four functions per bridged view:
+The bridge surface is intentionally small and stable — four functions per bridged view, plus optional `SBW_TEST_` helpers for automated testing:
 
-| Function | Purpose |
-|----------|---------|
-| `SBW_{Module}_{View}_Create(...)` | Create session + UIHostingController, return opaque handle |
-| `SBW_{Module}_{View}_GetViewController(handle)` | Return UIViewController pointer (unretained) |
-| `SBW_{Module}_{View}_RegisterCallback(handle, callback)` | Register result/event callback |
-| `SBW_{Module}_{View}_Free(handle)` | Release session and all owned objects |
+| Function | Signature (C) | Purpose |
+|----------|---------------|---------|
+| `SBW_{Module}_{View}_Create` | `void* Create(void(*cb)(void*), void* userData)` | Create session + UIHostingController, return opaque handle |
+| `SBW_{Module}_{View}_GetViewController` | `void* GetViewController(void* handle)` | Return UIViewController pointer (unretained) |
+| `SBW_{Module}_{View}_Free` | `void Free(void* handle)` | Release session and all owned objects |
+| `SBW_TEST_{Module}_{View}_FireRetry` | `void FireRetry(void* handle)` | Test-only: programmatically fire callback |
 
-No Swift generics, actors, or async/await cross the ABI boundary. The bridge flattens all complexity into these four C-callable functions.
+No Swift generics, actors, or async/await cross the ABI boundary. The bridge flattens all complexity into C-callable functions exported via `@_cdecl`.
+
+#### Naming Convention
+
+- **Production functions**: `SBW_{Module}_{View}_{Action}` (e.g. `SBW_BlinkIDUX_NoInternetView_Create`)
+- **Test-only helpers**: `SBW_TEST_{Module}_{View}_{Action}` — prefixed `SBW_TEST_` so they are clearly separated from the production surface
+
+#### Calling Convention
+
+All exported functions use **cdecl** calling convention (`@_cdecl` on Swift side, `CallConvCdecl` on C# side). This is the standard C ABI — no Swift calling convention crosses the boundary.
+
+#### Callback ABI
+
+Callbacks use the `userData` pattern standard in C callback APIs:
+
+```c
+// Callback signature — all callbacks follow this pattern
+typedef void (*SBW_Callback)(void* userData);
+
+// Create accepts callback + userData; the bridge stores both and
+// invokes callback(userData) when the event fires.
+void* SBW_BlinkIDUX_NoInternetView_Create(
+    SBW_Callback retryCallback,  // nullable — null means no-op
+    void* userData               // nullable — opaque context pointer
+);
+```
+
+On the C# side, callbacks are declared with `[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]` and passed as `delegate* unmanaged[Cdecl]<IntPtr, void>` function pointers.
 
 ---
 
-## Ownership Contract
+## Ownership and Lifetime Contract
 
 Clear ownership rules prevent leaks and use-after-free:
 
-1. **`Create` retains** — The factory function creates the session object graph and retains it via `Unmanaged.passRetained()`. The caller owns the handle.
+### Handle Lifecycle
 
-2. **`GetViewController` is unretained** — Returns a pointer to the UIHostingController without additional retain. The session owns the controller; the caller must not release it independently.
+1. **`Create` retains and tracks** — The factory creates the session object graph, retains it via `Unmanaged.passRetained()`, and registers the handle in a live-handle tracking set. The caller owns the handle. Returns `NULL` only on internal failure (currently cannot happen).
 
-3. **`Free` releases once** — Releases the session's retain. All objects in the session graph (analyzer, model, view, controller) are deallocated when the session's reference count drops to zero.
+2. **`GetViewController` is unretained** — Returns a pointer to the UIHostingController without additional retain. The session owns the controller; the caller must not release it independently. Returns `NULL` if the handle is invalid.
 
-4. **`Free` is idempotent** — Calling `Free` on an already-freed handle is a no-op (nil check). The C# `Dispose` pattern ensures single release.
+3. **`Free` releases once and untracks** — Removes the handle from the tracking set, then releases the session's retain. All objects in the session graph are deallocated when the reference count drops to zero.
 
-5. **After `Free`, all pointers are invalid** — `GetViewController` returns a dangling pointer after `Free`. The C# bridge class sets `_session = IntPtr.Zero` on dispose and throws `ObjectDisposedException` on subsequent access.
+4. **`Free` is safe against misuse** — Calling `Free` with `NULL`, an already-freed handle, or a stale pointer is a no-op (the handle is not in the tracking set). Double-free does not crash. The C# `IDisposable` wrapper provides an additional managed-side guard.
 
-6. **Callbacks hop to main thread** — All bridge callbacks that touch UI state dispatch to `@MainActor` / main thread before invoking the `@convention(c)` callback. The C# side receives callbacks on the main thread.
+5. **After `Free`, all derived pointers are invalid** — `GetViewController` returns `NULL` after `Free` (handle is no longer tracked). The C# bridge class sets `_handle = IntPtr.Zero` on dispose and throws `ObjectDisposedException` on subsequent access.
+
+### Handle Tracking
+
+The Swift bridge maintains a `Set<UnsafeMutableRawPointer>` of live handles. This provides:
+- **Null safety**: `NULL` handles are rejected (never in the set)
+- **Stale pointer safety**: Freed handles are removed from the set; subsequent access returns `NULL`/no-op
+- **Double-free safety**: Second `Free` call finds handle already removed; no-op
+
+All set access is serialized on the main thread (see threading contract below).
+
+### Threading Contract
+
+6. **All bridge functions marshal to main thread** — If called from a background thread, the bridge uses `DispatchQueue.main.sync` to execute on main. If already on main, execution is immediate. This replaces `dispatchPrecondition` crash assertions — callers from any thread get correct behavior, never a hard abort.
+
+7. **Callbacks dispatch async on main** — All bridge callbacks (retryAction, result callbacks) use `DispatchQueue.main.async` before invoking the `@convention(c)` callback. This matches UIKit/SwiftUI threading expectations and ensures the callback doesn't execute within a synchronous dispatch_sync frame.
+
+8. **Null callbacks are no-op** — If `Create` receives a `NULL` callback function pointer, the session is created successfully but the corresponding action is a no-op. This prevents crashes from non-.NET callers that pass null.
+
+### C# Managed Wrapper Pattern
+
+The C# side wraps the opaque handle in an `IDisposable` class:
+
+```csharp
+public class NoInternetViewSession : IDisposable
+{
+    private IntPtr _handle;
+    private bool _disposed;
+
+    public IntPtr Handle => !_disposed
+        ? _handle
+        : throw new ObjectDisposedException(nameof(NoInternetViewSession));
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            NativeMethods.Free(_handle);
+            _handle = IntPtr.Zero;
+        }
+    }
+}
+```
+
+This pattern enforces single-release semantics and fail-fast on post-dispose access. Future bridge views should follow the same `IDisposable` wrapper pattern.
 
 ---
 
@@ -170,38 +242,47 @@ Start with `NoInternetView(retryAction:)` — the simplest SwiftUI View in the l
 - Ownership (retain/release lifecycle)
 - IntPtr → MAUI view controller presentation
 
-**Swift bridge:**
+**Swift bridge** (`BindingTesting/BlinkId/SwiftBridge/BlinkIDUXBridge.swift`):
 ```swift
-private class NoInternetSession {
+public typealias RetryCallbackFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+
+final class NoInternetSession {
     let hostingController: UIHostingController<NoInternetView>
-    var retryCallback: (@convention(c) () -> Void)?
+    private let retryCallback: RetryCallbackFn?
+    private let userData: UnsafeMutableRawPointer?
 
-    init(controller: UIHostingController<NoInternetView>) {
-        self.hostingController = controller
+    init(retryCallback: RetryCallbackFn?, userData: UnsafeMutableRawPointer?) {
+        // Wires retryAction to dispatch callback(userData) async on main queue
     }
+    func fireRetry() { /* async dispatch matching production path */ }
 }
 
-@_silgen_name("SBW_BlinkIDUX_NoInternetView_Create")
-public func createNoInternetView(
-    retryCallback: @convention(c) () -> Void
-) -> UnsafeMutableRawPointer {
-    let session = NoInternetSession(...)
-    // Wire retryAction to invoke retryCallback
-    return Unmanaged.passRetained(session).toOpaque()
-}
+private var liveHandles = Set<UnsafeMutableRawPointer>()
 
-@_silgen_name("SBW_BlinkIDUX_NoInternetView_GetViewController")
-public func getNoInternetViewController(
-    handle: UnsafeMutableRawPointer
-) -> UnsafeMutableRawPointer { ... }
+@_cdecl("SBW_BlinkIDUX_NoInternetView_Create")
+public func SBW_BlinkIDUX_NoInternetView_Create(
+    _ retryCallback: RetryCallbackFn?, _ userData: UnsafeMutableRawPointer?
+) -> UnsafeMutableRawPointer? { /* onMainThread { create + track } */ }
 
-@_silgen_name("SBW_BlinkIDUX_NoInternetView_Free")
-public func freeNoInternetView(
-    handle: UnsafeMutableRawPointer
-) { Unmanaged<NoInternetSession>.fromOpaque(handle).release() }
+@_cdecl("SBW_BlinkIDUX_NoInternetView_GetViewController")
+public func SBW_BlinkIDUX_NoInternetView_GetViewController(
+    _ handle: UnsafeMutableRawPointer?
+) -> UnsafeMutableRawPointer? { /* onMainThread { validate + return } */ }
+
+@_cdecl("SBW_BlinkIDUX_NoInternetView_Free")
+public func SBW_BlinkIDUX_NoInternetView_Free(
+    _ handle: UnsafeMutableRawPointer?
+) { /* onMainThread { untrack + release } */ }
 ```
 
-**Exit criteria**: `NoInternetView` renders in iOS Simulator from .NET, retry callback fires.
+**Status**: Implemented and validated. 10/10 tests pass on iOS Simulator.
+
+**Exit criteria** (met):
+- NoInternetView creates successfully from .NET (non-null handle)
+- UIViewController retrieved and wraps to managed object
+- View presents modally on screen
+- Retry callback fires back to C# with userData round-trip (0x42 sentinel verified)
+- Dispose releases cleanly; post-dispose access throws `ObjectDisposedException`
 
 #### Step 2: Full BlinkIDUXView
 
