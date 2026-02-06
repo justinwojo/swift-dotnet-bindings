@@ -767,7 +767,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal("Int32", result[0].SwiftAbiType);
         Assert.Equal("int", result[0].CSharpPInvokeType);
         Assert.Equal("AlertStyle", result[0].BridgeTypeName);
-        Assert.Equal("AlertStyle", result[0].CSharpTypeName);
+        Assert.Equal("Swift.TestModule.AlertStyle", result[0].CSharpTypeName);
     }
 
     [Fact]
@@ -1119,7 +1119,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
         Assert.Equal("LottieAnimation", result[0].BridgeTypeName);
-        Assert.Equal("LottieAnimation", result[0].CSharpTypeName);
+        Assert.Equal("Swift.TestModule.LottieAnimation", result[0].CSharpTypeName);
     }
 
     [Fact]
@@ -1237,6 +1237,34 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("AnimViewBridgeNativeMethods", csContent);
         Assert.Contains("AnimViewSession : IDisposable", csContent);
         Assert.Contains("DllImport", csContent);
+    }
+
+    [Fact]
+    public void EmitBoundType_CSharp_UsesFullyQualifiedTypeName_ForCrossModuleSafety()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithClassInit("AnimView", "animation", "TestModule.LottieAnimation") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        // Factory param must use fully-qualified name to resolve across namespaces
+        Assert.Contains("Swift.TestModule.LottieAnimation animation", csContent);
+    }
+
+    [Fact]
+    public void EmitBoundEnum_CSharp_UsesFullyQualifiedTypeName_ForCrossModuleSafety()
+    {
+        var typeDb = CreateEnumTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        // Factory param must use fully-qualified name to resolve across namespaces
+        Assert.Contains("Swift.TestModule.AlertStyle style", csContent);
     }
 
     #endregion

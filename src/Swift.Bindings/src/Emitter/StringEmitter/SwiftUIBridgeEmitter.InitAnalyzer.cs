@@ -147,7 +147,8 @@ public static partial class SwiftUIBridgeEmitter
             // Strip module prefix for Swift emission (module is already imported)
             var dotIndex = namedSpec.Name.IndexOf('.');
             var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
-            var csharpName = record.CSharpTypeName.Name;
+            // Use fully-qualified C# name for cross-module type safety
+            var csharpName = record.CSharpTypeName.FullyQualifiedName;
 
             return new BridgeParameter(
                 paramName,
@@ -164,7 +165,8 @@ public static partial class SwiftUIBridgeEmitter
             // C# passes IntPtr via SafeHandle.DangerousGetHandle().
             var dotIndex = namedSpec.Name.IndexOf('.');
             var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
-            var csharpName = record.CSharpTypeName.Name;
+            // Use fully-qualified C# name for cross-module type safety
+            var csharpName = record.CSharpTypeName.FullyQualifiedName;
 
             return new BridgeParameter(
                 paramName,
