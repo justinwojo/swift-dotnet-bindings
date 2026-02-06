@@ -412,8 +412,40 @@ Types like `BlinkIDTheme` use `SwiftUI.Color` and `SwiftUI.Font` properties. The
 
 ---
 
+## v2 Roadmap: Coverage-Driven Expansion
+
+v1 (Deliverable 2) is validated with 16/16 runtime tests and 52 unit tests, but real-world coverage is limited: only views whose init parameters are primitives, `String`, or `() -> Void` closures get functional bridges. Everything else falls back to commented-out templates.
+
+**v2 expands the bridge to cover real-world SwiftUI libraries** by widening parameter type support, generalizing async inference, and adding a bridge hints escape hatch. The full plan is at [`src/docs/Future/swiftui-bridge-v2-plan.md`](Future/swiftui-bridge-v2-plan.md).
+
+### Summary of Phases
+
+| Phase | Objective | Key Deliverable |
+|-------|-----------|-----------------|
+| **1A** | BoundEnum + Optional<Primitive\|Enum> | Enums and optional primitives cross the ABI |
+| **1B** | BoundType for classes | Class parameters via retain/release |
+| **1C** | TypedClosure | Closures with typed params (max 4) |
+| **1D** | Optional<BoundType> | Optional reference types via nullable pointer |
+| **2** | Generalized async factory | ABI-driven inference replaces hard-coded `KnownAsyncPatterns` |
+| **3** | Bridge hints file | JSON sidecar for user overrides and escape hatches |
+| **4** | Corpus + 3-tier metrics | Track generated/typechecked/runtime-validated across real libraries |
+
+### Coverage Targets
+
+| Library | v1 | v2 Target |
+|---------|-----|-----------|
+| BlinkIDUX (4 views) | 50% | 75%+ |
+| Lottie (3 views) | 0% | 66%+ |
+
+### Deferred to v2.1
+
+Non-frozen struct BoundType, async/throwing closures as init params, tuple init params, >4 closure params. See full plan for rationale.
+
+---
+
 ## References
 
 - `src/docs/known-issues-workarounds.md` — Runtime issues affecting async bridge patterns
 - `src/docs/Future/emitter-redesign-proposal.md` — Emitter architecture context
+- `src/docs/Future/swiftui-bridge-v2-plan.md` — v2 coverage-driven expansion plan
 - `BindingTesting/BlinkId/` — Existing BlinkID binding tests (core SDK) + BlinkIDUX.xcframework
