@@ -152,7 +152,7 @@ public class Application
 
     static IntPtr ResolveBundledFramework(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
-        if (libraryName == "Lottie" || libraryName == "SwiftBindings")
+        if (libraryName is "Lottie" or "SwiftBindings" or "LottieBridge")
         {
             var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
             if (NativeLibrary.TryLoad(frameworkPath, out var handle))
@@ -320,6 +320,18 @@ public class MainViewController : UIViewController
 
             // Test 6: Enum types
             await RunTestAsync("Enum Types", TestEnumTypesAsync, results);
+            await Task.Delay(100);
+
+            // Test 7: SwiftUI Bridge - LottieSwitch (nil animation)
+            await RunTestAsync("LottieSwitch Bridge", TestLottieSwitchBridgeAsync, results);
+            await Task.Delay(100);
+
+            // Test 8: SwiftUI Bridge - LottieButton (nil animation, action callback)
+            await RunTestAsync("LottieButton Bridge", TestLottieButtonBridgeAsync, results);
+            await Task.Delay(100);
+
+            // Test 9: SwiftUI Bridge - LottieButton with animation
+            await RunTestAsync("LottieButton Bridge (anim)", TestLottieButtonWithAnimBridgeAsync, results);
             await Task.Delay(100);
         }
         catch (Exception ex)
@@ -597,6 +609,119 @@ public class MainViewController : UIViewController
         catch (Exception ex)
         {
             results.Fail("LottieBackgroundBehavior enum", ex.Message);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    #endregion
+
+    #region SwiftUI Bridge Tests
+
+    private Task TestLottieSwitchBridgeAsync(TestResults results)
+    {
+        TestLogger.Info("Testing LottieSwitch SwiftUI bridge (nil animation)...");
+
+        try
+        {
+            // Create with nil animation
+            using var session = LottieSwitchSession.Create(null);
+            TestLogger.Info($"LottieSwitchSession created, handle: 0x{session.Handle:X}");
+
+            if (session.Handle != IntPtr.Zero)
+                results.Pass("LottieSwitch bridge: session created");
+            else
+                results.Fail("LottieSwitch bridge", "handle is IntPtr.Zero");
+
+            // Get view controller
+            var vcPtr = session.GetViewController();
+            TestLogger.Info($"GetViewController returned: 0x{vcPtr:X}");
+
+            if (vcPtr != IntPtr.Zero)
+                results.Pass("LottieSwitch bridge: GetViewController");
+            else
+                results.Fail("LottieSwitch bridge", "VC pointer is IntPtr.Zero");
+        }
+        catch (Exception ex)
+        {
+            results.Fail("LottieSwitch bridge", ex.Message);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task TestLottieButtonBridgeAsync(TestResults results)
+    {
+        TestLogger.Info("Testing LottieButton SwiftUI bridge (nil animation, action callback)...");
+
+        try
+        {
+            bool actionFired = false;
+            using var session = LottieButtonSession.Create(null, () => { actionFired = true; });
+            TestLogger.Info($"LottieButtonSession created, handle: 0x{session.Handle:X}");
+
+            if (session.Handle != IntPtr.Zero)
+                results.Pass("LottieButton bridge: session created");
+            else
+                results.Fail("LottieButton bridge", "handle is IntPtr.Zero");
+
+            // Get view controller
+            var vcPtr = session.GetViewController();
+            TestLogger.Info($"GetViewController returned: 0x{vcPtr:X}");
+
+            if (vcPtr != IntPtr.Zero)
+                results.Pass("LottieButton bridge: GetViewController");
+            else
+                results.Fail("LottieButton bridge", "VC pointer is IntPtr.Zero");
+        }
+        catch (Exception ex)
+        {
+            results.Fail("LottieButton bridge", ex.Message);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task TestLottieButtonWithAnimBridgeAsync(TestResults results)
+    {
+        TestLogger.Info("Testing LottieButton SwiftUI bridge (with animation)...");
+
+        try
+        {
+            var jsonPath = NSBundle.MainBundle.PathForResource("test-animation", "json");
+            if (string.IsNullOrEmpty(jsonPath))
+            {
+                results.Fail("LottieButton bridge (anim)", "test-animation.json not found");
+                return Task.CompletedTask;
+            }
+
+            using var data = NSData.FromFile(jsonPath);
+            if (data == null)
+            {
+                results.Fail("LottieButton bridge (anim)", "Failed to read JSON file");
+                return Task.CompletedTask;
+            }
+
+            var animation = LottieAnimation.From(data, DecodingStrategy.DictionaryBased);
+            using var session = LottieButtonSession.Create(animation, () => { });
+            TestLogger.Info($"LottieButtonSession created with animation, handle: 0x{session.Handle:X}");
+
+            if (session.Handle != IntPtr.Zero)
+                results.Pass("LottieButton bridge (anim): session created");
+            else
+                results.Fail("LottieButton bridge (anim)", "handle is IntPtr.Zero");
+
+            var vcPtr = session.GetViewController();
+            TestLogger.Info($"GetViewController returned: 0x{vcPtr:X}");
+
+            if (vcPtr != IntPtr.Zero)
+                results.Pass("LottieButton bridge (anim): GetViewController");
+            else
+                results.Fail("LottieButton bridge (anim)", "VC pointer is IntPtr.Zero");
+        }
+        catch (Exception ex)
+        {
+            results.Fail("LottieButton bridge (anim)", ex.Message);
         }
 
         return Task.CompletedTask;

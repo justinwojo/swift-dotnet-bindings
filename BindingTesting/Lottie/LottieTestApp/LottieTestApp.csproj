@@ -10,6 +10,7 @@
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,7 +22,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
+    <ProjectReference Include="../../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
   </ItemGroup>
 
   <!-- Include Lottie bindings -->
@@ -39,6 +41,18 @@
   <!-- Include SwiftBindings framework (async wrappers) -->
   <ItemGroup>
     <NativeReference Include="../output-ios/SwiftBindings.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- Include SwiftUI bridge C# -->
+  <ItemGroup>
+    <Compile Include="../output-ios/Swift.Lottie.SwiftUIBridge.cs" />
+  </ItemGroup>
+
+  <!-- Include SwiftUI bridge framework -->
+  <ItemGroup>
+    <NativeReference Include="../output-ios/LottieBridge.framework">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>

@@ -198,10 +198,17 @@ public static partial class SwiftUIBridgeEmitter
         if (!chain.Any(step => step.IsAsync || step.Throws))
             return null;
 
+        // Collect ExtraSwiftImports from cross-module leaf parameters
+        var extraImports = flatParams
+            .Where(p => p.SourceModule != null && p.SourceModule != view.ModuleName)
+            .Select(p => p.SourceModule!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
         return new AsyncViewPattern(
             ViewName: view.ViewName,
             SessionClassName: $"SBW_{view.ModuleName}_{view.ViewName}_Session",
-            ExtraSwiftImports: Array.Empty<string>(),
+            ExtraSwiftImports: extraImports,
             SessionFields: chain.Select(s => new AsyncSessionField(s.VariableName, s.SwiftTypeName)).ToArray(),
             FlattenedParams: flatParams.ToArray(),
             HasResultCallback: false,
@@ -286,13 +293,24 @@ public static partial class SwiftUIBridgeEmitter
                 }
             }
 
-            // Not a same-module type — try leaf mapping (primitives, String, Bool, closures)
+            // Not a same-module type — try leaf mapping (primitives, String, Bool, closures, TypeDB types)
             var bridgeParam = MapParameterType(param, context);
             if (bridgeParam != null)
             {
                 var flatParam = BridgeParamToFlatParam(bridgeParam);
                 if (flatParam == null)
                     return false; // unsupported leaf kind for async flattening
+
+                // For cross-module types (BoundType/BoundEnum from TypeDatabase),
+                // record the source module for ExtraSwiftImports.
+                if (flatParam.Kind is AsyncFlatParamKind.BoundType or AsyncFlatParamKind.BoundEnum
+                    && param.SwiftTypeSpec is NamedTypeSpec leafNamedSpec)
+                {
+                    var sourceModule = ExtractSwiftModule(leafNamedSpec);
+                    if (sourceModule != null)
+                        flatParam = flatParam with { SourceModule = sourceModule };
+                }
+
                 flatParams.Add(flatParam);
                 continue;
             }
@@ -318,8 +336,27 @@ public static partial class SwiftUIBridgeEmitter
                 bp.Name, AsyncFlatParamKind.Bool, "Int32", "int", "!= 0", "? 1 : 0"),
             BridgeParameterKind.Primitive => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.Primitive, bp.SwiftAbiType, bp.CSharpPInvokeType, null, null),
-            _ => null, // Closures, enums, etc. not supported in async flattening yet
+            BridgeParameterKind.BoundType => new AsyncFlatParam(
+                bp.Name, AsyncFlatParamKind.BoundType, "UnsafeMutableRawPointer", "IntPtr",
+                null, null, BridgeTypeName: bp.BridgeTypeName),
+            BridgeParameterKind.BoundEnum => new AsyncFlatParam(
+                bp.Name, AsyncFlatParamKind.BoundEnum, bp.SwiftAbiType, bp.CSharpPInvokeType,
+                null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName),
+            _ => null, // Closures, etc. not supported in async flattening yet
         };
+    }
+
+    /// <summary>
+    /// Extracts the Swift module name from a NamedTypeSpec.
+    /// For "OtherModule.SomeClass", returns "OtherModule".
+    /// Returns null if no module prefix is present.
+    /// </summary>
+    private static string? ExtractSwiftModule(NamedTypeSpec? namedSpec)
+    {
+        if (namedSpec == null) return null;
+        var fullName = namedSpec.ToString();
+        var dotIndex = fullName.IndexOf('.');
+        return dotIndex > 0 ? fullName[..dotIndex] : null;
     }
 
     /// <summary>
@@ -599,6 +636,10 @@ public static partial class SwiftUIBridgeEmitter
                 createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
                 createParams.Add($"_ {param.Name}Len: Int");
             }
+            else if (param.Kind == AsyncFlatParamKind.BoundType)
+            {
+                createParams.Add($"_ {param.Name}Ptr: UnsafeMutableRawPointer");
+            }
             else
             {
                 createParams.Add($"_ {param.Name}: {param.SwiftAbiType}");
@@ -632,6 +673,41 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine();
             }
         }
+
+        // BoundType null-pointer guard + conversion (before Task)
+        // Validates non-null pointers eagerly and reports via error callback instead of trapping.
+        var boundTypeParams = pattern.FlattenedParams.Where(p => p.Kind == AsyncFlatParamKind.BoundType).ToList();
+        if (boundTypeParams.Count > 0)
+        {
+            var ptrNames = string.Join(" || ", boundTypeParams.Select(p => $"{p.Name}Ptr == UnsafeMutableRawPointer(bitPattern: 0)"));
+            sb.AppendLine($"    if {ptrNames} {{");
+            sb.AppendLine($"        if let onError = onError {{");
+            sb.AppendLine($"            let msg = \"Null pointer passed for required object parameter\"");
+            sb.AppendLine($"            let utf8 = Array(msg.utf8)");
+            sb.AppendLine($"            utf8.withUnsafeBufferPointer {{ buf in");
+            sb.AppendLine($"                guard let base = buf.baseAddress else {{ return }}");
+            sb.AppendLine($"                onError(base, buf.count, userData)");
+            sb.AppendLine($"            }}");
+            sb.AppendLine($"        }}");
+            sb.AppendLine($"        return");
+            sb.AppendLine($"    }}");
+            foreach (var param in boundTypeParams)
+            {
+                sb.AppendLine($"    let {param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
+            }
+            sb.AppendLine();
+        }
+
+        // BoundEnum conversions eagerly (before Task)
+        foreach (var param in pattern.FlattenedParams)
+        {
+            if (param.Kind == AsyncFlatParamKind.BoundEnum)
+            {
+                sb.AppendLine($"    let {param.Name}Enum = {param.BridgeTypeName}(rawValue: {param.Name})!");
+            }
+        }
+        if (pattern.FlattenedParams.Any(p => p.Kind == AsyncFlatParamKind.BoundEnum))
+            sb.AppendLine();
 
         // Bool conversions eagerly (before Task)
         foreach (var param in pattern.FlattenedParams)
@@ -728,6 +804,9 @@ public static partial class SwiftUIBridgeEmitter
         var param = flatParams.FirstOrDefault(p => p.Name == paramName);
         if (param != null && param.Kind == AsyncFlatParamKind.Bool)
             return $"{paramName}Val";
+        if (param != null && param.Kind == AsyncFlatParamKind.BoundEnum)
+            return $"{paramName}Enum";
+        // BoundType uses original name (conversion creates local with same name)
         return paramName;
     }
 
@@ -1025,6 +1104,7 @@ public static partial class SwiftUIBridgeEmitter
             {
                 AsyncFlatParamKind.String => "string",
                 AsyncFlatParamKind.Bool => "bool",
+                AsyncFlatParamKind.BoundEnum => param.CSharpTypeName ?? param.CSharpPInvokeType,
                 _ => param.CSharpPInvokeType,
             };
             var defaultVal = param.Kind switch
@@ -1037,6 +1117,17 @@ public static partial class SwiftUIBridgeEmitter
 
         sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", factoryParams)})");
         sb.AppendLine("        {");
+
+        // Validate BoundType parameters are non-zero before entering native call
+        var boundTypeFactoryParams = pattern.FlattenedParams.Where(p => p.Kind == AsyncFlatParamKind.BoundType).ToList();
+        foreach (var param in boundTypeFactoryParams)
+        {
+            sb.AppendLine($"            if ({param.Name} == IntPtr.Zero)");
+            sb.AppendLine($"                throw new ArgumentNullException(nameof({param.Name}));");
+        }
+        if (boundTypeFactoryParams.Count > 0)
+            sb.AppendLine();
+
         sb.AppendLine($"            var tcs = new TaskCompletionSource<{info.ViewName}Session>(");
         sb.AppendLine("                TaskCreationOptions.RunContinuationsAsynchronously);");
         sb.AppendLine("            var state = new CreateState(tcs);");
@@ -1098,6 +1189,10 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind == AsyncFlatParamKind.Bool)
             {
                 nativeArgs.Add($"{param.Name} ? 1 : 0");
+            }
+            else if (param.Kind == AsyncFlatParamKind.BoundEnum)
+            {
+                nativeArgs.Add($"({param.CSharpPInvokeType}){param.Name}");
             }
             else
             {
@@ -1307,7 +1402,10 @@ public record AsyncFlatParam(
     string SwiftAbiType,
     string CSharpPInvokeType,
     string? SwiftConversion,
-    string? CSharpConversion);
+    string? CSharpConversion,
+    string? BridgeTypeName = null,
+    string? CSharpTypeName = null,
+    string? SourceModule = null);
 
 /// <summary>
 /// Kind of flattened async parameter.
@@ -1317,4 +1415,6 @@ public enum AsyncFlatParamKind
     String,
     Bool,
     Primitive,
+    BoundType,
+    BoundEnum,
 }

@@ -1,13 +1,13 @@
 {
   "ModuleName": "Lottie",
-  "GeneratedAt": "2026-02-05T04:02:03.774725+00:00",
+  "GeneratedAt": "2026-02-06T19:57:06.025728+00:00",
   "TotalTypes": 93,
-  "EmittedTypes": 79,
-  "SkippedTypes": 1,
+  "EmittedTypes": 77,
+  "SkippedTypes": 3,
   "TotalMembers": 609,
-  "EmittedMembers": 387,
-  "SkippedMembers": 41,
-  "SynthesizedMembers": 272,
+  "EmittedMembers": 375,
+  "SkippedMembers": 39,
+  "SynthesizedMembers": 270,
   "SkippedItems": [
     {
       "Kind": "Property",
@@ -42,12 +42,12 @@
       "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
     },
     {
-      "Kind": "Method",
-      "Name": "animate",
-      "ContainingType": "Lottie.LottieButton",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type.",
-      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+      "Kind": "Type",
+      "Name": "LottieButton",
+      "ContainingType": null,
+      "Reason": "SwiftUIView",
+      "Details": "Type conforms to SwiftUI.View. Bridge generation available.",
+      "RecommendedWorkaround": "SwiftUI View type detected. Auto-generated bridge files are available in the output directory."
     },
     {
       "Kind": "Method",
@@ -90,20 +90,20 @@
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
-      "Kind": "Method",
-      "Name": "isOn",
-      "ContainingType": "Lottie.LottieSwitch",
-      "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type.",
-      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+      "Kind": "Type",
+      "Name": "LottieSwitch",
+      "ContainingType": null,
+      "Reason": "SwiftUIView",
+      "Details": "Type conforms to SwiftUI.View. Bridge generation available.",
+      "RecommendedWorkaround": "SwiftUI View type detected. Auto-generated bridge files are available in the output directory."
     },
     {
       "Kind": "Type",
       "Name": "LottieView",
       "ContainingType": null,
-      "Reason": "SwiftUIConstraint",
-      "Details": "Unsupported generic constraint: SwiftUI.View",
-      "RecommendedWorkaround": "SwiftUI types are excluded. Use Swift wrappers to bridge SwiftUI functionality."
+      "Reason": "SwiftUIView",
+      "Details": "Type conforms to SwiftUI.View. Bridge generation available.",
+      "RecommendedWorkaround": "SwiftUI View type detected. Auto-generated bridge files are available in the output directory."
     },
     {
       "Kind": "Property",
@@ -346,5 +346,25 @@
       "RecommendedWorkaround": "Use a Swift wrapper that constructs the generic type internally."
     }
   ],
-  "WrappedItems": []
+  "WrappedItems": [],
+  "BridgedViews": [
+    {
+      "ViewName": "LottieButton",
+      "ModuleName": "Lottie",
+      "InitClassification": "Simple",
+      "BridgeStatus": "Generated"
+    },
+    {
+      "ViewName": "LottieSwitch",
+      "ModuleName": "Lottie",
+      "InitClassification": "Simple",
+      "BridgeStatus": "Generated"
+    },
+    {
+      "ViewName": "LottieView",
+      "ModuleName": "Lottie",
+      "InitClassification": "Unsupported",
+      "BridgeStatus": "TemplatePending"
+    }
+  ]
 }

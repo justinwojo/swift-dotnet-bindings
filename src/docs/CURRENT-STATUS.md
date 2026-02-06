@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 2B)
-**Unit Tests**: 1,413 passed
+**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 2C)
+**Unit Tests**: 1,419 passed
 **Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie
 
 ---
@@ -13,8 +13,8 @@
 | **Nuke** | 0 | Full runtime validation |
 | **BlinkID** | 0 | Full runtime validation (18/18 tests) |
 | **BlinkIDUX** | 0 | SwiftUI bridge validation (16/16 tests) |
-| **BridgeParamTest** | 0 | v2 param type validation (26/26 tests) |
-| **Lottie** | 0 | Full runtime validation (9/9 tests) |
+| **BridgeParamTest** | 0 | v2 param type validation (35/35 tests) |
+| **Lottie** | 0 | Full runtime + SwiftUI bridge validation (15/15 tests) |
 
 ### Binding Coverage
 
@@ -89,7 +89,7 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 - **Actor isolation enforcement** — Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
-- **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 Phase 1 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants (26/26 BridgeParamTest). Phase 2A adds ABI-driven async inference (constructor chain resolution, same-module only). Phase 2B adds data-driven emission from inferred chains (mixed chain + leaf params, async detection fallback).
+- **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 Phase 1 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants (35/35 BridgeParamTest). Phase 2A adds ABI-driven async inference (constructor chain resolution). Phase 2B adds data-driven emission from inferred chains (mixed chain + leaf params, async detection fallback). Phase 2C adds cross-module type resolution via TypeDatabase (BoundType/BoundEnum in async chains) with null-pointer safety guards.
 - **Combine** — `@Published` properties and reactive streams not bridged
 
 ### Edge Cases
@@ -147,6 +147,7 @@ SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
 | v2 Phase 1 | Runtime validation: 26/26 BridgeParamTest tests on iOS Simulator |
 | v2 Phase 2A | ABI-driven async inference (constructor chain resolution, cycle detection, depth limiting) |
 | v2 Phase 2B | Data-driven emission from inferred chains (mixed chain + leaf params, async mangled-name fallback) |
+| v2 Phase 2C | Cross-module async inference via TypeDatabase (BoundType/BoundEnum), null-pointer safety, Lottie SwiftUI bridge (15/15) |
 
 TestFramework Phases A-D ran in parallel, adding ~184 runtime tests across string/enum/class/blittable marshalling, ownership lifecycle, negative paths, stress tests, arrays, optionals, tuples, pointers, operators, and closures.
 

@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using Foundation;
 using ObjCRuntime;
 using UIKit;
@@ -223,6 +224,51 @@ internal static class NativeMethods
     [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_OptionalClassView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void OptionalClassView_Free(IntPtr handle);
+
+    // --- AsyncServiceView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_AsyncServiceView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void AsyncServiceView_Create(
+        IntPtr keyPtr, nint keyLen,
+        IntPtr onReady, IntPtr onError, IntPtr userData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_AsyncServiceView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr AsyncServiceView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_AsyncServiceView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void AsyncServiceView_Free(IntPtr handle);
+
+    // --- DeepChainView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_DeepChainView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void DeepChainView_Create(
+        IntPtr keyPtr, nint keyLen, int mode,
+        IntPtr onReady, IntPtr onError, IntPtr userData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_DeepChainView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr DeepChainView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_DeepChainView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void DeepChainView_Free(IntPtr handle);
+
+    // --- MixedAsyncView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_MixedAsyncView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void MixedAsyncView_Create(
+        IntPtr keyPtr, nint keyLen, int count, int enabled,
+        IntPtr onReady, IntPtr onError, IntPtr userData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_MixedAsyncView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr MixedAsyncView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_BridgeParamTestLib_MixedAsyncView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void MixedAsyncView_Free(IntPtr handle);
 }
 
 #endregion
@@ -399,6 +445,42 @@ internal static class MixedActionState
     internal static void OnActionCallback(IntPtr userData)
     {
         Interlocked.Increment(ref CallCount);
+    }
+}
+
+/// <summary>
+/// Shared async callback state for InferredAsync view tests.
+/// Uses TaskCompletionSource to bridge Swift async callbacks to C# await.
+/// </summary>
+internal static class AsyncCallbackState
+{
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnReady(IntPtr handle, IntPtr userData)
+    {
+        if (userData == IntPtr.Zero) return;
+        var stateHandle = GCHandle.FromIntPtr(userData);
+        if (!stateHandle.IsAllocated) return;
+        var tcs = (TaskCompletionSource<IntPtr>)stateHandle.Target!;
+        stateHandle.Free();
+        tcs.TrySetResult(handle);
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnError(IntPtr msgPtr, nint msgLen, IntPtr userData)
+    {
+        if (userData == IntPtr.Zero) return;
+        var stateHandle = GCHandle.FromIntPtr(userData);
+        if (!stateHandle.IsAllocated) return;
+        var tcs = (TaskCompletionSource<IntPtr>)stateHandle.Target!;
+        stateHandle.Free();
+        string msg = "(unknown error)";
+        if (msgPtr != IntPtr.Zero && msgLen > 0)
+        {
+            var bytes = new byte[(int)msgLen];
+            Marshal.Copy(msgPtr, bytes, 0, (int)msgLen);
+            msg = Encoding.UTF8.GetString(bytes);
+        }
+        tcs.TrySetException(new InvalidOperationException(msg));
     }
 }
 
@@ -653,6 +735,30 @@ public class MainViewController : UIViewController
             await RunTestAsync("OptionalClass_Nil", TestOptionalClass_Nil, results);
             await Task.Delay(100);
 
+            // --- AsyncServiceView Tests ---
+            TestLogger.Info("");
+            TestLogger.Info("--- AsyncServiceView (InferredAsync) ---");
+            await RunTestAsync("AsyncService_CreateAsync", TestAsyncService_CreateAsync, results);
+            await RunTestAsync("AsyncService_GetVC", TestAsyncService_GetVC, results);
+            await RunTestAsync("AsyncService_Dispose", TestAsyncService_Dispose, results);
+            await Task.Delay(100);
+
+            // --- DeepChainView Tests ---
+            TestLogger.Info("");
+            TestLogger.Info("--- DeepChainView (InferredAsync) ---");
+            await RunTestAsync("DeepChain_CreateAsync", TestDeepChain_CreateAsync, results);
+            await RunTestAsync("DeepChain_GetVC", TestDeepChain_GetVC, results);
+            await RunTestAsync("DeepChain_Dispose", TestDeepChain_Dispose, results);
+            await Task.Delay(100);
+
+            // --- MixedAsyncView Tests ---
+            TestLogger.Info("");
+            TestLogger.Info("--- MixedAsyncView (InferredAsync) ---");
+            await RunTestAsync("MixedAsync_CreateAsync", TestMixedAsync_CreateAsync, results);
+            await RunTestAsync("MixedAsync_GetVC", TestMixedAsync_GetVC, results);
+            await RunTestAsync("MixedAsync_Dispose", TestMixedAsync_Dispose, results);
+            await Task.Delay(100);
+
             // --- Cleanup ---
             TestLogger.Info("");
             TestLogger.Info("--- Cleanup ---");
@@ -716,6 +822,11 @@ public class MainViewController : UIViewController
     private BridgeSession? _optClassWithValueSession;
     private IntPtr _optClassModelPtr;
     private BridgeSession? _optClassNilSession;
+
+    // Async view sessions
+    private BridgeSession? _asyncServiceSession;
+    private BridgeSession? _deepChainSession;
+    private BridgeSession? _mixedAsyncSession;
 
     #endregion
 
@@ -1162,6 +1273,237 @@ public class MainViewController : UIViewController
 
     #endregion
 
+    #region Test Implementations — AsyncServiceView
+
+    private async Task TestAsyncService_CreateAsync(TestResults results)
+    {
+        TestLogger.Info("Creating AsyncServiceView session with key=\"test-key\"...");
+
+        try
+        {
+            var handle = await CreateAsyncView((readyPtr, errorPtr, statePtr) =>
+            {
+                unsafe
+                {
+                    var keyBytes = Encoding.UTF8.GetBytes("test-key");
+                    fixed (byte* keyPtr = keyBytes)
+                    {
+                        NativeMethods.AsyncServiceView_Create(
+                            (IntPtr)keyPtr, keyBytes.Length,
+                            readyPtr, errorPtr, statePtr);
+                    }
+                }
+            });
+
+            _asyncServiceSession = new BridgeSession(handle, "AsyncServiceView", NativeMethods.AsyncServiceView_Free);
+            TestLogger.Info($"Session created, handle: 0x{handle:X}");
+            results.Pass("AsyncService_CreateAsync (handle != 0)");
+        }
+        catch (Exception ex)
+        {
+            results.Fail("AsyncService_CreateAsync", ex.Message);
+        }
+    }
+
+    private Task TestAsyncService_GetVC(TestResults results)
+    {
+        if (_asyncServiceSession == null) { results.Fail("AsyncService_GetVC", "no session"); return Task.CompletedTask; }
+
+        var vcPtr = NativeMethods.AsyncServiceView_GetViewController(_asyncServiceSession.Handle);
+        TestLogger.Info($"GetViewController returned: 0x{vcPtr:X}");
+
+        if (vcPtr != IntPtr.Zero)
+            results.Pass("AsyncService_GetVC (pointer != 0)");
+        else
+            results.Fail("AsyncService_GetVC", "pointer is IntPtr.Zero");
+
+        return Task.CompletedTask;
+    }
+
+    private Task TestAsyncService_Dispose(TestResults results)
+    {
+        if (_asyncServiceSession == null) { results.Fail("AsyncService_Dispose", "no session"); return Task.CompletedTask; }
+
+        _asyncServiceSession.Dispose();
+        TestLogger.Info("Session disposed");
+
+        try
+        {
+            _ = _asyncServiceSession.Handle;
+            results.Fail("AsyncService_Dispose", "expected ObjectDisposedException");
+        }
+        catch (ObjectDisposedException)
+        {
+            results.Pass("AsyncService_Dispose: ODE fired after dispose");
+        }
+
+        _asyncServiceSession = null;
+        return Task.CompletedTask;
+    }
+
+    #endregion
+
+    #region Test Implementations — DeepChainView
+
+    private async Task TestDeepChain_CreateAsync(TestResults results)
+    {
+        TestLogger.Info("Creating DeepChainView session with key=\"test-key\", mode=42...");
+
+        try
+        {
+            var handle = await CreateAsyncView((readyPtr, errorPtr, statePtr) =>
+            {
+                unsafe
+                {
+                    var keyBytes = Encoding.UTF8.GetBytes("test-key");
+                    fixed (byte* keyPtr = keyBytes)
+                    {
+                        NativeMethods.DeepChainView_Create(
+                            (IntPtr)keyPtr, keyBytes.Length, 42,
+                            readyPtr, errorPtr, statePtr);
+                    }
+                }
+            });
+
+            _deepChainSession = new BridgeSession(handle, "DeepChainView", NativeMethods.DeepChainView_Free);
+            TestLogger.Info($"Session created, handle: 0x{handle:X}");
+            results.Pass("DeepChain_CreateAsync (handle != 0)");
+        }
+        catch (Exception ex)
+        {
+            results.Fail("DeepChain_CreateAsync", ex.Message);
+        }
+    }
+
+    private Task TestDeepChain_GetVC(TestResults results)
+    {
+        if (_deepChainSession == null) { results.Fail("DeepChain_GetVC", "no session"); return Task.CompletedTask; }
+
+        var vcPtr = NativeMethods.DeepChainView_GetViewController(_deepChainSession.Handle);
+        TestLogger.Info($"GetViewController returned: 0x{vcPtr:X}");
+
+        if (vcPtr != IntPtr.Zero)
+            results.Pass("DeepChain_GetVC (pointer != 0)");
+        else
+            results.Fail("DeepChain_GetVC", "pointer is IntPtr.Zero");
+
+        return Task.CompletedTask;
+    }
+
+    private Task TestDeepChain_Dispose(TestResults results)
+    {
+        if (_deepChainSession == null) { results.Fail("DeepChain_Dispose", "no session"); return Task.CompletedTask; }
+
+        _deepChainSession.Dispose();
+        TestLogger.Info("Session disposed");
+
+        try
+        {
+            _ = _deepChainSession.Handle;
+            results.Fail("DeepChain_Dispose", "expected ObjectDisposedException");
+        }
+        catch (ObjectDisposedException)
+        {
+            results.Pass("DeepChain_Dispose: ODE fired after dispose");
+        }
+
+        _deepChainSession = null;
+        return Task.CompletedTask;
+    }
+
+    #endregion
+
+    #region Test Implementations — MixedAsyncView
+
+    private async Task TestMixedAsync_CreateAsync(TestResults results)
+    {
+        TestLogger.Info("Creating MixedAsyncView session with key=\"test-key\", count=10, enabled=true...");
+
+        try
+        {
+            var handle = await CreateAsyncView((readyPtr, errorPtr, statePtr) =>
+            {
+                unsafe
+                {
+                    var keyBytes = Encoding.UTF8.GetBytes("test-key");
+                    fixed (byte* keyPtr = keyBytes)
+                    {
+                        NativeMethods.MixedAsyncView_Create(
+                            (IntPtr)keyPtr, keyBytes.Length, 10, 1, // enabled=true→1
+                            readyPtr, errorPtr, statePtr);
+                    }
+                }
+            });
+
+            _mixedAsyncSession = new BridgeSession(handle, "MixedAsyncView", NativeMethods.MixedAsyncView_Free);
+            TestLogger.Info($"Session created, handle: 0x{handle:X}");
+            results.Pass("MixedAsync_CreateAsync (handle != 0)");
+        }
+        catch (Exception ex)
+        {
+            results.Fail("MixedAsync_CreateAsync", ex.Message);
+        }
+    }
+
+    private Task TestMixedAsync_GetVC(TestResults results)
+    {
+        if (_mixedAsyncSession == null) { results.Fail("MixedAsync_GetVC", "no session"); return Task.CompletedTask; }
+
+        var vcPtr = NativeMethods.MixedAsyncView_GetViewController(_mixedAsyncSession.Handle);
+        TestLogger.Info($"GetViewController returned: 0x{vcPtr:X}");
+
+        if (vcPtr != IntPtr.Zero)
+            results.Pass("MixedAsync_GetVC (pointer != 0)");
+        else
+            results.Fail("MixedAsync_GetVC", "pointer is IntPtr.Zero");
+
+        return Task.CompletedTask;
+    }
+
+    private Task TestMixedAsync_Dispose(TestResults results)
+    {
+        if (_mixedAsyncSession == null) { results.Fail("MixedAsync_Dispose", "no session"); return Task.CompletedTask; }
+
+        _mixedAsyncSession.Dispose();
+        TestLogger.Info("Session disposed");
+
+        try
+        {
+            _ = _mixedAsyncSession.Handle;
+            results.Fail("MixedAsync_Dispose", "expected ObjectDisposedException");
+        }
+        catch (ObjectDisposedException)
+        {
+            results.Pass("MixedAsync_Dispose: ODE fired after dispose");
+        }
+
+        _mixedAsyncSession = null;
+        return Task.CompletedTask;
+    }
+
+    #endregion
+
+    #region Async View Helper
+
+    /// <summary>
+    /// Shared helper for creating async view sessions via callback-based P/Invoke.
+    /// The caller provides a lambda that invokes the specific native Create function.
+    /// </summary>
+    private static unsafe Task<IntPtr> CreateAsyncView(Action<IntPtr, IntPtr, IntPtr> invokeCreate)
+    {
+        var tcs = new TaskCompletionSource<IntPtr>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stateHandle = GCHandle.Alloc(tcs);
+
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> readyPtr = &AsyncCallbackState.OnReady;
+        delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> errorPtr = &AsyncCallbackState.OnError;
+
+        invokeCreate((IntPtr)readyPtr, (IntPtr)errorPtr, GCHandle.ToIntPtr(stateHandle));
+
+        return tcs.Task;
+    }
+
+    #endregion
+
     #region Test Implementations — Cleanup
 
     private Task TestCleanup(TestResults results)
@@ -1194,6 +1536,11 @@ public class MainViewController : UIViewController
                 odeFired++;
             }
         }
+
+        // Async sessions (already disposed in their own tests, but clean up if not)
+        if (_asyncServiceSession != null) { _asyncServiceSession.Dispose(); _asyncServiceSession = null; disposed++; }
+        if (_deepChainSession != null) { _deepChainSession.Dispose(); _deepChainSession = null; disposed++; }
+        if (_mixedAsyncSession != null) { _mixedAsyncSession.Dispose(); _mixedAsyncSession = null; disposed++; }
 
         // Free model pointers
         if (_classModelPtr != IntPtr.Zero)

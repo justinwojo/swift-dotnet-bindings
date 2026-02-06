@@ -3017,6 +3017,268 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("CreateAsync(string key, int mode)", csContent);
     }
 
+    #endregion
+
+    #region Cross-Module Async Inference
+
+    [Fact]
+    public void InferAsyncPattern_CrossModuleType_WithTypeDB_ResolvesAsLeaf()
+    {
+        // View(service: SameModule.AsyncService) where AsyncService(sdk: OtherModule.ExternalSdk, key: String)
+        // ExternalSdk is cross-module but registered in TypeDatabase as a Class → treated as leaf
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateCtorWithTwoParams(
+            "sdk", "OtherModule.ExternalSdk",
+            "key", "Swift.String"));
+        asyncService.Methods[0].IsAsync = true;
+        asyncService.Methods[0].Throws = true;
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("CrossModuleView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        // TypeDatabase has the cross-module type registered
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["OtherModule.ExternalSdk"] = new TypeRecord
+            {
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ExternalSdk"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.OtherModule", "ExternalSdk"),
+                MetadataAccessor = "$s11OtherModuleExternalSdkMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var context = new BridgeContext(TypeDatabase: typeDb, ModuleDecl: moduleDecl);
+
+        var info = new ViewBridgeInfo("CrossModuleView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.ConstructionChain);
+        Assert.Single(result.ConstructionChain!);
+        Assert.Equal("AsyncService", result.ConstructionChain[0].SwiftTypeName);
+        Assert.True(result.ConstructionChain[0].IsAsync);
+        // ExternalSdk is a flattened leaf parameter
+        Assert.Equal(2, result.FlattenedParams.Length); // sdk (BoundType) + key (String)
+        var sdkParam = result.FlattenedParams.First(p => p.Name == "sdk");
+        Assert.Equal(AsyncFlatParamKind.BoundType, sdkParam.Kind);
+        Assert.Equal("ExternalSdk", sdkParam.BridgeTypeName);
+    }
+
+    [Fact]
+    public void InferAsyncPattern_CrossModuleType_WithoutTypeDB_ReturnsNull()
+    {
+        // Same setup but no TypeDatabase — cross-module type unresolvable
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateCtorWithTwoParams(
+            "sdk", "OtherModule.ExternalSdk",
+            "key", "Swift.String"));
+        asyncService.Methods[0].IsAsync = true;
+        asyncService.Methods[0].Throws = true;
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("CrossModuleView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        // No TypeDatabase — cross-module type can't be resolved
+        var context = new BridgeContext(ModuleDecl: moduleDecl);
+
+        var info = new ViewBridgeInfo("CrossModuleView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InferAsyncPattern_CrossModule_DirectParam_WithTypeDB()
+    {
+        // View directly takes a cross-module type + a primitive
+        // View(sdk: OtherModule.ExternalSdk, key: String) — sdk is leaf, needs async service from elsewhere
+        // This alone won't be async (no async steps), so add a same-module async dep too:
+        // View(service: TestModule.AsyncService, sdk: OtherModule.ExternalSdk)
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateAsyncThrowsCtor("key", "Swift.String"));
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("DirectCrossModuleView");
+        view.Methods.Add(CreateCtorWithTwoParams(
+            "service", "TestModule.AsyncService",
+            "sdk", "OtherModule.ExternalSdk"));
+        moduleDecl.Types.Add(view);
+
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["OtherModule.ExternalSdk"] = new TypeRecord
+            {
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ExternalSdk"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.OtherModule", "ExternalSdk"),
+                MetadataAccessor = "$s11OtherModuleExternalSdkMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var context = new BridgeContext(TypeDatabase: typeDb, ModuleDecl: moduleDecl);
+
+        var info = new ViewBridgeInfo("DirectCrossModuleView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result.ConstructionChain!);
+        // Flattened params: key (String from AsyncService ctor) + sdk (BoundType direct on View)
+        Assert.Equal(2, result.FlattenedParams.Length);
+        var sdkParam = result.FlattenedParams.First(p => p.Name == "sdk");
+        Assert.Equal(AsyncFlatParamKind.BoundType, sdkParam.Kind);
+    }
+
+    [Fact]
+    public void InferAsyncPattern_CrossModule_ExtraSwiftImports_Populated()
+    {
+        // Cross-module type should populate ExtraSwiftImports for the Swift bridge file
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateCtorWithTwoParams(
+            "sdk", "OtherModule.ExternalSdk",
+            "key", "Swift.String"));
+        asyncService.Methods[0].IsAsync = true;
+        asyncService.Methods[0].Throws = true;
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("ImportTestView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["OtherModule.ExternalSdk"] = new TypeRecord
+            {
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ExternalSdk"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.OtherModule", "ExternalSdk"),
+                MetadataAccessor = "$s11OtherModuleExternalSdkMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var context = new BridgeContext(TypeDatabase: typeDb, ModuleDecl: moduleDecl);
+
+        var info = new ViewBridgeInfo("ImportTestView", "TestModule",
+            ViewInitClassification.Simple, null, view.Methods.Where(m => m.IsConstructor).ToList());
+
+        var result = SwiftUIBridgeEmitter.InferAsyncPattern(info, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result.ExtraSwiftImports);
+        Assert.Equal("OtherModule", result.ExtraSwiftImports[0]);
+    }
+
+    [Fact]
+    public void DataDrivenSwift_CrossModule_EmitsBoundTypeParam()
+    {
+        // End-to-end: cross-module BoundType param appears in Swift bridge
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateCtorWithTwoParams(
+            "sdk", "OtherModule.ExternalSdk",
+            "key", "Swift.String"));
+        asyncService.Methods[0].IsAsync = true;
+        asyncService.Methods[0].Throws = true;
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("CrossModuleBridgeView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["OtherModule.ExternalSdk"] = new TypeRecord
+            {
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ExternalSdk"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.OtherModule", "ExternalSdk"),
+                MetadataAccessor = "$s11OtherModuleExternalSdkMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDatabase: typeDb, moduleDecl: moduleDecl);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+
+        // Extra import for cross-module type
+        Assert.Contains("import OtherModule", swiftContent);
+        // BoundType param in Create function uses Ptr suffix
+        Assert.Contains("sdkPtr: UnsafeMutableRawPointer", swiftContent);
+        // Unmanaged cast to typed reference
+        Assert.Contains("Unmanaged<ExternalSdk>.fromOpaque(sdkPtr).takeUnretainedValue()", swiftContent);
+        // P1 fix: null-pointer guard before Unmanaged cast
+        Assert.Contains("sdkPtr == UnsafeMutableRawPointer(bitPattern: 0)", swiftContent);
+        Assert.Contains("Null pointer passed for required object parameter", swiftContent);
+        // Chain step uses the typed variable
+        Assert.Contains("let service = try await AsyncService(sdk: sdk, key: key)", swiftContent);
+    }
+
+    [Fact]
+    public void DataDrivenCSharp_CrossModule_EmitsBoundTypeParam()
+    {
+        // End-to-end: cross-module BoundType param appears in C# bridge
+        var moduleDecl = CreateInferenceModuleDecl("TestModule");
+
+        var asyncService = CreateClassTypeDecl("AsyncService", "TestModule");
+        asyncService.Methods.Add(CreateCtorWithTwoParams(
+            "sdk", "OtherModule.ExternalSdk",
+            "key", "Swift.String"));
+        asyncService.Methods[0].IsAsync = true;
+        asyncService.Methods[0].Throws = true;
+        moduleDecl.Types.Add(asyncService);
+
+        var view = CreateSimpleViewStruct("CrossModuleBridgeView");
+        view.Methods.Add(CreateCtorWithNamedParam("service", "TestModule.AsyncService"));
+        moduleDecl.Types.Add(view);
+
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["OtherModule.ExternalSdk"] = new TypeRecord
+            {
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.ExternalSdk"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.OtherModule", "ExternalSdk"),
+                MetadataAccessor = "$s11OtherModuleExternalSdkMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, typeDatabase: typeDb, moduleDecl: moduleDecl);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+
+        // P/Invoke has IntPtr for the cross-module type
+        Assert.Contains("IntPtr sdk", csContent);
+        // CreateAsync factory has IntPtr parameter
+        Assert.Contains("CreateAsync(IntPtr sdk, string key)", csContent);
+        // P1 fix: ArgumentNullException guard for BoundType IntPtr params
+        Assert.Contains("ArgumentNullException(nameof(sdk))", csContent);
+    }
+
     // --- Inference test helpers ---
 
     private static ModuleDecl CreateInferenceModuleDecl(string moduleName)
