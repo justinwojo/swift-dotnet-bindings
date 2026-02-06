@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 61 Complete, TestFramework Phase D Complete)
-**Unit Tests**: 1239 passed
+**Last Updated**: February 2026 (Phase 61 Complete)
+**Unit Tests**: 1,239 passed
 **Libraries Tested**: Nuke, BlinkID, Lottie
 
 ---
@@ -10,281 +10,131 @@
 
 | Library | Generator Errors | Runtime Validation |
 |---------|------------------|-------------------|
-| **Nuke** | 0 ✅ | Full runtime validation |
-| **BlinkID** | 0 ✅ | Compiles clean (no runtime tests yet) |
-| **Lottie** | 0 ✅ | Runtime validated (9/9 tests pass) |
+| **Nuke** | 0 | Full runtime validation |
+| **BlinkID** | 0 | Full runtime validation (18/18 tests) |
+| **Lottie** | 0 | Full runtime validation (9/9 tests) |
 
 ### Binding Coverage
 
+Assessed after Phase 60 (async complex type marshalling).
+
 | Library | Types | Type % | Members | Member % |
 |---------|-------|--------|---------|----------|
-| BlinkID | 116/119 | 97.5% | 559/655 | 85.3% |
-| Nuke | 60/68 | 88.2% | 325/490 | 66.3% |
-| Lottie | 79/93 | 84.9% | 365/609 | 59.9% |
+| BlinkID | 116/119 | 97.5% | 567/572 | 99.1% |
+| Nuke | 60/68 | 88.2% | 323/342 | 94.4% |
+| Lottie | 79/93 | 84.9% | 387/428 | 90.4% |
 
-Member coverage gaps are primarily due to unsupported signatures and existential edge cases. Target is 90%+ for common API patterns.
+Remaining member gaps are primarily unsupported existential type arguments in bound generics (26 skips across Nuke/Lottie) and UIKit/Foundation types not in TypeDatabase. See `remaining-work.md` for details.
+
+### TestFramework Coverage
+
+| Metric | Value |
+|--------|-------|
+| Must-pass features | 93 |
+| Passing | 92 (98.9%) |
+| Degraded | 1 |
+| Known-unsupported | 52 |
+| Types emitted | 151/168 (89.9%) |
+| Members emitted | 673/747 (90.1%) |
+
+Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedExistential: `describeAll([any Describable])` requires `SwiftArray<ExistentialContainer>` runtime support).
 
 ---
 
 ## What Works
 
 ### Types
-- ✅ Classes (with ARC via SafeHandle)
-- ✅ Structs (frozen and non-frozen)
-- ✅ Enums (with associated values, raw representable, runtime enum case construction)
-- ✅ Protocols (interface + proxy generation + conformance emission)
-- ✅ Generics (bound generics, generic enums, generic classes, unbound generic type parameters in properties/methods)
-- ✅ Actors (detected via Actor protocol conformance, emitted as classes with actor comment)
+- Classes (with ARC via SafeHandle)
+- Structs (frozen and non-frozen)
+- Enums (with associated values, raw representable including String raw values, runtime enum case construction)
+- Protocols (interface generation, proxy generation, conformance emission, witness table dispatch for blittable + String types)
+- Generics (bound generics, generic enums, generic classes, unbound generic type parameters in properties/methods/constructors)
+- Actors (detected via Actor protocol conformance, emitted as classes)
+- Existential containers (protocol composition, existential type arguments in bound generics)
 
 ### Members
-- ✅ Methods (instance, static, async)
-- ✅ Properties (getters and setters)
-- ✅ Operators (+, -, ==, !=, <, >, etc. with automatic pair synthesis, null-safe equality on reference types)
-- ✅ Constructors (including failable `init?` as `TryCreate()` factory methods)
-- ✅ Inout parameters (emitted as `ref` in C#)
-- ✅ Subscripts (as C# indexers)
+- Methods (instance, static, async via Swift wrapper generation)
+- Properties (getters and setters, including witness dispatch through protocol proxies)
+- Operators (+, -, ==, !=, <, >, etc. with automatic pair synthesis, null-safe equality on reference types)
+- Constructors (including failable `init?` as `TryCreate()` factory methods)
+- Inout parameters (emitted as `ref` in C#)
+- Subscripts (as C# indexers)
 
 ### Special Types
-- ✅ SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>
-- ✅ Closures (@convention(c), @escaping with frozen types, throwing closures)
-- ✅ Tuples (1-7 elements)
-- ✅ Existential containers (protocol composition)
-- ✅ Opaque return types (`some Protocol` → existential container via Swift wrapper)
-- ✅ CoreGraphics opaque types (CGImage, CGColor, CGContext → IntPtr)
-- ✅ Swift pointer types (OpaquePointer, UnsafePointer, UnsafeMutablePointer → IntPtr)
-- ✅ NSObject subclass parameters (ObjC bridged marshalling pipeline)
+- SwiftString, SwiftArray\<T>, SwiftSet\<T>, SwiftOptional\<T>
+- Closures (@convention(c), @escaping with frozen types, throwing closures)
+- Tuples (1-7 elements, named elements preserved)
+- Opaque return types (`some Protocol` → existential container via Swift wrapper)
+- CoreGraphics opaque types (CGImage, CGColor, CGContext → IntPtr)
+- Swift pointer types (OpaquePointer, UnsafePointer, UnsafeMutablePointer → IntPtr)
+- NSObject subclass parameters (ObjC bridged marshalling pipeline)
+- Async return marshalling for String, Array\<String>, classes, enums, and structs (via `@convention(c)` callbacks)
 
 ### DX Features
-- ✅ Binding completeness report (`binding-report.json`)
-- ✅ `[UnsupportedSwiftType]` attribute on degraded members
-- ✅ Skip reasons in report (UnsupportedSignature, AnyTypeFallback, AsyncProperty, etc.)
-- ✅ Configurable namespace mapping
-- ✅ Async property detection via TBD symbol analysis
+- Binding completeness report (`binding-report.json`) with workaround recommendations
+- `[UnsupportedSwiftType]` attribute on degraded members
+- Skip reasons in report (UnsupportedSignature, AnyTypeFallback, AsyncProperty, etc.)
+- Configurable namespace mapping
+- Async property detection via TBD symbol analysis
 
 ---
 
 ## What Doesn't Work
 
 ### Architectural Gaps
-- ⚠️ **Protocol witness table dispatch** - Phase A (blittable read-only) complete: property getters and non-mutating methods with primitive types dispatch through witness table. Setters, mutating methods, and String marshalling not yet supported.
-- ❌ **Actor isolation enforcement** - Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
+- **Full protocol witness dispatch** — Blittable and String types dispatch through witness table. Setters work for blittable + String. Mutating methods, throws, and async not yet supported.
+- **Actor isolation enforcement** — Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
-- ❌ **SwiftUI** - Types with SwiftUI constraints skipped
-- ❌ **Combine** - Reactive framework out of scope
+- **SwiftUI Views** — Currently skipped; bridge pattern via UIHostingController designed, implementation pending (see `swiftui-bridge-design.md`)
+- **Combine** — `@Published` properties and reactive streams not bridged
 
 ### Edge Cases
-- ❌ **8+ element tuples** - Would require ValueTuple nesting
-- ❌ **Closures within closures** - Not supported
-- ❌ **Generic associated types** - PATs limited
-- ❌ **Async+throwing closures at runtime** - Binding generation works but runtime blocked by existential metadata Mono JIT bug
+- **8+ element tuples** — Would require ValueTuple nesting
+- **Closures within closures** — Not supported
+- **Generic associated types** — PATs limited
+- **Async+throwing closures at runtime** — Binding generation works but runtime blocked by existential metadata Mono JIT bug
 
 ### Known Runtime Issues
 - **Mono JIT**: `swift_getExistentialTypeMetadata` crash when creating `SwiftArray<ExistentialContainer>` (workaround: Swift wrapper functions)
+- **Non-blittable CallConvSwift**: Mono JIT rejects non-blittable types with Swift calling convention (workaround: `IntPtr` + manual marshalling)
 - **SafeHandle in async**: .NET runtime doesn't preserve SafeHandle through async P/Invoke (workaround: singleton pattern + IntPtr conversion)
-- See `known-issues-workarounds.md` for full details
+- See `known-issues-workarounds.md` for full details and `Future/upstream-bug-reports-draft.md` for draft .NET runtime bug reports
 
 ---
 
-## Recent Progress: TestFramework Phase D (Real-World Pattern Coverage)
+## Development History
 
-### Layer 1 Expansion
-- Re-enabled Swift sources: Operators (4 files), Tuples (3 files), Closures (3 files), UnsafeTypes (3 files)
-- New Swift sources: Collections/ArrayOperations.swift, Optionals/OptionalTypes.swift
-- Fixed `getStaticBuffer()` dangling pointer bug (process-lifetime allocation)
-- Coverage: 99 must-pass features, 44 passing, 0 degraded (was 93/93 before expansion)
-- 51 "missing" features from still-disabled directories (Generics, Protocols, Async, etc.)
-- 56 known-unsupported features (throwing closures, pointer generics, autoclosures, etc.)
+61 phases of improvements tracked in git history. Key milestones:
 
-### Known Generator Limitations Found
-- `UnsafePointer<T>` (immutable) maps to `AnyType` instead of `IntPtr` — workaround: use `UnsafeMutablePointer<T>`
-- Named tuples with `String` elements: `(SwiftString.Buffer, ...)` cannot convert to `(SwiftString, ...)`
-- Throwing closure thunks: `SwiftString` return emitted as `void*`
-- `PointerContainer<IntPtr>` violates `ISwiftObject` generic constraint (CS0315)
+| Phase | Highlights |
+|-------|------------|
+| 1-15 | Core infrastructure, Nuke validation |
+| 16-29 | Type system and runtime fixes |
+| 30-33 | Generic type improvements |
+| 34-39 | Codex task completion (operators, enums, reporting) |
+| 40-42 | Protocol conformance infrastructure, namespace mapping, Lottie runtime (8/9) |
+| 43 | Protocol conformance emission, opaque returns, async properties, actors |
+| 44 | Inout parameters, failable initializers |
+| 45 | Pointer types, NSObject parameters, finalizer safety net |
+| 46 | Unbound generic type parameters |
+| 47 | Protocol runtime completion (NotImplementedException → NotSupportedException) |
+| 48 | Generic tuple return marshalling, null-safe equality operators, Lottie 9/9 |
+| 49 | Async concurrency hook shared library (SwiftConcurrency.Initialize) |
+| 50 | Existential type arguments in bound generics, MethodHandler decomposition (3.8K → 7 files) |
+| 51 | Binding report workarounds, existential bypass wrapper automation |
+| 52 | Protocol witness dispatch Phase A (blittable read-only), SwiftArray convenience methods |
+| 53 | Witness dispatch Phase B (String marshalling, property setters), BlinkID runtime (15/18) |
+| 54 | Static protocol member fix (BlinkID 0 compile errors) |
+| 55 | String enum raw value UTF-8 marshalling |
+| 56 | Protocol conformance validation (Nuke/Lottie 0 compile errors) |
+| 57 | Protocol runtime tests (20 tests) |
+| 58 | Async String callback marshalling |
+| 59 | Async Array\<String> callback marshalling |
+| 60 | Async complex type callback marshalling (BlinkID 18/18) |
+| 61 | Fix IntPtr\<T> generic emission bug (integration tests 0 compile errors) |
 
-### Layer 2 Runtime Tests Added
-- `ArrayMarshallingTests` (11 tests): array count/sum/reverse/filter, empty arrays, class element arrays
-- `OptionalMarshallingTests` (8 tests): Some/None for blittable/class, optional parameters, OptionalConfig struct
-- `TupleMarshallingTests` (9 tests): 2-7 element tuples, named tuples, mixed types, divmod, TupleReturner methods
-- `PointerMarshallingTests` (9 tests): IntPtr read/write/return, opaque pointer, fill buffer, raw pointer
-- `OperatorTests` (13 tests): arithmetic (+,-,*,/,%), comparison (==,!=,<,>), bitwise (&,|,^), unary (!,~)
-- `ClosureTests` (14 tests): @convention(c), @escaping, closure returns, ClosureConsumer/ClosureFactory, void/bool/multi-arg
-
-### Previous Phase Coverage (Phases A-C)
-- `StringMarshallingTests` (20 tests), `EnumMarshallingTests` (17 tests), `ClassMarshallingTests` (15 tests)
-- `BlittableRoundTripTests` (7 tests), `OwnershipTests` (28 tests), `NegativePathTests` (21 tests)
-- `StressTests` (12 tests), async test stubs (deferred)
-- Total runtime tests: ~184
-
----
-
-## Recent Completions (Phase 52)
-
-### Protocol Witness Table Dispatch — Phase A (Blittable Read-Only)
-- Swift-backed existential proxies can now access protocol members with blittable primitive types
-- `WitnessDispatchEmitter` generates Swift `@_silgen_name` accessor functions that reconstruct existentials via `containerPtr.load(as: (any Protocol).self)` and dispatch through the witness table
-- `ProtocolProxyEmitter` replaces `NotSupportedException` with P/Invoke dispatch for dispatchable members
-- Three-layer safety gate: Swift-side blittability + projected-type blittability + return-type canonicalization
-- Non-dispatchable members (String, throws, async, setters, mutating) gracefully degrade to `NotSupportedException`
-- `SwiftTypeNameHelper` extracted as shared utility for Swift type name rendering
-- 65 new unit tests; 1216 total passing
-
----
-
-## Previous Completions (Phase 49)
-
-### Async Concurrency Hook Shared Library
-- Extracted inline `swift_task_enqueueGlobal_hook` from `AsyncTests.swift` into `libSwiftBindingsRuntime.dylib`
-- `SwiftBindingsRuntime.swift`: GCDExecutor + `dlsym`-based hook, exported via `@_cdecl`
-- `build-runtime.sh`: Builds universal binaries (arm64 + x86_64) for macOS, iOS device, and iOS Simulator
-- `SwiftConcurrency.cs`: Thread-safe `SwiftConcurrency.Initialize()` with double-checked locking; verifies hook was installed via native callback; throws `InvalidOperationException` on failure
-- `Swift.Runtime.csproj`: Includes platform-specific native dylib via `RuntimeIdentifier`-based conditions
-- `AsyncTests.cs` updated to use `SwiftConcurrency.Initialize()` instead of test-specific P/Invoke
-- Any .NET app can now initialize Swift async interop with: `SwiftConcurrency.Initialize()`
-
----
-
-## Previous Completions (Phase 48)
-
-### Generic Tuple Return Marshalling
-- Generic tuple returns (e.g., `pair<T, U>() -> (T, U)`) now emit with correct indirect result marshalling
-- `MarshallingHelpers.MethodRequiresIndirectResult` returns `true` for tuples with generic type parameter elements
-- CSSignatureBuilder and PInvokeSignatureBuilder updated to accept generic-element tuples via GenericContext
-- P/Invoke uses `SwiftIndirectResult` + `void` return; wrapper extracts elements via `SwiftMarshal.MarshalFromSwift<ValueTuple<T0, T1>>`
-- TestFramework: `generic_function` moved from degraded to passing (92/93 must-pass, 1 degraded)
-
-### Null-Safe Equality Operators on Reference Types
-- Generated `==` and `!=` operators on C# reference types (classes, non-frozen structs, enums) now include null guards
-- Without guards, `obj == null` or `obj != null` would call `.Payload` on null and throw `NullReferenceException`
-- Guards emitted for both explicit operators (P/Invoke-backed) and synthesized paired operators
-- Lottie: `LottieConfiguration.Shared` now works correctly — 9/9 runtime tests pass (up from 8/9)
-
----
-
-## Previous Completions (Phase 47)
-
-### Protocol Runtime Completion
-- All 7 `NotImplementedException` stubs in `ProtocolProxyEmitter.cs` replaced with descriptive `NotSupportedException` throws
-- Swift-backed existential proxies now degrade gracefully: property get/set, method calls, subscript access, and conformance descriptor all throw `NotSupportedException` with messages identifying the specific member
-- All `TODO` comments removed from the emitter
-- XML documentation on existential container constructor documents the limitation
-- 8 new unit tests verify the degradation behavior
-- Unit tests: 1107 (up from 1099)
-
----
-
-## Previous Completions (Phase 46)
-
-### Unbound Generic Type Parameter Support
-- Generic type parameters (`τ_0_0`, `τ_0_1`) in properties, methods, and constructors of generic types now resolve correctly
-- `GenericContext` helper merges type-level + method-level generic mappings with offset C# names to avoid collisions
-- Parser propagates parent type's generic parameters to property accessor methods (getter/setter)
-- `PropertyHandler` resolves generic type param properties (e.g., `Wrapper<T>.wrapped` → `T0`)
-- `BoundGenericsHandler` accepts explicit `GenericContext` for resolving args like `Optional<τ_0_0>` → `SwiftOptional<T0>`
-- `TupleHandler` supports generic type parameter elements when context available
-- All signature builders thread `GenericContext` through bound generic and tuple translation
-- TestFramework: 91/93 must-pass features (up from 88/93), 672/747 members emitted (up from 658/747)
-- 3 features fixed: `generic_struct`, `generic_class`, `where_clause`
-- `generic_function`: `pair<T,U>()` correctly skipped — generic tuple return marshalling deferred to Phase 48
-- Remaining degraded (Phase 46): `generic_function` (fixed in Phase 48), `any_protocol_existential` (requires `SwiftArray<ExistentialContainer>`)
-
-### Code Review Fixes
-- Fixed `FromMethodInType` duplicate param handling: parser copies type params to accessor methods, so method params that duplicate type-level params are now skipped (prevents τ_0_0 → T0 being overwritten with T1)
-- Fixed `EmitSignatureMethod` to not emit `<T0>` generic param declarations on accessor methods
-- Fixed `BuildWhereClause` to skip accessor methods (accessors inherit constraints from parent type)
-- Generic tuple returns (`pair<T,U>() -> (T, U)`) explicitly skipped: wrapper would need per-element marshalling from `ValueTuple<IntPtr, IntPtr>` → `(T0, T1)` which requires indirect result + element extraction (deferred)
-- Narrowed `IsGenericTypeParameter` to only match `τ_X_Y` notation, single-letter params, and numbered params (T0, T1) — removed overly broad named matches ("Element", "Key", "Value", "Result", etc.) that could misclassify concrete types
-- Added null safety in `PropertyHandler` for `typeRecord` dereference when type resolution fails
-- Fixed `EmitSignatureMethod` and `EmitSignatureConstructor` to only declare method-own generic params, not type-inherited ones (methods inside generic types were redundantly redeclaring `<T0, T1>`)
-- Made `HasGenericTypeParameterElements` recursive: now catches nested generic params like `(Optional<τ_0_0>, Int)`, not just direct generic param elements
-- Added 21 regression tests for `GenericContext`, `TupleHandler`, and `BoundGenericsHandler` generic behavior
-
----
-
-## Previous Completions (Phase 45)
-
-### Swift Pointer Type Support
-- `OpaquePointer`, `UnsafePointer`, `UnsafeMutablePointer`, `UnsafeRawPointer`, `UnsafeMutableRawPointer`, `Builtin.RawPointer` → `System.IntPtr`
-- Early-return checks in TypeDatabaseExtensions for all 5 resolution methods
-- `Optional<OpaquePointer>` resolves automatically through existing Optional handler
-
-### NSObject Subclass as Method Parameter
-- Free functions taking NSObject parameters (e.g., `describeNSObject(obj: NSObject)`) now emit correctly
-- Synthetic ObjCBridged TypeRecord created for known ObjC root classes (NSObject, NSProxy)
-- Handles TypeSpecParser's `ObjectiveC.X → Foundation.X` remapping with narrow predicate
-- DB-first precedence preserved: explicit type database entries override synthetic records
-- Non-class ObjectiveC module types (Selector, ObjCBool) correctly excluded
-
-### Finalizer Safety Net for SwiftSafeHandle
-- `GC.SuppressFinalize(this)` added to `Dispose()` — standard .NET SafeHandle pattern
-- `Debug.WriteLine` warning emitted when SwiftSafeHandle is finalized without explicit Dispose
-- Documents the deliberate tradeoff: Swift `Destroy` is skipped during finalization to avoid SIGSEGV
-
-### Test Coverage
-- Unit tests: 1078 (up from 1032)
-- TestFramework: 88/93 must-pass features passing (up from 85/93)
-- 3 features fixed: `opaque_pointer`, `optional_opaque_pointer`, `nsobject_as_parameter`
-
----
-
-## Previous Completions (Phase 44)
-
-### Inout Parameter Support
-- Swift `inout` parameters now emit as C# `ref` parameters
-- ABI JSON `paramValueOwnership: "InOut"` detected in parser
-- `ref` modifier added to P/Invoke and wrapper signatures for direct-pass types
-- `PayloadBuffer<T>.BufferRef` added for inout frozen-with-memory-management types (ref-returning property into native memory; avoids CS1510 from by-value `Buffer` property)
-
-### Failable Initializer Support (`init?`)
-- Failable constructors emit `TryCreate()` static factory methods returning nullable types
-- Correctly handles frozen structs (direct value extraction) and non-frozen types (InitializeWithCopy)
-- Uses `SwiftOptional` metadata accessor to check Some/None tag on indirect result
-- String and other type-converted parameters marshalled correctly
-- Generic and closure-heavy failable constructors supported (TypeMetadata, payload, GCHandle, protocol witness table setup)
-
-### Codex Review Fixes
-- Generic inout writeback now runs before error check, so `ref` generic parameter mutations survive exceptions on throwing paths
-- P/Invoke dedup for `SwiftOptional` metadata accessor scoped to generation run (moved from static `ConstructorHandler` set to instance field on `ConstructorHandlerFactory`); prevents suppressed emission across multiple runs in the same process
-- `PInvokeHelperContext.AddDeclaration` deduplicates by method name to prevent duplicate P/Invoke declarations in generic type helper classes
-
----
-
-## Previous Completions (Phase 43)
-
-### Protocol Conformance Emission
-- Types now emit C# interfaces for same-module protocol conformances
-- `SimpleItem : ISwiftObject, ISwiftDescribable, ISwiftTestIdentifiable`
-- Works across classes, structs, and enums
-
-### Opaque Return Types (`some Protocol`)
-- `OpaqueTypeArchetype` parsed from ABI JSON → `ProtocolListTypeSpec { IsOpaque = true }`
-- Swift wrappers generated to box concrete returns into existential containers
-- Property getters and methods both supported
-
-### Async Property Detection
-- Async getters detected via TBD symbol `mangledName + "Tu"` suffix
-- Properly skipped with `SkipReason.AsyncProperty` (previously emitted as synchronous)
-
-### Actor Type Support
-- Actors detected via `Actor` protocol conformance in ABI JSON
-- `IsActor` flag on `ClassDecl`, `unownedExecutor` property filtered
-- Generated with `// Swift actor type` comment
-
-### Bug Fixes
-- Fixed NullReferenceException in MethodHandler for top-level async functions
-- Fixed `CacluateFlags` crash for unknown generic types (e.g., `Swift.KeyPath`)
-- Fixed test reflection for `DemanglingResults` constructor with `AllSymbols` parameter
-
-### Previous Phase (42) Highlights
-- Lottie: 8/9 runtime tests pass on iOS Simulator
-- Enum case construction fix (DestructiveInjectEnumTag)
-- CoreGraphics type stubs (CGImage, CGColor, etc.)
-
-### Test Coverage (Phase 44 → Phase D)
-- Unit tests: 1239
-- Integration tests: 699 passed
-- Runtime tests: ~184 (Phase D added 64 tests across arrays, optionals, tuples, pointers, operators, closures)
-- TestFramework: 99 must-pass features, 44 passing, 0 degraded
+TestFramework Phases A-D ran in parallel, adding ~184 runtime tests across string/enum/class/blittable marshalling, ownership lifecycle, negative paths, stress tests, arrays, optionals, tuples, pointers, operators, and closures.
 
 ---
 
@@ -292,29 +142,12 @@ Member coverage gaps are primarily due to unsupported signatures and existential
 
 | File | Purpose |
 |------|---------|
-| `north-star.md` | Project vision and roadmap |
-| `remaining-work.md` | Consolidated backlog (generator gaps, runtime, validation) |
-| `comprehensive-architecture-review.md` | Strategic direction and priorities |
-| `emitter-redesign-proposal.md` | Future architecture improvement plan |
-| `known-issues-workarounds.md` | Runtime issues and workarounds |
-| `CompletedPhases/swift-concurrency-interop-plan.md` | Async concurrency design (fully implemented, remaining work in `remaining-work.md` item 6 for callback marshalling) |
-
----
-
-## Development History
-
-49 phases of improvements tracked in git history. Key milestones:
-- Phase 1-15: Core infrastructure and Nuke validation
-- Phase 16-29: Type system and runtime fixes
-- Phase 30-33: Generic type improvements
-- Phase 34-39: Codex task completion (operators, enums, reporting)
-- Phase 40: Protocol conformance infrastructure, namespace mapping
-- Phase 41: Generic type fixes, 0 generator errors achieved
-- Phase 42: Lottie runtime validation, enum case construction, CoreGraphics stubs
-- Phase 43: Protocol conformance emission, opaque returns, async properties, actors
-- Phase 44: Inout parameters, failable initializers
-- Phase 45: Pointer types, NSObject parameters, finalizer safety net
-- Phase 46: Unbound generic type parameters, code review fixes
-- Phase 47: Protocol runtime completion (NotImplementedException → NotSupportedException)
-- Phase 48: Generic tuple return marshalling, null-safe equality operators, Lottie 9/9
-- Phase 49: Async concurrency hook shared library (SwiftConcurrency.Initialize)
+| `swiftui-bridge-design.md` | SwiftUI View bridge pattern via UIHostingController (pre-release blocker) |
+| `remaining-work.md` | Consolidated backlog (2 open items: Roslyn analyzer, NativeAOT validation) |
+| `known-issues-workarounds.md` | Three active Mono runtime blockers and workarounds |
+| `testing-gaps.md` | Known testing gaps across all layers |
+| `Future/emitter-redesign-proposal.md` | Architectural north star for emitter refactoring |
+| `Future/nativeaot-investigation.md` | NativeAOT desk research (hands-on validation pending) |
+| `Future/upstream-bug-reports-draft.md` | Draft .NET runtime bug reports (waiting for repo to go public) |
+| `Future/interop-performance-validation-plan.md` | Performance benchmarking plan |
+| `CompletedPhases/` | Archived phase completion records |

@@ -6,7 +6,7 @@
 
 Just as Objective Sharpie made Objective-C accessible to Xamarin developers, Swift Bindings will make the modern Swift ecosystem accessible to the .NET platform.
 
-*Realistic target: 90%+ of public APIs in libraries following common Swift patterns, with an escape hatch for edge cases.*
+*Realistic target: 90%+ of public API member coverage in libraries following common Swift patterns, with clear diagnostics and escape hatches for edge cases.*
 
 ---
 
@@ -72,7 +72,7 @@ dotnet add package Nuke.Bindings
 
 | Attribute | Target |
 |-----------|--------|
-| **Completeness** | 90%+ of public API surface bindable |
+| **Completeness** | 90%+ of public API surface bindable (aspire to high 90s) |
 | **Correctness** | Memory-safe, crash-free for supported features |
 | **Ergonomics** | C# code feels idiomatic, not like translated Swift |
 | **Performance** | Minimal interop overhead |
@@ -82,52 +82,37 @@ dotnet add package Nuke.Bindings
 
 ## Technical Roadmap
 
-### Phase 1: Foundation Completion
+### Phase 1: Foundation Completion ✅
+
 **Goal**: Any frozen-type Swift library can be fully bound.
 
-| Feature | Status | Priority |
-|---------|--------|----------|
-| Async P/Invoke SafeHandle fix | **Done** | P0 |
-| Property setters | **Done** | P0 |
-| Enum case constructors | **Done** | P1 |
-| Foundation type coverage (URL, Data, etc.) | **Done** | P1 |
-| Cross-platform generation (iOS bindings on macOS) | **Done** | - |
-| **Lock namespace mapping scheme** | **Done** | P1 |
-| **Binding completeness report** | **Done** | P1 |
-| **UnsupportedType placeholder** | **Done** | P2 |
+All items complete: async P/Invoke workaround, property setters, enum case constructors, Foundation type coverage, cross-platform generation, namespace mapping, binding completeness report, UnsupportedType placeholders.
 
-#### New Items (from Codex Review)
+**Success Criteria**: Nuke library async image loading works end-to-end. ✅
 
-- **Lock namespace mapping scheme**: The current `Swift.{Module}` pattern is temporary. Before shipping stable packages, define a final mapping scheme (config-driven with defaults + per-module overrides). This prevents breaking changes for early adopters. Ref: `ModuleProcessor.cs` registration methods.
+### Phase 2: Type System Completeness (mostly complete)
 
-- **Binding completeness report**: Emit a structured summary (JSON + console) of skipped members/types with reason codes (UnsupportedType, AnyTypeFallback, AsyncProperty, etc.). Critical for users evaluating binding coverage.
-
-- **UnsupportedType placeholder**: Replace silent `AnyType`/`object` fallbacks with explicit `UnsupportedType` markers in generated code. Makes gaps visible rather than compiling but silently degrading.
-
-**Success Criteria**: Nuke library async image loading works end-to-end. ✅ ACHIEVED
-
-### Phase 2: Type System Completeness
 **Goal**: Handle the full spectrum of Swift types.
 
-| Feature | Status | Priority |
-|---------|--------|----------|
-| Existential containers (`any Protocol`) | **Done** | P0 |
-| Generic method support | **Done** | P0 |
-| Protocol witness tables | Not Started | P1 |
-| Unbound generic types | Not Started | P1 |
-| Protocols with Associated Types (PATs) | Partial | P2 |
-| **TypeGraph layer for structural types** | Not Started | P2 |
-| **Formalize cross-module resolution** | Not Started | P2 |
+| Feature | Status |
+|---------|--------|
+| Existential containers (`any Protocol`) | **Done** |
+| Generic method support | **Done** |
+| Unbound generic type parameters | **Done** |
+| Protocol witness tables (blittable + String) | **Done** |
+| Protocol witness tables (full — mutating, throws, async) | Remaining |
+| Protocols with Associated Types (PATs) | Partial |
+| TypeGraph layer for structural types | Not Started |
+| Formalize cross-module resolution | Not Started |
 
-#### New Items (from Codex Review)
+**TypeGraph layer**: Extract a `TypeGraph`/`CompositeTypeFactory` layer that builds complex types from nominal types, keeping TypeDatabase nominal-only. Aligns with emitter redesign proposal.
 
-- **TypeGraph layer**: The TypeDatabase currently mixes nominal types (classes, structs, enums) with structural types (tuples, closures). Extract a `TypeGraph`/`CompositeTypeFactory` layer that builds complex types from nominal types, keeping TypeDatabase nominal-only. Aligns with emitter redesign proposal.
+**Cross-module resolution**: Formalize the type origin and resolution policy with explicit config and diagnostics. Defer until more real-world patterns emerge.
 
-- **Formalize cross-module resolution**: The `_outOfModuleTypes` and `_moduleAliases` in TypeDatabase are ad-hoc. As more libraries are bound, formalize a "type origin + resolution policy" with explicit config and diagnostics. Defer until more real-world patterns emerge.
-
-**Success Criteria**: Methods with existential parameters and generic methods bind successfully.
+**Success Criteria**: Methods with existential parameters and generic methods bind successfully. ✅
 
 ### Phase 3: Developer Experience
+
 **Goal**: Streamlined workflow comparable to legacy Xamarin binding projects.
 
 | Feature | Description |
@@ -137,26 +122,24 @@ dotnet add package Nuke.Bindings
 | Project templates | `dotnet new swift-binding` |
 | NuGet packaging | Automatic xcframework bundling |
 | Error diagnostics | Clear messages for unsupported features |
-| **Configuration versioning** | Versioned config schema with hash in output |
-
-#### New Item (from Codex Review)
-
-- **Configuration versioning**: As namespace mapping and resolution policies solidify, add a versioned config schema and include the config hash in generated output for traceability. Enables reproducible builds and debugging.
+| Configuration versioning | Versioned config schema with hash in output |
 
 **Success Criteria**: Single `dotnet build` from xcframework to NuGet package.
 
 ### Phase 4: Advanced Features
+
 **Goal**: Handle complex Swift patterns.
 
 | Feature | Status |
 |---------|--------|
-| Actors | Not Started |
+| Actors | Detection works; isolation enforcement not started |
 | `@MainActor` annotations | Not Started |
 | Sendable protocol | Partial |
-| Throwing async methods | Partial |
-| Full enum payloads (discriminated unions) | Partial |
+| Throwing async methods | Generation works; runtime blocked by Mono JIT bug |
+| Full enum payloads (discriminated unions) | Mostly complete |
 
 ### Phase 5: Ecosystem Integration
+
 **Goal**: Production-ready for the .NET ecosystem.
 
 | Feature | Description |
@@ -183,9 +166,9 @@ To maintain focus, these are explicitly **out of scope**:
 
 ## Realistic Scope & Limitations
 
-### The 90% Target
+### The Coverage Target
 
-The "90%+ of public API surface" target is not arbitrary - it reflects a universal ceiling across all cross-language interop projects:
+The 90%+ target reflects a universal ceiling across all cross-language interop projects:
 
 | Project | Language Pair | Typical Coverage |
 |---------|---------------|------------------|
@@ -193,11 +176,11 @@ The "90%+ of public API surface" target is not arbitrary - it reflects a univers
 | SWIG | Multi-language | ~85% with manual work |
 | JNI | Java ↔ Native | ~90% with boilerplate |
 | Kotlin/Native | Kotlin ↔ C | ~85-90% |
-| **Swift Bindings** | Swift → C# | **90% target** |
+| **Swift Bindings** | Swift → C# | **90%+ target** |
 
-Full 100% coverage is not achievable for any cross-language interop tool. The remaining 10% requires manual wrapper code, which is expected and acceptable.
+Full 100% coverage is not achievable for any cross-language interop tool. We aspire to the high 90s for member coverage on libraries following common Swift patterns, with the understanding that the remaining few percent requires manual wrapper code.
 
-### What Falls in the Unsupported 10%
+### What Falls in the Hard-to-Bind Tail
 
 | Feature | Why It's Hard | Workaround |
 |---------|---------------|------------|
@@ -220,58 +203,14 @@ Edge case API:   C# → P/Invoke → Swift wrapper → Swift dylib
 
 **Why this works:** The Swift compiler is the only entity guaranteed to understand the Swift ABI perfectly. When .NET's JIT or marshalling fails, delegating to Swift-side code is architecturally correct.
 
-**Example:** Creating arrays of existential types crashes Mono's JIT. The workaround is a Swift function that creates the array and returns an opaque pointer:
-
-```swift
-// Swift wrapper (generated)
-@_silgen_name("CreateImageProcessorArray")
-public func createImageProcessorArray(_ items: [any ImageProcessing]) -> UnsafeMutableRawPointer { ... }
-```
-
-```csharp
-// C# factory (generated)
-public static SwiftArray<ImageProcessingProxy> Create(params ISwiftImageProcessing[] items) { ... }
-```
-
 The binding report (`binding-report.json`) documents which APIs use wrappers and why.
 
 ### Implications for Users
 
-1. **Most libraries will "just work"** - Nuke, BlinkID, Lottie all achieve 0 generator errors
-2. **Some APIs may be skipped** - The binding report explains what and why
-3. **Edge cases have workarounds** - Swift wrapper functions handle runtime limitations
-4. **SwiftUI is out of scope** - Use native platform UI or MAUI instead
-
----
-
-## Current State (February 2026)
-
-### What Works
-- Classes, structs (frozen and non-frozen)
-- Instance and static methods, property getters and setters
-- Async methods (with frozen and non-frozen parameter types)
-- Closures (`@convention(c)`, `@escaping` with frozen types, bound generics, existentials)
-- Tuples (1-7 elements with frozen types and existentials, runtime marshalling support)
-- Operators (arithmetic, comparison, bitwise, unary)
-- Basic enums (with payload construction for associated values)
-- **RawRepresentable enums** (both frozen and non-frozen) - `FromRawValue()` and static case properties
-- SwiftString, SwiftArray<T>, SwiftSet<T>, SwiftOptional<T>, SwiftResult<S,F>
-- Existential types (`any Protocol`) - parameters, returns, properties, closures, tuples
-- Generic constructors and generic methods (with where clause constraints)
-- StoreKit 2 bindings (published as experimental NuGet)
-- Comprehensive test coverage (unit, integration, and runtime tests)
-
-### What Doesn't Work Yet
-- Actors - unsupported
-- Full protocol witness table handling
-- Protocols with Associated Types (PATs) - partial support
-
-### Multi-Library Testing Status
-Testing across Nuke, BlinkID, and Lottie:
-- **Nuke**: 0 errors ✅ (runtime validated)
-- **BlinkID**: 0 errors ✅ (compiles clean)
-- **Lottie**: 0 errors ✅ (runtime validated - 8/9 tests pass)
-- See `/src/docs/CURRENT-STATUS.md` for current status
+1. **Most libraries will "just work"** — 0 generator errors across tested libraries
+2. **Some APIs may be skipped** — The binding report explains what and why
+3. **Edge cases have workarounds** — Swift wrapper functions handle runtime limitations
+4. **SwiftUI is out of scope** — Use native platform UI or MAUI instead
 
 ---
 
@@ -309,12 +248,12 @@ Swift Framework (.xcframework)
 
 ## Success Metrics
 
-| Metric | Current | v1.0 Target | v2.0 Target |
-|--------|---------|-------------|-------------|
-| Nuke API coverage | ~60% | 90% | 98% |
-| Compilation errors | 0 | 0 | 0 |
-| Runtime crashes | Some | 0 (supported) | 0 |
-| Manual steps to bind | 5+ | 1 | 1 |
+| Metric | v1.0 Target | v2.0 Target |
+|--------|-------------|-------------|
+| Member API coverage | 90%+ | High 90s |
+| Compilation errors | 0 | 0 |
+| Runtime crashes (supported features) | 0 | 0 |
+| Manual steps to bind | 1 (`dotnet build`) | 1 |
 
 ---
 
@@ -322,9 +261,9 @@ Swift Framework (.xcframework)
 
 ### In This Repository
 - `/docs/binding-overview.md` - Binding philosophy
-- `/src/docs/emitter-redesign-proposal.md` - Architecture improvements
-- `/src/docs/CURRENT-STATUS.md` - Current compilation status and gaps
-- `/src/docs/remaining-work.md` - Consolidated backlog (generator gaps, runtime, validation)
+- `/src/docs/CURRENT-STATUS.md` - Current compilation status and coverage
+- `/src/docs/remaining-work.md` - Consolidated backlog
+- `/src/docs/Future/emitter-redesign-proposal.md` - Architecture improvements
 
 ### External
 - [Swift ABI Stability Manifesto](https://github.com/apple/swift/blob/main/docs/ABIStabilityManifesto.md)
