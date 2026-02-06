@@ -101,6 +101,14 @@ namespace BindingsGeneration
             {
                 if (baseDecl is StructDecl structDecl)
                 {
+                    if (SwiftUIViewDetector.IsSwiftUIView(structDecl))
+                    {
+                        ReportCollector.RecordTypeSkipped(structDecl, SkipReason.SwiftUIView,
+                            "Type conforms to SwiftUI.View. Bridge generation available.");
+                        SwiftUIBridgeCollector.Collect(structDecl);
+                        continue;
+                    }
+
                     if (conductor.TryGetTypeHandler(structDecl, out var handler))
                     {
                         var env = handler.Marshal(structDecl, typeDatabase);
@@ -114,6 +122,14 @@ namespace BindingsGeneration
                 }
                 else if (baseDecl is ClassDecl classDecl)
                 {
+                    if (SwiftUIViewDetector.IsSwiftUIView(classDecl))
+                    {
+                        ReportCollector.RecordTypeSkipped(classDecl, SkipReason.SwiftUIView,
+                            "Type conforms to SwiftUI.View. Bridge generation available.");
+                        SwiftUIBridgeCollector.Collect(classDecl);
+                        continue;
+                    }
+
                     if (conductor.TryGetTypeHandler(classDecl, out var handler))
                     {
                         var env = handler.Marshal(classDecl, typeDatabase);

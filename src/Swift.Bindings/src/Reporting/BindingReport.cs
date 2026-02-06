@@ -22,6 +22,7 @@ public sealed class BindingReport
 
     public List<SkippedItem> SkippedItems { get; } = new();
     public List<WrappedItem> WrappedItems { get; } = new();
+    public List<BridgedViewItem> BridgedViews { get; } = new();
 }
 
 /// <summary>
@@ -54,6 +55,7 @@ public enum SkipReason
     UnsupportedAsyncStream,
     DuplicateSignature,
     MissingHandler,
+    SwiftUIView,
     StaticProtocolMember,
     Unknown,
 }
@@ -69,6 +71,17 @@ public sealed class SkippedItem
     public required SkipReason Reason { get; init; }
     public string? Details { get; init; }
     public string? RecommendedWorkaround { get; init; }
+}
+
+/// <summary>
+/// A SwiftUI View detected for bridge generation.
+/// </summary>
+public sealed class BridgedViewItem
+{
+    public required string ViewName { get; init; }
+    public required string ModuleName { get; init; }
+    public required string InitClassification { get; init; }
+    public required string BridgeStatus { get; init; }
 }
 
 /// <summary>

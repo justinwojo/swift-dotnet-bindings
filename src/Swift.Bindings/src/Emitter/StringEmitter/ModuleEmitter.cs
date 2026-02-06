@@ -49,8 +49,18 @@ namespace BindingsGeneration
                 SwiftWriter swiftWriter = new(swiftStringWriter);
                 var @namespace = _namespacePatternResolver.ResolveNamespace(moduleDecl.Name);
 
-                var env = moduleHandler.Marshal(moduleDecl, _typeDatabase);
-                moduleHandler.Emit(csWriter, swiftWriter, env, _conductor);
+                IReadOnlyList<TypeDecl> collectedViews;
+                SwiftUIBridgeCollector.Reset();
+                try
+                {
+                    var env = moduleHandler.Marshal(moduleDecl, _typeDatabase);
+                    moduleHandler.Emit(csWriter, swiftWriter, env, _conductor);
+                    collectedViews = SwiftUIBridgeCollector.GetCollectedViews();
+                }
+                finally
+                {
+                    SwiftUIBridgeCollector.Reset();
+                }
 
                 string csOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.cs");
                 using (StreamWriter outputFile = new(csOutputPath))
@@ -61,6 +71,12 @@ namespace BindingsGeneration
                 using (StreamWriter outputFile = new(swiftOutputPath))
                 {
                     outputFile.Write(swiftStringWriter.ToString());
+                }
+
+                if (collectedViews.Count > 0)
+                {
+                    SwiftUIBridgeEmitter.EmitBridgeFiles(
+                        _outputDirectory, @namespace, moduleDecl.Name, collectedViews, _logger);
                 }
             }
             else

@@ -40,6 +40,11 @@ public static class ReportEmitter
             logger.LogInformation("Wrapped items: {Count} (Swift wrappers auto-generated)", report.WrappedItems.Count);
         }
 
+        if (report.BridgedViews.Count > 0)
+        {
+            logger.LogInformation("SwiftUI Views: {Count} detected for bridge generation", report.BridgedViews.Count);
+        }
+
         if (report.SkippedItems.Count > 0)
         {
             logger.LogInformation("Skipped items by reason:");

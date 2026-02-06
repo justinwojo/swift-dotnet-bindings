@@ -185,6 +185,26 @@ public static class ReportCollector
         }
     }
 
+    public static void RecordBridgedView(string viewName, string moduleName, string initClassification, string bridgeStatus)
+    {
+        if (!SessionActive.Value || _report == null)
+            return;
+
+        lock (Sync)
+        {
+            if (_report == null)
+                return;
+
+            _report.BridgedViews.Add(new BridgedViewItem
+            {
+                ViewName = viewName,
+                ModuleName = moduleName,
+                InitClassification = initClassification,
+                BridgeStatus = bridgeStatus,
+            });
+        }
+    }
+
     public static void RecordMemberSynthesized(BindingItemKind kind, string name, BaseDecl? containingDecl)
     {
         if (!SessionActive.Value || _report == null)

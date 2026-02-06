@@ -24,6 +24,8 @@ public static class WorkaroundRecommendations
             "Expose the async property as an async method via a Swift wrapper.",
         SkipReason.SwiftUIConstraint =>
             "SwiftUI types are excluded. Use Swift wrappers to bridge SwiftUI functionality.",
+        SkipReason.SwiftUIView =>
+            "SwiftUI View type detected. Auto-generated bridge files are available in the output directory.",
         SkipReason.CombineFramework =>
             "Combine types are excluded. Use Swift wrappers that convert to async/callback APIs.",
         SkipReason.GenericProtocolConstraint =>
