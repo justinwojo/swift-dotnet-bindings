@@ -28,15 +28,18 @@ public class Application
 
     static void Main(string[] args)
     {
-        // Parse --tier and --flake-detect arguments before UI launch
-        for (int i = 0; i < args.Length; i++)
+        // Parse --tier and --flake-detect arguments before UI launch.
+        // On iOS, Main(string[] args) may not receive simctl launch arguments.
+        // Fall back to NSProcessInfo.ProcessInfo.Arguments which always has them.
+        var effectiveArgs = args.Length > 0 ? args : GetProcessInfoArgs();
+        for (int i = 0; i < effectiveArgs.Length; i++)
         {
-            if (args[i] == "--tier" && i + 1 < args.Length && int.TryParse(args[i + 1], out var tier) && tier >= 1 && tier <= 3)
+            if (effectiveArgs[i] == "--tier" && i + 1 < effectiveArgs.Length && int.TryParse(effectiveArgs[i + 1], out var tier) && tier >= 1 && tier <= 3)
             {
                 TierOverride = (TestTier)tier;
                 i++;
             }
-            else if (args[i] == "--flake-detect")
+            else if (effectiveArgs[i] == "--flake-detect")
             {
                 FlakeDetect = true;
             }
@@ -46,6 +49,19 @@ public class Application
         NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), ResolveBundledFramework);
 
         UIApplication.Main(args, null, typeof(AppDelegate));
+    }
+
+    /// <summary>
+    /// Gets arguments from NSProcessInfo (works on iOS when simctl launch passes args).
+    /// Skips the first element (executable path).
+    /// </summary>
+    static string[] GetProcessInfoArgs()
+    {
+        var allArgs = NSProcessInfo.ProcessInfo.Arguments;
+        if (allArgs.Length <= 1)
+            return Array.Empty<string>();
+        // Skip argv[0] (executable path)
+        return allArgs.Skip(1).ToArray();
     }
 
     static IntPtr ResolveBundledFramework(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)

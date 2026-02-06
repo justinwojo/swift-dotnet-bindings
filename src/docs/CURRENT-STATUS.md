@@ -1,7 +1,8 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 2C)
+**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 2C + TestFramework bridge migration)
 **Unit Tests**: 1,419 passed
+**Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 **Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie
 
 ---
@@ -99,6 +100,7 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 - **Async+throwing closures at runtime** — Binding generation works but runtime blocked by existential metadata Mono JIT bug
 
 ### Known Runtime Issues
+- **Mono JIT assertion (jit-info.c:918)**: `condition '!ji->async' not met` — kills process when any closure is passed through P/Invoke (both `@convention(c)` and `@escaping`) or when `SwiftString.PInvoke_GetLength` is called via `CallConvSwift`. Affects all closure tests and SwiftString property access at runtime. Workaround: these tests are deferred to Tier 3 (nightly). Bridge tests use `@_cdecl` functions which are unaffected.
 - **Mono JIT**: `swift_getExistentialTypeMetadata` crash when creating `SwiftArray<ExistentialContainer>` (workaround: Swift wrapper functions)
 - **Non-blittable CallConvSwift**: Mono JIT rejects non-blittable types with Swift calling convention (workaround: `IntPtr` + manual marshalling)
 - **SafeHandle in async**: .NET runtime doesn't preserve SafeHandle through async P/Invoke (workaround: singleton pattern + IntPtr conversion)

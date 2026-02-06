@@ -1097,7 +1097,9 @@ public static partial class SwiftUIBridgeEmitter
         StringBuilder sb, ViewBridgeInfo info, AsyncViewPattern pattern)
     {
         // Factory parameter list (idiomatic C# types)
-        var factoryParams = new List<string>();
+        // C# requires optional parameters after all required parameters.
+        var requiredParams = new List<string>();
+        var optionalParams = new List<string>();
         foreach (var param in pattern.FlattenedParams)
         {
             var type = param.Kind switch
@@ -1112,10 +1114,14 @@ public static partial class SwiftUIBridgeEmitter
                 AsyncFlatParamKind.Bool => " = true",
                 _ => "",
             };
-            factoryParams.Add($"{type} {param.Name}{defaultVal}");
+            if (defaultVal.Length > 0)
+                optionalParams.Add($"{type} {param.Name}{defaultVal}");
+            else
+                requiredParams.Add($"{type} {param.Name}");
         }
+        requiredParams.AddRange(optionalParams);
 
-        sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", factoryParams)})");
+        sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", requiredParams)})");
         sb.AppendLine("        {");
 
         // Validate BoundType parameters are non-zero before entering native call
@@ -1219,7 +1225,9 @@ public static partial class SwiftUIBridgeEmitter
         StringBuilder sb, ViewBridgeInfo info, AsyncViewPattern pattern)
     {
         // Factory parameter list (idiomatic C# types)
-        var factoryParams = new List<string>();
+        // C# requires optional parameters after all required parameters.
+        var requiredParams = new List<string>();
+        var optionalParams = new List<string>();
         foreach (var param in pattern.FlattenedParams)
         {
             var type = param.Kind switch
@@ -1233,14 +1241,18 @@ public static partial class SwiftUIBridgeEmitter
                 AsyncFlatParamKind.Bool => " = true",
                 _ => "",
             };
-            factoryParams.Add($"{type} {param.Name}{defaultVal}");
+            if (defaultVal.Length > 0)
+                optionalParams.Add($"{type} {param.Name}{defaultVal}");
+            else
+                requiredParams.Add($"{type} {param.Name}");
         }
         if (pattern.HasResultCallback)
         {
-            factoryParams.Add("Action<int>? onResult = null");
+            optionalParams.Add("Action<int>? onResult = null");
         }
+        requiredParams.AddRange(optionalParams);
 
-        sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", factoryParams)})");
+        sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", requiredParams)})");
         sb.AppendLine("        {");
         sb.AppendLine($"            var tcs = new TaskCompletionSource<{info.ViewName}Session>(");
         sb.AppendLine("                TaskCreationOptions.RunContinuationsAsynchronously);");

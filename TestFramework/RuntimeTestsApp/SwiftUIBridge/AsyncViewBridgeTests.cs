@@ -14,9 +14,9 @@ namespace RuntimeTestsApp.SwiftUIBridge;
 /// Validates async inference, callback-based creation, and lifecycle management.
 /// </summary>
 [TestTier(TestTier.Tier2)]
-public class AsyncViewBridgeTests : TestBase
+public class BridgeAsyncViewTests : TestBase
 {
-    public AsyncViewBridgeTests(TestResults results) : base(results) { }
+    public BridgeAsyncViewTests(TestResults results) : base(results) { }
 
     public async Task TestAsyncServiceView()
     {

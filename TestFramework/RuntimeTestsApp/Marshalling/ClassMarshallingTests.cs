@@ -135,7 +135,7 @@ public class ClassMarshallingTests : TestBase
 
     #region MutableProps Struct (property get/set)
 
-    [TestTier(TestTier.Tier2)]
+    [TestTier(TestTier.Tier3)] // SwiftString.PInvoke_GetLength triggers Mono JIT assertion crash
     public void TestMutablePropsCreation()
     {
         var props = new MutableProps(42, "TestName");
@@ -149,7 +149,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"MutableProps: Value={value}, Name={name}");
     }
 
-    [TestTier(TestTier.Tier2)]
+    [TestTier(TestTier.Tier3)] // SwiftString.PInvoke_GetLength triggers Mono JIT assertion crash
     public void TestMutablePropsSetValue()
     {
         var props = new MutableProps(10, "Original");

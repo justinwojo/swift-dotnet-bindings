@@ -14,9 +14,9 @@ namespace RuntimeTestsApp.SwiftUIBridge;
 /// Validates BoundEnum, BoundType, TypedClosure, optional variants, and mixed params.
 /// </summary>
 [TestTier(TestTier.Tier2)]
-public class SimpleViewBridgeTests : TestBase
+public class BridgeSimpleViewTests : TestBase
 {
-    public SimpleViewBridgeTests(TestResults results) : base(results) { }
+    public BridgeSimpleViewTests(TestResults results) : base(results) { }
 
     public void TestEnumParamView()
     {
@@ -99,8 +99,9 @@ public class SimpleViewBridgeTests : TestBase
         AssertEqual(42, count, "MixedParamView count round-trip");
 
         BridgeTestHelpers.MixedParamView_FireAction(handle);
-        // onAction is dispatched async on main queue - give it a moment
-        Thread.Sleep(200);
+        // onAction is dispatched async on main queue — pump the run loop to process it
+        // (Thread.Sleep blocks the main thread, preventing dispatch processing)
+        Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.5));
         AssertTrue(MixedActionState.CallCount >= 1, "MixedParamView action callback fired");
 
         BridgeNativeMethods.MixedParamView_Free(handle);

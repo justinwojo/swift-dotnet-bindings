@@ -118,29 +118,52 @@ cd ..
 # Step 3: Run on iOS Simulator
 echo "--- Step 3: Run on iOS Simulator ---"
 
-# Find booted simulator
-SIMULATOR_ID=$(xcrun simctl list devices booted -j | python3 -c "import sys, json; devices = json.load(sys.stdin)['devices']; booted = [d['udid'] for v in devices.values() for d in v if d['state'] == 'Booted']; print(booted[0] if booted else '')" 2>/dev/null || echo "")
+APP_PATH="RuntimeTestsApp/bin/Debug/net10.0-ios/iossimulator-arm64/RuntimeTestsApp.app"
+BUNDLE_ID="com.swiftbindings.runtimetestsapp"
+CRASH_LOG_DIR="$HOME/Library/Logs/DiagnosticReports"
 
-if [ -z "$SIMULATOR_ID" ]; then
-    echo "No booted simulator found. Booting iPhone 16 Pro..."
-    SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c "import sys, json; devices = json.load(sys.stdin)['devices']; iphones = [d['udid'] for v in devices.values() for d in v if 'iPhone 16' in d['name'] or 'iPhone 15' in d['name']]; print(iphones[0] if iphones else '')" 2>/dev/null || echo "")
+# Ensure a simulator is booted
+BOOTED_UDID=$(xcrun simctl list devices booted -j 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for runtime, devices in data.get('devices', {}).items():
+    for d in devices:
+        if d.get('state') == 'Booted':
+            print(d['udid']); sys.exit(0)
+sys.exit(1)
+" 2>/dev/null) || true
 
-    if [ -z "$SIMULATOR_ID" ]; then
-        echo "ERROR: No suitable simulator found"
+if [ -z "$BOOTED_UDID" ]; then
+    echo "No booted simulator found. Searching for an iPhone simulator to boot..."
+    DEVICE_UDID=$(xcrun simctl list devices available -j 2>/dev/null | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for runtime, devices in data.get('devices', {}).items():
+    if 'iOS' not in runtime and 'iphone' not in runtime.lower():
+        continue
+    for d in devices:
+        if d.get('isAvailable', False) and 'iPhone' in d.get('name', ''):
+            print(d['udid']); sys.exit(0)
+sys.exit(1)
+" 2>/dev/null) || true
+
+    if [ -z "$DEVICE_UDID" ]; then
+        echo "ERROR: No available iPhone simulator found. Install one via Xcode."
         exit 1
     fi
 
-    xcrun simctl boot "$SIMULATOR_ID" 2>/dev/null || true
-    sleep 3
+    echo "Booting simulator $DEVICE_UDID..."
+    xcrun simctl boot "$DEVICE_UDID"
+    echo "Waiting for simulator to finish booting..."
+    xcrun simctl bootstatus "$DEVICE_UDID" -b
+    echo "Simulator booted."
 fi
 
-echo "Using simulator: $SIMULATOR_ID"
-
-# Install and launch the app
-APP_PATH="RuntimeTestsApp/bin/Debug/net10.0-ios/iossimulator-arm64/RuntimeTestsApp.app"
+# Record crash log count before running
+BEFORE_CRASH_COUNT=$(ls -1 "$CRASH_LOG_DIR"/RuntimeTestsApp*.ips 2>/dev/null | wc -l || echo 0)
 
 echo "Installing app..."
-xcrun simctl install "$SIMULATOR_ID" "$APP_PATH"
+xcrun simctl install booted "$APP_PATH"
 
 # Build launch arguments
 LAUNCH_ARGS="--tier $TIER"
@@ -149,76 +172,93 @@ if [ "$TIER" -ge 3 ]; then
     echo "Flake detection enabled (Tier 3): each test runs 3x"
 fi
 
-echo "Launching app..."
-xcrun simctl launch --console-pty "$SIMULATOR_ID" com.swiftbindings.runtimetestsapp $LAUNCH_ARGS &
-LAUNCH_PID=$!
+echo "Launching app (timeout: ${TIMEOUT}s)..."
+OUTPUT_FILE=$(mktemp)
+xcrun simctl launch --console --terminate-running-process booted "$BUNDLE_ID" $LAUNCH_ARGS > "$OUTPUT_FILE" 2>&1 &
+PID=$!
 
-# Monitor for test completion
-echo ""
-echo "Waiting for test completion (timeout: ${TIMEOUT}s)..."
-echo ""
-
-START_TIME=$(date +%s)
-SUCCESS=false
-FAILURE=false
-
-# Create a named pipe for output
-PIPE=$(mktemp -u)
-mkfifo "$PIPE"
-
-# Capture output in background
-(xcrun simctl spawn "$SIMULATOR_ID" log stream --predicate 'subsystem == "com.apple.console"' 2>/dev/null | while read -r line; do
-    echo "$line"
-    if echo "$line" | grep -q "TEST SUCCESS"; then
-        touch /tmp/runtime_test_success
-    fi
-    if echo "$line" | grep -q "TEST FAILURE"; then
-        touch /tmp/runtime_test_failure
-    fi
-done) &
-LOG_PID=$!
-
-# Clean up markers
-rm -f /tmp/runtime_test_success /tmp/runtime_test_failure
-
-# Wait for result or timeout
-while true; do
-    CURRENT_TIME=$(date +%s)
-    ELAPSED=$((CURRENT_TIME - START_TIME))
-
-    if [ -f /tmp/runtime_test_success ]; then
-        SUCCESS=true
-        break
-    fi
-
-    if [ -f /tmp/runtime_test_failure ]; then
-        FAILURE=true
-        break
-    fi
-
-    if [ $ELAPSED -ge $TIMEOUT ]; then
-        echo ""
-        echo "=== TIMEOUT ==="
-        break
-    fi
-
+# Poll for success, failure, or crash markers
+ELAPSED=0
+RESULT=""
+while [ $ELAPSED -lt $TIMEOUT ]; do
     sleep 1
+    ELAPSED=$((ELAPSED + 1))
+
+    # P2 fix: detect early launch failure (process exited without producing test output)
+    if ! kill -0 $PID 2>/dev/null; then
+        # Launch process exited — check if we got a result marker
+        if grep -q "TEST SUCCESS" "$OUTPUT_FILE" 2>/dev/null; then
+            RESULT="success"
+        elif grep -q "TEST FAILURE" "$OUTPUT_FILE" 2>/dev/null; then
+            RESULT="failure"
+        elif grep -q "SIGABRT\|SIGSEGV\|SIGBUS\|Fatal error\|CRASH\|EXC_BAD_ACCESS\|Assertion.*not met" "$OUTPUT_FILE" 2>/dev/null; then
+            RESULT="crash"
+        else
+            RESULT="launch_failure"
+        fi
+        break
+    fi
+
+    if grep -q "TEST SUCCESS" "$OUTPUT_FILE" 2>/dev/null; then
+        RESULT="success"
+        break
+    fi
+
+    if grep -q "TEST FAILURE" "$OUTPUT_FILE" 2>/dev/null; then
+        RESULT="failure"
+        break
+    fi
+
+    # Detect crashes via signal markers in output
+    if grep -q "SIGABRT\|SIGSEGV\|SIGBUS\|Fatal error\|CRASH\|EXC_BAD_ACCESS\|Assertion.*not met" "$OUTPUT_FILE" 2>/dev/null; then
+        RESULT="crash"
+        break
+    fi
 done
 
-# Cleanup
-kill $LOG_PID 2>/dev/null || true
-kill $LAUNCH_PID 2>/dev/null || true
-rm -f "$PIPE" /tmp/runtime_test_success /tmp/runtime_test_failure
+# Terminate the app
+xcrun simctl terminate booted "$BUNDLE_ID" 2>/dev/null || true
+kill $PID 2>/dev/null || true
+
+# Check for new crash logs (catches crashes the output markers might miss)
+if [ "$RESULT" != "success" ] && [ "$RESULT" != "failure" ]; then
+    AFTER_CRASH_COUNT=$(ls -1 "$CRASH_LOG_DIR"/RuntimeTestsApp*.ips 2>/dev/null | wc -l || echo 0)
+    if [ "$AFTER_CRASH_COUNT" -gt "$BEFORE_CRASH_COUNT" ]; then
+        RESULT="crash"
+    fi
+fi
+
+# Show output
+echo ""
+echo "=== APP OUTPUT ==="
+cat "$OUTPUT_FILE"
+rm -f "$OUTPUT_FILE"
 
 echo ""
 echo "========================================="
-if [ "$SUCCESS" = true ]; then
+if [ "$RESULT" = "success" ]; then
     echo " RUNTIME TESTS PASSED"
     echo "========================================="
     exit 0
-elif [ "$FAILURE" = true ]; then
+elif [ "$RESULT" = "crash" ]; then
+    echo " RUNTIME TESTS CRASHED"
+    echo "========================================="
+    # Show latest crash log if available
+    LATEST_CRASH=$(ls -t "$CRASH_LOG_DIR"/RuntimeTestsApp*.ips 2>/dev/null | head -1)
+    if [ -n "$LATEST_CRASH" ]; then
+        echo "Crash log: $LATEST_CRASH"
+        head -30 "$LATEST_CRASH"
+    fi
+    exit 1
+elif [ "$RESULT" = "failure" ]; then
     echo " RUNTIME TESTS FAILED"
     echo "========================================="
+    exit 1
+elif [ "$RESULT" = "launch_failure" ]; then
+    echo " RUNTIME TESTS LAUNCH FAILURE"
+    echo "========================================="
+    echo "The app process exited without producing test output."
+    echo "Check that the simulator is running and the app bundle is valid."
     exit 1
 else
     echo " RUNTIME TESTS TIMEOUT"

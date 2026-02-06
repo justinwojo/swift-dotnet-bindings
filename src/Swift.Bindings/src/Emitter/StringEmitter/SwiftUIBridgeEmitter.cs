@@ -726,17 +726,23 @@ public static partial class SwiftUIBridgeEmitter
         bool needsUnsafe, bool hasClosures, bool hasStrings)
     {
         // Factory parameter list (idiomatic C# types)
-        var factoryParams = new List<string>();
+        // C# requires optional parameters after all required parameters.
+        var requiredParams = new List<string>();
+        var optionalParams = new List<string>();
         foreach (var param in bridgeParams)
         {
             var type = GetFactoryParamType(param);
             var defaultVal = param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure ? " = null"
                 : param.Kind == BridgeParameterKind.String ? " = null" : "";
-            factoryParams.Add($"{type} {param.Name}{defaultVal}");
+            if (defaultVal.Length > 0)
+                optionalParams.Add($"{type} {param.Name}{defaultVal}");
+            else
+                requiredParams.Add($"{type} {param.Name}");
         }
+        requiredParams.AddRange(optionalParams);
 
         var unsafeKeyword = needsUnsafe ? "unsafe " : "";
-        sb.AppendLine($"        public static {unsafeKeyword}{info.ViewName}Session Create({string.Join(", ", factoryParams)})");
+        sb.AppendLine($"        public static {unsafeKeyword}{info.ViewName}Session Create({string.Join(", ", requiredParams)})");
         sb.AppendLine("        {");
 
         if (hasClosures)
@@ -871,7 +877,8 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == BridgeParameterKind.BoundEnum)
             {
-                args.Add($"({param.CSharpPInvokeType}){param.Name}");
+                // Swift enums are generated as C# classes with .RawValue property
+                args.Add($"{param.Name}.RawValue");
             }
             else if (param.Kind == BridgeParameterKind.BoundType)
             {
@@ -884,13 +891,22 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
             {
                 var inner = param.InnerParameter!;
-                args.Add($"{param.Name}.HasValue ? 1 : 0");
                 if (inner.Kind == BridgeParameterKind.BoundEnum)
-                    args.Add($"{param.Name}.HasValue ? ({inner.CSharpPInvokeType}){param.Name}.Value : 0");
+                {
+                    // BoundEnum is a reference type (class) — use != null, .RawValue
+                    args.Add($"{param.Name} != null ? 1 : 0");
+                    args.Add($"{param.Name}?.RawValue ?? 0");
+                }
                 else if (inner.CSharpConversion != null) // Bool
+                {
+                    args.Add($"{param.Name}.HasValue ? 1 : 0");
                     args.Add($"{param.Name}.HasValue ? ({param.Name}.Value {inner.CSharpConversion}) : 0");
+                }
                 else
+                {
+                    args.Add($"{param.Name}.HasValue ? 1 : 0");
                     args.Add($"{param.Name} ?? 0");
+                }
             }
             else if (param.CSharpConversion != null)
             {

@@ -163,8 +163,9 @@ Output: NuGet package with C# bindings
 
 ## Current Capabilities
 
-**Status** (February 2026 - Phase 61 + SwiftUI Bridge v2 Phase 2C):
+**Status** (February 2026 - Phase 61 + SwiftUI Bridge v2 Phase 2C + TestFramework bridge migration):
 - **Unit Tests**: 1419 passed
+- **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅ (runtime validated, 18/18 tests)
 - **BlinkIDUX**: 0 errors ✅ (SwiftUI bridge validated, 16/16 tests)
@@ -305,6 +306,7 @@ Swift: prefix static func !(v: T) -> Bool      →  public static bool operator 
 
 ### Known Runtime Issues
 
+- **Mono JIT assertion (jit-info.c:918)**: `condition '!ji->async' not met` — kills process when any closure is passed through P/Invoke (both `@convention(c)` and `@escaping`) or when `SwiftString.PInvoke_GetLength` is called via `CallConvSwift`. Affects all closure tests and SwiftString property access at runtime. Bridge tests use `@_cdecl` functions which are unaffected.
 - Mono JIT bug: `swift_getExistentialTypeMetadata` crash (workaround: Swift wrappers)
 - SafeHandle in async P/Invoke not preserved (workaround: singleton pattern + IntPtr)
 - Non-blittable types with `CallConvSwift` require `IntPtr` + manual marshalling
@@ -556,9 +558,15 @@ When a member is skipped, the binding report records a `SkipReason`. These are d
 | Known-unsupported | 56 |
 | Types emitted | 54/64 |
 | Members emitted | 258/304 |
+| Runtime tests (Tier 2) | 13/13 SwiftUI bridge passing |
 
 **Remaining degraded features**:
 - `any_protocol_existential` — 1 skip (UnsupportedExistential: `describeAll([any Describable])` requires `SwiftArray<ExistentialContainer>` runtime support)
+
+**Runtime test tier notes**:
+- Tier 1: Core marshalling (string, enum, class, blittable) — pass
+- Tier 2: SwiftUI bridge (13 tests) — all pass
+- Tier 3: Closure tests, MutableProps (SwiftString) — deferred due to Mono JIT assertion crash
 
 ### Investigating a Specific Degraded Feature
 

@@ -872,7 +872,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void EmitBoundEnum_CSharp_CastsEnumToInt()
+    public void EmitBoundEnum_CSharp_UsesRawValue()
     {
         var typeDb = CreateEnumTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
@@ -882,12 +882,12 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
         Assert.Contains("AlertStyle style", csContent);
-        Assert.Contains("(int)style", csContent);
+        Assert.Contains("style.RawValue", csContent); // Enum class uses .RawValue, not (int) cast
         Assert.Contains("int style", csContent); // P/Invoke param
     }
 
     [Fact]
-    public void EmitBoundEnum_CSharp_UsesMappedCastType_ForUInt8Enum()
+    public void EmitBoundEnum_CSharp_UsesMappedRawValueType_ForUInt8Enum()
     {
         var typeDb = CreateEnumTypeDatabaseWithRawType("UInt8");
         var views = new List<TypeDecl> { CreateViewWithEnumInit("EnumView", "style", "TestModule.AlertStyle") };
@@ -897,9 +897,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
         Assert.Contains("AlertStyle style", csContent);       // Factory param uses C# enum type
-        Assert.Contains("(byte)style", csContent);            // Cast uses mapped type, not (int)
+        Assert.Contains("style.RawValue", csContent);         // Uses .RawValue property
         Assert.Contains("byte style", csContent);             // P/Invoke param uses mapped type
-        Assert.DoesNotContain("(int)style", csContent);       // No hardcoded int cast
     }
 
     [Fact]
@@ -1055,12 +1054,12 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("AlertStyle? style", csContent); // Factory param
         Assert.Contains("int styleHasValue", csContent); // P/Invoke
         Assert.Contains("int styleValue", csContent); // P/Invoke
-        Assert.Contains("style.HasValue ? 1 : 0", csContent);
-        Assert.Contains("(int)style.Value", csContent);
+        Assert.Contains("style != null ? 1 : 0", csContent); // Reference type null check
+        Assert.Contains("style?.RawValue ?? 0", csContent); // Uses .RawValue
     }
 
     [Fact]
-    public void EmitOptionalEnum_CSharp_UsesMappedCastType_ForUInt8Enum()
+    public void EmitOptionalEnum_CSharp_UsesMappedRawValueType_ForUInt8Enum()
     {
         var typeDb = CreateEnumTypeDatabaseWithRawType("UInt8");
         var views = new List<TypeDecl> { CreateViewWithOptionalEnumInit("OptEnumView", "style", "TestModule.AlertStyle") };
@@ -1071,8 +1070,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
         Assert.Contains("AlertStyle? style", csContent);       // Factory param
         Assert.Contains("byte styleValue", csContent);         // P/Invoke uses mapped type
-        Assert.Contains("(byte)style.Value", csContent);       // Cast uses mapped type, not (int)
-        Assert.DoesNotContain("(int)style.Value", csContent);  // No hardcoded int cast
+        Assert.Contains("style?.RawValue ?? 0", csContent);    // Uses .RawValue, not (byte) cast
     }
 
     [Fact]
