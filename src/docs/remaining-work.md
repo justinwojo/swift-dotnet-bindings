@@ -3,8 +3,8 @@
 Consolidated backlog of generator gaps, runtime issues, and infrastructure work. Ordered by priority.
 
 **Date**: February 2026
-**Current**: Phase 61 complete, 93/93 must-pass features
-**Completed items**: See `CompletedPhases/completed-backlog-items.md`
+**Current**: Phase 61 complete, 112 must-pass features (57 passing, 0 degraded, 51 missing from disabled dirs)
+**Completed items**: See `CompletedPhases/completed-backlog-items.md` (Phases 45-61)
 
 ---
 
@@ -17,8 +17,8 @@ Reassessed February 2026 after Phase 60 (async complex type marshalling).
 | Types emitted | 116/119 (97.5%) | 60/68 (88.2%) | 79/93 (84.9%) |
 | Members emitted | 567/572 (99.1%) | 323/342 (94.4%) | 387/428 (90.4%) |
 | Members skipped | 5 | 19 | 41 |
-| Runtime validated | Yes (**18/18 tests**) ✅ | Yes | Yes (9/9 tests) |
-| Compile errors | **0** ✅ | **0** ✅ | 1* |
+| Runtime validated | Yes (**18/18 tests**) | Yes | Yes (9/9 tests) |
+| Compile errors | **0** | **0** | 1* |
 
 *\* Lottie has 1 compile error (CS0315) due to `ExistentialContainer0` not implementing `ISwiftObject` constraint — a pre-existing generic constraint issue unrelated to protocol conformance.*
 
@@ -28,149 +28,12 @@ Reassessed February 2026 after Phase 60 (async complex type marshalling).
 
 | # | Area | Description | Impact | Priority |
 |---|------|-------------|--------|----------|
-| 1 | Generator | ~~Missing protocol member implementations~~ | ~~~80 compile errors~~ | ✅ **Done** |
-| 2 | Generator | ~~BlinkID enum raw value String marshalling~~ | ~~3 remaining BlinkID test failures~~ | ✅ **Done** |
-| 3 | Testing | ~~Deeper protocol runtime tests~~ | ~~Protocol tests are compile checks only~~ | ✅ **Done** |
-| 4 | Runtime | ~~Async callback marshalling (Array, String, complex types)~~ | ~~async tests blocked~~ | ✅ **Done** |
-| 5 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety | P3 |
-| 6 | Research | NativeAOT hands-on validation | Desk research done, testing remaining | P4 |
-| 7 | Generator | ~~nint emitted as generic type in integration tests~~ | ~~13 compile errors~~ | ✅ **Done** |
+| 1 | Tooling | Roslyn analyzer for undisposed Swift objects | Compile-time safety | P3 |
+| 2 | Research | NativeAOT hands-on validation | Desk research done, testing remaining | P4 |
 
 ---
 
-## 1. Missing Protocol Member Implementations (Nuke/Lottie)
-
-**Priority**: ✅ **COMPLETE** (Phase 56)
-**Area**: Generator
-**Impact**: ~81 compile errors → **0** (Nuke/BlinkID), 1 (Lottie pre-existing)
-
-### Implementation (Phase 56)
-
-Fixed three categories of protocol conformance compile errors:
-
-1. **CS0535 (missing members)**: Created `ProtocolConformanceValidator` that checks if a concrete type can fully implement a protocol interface *before* declaring the interface. The validator:
-   - Uses shared `MemberEmissionValidator` to check if each required member can be emitted
-   - Validates property accessor preflight (signature placeholders, generic constraints)
-   - Validates method return type projection matches interface (including existential, optional existential, protocol→AnyType handling)
-   - Validates native type remapping parity (Foundation.Data→NSData, Foundation.URL→NSUrl)
-   - Rejects interfaces requiring subscripts (concrete type subscripts not yet emitted)
-
-2. **CS0738 (return type mismatch)**: Added native type remapping to both `ProtocolHandler.EmitInterfaceMethod` and `ProtocolConformanceValidator` to ensure interface and concrete type signatures match.
-
-3. **CS0111 (duplicate P/Invoke)**: Added `HashSet<string>` deduplication in `ProtocolProxyEmitter.EmitWitnessDispatchPInvokes()`.
-
-### Key Files Changed
-
-| File | Change |
-|------|--------|
-| `MemberEmissionValidator.cs` | New shared validation (property accessor preflight, method return projection with existential/native remapping) |
-| `ProtocolConformanceValidator.cs` | New class validates concrete types against protocol interfaces |
-| `ProtocolSignatureHelper.cs` | Extracted signature key generation for method/subscript matching |
-| `TypeHandlerHelpers.cs` | Passes validator to `GetImplementedInterfaces()` with module-qualified protocol names |
-| `ProtocolHandler.cs` | Added native type remapping to interface method emission |
-| `ProtocolProxyEmitter.InterfaceImpl.cs` | Added native type remapping to proxy method implementation |
-| `ProtocolProxyEmitter.SwiftObject.cs` | Added P/Invoke deduplication |
-
-### Acceptance Criteria
-
-- [x] Nuke compiles without manual intervention (0 CS errors)
-- [x] BlinkID compiles without manual intervention (0 CS errors)
-- [x] Lottie: 1 remaining error is pre-existing generic constraint issue (unrelated)
-- [x] No regression in TestFramework (93/93 must-pass)
-- [x] No regression in unit tests (1239/1239 passed)
-
----
-
-## 2. BlinkID Enum Raw Value String Marshalling
-
-**Priority**: ✅ **COMPLETE** (Phase 55 + Phase 60)
-**Area**: Generator
-**Impact**: 3 BlinkID test failures fixed (15/18 → **18/18** ✅)
-
-### Implementation
-
-**Phase 55** implemented String raw value marshalling:
-- `EnumHandler.RawRepresentable.cs` — String raw types use UTF-8 marshalling via `Utf8Slice` struct
-- `Utf8SliceEmitter.cs` — Shared emitter ensures `SBW_Utf8Slice` struct emitted once per module
-- Swift wrapper functions: `SBW_{Module}_{Container}_{Enum}_InitWithRawValue` decode UTF-8 → String → call init(rawValue:)
-- C# marshalling: `System.Text.Encoding.UTF8.GetBytes` → pinned buffer → P/Invoke wrapper
-
-**Phase 60** unblocked runtime validation by fixing async callback marshalling for complex types (classes, enums, structs).
-
-### Acceptance criteria
-
-- [x] String-based enum raw values use `SBW_Utf8Slice` bridge
-- [x] No regression in other bindings
-- [x] BlinkID: 18/18 runtime tests pass
-
----
-
-## 3. Deeper Protocol Runtime Tests
-
-**Priority**: ✅ **COMPLETE** (Phase 57)
-**Area**: Testing
-
-### Implementation (Phase 57)
-
-Added 20 runtime tests exercising actual Swift-to-C# protocol interop behavior:
-
-**Test Categories:**
-1. **Compile Checks** (4 tests): Protocol interfaces exist, conformance verification
-2. **Swift Types via Factory Functions** (5 tests): Create types via factory, call methods/properties
-3. **Swift Types via Constructors** (3 tests): Direct constructor usage
-4. **Interface Casting and Method Dispatch** (6 tests): Cast to interface, call through interface
-5. **Generic Methods with Interface Constraints** (2 tests): Generic C# methods with protocol constraints
-
-**Swift Protocol Features Tested:**
-- `ISwiftHasInt32Value`: Read-only `Int32` property
-- `ISwiftComputable`: `Compute(Int32)` method
-- `ISwiftCounter`: `Count` property + `Increment(Int32)` method
-- `ISwiftResettableCounter`: Inherited protocol with `Reset()` method
-- Multi-protocol conformance (`MultiConformer` implementing 3 protocols)
-
-**Key Files:**
-- `FunctionalTests/Protocols/ProtocolsTests.swift` — Swift protocols and conforming frozen structs
-- `FunctionalTests/Protocols/ProtocolsTests.cs` — 20 runtime tests
-
-**Note**: MemoryTests and UnsafePointerTests excluded from integration tests due to pre-existing `nint<T>` generator bug (item #7).
-
-### Acceptance criteria
-
-- [x] Protocol tests exercise method dispatch, not just compilation
-- [x] At least 5 runtime behavior tests for protocol proxies (20 total)
-- [x] Tests cover Swift-implemented protocol conformance
-
----
-
-## 4. Async Callback Marshalling (Array, String, Complex Types)
-
-**Priority**: ✅ **COMPLETE** (Phase 58, 59, 60)
-**Area**: Runtime
-
-### Implementation
-
-**Phase 58**: String returns via UTF-8 `(ptr, len)` callback parameters
-- Swift allocates UTF-8 buffer, C# copies via `Marshal.PtrToStringUTF8`, frees via `SBW_Free`
-- See `async-string-marshalling-design.md`
-
-**Phase 59**: Array<String> returns via flat buffer serialization
-- Format: `[count][lengths...][data...]`
-- See `async-array-marshalling-design.md`
-
-**Phase 60**: Class/enum/struct returns via `OpaquePointer`
-- Swift allocates memory, stores result, passes `OpaquePointer` through `@convention(c)` callback
-- For classes: Swift retains object to prevent ARC deallocation; C# releases after marshalling
-- C# receives `IntPtr`, reads via `SwiftMarshal.MarshalFromSwift`, frees via `SBW_Free`
-
-### Acceptance criteria
-
-- [x] `TestString` passes
-- [x] `TestArray` passes
-- [x] BlinkID async methods compile and run (18/18 tests)
-
----
-
-## 5. Roslyn Analyzer for Undisposed Swift Objects
+## 1. Roslyn Analyzer for Undisposed Swift Objects
 
 **Priority**: P3
 **Area**: Tooling
@@ -189,7 +52,7 @@ A Roslyn analyzer can warn at compile time when Swift objects implementing `IDis
 
 ---
 
-## 6. NativeAOT Hands-On Validation
+## 2. NativeAOT Hands-On Validation
 
 **Priority**: P4
 **Area**: Research
@@ -211,41 +74,6 @@ Desk research complete. Findings:
 **Acceptance criteria**:
 - [ ] Hands-on validation with NativeAOT iOS test app
 - [ ] Document which workarounds apply under NativeAOT
-
----
-
-## 7. nint Emitted as Generic Type in Integration Tests
-
-**Priority**: ✅ **COMPLETE** (Phase 61)
-**Area**: Generator
-**Impact**: 13 compile errors → **0**
-
-### Implementation (Phase 61)
-
-Swift pointer types like `UnsafeMutablePointer<UInt8>` were correctly resolving to `System.IntPtr` in the TypeDatabase, but several code paths were still appending the original generic parameters, producing invalid C# like `System.IntPtr<System.Byte>`.
-
-**Root cause**: When translating bound generic types to C#, the code checked for `AnyType` fallback but not `IntPtrType`. Since pointer types have generic parameters in Swift (e.g., `UnsafeMutablePointer<T>`), the translation code was appending them even though `IntPtr` is not a generic type in C#.
-
-**Files changed**:
-
-| File | Method | Change |
-|------|--------|--------|
-| `MethodSignature.cs` | `TranslateTypeSpecForConversion()` | Added `IntPtrType` check before appending generics |
-| `WrapperEmitter.Return.cs` | `GetCSharpTypeForTupleElement()` | Added `IntPtrType` check in `TryGetTypeRecord` path |
-| `WrapperEmitter.Marshalling.cs` | `TranslateTypeSpecForConversion()` | Added `IntPtrType` check before appending generics |
-| `BoundGenericsHandler.cs` | `TranslateBoundGenericTypeToCSharp()` | Added `IntPtrType` check before appending generics |
-| `ClosureHandler.cs` | `TranslateBoundGenericToCSharp()` | Added `IntPtrType` check before appending generics |
-| `TupleHandler.cs` | `TranslateBoundGenericToCSharp()` | Added `IntPtrType` check before appending generics |
-| `Swift.Bindings.Integration.Tests.csproj` | — | Removed `TODO(nint-generic-bug)` exclusions |
-| `UnsafePointerTests.cs` | — | Updated to use `nint` casts instead of Swift wrapper types |
-
-### Acceptance criteria
-
-- [x] Integration tests compile without CS0308 errors
-- [x] `nint` emitted correctly in all contexts
-- [x] No regression in unit tests (1239/1239 passed)
-- [x] No regression in TestFramework (93/93 must-pass)
-- [x] Remove `TODO(nint-generic-bug)` exclusions from csproj
 
 ---
 

@@ -1,7 +1,7 @@
 # SwiftUI Bridge v2: Coverage-Driven Expansion
 
 **Date**: February 2026
-**Status**: Phase 2C complete (2026-02-06)
+**Status**: Phases 1-2 complete, Phase 3 next
 **Prerequisite**: v1 (Deliverable 2) complete and validated
 **Parent**: [SwiftUI Bridge Design](../swiftui-bridge-design.md)
 
@@ -19,9 +19,25 @@ v2 expanded parameter type support (Phase 1), added ABI-driven async inference (
 | BridgeParamTest | 9 | 9 (100%) | 35/35 | Synthetic views exercising all v2 param types |
 | Lottie | 6 | 5 (83%) | 15/15 | 1 skipped: @ViewBuilder generic param |
 
-**Original bottleneck** (now largely resolved): `InitAnalyzer.MapParameterType()` was a simple switch that rejected any type not in its hardcoded list. v2 Phase 1 expanded it to handle enums, optionals, typed closures, and class types via TypeDatabase.
-
 **Direction** (from Codex review): Build v2 around coverage expansion + bridge hints, not SwiftUI semantics. Track success with a real-library corpus. The product contract is: present SwiftUI `View` as `UIViewController`, callbacks to .NET, lifecycle ownership. NOT: composing ViewBuilder trees from C#.
+
+---
+
+## Completed Phases
+
+**Phase 1 (Parameter Type Expansion)** and **Phase 2 (Generalized Async Factory)** are complete. See [`CompletedPhases/swiftui-bridge-v2-phases1-2.md`](../CompletedPhases/swiftui-bridge-v2-phases1-2.md) for full details.
+
+**Summary**: 1419 unit tests, 35/35 BridgeParamTest, 16/16 BlinkIDUX, 15/15 Lottie.
+
+| Phase | What It Did | Key Result |
+|-------|-------------|------------|
+| 1A | BoundEnum + Optional\<Primitive\|Enum\> | Enums cross ABI as raw int values |
+| 1B | BoundType for classes + Optional\<BoundType\> | Class params via retain/release pointers |
+| 1C | TypedClosure | Closures with typed params (max 4) via trampolines |
+| 1D | Optional\<BoundType\> | Nullable pointer pattern (shipped with 1B) |
+| 2A | ABI-driven async inference | Replaces hard-coded `KnownAsyncPatterns` |
+| 2B | Data-driven emission | Chain flattening from inferred patterns |
+| 2C | Cross-module types + null-safety | TypeDB resolution + null guards |
 
 ---
 
@@ -35,248 +51,6 @@ v2 expanded parameter type support (Phase 1), added ABI-driven async inference (
 - Async/throwing closures as init parameters
 - Dependency chain flattening deeper than 3 levels
 - BoundType for non-frozen structs (deferred to v2.1 — value witness copy semantics are high-risk)
-
----
-
-## Phase 1: Parameter Type Expansion
-
-**Objective**: Expand `InitAnalyzer.MapParameterType()` to support enums, `Optional<T>` (for primitives and enums), typed closures, and already-bound class parameters. Split into safe increments to isolate risk.
-
-### Prerequisite: Thread ITypeDatabase into Bridge Emitter (**Done**)
-
-~~The bridge emitter currently has no access to the TypeDatabase.~~ `ITypeDatabase` is now threaded from `ModuleEmitter` → `EmitBridgeFiles()` → `BridgeContext` → `AnalyzeInitParameters()`.
-
-| File | Change | Status |
-|------|--------|--------|
-| `ModuleEmitter.cs` | Pass `_typeDatabase` to `SwiftUIBridgeEmitter.EmitBridgeFiles()` | **Done** |
-| `SwiftUIBridgeEmitter.cs` | Accept `ITypeDatabase`, thread through as `BridgeContext` record | **Done** |
-
-### Phase 1A: BoundEnum + Optional<Primitive|Enum> (**Done** — 2026-02-06)
-
-Safest increment. Enums cross the ABI as raw integer values. Optionals of primitives/enums use a hasValue flag + raw value.
-
-**New BridgeParameterKind values:**
-```
-BoundEnum        — enum from TypeDatabase (pass raw Int value across ABI)
-OptionalWrapped  — Optional<T> where T is Primitive or BoundEnum only (v2.0)
-```
-
-**C ABI Mapping:**
-
-| Swift Type | Kind | Swift @_cdecl param | C# P/Invoke | C# Factory Type |
-|------------|------|-------------------|-------------|-----------------|
-| `MyEnum` (Int raw) | BoundEnum | `Int32` | `int` | `MyEnum` |
-| `Optional<Int>` | OptionalWrapped | `Int32` (hasValue) + `nint` (value) | `int, nint` | `nint?` |
-| `Optional<MyEnum>` | OptionalWrapped | `Int32` (hasValue) + `Int32` (rawValue) | `int, int` | `MyEnum?` |
-
-**Not included in 1A** (deferred): `Optional<T>` where T is a reference type (class/struct). This avoids the nullable-pointer vs flag ambiguity for now.
-
-**Implementation status (2026-02-06)**:
-- `BridgeContext` record holds `ITypeDatabase?` for type lookups
-- `BridgeParameterKind.BoundEnum` and `BridgeParameterKind.OptionalWrapped` added
-- `BridgeParameter` record extended with `BridgeTypeName`, `CSharpTypeName`, `InnerParameter`
-- `TypeRecord.RawValueTypeName` added — populated from `EnumDecl.RawValueTypeName` in `ModuleProcessor`
-- `MapEnumRawValueType()` supports all 10 Swift integer types; String/non-RawRepresentable → template fallback
-- C# call-site casts use mapped `CSharpPInvokeType` (not hardcoded `int`)
-- 25 new unit tests (all pass); existing 16/16 BlinkIDUX runtime tests unaffected
-- ✅ Runtime-validated: BridgeParamTest includes BoundEnum + OptionalWrapped views (35/35 tests)
-
-### Phase 1B: BoundType for Classes (**Done** — 2026-02-06)
-
-Class parameters cross the ABI as `UnsafeMutableRawPointer`. The session retains the pointer in Create and releases in Free.
-
-| Swift Type | Kind | Swift @_cdecl param | C# P/Invoke | C# Factory Type |
-|------------|------|-------------------|-------------|-----------------|
-| `MyClass` | BoundType | `UnsafeMutableRawPointer` | `IntPtr` | `MyClass` |
-
-**Retain/release contract**: Session takes `takeUnretainedValue()` from opaque pointer. C# factory extracts handle via `obj.Payload.DangerousGetHandle()`. Session release handled by existing `Unmanaged.passRetained(session).release()` in Free.
-
-**Not included in 1B**: Non-frozen structs. Struct value copy via value witness table is significantly more complex (needs VWT lookup, `initializeWithCopy`, `destroy`). Deferred to v2.1 after class support is proven stable.
-
-**Implementation status (2026-02-06)**:
-- `BridgeParameterKind.BoundType` added — maps class types from TypeDatabase
-- `MapDatabaseType()` handles `TypeRecordKind.Class` → `BoundType`; `TypeRecordKind.Struct` → null (deferred)
-- Swift: `UnsafeMutableRawPointer` param → `Unmanaged<ClassName>.fromOpaque().takeUnretainedValue()` reconstruction
-- C#: `IntPtr` P/Invoke, typed factory param, `Payload.DangerousGetHandle()` call-site
-- `Optional<BoundType>` also implemented (Phase 1D preview): nullable pointer (`UnsafeMutableRawPointer?` / `IntPtr.Zero` = nil)
-- 14 new unit tests (all pass); existing 16/16 BlinkIDUX runtime tests unaffected
-- ✅ Runtime-validated: BridgeParamTest includes BoundType + Optional<BoundType> views (35/35 tests)
-
-### Phase 1C: TypedClosure (**Done** — 2026-02-06)
-
-Closures with typed parameters and/or return values. Max 4 closure parameters.
-
-| Swift Type | Kind | Swift @_cdecl param | C# P/Invoke | C# Factory Type |
-|------------|------|-------------------|-------------|-----------------|
-| `(T) -> Void` | TypedClosure | `@convention(c) (T_abi, UnsafeMutableRawPointer?) -> Void` | `IntPtr, IntPtr` | `Action<T>` |
-| `(T) -> R` | TypedClosure | `@convention(c) (T_abi, UnsafeMutableRawPointer?) -> R_abi` | `IntPtr, IntPtr` | `Func<T, R>` |
-| `(T, U) -> Void` | TypedClosure | `@convention(c) (T_abi, U_abi, UnsafeMutableRawPointer?) -> Void` | `IntPtr, IntPtr` | `Action<T, U>` |
-
-Each typed closure generates a C# `[UnmanagedCallersOnly]` trampoline that unpacks `GCHandle → delegate`, converts args, calls delegate. Async and throwing closures remain unsupported (template fallback).
-
-**Callback threading semantics**: `VoidClosure` (`() -> Void`) wraps the callback in `DispatchQueue.main.async`, so the C# delegate is always invoked on the main thread asynchronously. `TypedClosure` invokes the callback **synchronously on the calling thread** — this is required because closures with return values cannot use async dispatch (the return value must be produced immediately). Consumers should be aware that `TypedClosure` callbacks may execute on any thread the SwiftUI framework calls the closure from (in practice, SwiftUI view init closures are called on the main thread, but this is not guaranteed for all closure invocation contexts).
-
-**Implementation status (2026-02-06)**:
-- `BridgeParameterKind.TypedClosure` added — closures with typed args and/or return values
-- `BridgeParameter` record extended with `ClosureArguments` (list) and `ClosureReturn` (optional)
-- `MapClosureType()` extended: recursively maps each closure arg and return type via `MapPrimitiveOrString`
-- Supported closure arg/return types: Primitives (Int, Int32, Int64, Bool, Double, Float)
-- Unsupported closure types still fall back to template: String args, async, throwing, >4 params
-- Swift: `@convention(c)` wrapper with typed ABI params + `UnsafeMutableRawPointer?` userData
-- Swift: View init wrapper generates typed Swift closure with arg/return conversion (Bool ↔ Int32)
-- C#: `[UnmanagedCallersOnly]` trampoline with ABI-typed params, GCHandle→delegate cast, arg conversion
-- C#: Factory param uses `Action<T...>?` or `Func<T..., R>?` with `= null` default
-- C#: `delegate* unmanaged[Cdecl]<argTypes..., IntPtr, returnType>` function pointer type
-- 26 new unit tests (all pass); existing tests unaffected
-- ✅ Runtime-validated: BridgeParamTest includes TypedClosure views (35/35 tests)
-
-### Phase 1D: Optional<BoundType> for Reference Types (**Done** — 2026-02-06, shipped with Phase 1B)
-
-~~After class BoundType is stable, extend Optional to reference types using nullable pointers.~~
-
-Implemented as part of Phase 1B since the nullable pointer pattern is simpler than value-type optionals.
-
-| Swift Type | Kind | Swift @_cdecl param | C# P/Invoke | C# Factory Type |
-|------------|------|-------------------|-------------|-----------------|
-| `Optional<MyClass>` | OptionalWrapped | `UnsafeMutableRawPointer?` | `IntPtr` | `MyClass?` |
-
-No flag needed — null pointer = nil.
-
-### MapParameterType Expansion Logic (Final)
-
-```
-1. ClosureTypeSpec:
-   a. () -> Void → VoidClosure (existing)
-   b. !async && !throws && ≤4 params:
-      - Recursively map each arg and return type
-      - All mappable → TypedClosure
-      - Else → null (template)
-   c. async/throwing → null
-
-2. NamedTypeSpec:
-   a. Existing primitives (Swift.Int, Swift.Bool, etc.) → Primitive (existing)
-   b. Swift.String → String (existing)
-   c. Swift.Optional with 1 generic param:
-      - Recursively map inner type
-      - Inner is Primitive or BoundEnum → OptionalWrapped (Phase 1A)
-      - Inner is BoundType (class only) → OptionalWrapped (Phase 1D)
-      - Else → null
-   d. TypeDatabase lookup:
-      - Enum → BoundEnum (Phase 1A)
-      - Class → BoundType (Phase 1B)
-      - Struct (non-frozen) → null (deferred to v2.1)
-      - Else → null
-
-3. Everything else → null (template fallback)
-```
-
-### Files Modified
-
-| File | Change |
-|------|--------|
-| `ModuleEmitter.cs` | Pass `_typeDatabase` to bridge emitter |
-| `SwiftUIBridgeEmitter.cs` | Accept `ITypeDatabase`, add `BridgeContext`, new Swift/C# emission for each new Kind |
-| `SwiftUIBridgeEmitter.InitAnalyzer.cs` | Expand `MapParameterType`, new `BridgeParameterKind` values, new `BridgeParameter` fields, TypeDatabase lookup |
-| `SwiftUIBridgeEmitterTests.cs` | Tests for each new parameter kind (~25 tests) |
-
-### Acceptance Criteria
-
-**Per-subphase, each new parameter kind must pass all 3 tiers:**
-
-1. **Generated**: Unit test verifying correct Swift + C# output
-2. **Typechecked**: Generated Swift passes `swiftc -typecheck`
-3. **Runtime-validated**: At least one new kind consumed by a C# factory in a runtime test app (builds, runs, produces correct behavior)
-
-**Specific acceptance:**
-- 1A: A View with `init(style: MyEnum)` → functional bridge, runtime-validated
-- 1B: A View with `init(animation: LottieAnimation)` → functional bridge, runtime-validated
-- 1C: A View with `init(callback: (Int) -> Bool)` → functional bridge, runtime-validated
-- 1D: A View with `init(animation: LottieAnimation?)` → functional bridge, runtime-validated
-- All existing tests pass; BlinkIDUX 16/16 runtime tests unchanged
-- Unsupported params (non-frozen structs, async closures) still fall back cleanly to template
-
----
-
-## Phase 2: Generalized Async Factory ✅
-
-**Objective**: Replace hard-coded `KnownAsyncPatterns` dictionary with ABI-driven inference. Any View whose init depends on a type with `async throws` init can be auto-bridged, not just BlinkIDUXView.
-
-**Status**: Complete (Phase 2A: inference, Phase 2B: data-driven emission, Phase 2C: cross-module types + null-safety). 1419 unit tests, 35/35 BridgeParamTest, 16/16 BlinkIDUX, 15/15 Lottie.
-
-### Constructor/Factory Selection Rules
-
-When a dependency type has multiple constructors or factory methods, select deterministically:
-
-1. **Hints override** (Phase 3): If bridge hints specify a factory, use it unconditionally.
-2. **Hard-coded pattern** (existing): If `KnownAsyncPatterns` has an entry, use it.
-3. **Inferred selection** (ranked by preference):
-   a. Prefer constructors over static factory methods
-   b. Among constructors, prefer the one with the **smallest supported parameter surface** (fewest parameters where all are bridgeable)
-   c. Among ties, prefer the **shallowest async depth** (fewer levels of async dependency)
-   d. If multiple constructors tie on all criteria, use the first in ABI declaration order (deterministic)
-   e. If no constructor has all-supported parameters, fall back to template
-
-### Dependency Chain Flattening
-
-The BlinkIDUXView pattern flattens a multi-object construction chain into a single `@_cdecl Create`. The algorithm:
-1. Start from View's init. For each non-primitive param, look up its type's init (using selection rules above).
-2. If the type's init has only supported params (primitives/strings/closures/enums), flatten those into Create params.
-3. If a param is another non-primitive, recurse (max depth 3).
-4. If any leaf param is unsupported or depth >3, fall back to template.
-5. For `async throws` inits, wrap in `Task { @MainActor in ... }` with onReady/onError callbacks.
-
-### CreateAsync Failure and Timeout Policy
-
-Generated `CreateAsync` factories must handle failure scenarios:
-
-1. **Timeout**: `CreateAsync` accepts an optional `CancellationToken` parameter (default `CancellationToken.None`). The C# factory registers the token with the `TaskCompletionSource`. If cancelled, `TrySetCanceled()` is called and the GCHandle is freed.
-2. **Default timeout**: No implicit timeout. Callers opt in via `CancellationTokenSource` with timeout. This matches standard .NET async patterns — the framework doesn't impose policy.
-3. **Swift-side failure**: `onError` callback fires → `TrySetException()` with the error message. GCHandle freed in error trampoline (idempotent, already implemented in v1).
-4. **Callback never arrives**: The `TaskCompletionSource` remains pending. The caller's `CancellationToken` is the only protection. Document this explicitly in the generated factory's XML doc comment.
-5. **Multiple callbacks**: `TrySetResult`/`TrySetException` are idempotent — second call is a no-op (already implemented in v1).
-6. **Cancellation/callback race**: When cancellation and a Swift callback race, the single completion authority is the `TrySet*` family — whichever wins the race completes the task, the loser is a no-op. GCHandle cleanup uses an `int _completed` field with `Interlocked.CompareExchange(ref _completed, 1, 0)` as the single free-path guard. Whichever path (cancellation registration, onReady, or onError) wins the CAS is responsible for freeing the GCHandle. This prevents double-free without locks.
-
-### Precedence Order (Definitive)
-
-When determining how to bridge a View, the system checks in this exact order:
-
-1. **Bridge hints `skip`/`forceTemplate`** → If present, stops immediately (skip or template)
-2. **Bridge hints `asyncPattern`** → If present, builds async pattern from hints (overrides everything below)
-3. **`KnownAsyncPatterns` dictionary** → Hard-coded patterns (backward compat; entries can be removed over time)
-4. **ABI-driven inference** → Analyzes dependency chain from type declarations
-5. **Simple classification** → Falls through to `InitAnalyzer.AnalyzeInitParameters()` for non-async views
-6. **Template fallback** → If all above fail or produce unsupported parameters
-
-This is documented in code via a comment block at the top of `AnalyzeView()`.
-
-### Files Modified
-
-| File | Change |
-|------|--------|
-| `SwiftUIBridgeEmitter.cs` | Accept `ModuleDecl`, new `InferAsyncPattern()`, precedence comment block |
-| `SwiftUIBridgeEmitter.AsyncPattern.cs` | Add `InferAsyncViewPattern()` alongside existing dictionary; constructor ranking; auto-build `AsyncViewPattern` from ABI; `CancellationToken` support in C# factory |
-| `SwiftUIBridgeEmitter.InitAnalyzer.cs` | Detect async dependency by examining parameter types' inits |
-| `ModuleEmitter.cs` | Pass `moduleDecl` to bridge emitter |
-| `SwiftUIBridgeEmitterTests.cs` | Tests for auto-inferred async patterns (~15 tests) |
-
-### Acceptance Criteria — Results
-
-- ✅ `KnownAsyncPatterns` entries take precedence over inference (backward compat)
-- ✅ A View with `init(model: MyModel)` where `MyModel.init(key: String)` is `async throws` → auto-generates async factory
-- ✅ 3-level chain with primitive leaves generates correctly
-- ✅ 4-level chain falls to template
-- ✅ Chains with unsupported leaf types fall to template
-- ✅ Constructor selection is deterministic: same ABI always produces same bridge
-- ✅ BlinkIDUXView still works (kept in dictionary)
-- ✅ **Runtime-validated**: BridgeParamTest 35/35 includes data-driven async emission tests (MixedAsyncView)
-- ✅ **Cross-module types**: BoundType/BoundEnum resolved via TypeDatabase with auto ExtraSwiftImports
-- ✅ **Null-safety**: Swift null-pointer guard + C# ArgumentNullException before P/Invoke
-- ⏳ CancellationToken support (deferred — standard .NET pattern, not blocking)
-- ⏳ Golden-output snapshots (deferred — unit test assertions cover signature stability)
-
-### Risk — Post-Mortem
-
-Inference generating incorrect Swift was mitigated by `swiftc -typecheck` compilation gate in `regenerate-bindings.sh` and 6 cross-module + 7 data-driven emission unit tests. No incorrect Swift was produced during validation.
 
 ---
 
@@ -398,16 +172,12 @@ If multiple files match, only the first (highest priority) is loaded. Warn if bo
 ### Corpus Reproducibility
 
 Each corpus library entry must include:
-- **Pinned version**: Exact release tag or commit hash (e.g., `lottie-ios@4.4.1`)
+- **Pinned version**: Exact release tag or commit hash
 - **Artifact hash**: SHA-256 of the xcframework archive
-- **Fetch script**: `fetch-corpus.sh` that downloads, extracts, and verifies hashes. No binaries checked into the repo.
+- **Fetch script**: `fetch-corpus.sh` that downloads, extracts, and verifies hashes
 - **Manifest**: `bridge-corpus/manifest.json` with per-library version, hash, download URL
 
-If a hash doesn't match, the fetch script fails with a clear error. Manual `--update-corpus` flag re-downloads and updates hashes.
-
 ### Three-Tier Coverage Metrics
-
-Each view is tracked at three quality levels:
 
 | Tier | Meaning | How Measured |
 |------|---------|-------------|
@@ -418,33 +188,16 @@ Each view is tracked at three quality levels:
 Coverage report shows all three:
 ```
 BlinkIDUX:  2/4 generated (50%), 2/4 typechecked (50%), 2/4 runtime-validated (50%)
-Lottie:     1/3 generated (33%), 1/3 typechecked (33%), 0/3 runtime-validated (0%)
-Aggregate:  3/7 generated (43%), 3/7 typechecked (43%), 2/7 runtime-validated (29%)
+Lottie:     5/6 generated (83%), 5/6 typechecked (83%), 5/6 runtime-validated (83%)
+Aggregate:  7/10 generated (70%), 7/10 typechecked (70%), 7/10 runtime-validated (70%)
 ```
 
-This prevents "template shrinkage" (moving views from template to generated but broken) from being mistaken as real progress.
-
-**Non-generated outcome taxonomy**: Two orthogonal dimensions — *reason* (why) and *output* (what was emitted):
+**Non-generated outcome taxonomy**:
 
 | Dimension | Values |
 |-----------|--------|
 | **Reason** (why not generated) | `Unsupported` (params can't be bridged), `HintSkipped` (user chose to skip via hints) |
 | **Output** (what was emitted) | `Template` (commented-out stub), `None` (no output at all) |
-
-Mapping: `Unsupported` → always emits `Template` output. `HintSkipped` → emits `None` (no file output for this view).
-
-The `BridgeSummary` uses output-level counts. Reason breakdown is available per-view in `BridgedViews[]`:
-
-```json
-{
-  "BridgedViews": [
-    { "ViewName": "CameraView", "BridgeStatus": "Template", "Reason": "Unsupported", "..." : "..." },
-    { "ViewName": "CameraPreview", "BridgeStatus": "HintSkipped", "Reason": "HintSkipped", "..." : "..." }
-  ]
-}
-```
-
-Views not detected as SwiftUI Views (e.g., `ScanningUXSettings`) never appear in bridge metrics.
 
 ### Coverage Report Extension
 
@@ -485,61 +238,29 @@ New script: `generate-bridge-coverage.sh`
 
 ### Acceptance Criteria
 
-- Coverage report shows per-library bridge rates at all 3 tiers (generated, typechecked, runtime-validated)
+- Coverage report shows per-library bridge rates at all 3 tiers
 - Baseline established for BlinkIDUX + Lottie
 - Coverage decrease in any library at any tier is detectable
-- Corpus is reproducible: `fetch-corpus.sh` on a clean machine produces identical xcframeworks (verified by hash)
-- Report distinguishes Generated vs Template vs HintSkipped, with per-view reason breakdown (Unsupported, HintSkipped)
+- Corpus is reproducible: `fetch-corpus.sh` on a clean machine produces identical xcframeworks
+- Report distinguishes Generated vs Template vs HintSkipped, with per-view reason breakdown
 
 ---
 
 ## Implementation Sequencing
 
 ```
-Phase 1A: Thread ITypeDatabase + BoundEnum + Optional<Primitive|Enum>  ✅ (2026-02-06)
+Phase 1: Parameter Type Expansion  ✅ (archived)
     ↓
-Phase 1B: BoundType for classes + Optional<BoundType>  ✅ (2026-02-06)
+Phase 2: Generalized Async Factory  ✅ (archived)
     ↓
-Phase 1C: TypedClosure support  ✅ (2026-02-06)
-    ↓
-Phase 1D: Optional<BoundType> for reference types  ✅ (shipped with 1B)
-    ↓
-  Validate: BridgeParamTest 26/26 runtime tests  ✅
-    ↓
-Phase 2A: ABI-driven async inference + constructor ranking  ✅ (2026-02-06)
-    ↓
-Phase 2B: Data-driven emission from inferred chains  ✅ (2026-02-06)
-    ↓
-  Validate: BridgeParamTest 35/35 (MixedAsyncView data-driven)  ✅
-    ↓
-Phase 2C: Cross-module type resolution + null-safety  ✅ (2026-02-06)
-    ↓
-  Validate: Lottie 15/15 SwiftUI bridge + 1419 unit tests  ✅
-    ↓
-Phase 3: Bridge hints (next — can overlap with Phase 4)
+Phase 3: Bridge hints  ← NEXT
     ↓
 Phase 4: Corpus + 3-tier metrics (can start in parallel with Phase 3)
 ```
 
 ---
 
-## Verification Per Phase
-
-### Phase 1 (per subphase)
-```bash
-./run-tests.sh                                          # All tests green
-cd BindingTesting/BlinkId && ./regenerate-ux-bindings.sh # Existing bridges unchanged
-cd BindingTesting/BlinkId && ./build-all-bridge.sh && ./validate-bridge.sh  # 16/16
-# Per-subphase: runtime test app consumes at least one new param kind
-```
-
-### Phase 2 ✅
-```bash
-./run-tests.sh                                                              # 1419/1419
-cd BindingTesting/BridgeTest && ./build-all.sh && ./validate.sh             # 35/35
-cd BindingTesting/BlinkId && ./build-all-bridge.sh && ./validate-bridge.sh  # 16/16
-cd BindingTesting/Lottie && ./validate-sim.sh                               # 15/15
-```
+## Verification
 
 ### Phase 3
 ```bash
@@ -574,13 +295,6 @@ cd BindingTesting/Lottie && ./validate-sim.sh                               # 15
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| BoundType retain/release bugs | High | Test with runtime validation per subphase; classes first (simpler), structs deferred |
-| TypedClosure trampoline mismatch | Medium | Generate Swift typealias and C# delegate* from same BridgeParameter; runtime test |
-| Async inference generates wrong Swift | High | `swiftc -typecheck` gate; deterministic constructor ranking; bridge hints escape hatch |
-| TypeDatabase missing cross-module types | ~~Medium~~ **Mitigated** | Phase 2C: TypeDB lookup for BoundType/BoundEnum + null-pointer safety guards; falls to template when type not found |
-| Optional value-type ABI explosion | Medium | v2.0 restricts to Optional<Primitive\|Enum> only; ref types use nullable pointer |
-| Constructor ranking instability | Medium | Explicit ranking rules documented; deterministic tie-breaking by ABI order |
-| CreateAsync hangs (callback never arrives) | Medium | CancellationToken support; documented behavior; no implicit timeout |
 | Bridge hints schema evolution | Low | Versioned schema; unknown keys ignored with warning |
 | Corpus drift | Low | Pinned versions + SHA-256 hashes; fetch script verifies |
 | Template shrinkage mistaken as progress | Low | 3-tier metrics (generated/typechecked/runtime-validated) |

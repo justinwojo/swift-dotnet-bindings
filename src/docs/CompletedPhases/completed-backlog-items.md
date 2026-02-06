@@ -1,9 +1,9 @@
 # Completed Backlog Items
 
-Archived from `remaining-work.md`. These items were completed during Phases 45-53.
+Archived from `remaining-work.md`. These items were completed during Phases 45-61.
 
-**Starting Point**: Phase 48, 1107 unit tests, TestFramework v2.0 (67 files, 145 features)
-**End Point**: Phase 54, 1238 unit tests, 93/93 must-pass features
+**Starting Point**: Phase 45, 1107 unit tests, TestFramework v2.0 (67 files, 145 features)
+**End Point**: Phase 61, 1419 unit tests, 112 must-pass features, 0 degraded
 
 ---
 
@@ -257,4 +257,72 @@ Fixed protocol conformance compile errors (CS0736) where types emitted static pr
 - TestFramework: 93/93 must-pass features (no regression)
 - Static member skips now properly recorded in binding report
 
-**Note**: Nuke (~42 errors) and Lottie (~39 errors) have a different category of errors (CS0535 missing implementations, CS0738 return type mismatches, CS0111 duplicate definitions) that are unrelated to this fix — tracked separately as P1 in remaining-work.md.
+**Note**: Nuke (~42 errors) and Lottie (~39 errors) have a different category of errors (CS0535 missing implementations, CS0738 return type mismatches, CS0111 duplicate definitions) that are unrelated to this fix — fixed in Phase 56 (item 23 below).
+
+---
+
+## 23. Missing Protocol Member Implementations — Nuke/Lottie (Phase 56)
+
+Fixed three categories of protocol conformance compile errors:
+
+1. **CS0535 (missing members)**: Created `ProtocolConformanceValidator` that checks if a concrete type can fully implement a protocol interface *before* declaring the interface. The validator uses shared `MemberEmissionValidator` to check property accessor preflight, method return type projection (including existential, optional existential, protocol→AnyType handling), and native type remapping parity (Foundation.Data→NSData, Foundation.URL→NSUrl). Rejects interfaces requiring subscripts.
+
+2. **CS0738 (return type mismatch)**: Added native type remapping to both `ProtocolHandler.EmitInterfaceMethod` and `ProtocolConformanceValidator`.
+
+3. **CS0111 (duplicate P/Invoke)**: Added `HashSet<string>` deduplication in `ProtocolProxyEmitter.EmitWitnessDispatchPInvokes()`.
+
+**Key files**: `MemberEmissionValidator.cs` (new), `ProtocolConformanceValidator.cs` (new), `ProtocolSignatureHelper.cs` (new), `TypeHandlerHelpers.cs`, `ProtocolHandler.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `ProtocolProxyEmitter.SwiftObject.cs`.
+
+**Impact**: Nuke 0 errors ✅, BlinkID 0 errors ✅, Lottie 1 remaining (pre-existing generic constraint). TestFramework 93/93, 1239 unit tests.
+
+---
+
+## 24. BlinkID Enum Raw Value String Marshalling (Phase 55 + Phase 60)
+
+**Phase 55**: String raw value marshalling via UTF-8 `Utf8Slice` struct:
+- `EnumHandler.RawRepresentable.cs` — String raw types use `SBW_Utf8Slice` bridge
+- `Utf8SliceEmitter.cs` — Shared emitter ensures struct emitted once per module
+- Swift wrapper: `SBW_{Module}_{Container}_{Enum}_InitWithRawValue` decodes UTF-8 → String → init(rawValue:)
+- C# marshalling: `System.Text.Encoding.UTF8.GetBytes` → pinned buffer → P/Invoke
+
+**Phase 60**: Unblocked runtime validation by fixing async callback marshalling for complex types (classes, enums, structs).
+
+**Impact**: BlinkID 15/18 → **18/18** runtime tests ✅.
+
+---
+
+## 25. Deeper Protocol Runtime Tests (Phase 57)
+
+Added 20 runtime tests exercising actual Swift-to-C# protocol interop behavior:
+
+- **Compile Checks** (4): Protocol interfaces exist, conformance verification
+- **Swift Types via Factory Functions** (5): Create types via factory, call methods/properties
+- **Swift Types via Constructors** (3): Direct constructor usage
+- **Interface Casting and Method Dispatch** (6): Cast to interface, call through interface
+- **Generic Methods with Interface Constraints** (2): Generic C# methods with protocol constraints
+
+Swift protocols tested: `ISwiftHasInt32Value`, `ISwiftComputable`, `ISwiftCounter`, `ISwiftResettableCounter`. Multi-protocol conformance via `MultiConformer`.
+
+---
+
+## 26. Async Callback Marshalling — Array, String, Complex Types (Phases 58-60)
+
+**Phase 58** (String): UTF-8 `(ptr, len)` callback parameters. Swift allocates UTF-8 buffer, C# copies via `Marshal.PtrToStringUTF8`, frees via `SBW_Free`.
+
+**Phase 59** (Array<String>): Flat buffer serialization format `[count][lengths...][data...]`.
+
+**Phase 60** (Class/enum/struct): `OpaquePointer` through `@convention(c)` callback. Swift retains to prevent ARC deallocation; C# reads via `SwiftMarshal.MarshalFromSwift`, frees via `SBW_Free`.
+
+**Impact**: All BlinkID async methods compile and run (18/18 tests).
+
+---
+
+## 27. nint Emitted as Generic Type in Integration Tests (Phase 61)
+
+Swift pointer types like `UnsafeMutablePointer<UInt8>` were correctly resolving to `System.IntPtr` in the TypeDatabase, but several code paths still appended the original generic parameters, producing invalid C# like `System.IntPtr<System.Byte>`.
+
+**Root cause**: Translation code checked for `AnyType` fallback but not `IntPtrType`. Since pointer types have generic parameters in Swift, the code appended them even though `IntPtr` is not generic in C#.
+
+**Files changed**: `MethodSignature.cs`, `WrapperEmitter.Return.cs`, `WrapperEmitter.Marshalling.cs`, `BoundGenericsHandler.cs`, `ClosureHandler.cs`, `TupleHandler.cs` — all got `IntPtrType` checks before appending generics. `Swift.Bindings.Integration.Tests.csproj` — removed `TODO(nint-generic-bug)` exclusions.
+
+**Impact**: 13 compile errors → **0**. TestFramework 93/93, 1239 unit tests.
