@@ -103,11 +103,11 @@ All items complete: async P/Invoke workaround, property setters, enum case const
 | Protocol witness tables (full — mutating, throws, async) | Remaining |
 | Protocols with Associated Types (PATs) | Partial |
 | TypeGraph layer for structural types | Not Started |
-| Formalize cross-module resolution | Not Started |
+| Formalize cross-module resolution | **Partial** — TypeDatabase lookup for async bridge params |
 
 **TypeGraph layer**: Extract a `TypeGraph`/`CompositeTypeFactory` layer that builds complex types from nominal types, keeping TypeDatabase nominal-only. Aligns with emitter redesign proposal.
 
-**Cross-module resolution**: Formalize the type origin and resolution policy with explicit config and diagnostics. Defer until more real-world patterns emerge.
+**Cross-module resolution**: Async bridge inference resolves cross-module types (BoundType/BoundEnum) via TypeDatabase with auto-populated ExtraSwiftImports and null-pointer safety guards. Full formalization (explicit config, diagnostics, non-bridge contexts) deferred until more patterns emerge.
 
 **Success Criteria**: Methods with existential parameters and generic methods bind successfully. ✅
 
@@ -156,7 +156,7 @@ To maintain focus, these are explicitly **out of scope**:
 
 | Non-Goal | Rationale |
 |----------|-----------|
-| SwiftUI interop | Requires deep UI framework integration |
+| SwiftUI interop (deep) | `@State`/`@Binding`/`@Environment` semantics remain out of scope; auto-generated UIHostingController bridge covers View instantiation |
 | C# → Swift bindings | Reverse direction is a separate project |
 | Windows/Linux support | Apple platforms only |
 | Swift Package Manager integration | Focus on compiled frameworks |
@@ -186,7 +186,7 @@ Full 100% coverage is not achievable for any cross-language interop tool. We asp
 |---------|---------------|------------|
 | **Actors** | Swift's actor isolation model doesn't map to .NET threading | Manual Swift wrapper |
 | **Protocols with Associated Types (PATs)** | Exponential type complexity | Concrete type wrappers |
-| **SwiftUI types** | Deep framework integration, `@State`/`@Binding` semantics | Out of scope |
+| **SwiftUI deep state** | `@State`/`@Binding`/`@Environment` don't map to C# | Auto-generated UIHostingController bridge for View instantiation |
 | **Combine publishers** | Reactive paradigm mismatch with .NET | Use async/await patterns |
 | **`@MainActor` constraints** | Thread affinity doesn't map cleanly | Dispatch manually |
 | **8+ element tuples** | C# ValueTuple nesting complexity | Restructure API |
@@ -210,7 +210,7 @@ The binding report (`binding-report.json`) documents which APIs use wrappers and
 1. **Most libraries will "just work"** — 0 generator errors across tested libraries
 2. **Some APIs may be skipped** — The binding report explains what and why
 3. **Edge cases have workarounds** — Swift wrapper functions handle runtime limitations
-4. **SwiftUI is out of scope** — Use native platform UI or MAUI instead
+4. **SwiftUI Views are bridgeable** — Auto-generated UIHostingController bridge embeds Views in .NET apps; deep state management (`@State`/`@Binding`) remains out of scope
 
 ---
 
