@@ -362,6 +362,48 @@ internal static class ScanningSessionState
 
 #endregion
 
+#region Framework Diagnostics
+
+internal static class FrameworkDiagnostics
+{
+    private static readonly string[] RequiredFrameworks = { "BlinkID", "BlinkIDUX", "BlinkIDUXBridge" };
+
+    /// <summary>
+    /// Validates all required native frameworks can be loaded.
+    /// Returns true if all frameworks resolve; false if any are missing.
+    /// </summary>
+    internal static bool ValidateAll()
+    {
+        TestLogger.Info("--- Framework Diagnostics ---");
+        var allOk = true;
+
+        foreach (var name in RequiredFrameworks)
+        {
+            var path = $"@rpath/{name}.framework/{name}";
+            if (NativeLibrary.TryLoad(path, out var handle))
+            {
+                TestLogger.Success($"Framework loaded: {name}");
+                NativeLibrary.Free(handle);
+            }
+            else
+            {
+                TestLogger.Error($"Framework MISSING: {name} (tried {path})");
+                allOk = false;
+            }
+        }
+
+        if (!allOk)
+        {
+            TestLogger.Error("Required frameworks missing — cannot run tests.");
+            TestLogger.Error("Ensure all xcframeworks and BlinkIDUXBridge.framework are built.");
+        }
+
+        return allOk;
+    }
+}
+
+#endregion
+
 #region Application Entry Point
 
 public class Application
@@ -512,6 +554,15 @@ public class MainViewController : UIViewController
 
         TestLogger.Info("=== BLINKIDUX BRIDGE VALIDATION SUITE ===");
         TestLogger.Info($"Starting test run at {DateTime.Now:HH:mm:ss}");
+
+        // Fail-fast: verify all required native frameworks are loadable
+        if (!FrameworkDiagnostics.ValidateAll())
+        {
+            Console.WriteLine("TEST FAILURE: Required frameworks missing");
+            TestLogger.Error("=== VALIDATION FAILED (framework diagnostics) ===");
+            UpdateResultLabel(TestLogger.GetFullLog());
+            return;
+        }
 
         var results = new TestResults();
 

@@ -166,7 +166,8 @@ Output: NuGet package with C# bindings
 **Status** (February 2026 - Phase 48):
 - **Unit Tests**: 1107 passed
 - **Nuke**: 0 errors ✅ (runtime validated)
-- **BlinkID**: 0 errors ✅
+- **BlinkID**: 0 errors ✅ (runtime validated, 18/18 tests)
+- **BlinkIDUX**: 0 errors ✅ (SwiftUI bridge validated, 16/16 tests)
 - **Lottie**: 0 errors ✅ (runtime validated, 9/9 tests pass)
 
 **Working**:
@@ -189,7 +190,7 @@ Output: NuGet package with C# bindings
 
 **Not Working**:
 - Async properties
-- SwiftUI/Combine framework types (skipped)
+- SwiftUI/Combine framework types (skipped by generator; manual bridge via UIHostingController available)
 - Full actor isolation enforcement
 
 See `src/docs/CURRENT-STATUS.md` for full status details.
@@ -354,12 +355,30 @@ These scripts are for testing bindings against the Nuke image loading library on
 | `./build-testapp.sh` | Build the NukeTestApp | After changing test app code |
 | `./validate-sim.sh [timeout]` | Run test app on iOS Simulator | **Always use this** for simulator testing |
 
+### BlinkIDUX Bridge Scripts (BindingTesting/BlinkId/)
+
+These scripts validate the SwiftUI interop bridge for BlinkIDUX (Steps 1-3 of swiftui-bridge-design.md).
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| `./build-all-bridge.sh` | Full Step 3 pipeline: generator coverage + bridge build + test app | After generator or bridge code changes |
+| `./regenerate-ux-bindings.sh` | Generator coverage test: run generator on BlinkIDUX | After changing emitter/marshaler code |
+| `./build-bridge.sh` | Build SwiftBridge framework from BlinkIDUXBridge.swift | After changing Swift bridge code |
+| `./build-ux-testapp.sh` | Build the BlinkIDUXTestApp | After changing test app code |
+| `./validate-bridge.sh [timeout]` | Run bridge tests on iOS Simulator | **Always use this** for bridge testing |
+
 ### Typical Workflows
 
 **After modifying generator code:**
 ```bash
 cd BindingTesting/Nuke
 ./build-all.sh && ./validate-sim.sh 15
+```
+
+**After modifying bridge code:**
+```bash
+cd BindingTesting/BlinkId
+./build-all-bridge.sh && ./validate-bridge.sh
 ```
 
 **After modifying only the test app:**

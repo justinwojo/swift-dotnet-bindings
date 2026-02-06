@@ -1,7 +1,7 @@
 # SwiftUI Interop Bridge Design
 
 **Date**: February 2026
-**Status**: Step 1 Complete (NoInternetView POC validated, ABI hardened)
+**Status**: Step 3 Complete (test infrastructure implemented + validated 2026-02-05)
 **Prerequisite**: Must be solved before repo goes public
 **Reviewers**: Claude, Codex
 
@@ -135,7 +135,7 @@ All set access is serialized on the main thread (see threading contract below).
 
 6. **All bridge functions marshal to main thread** — If called from a background thread, the bridge uses `DispatchQueue.main.sync` to execute on main. If already on main, execution is immediate. This replaces `dispatchPrecondition` crash assertions — callers from any thread get correct behavior, never a hard abort.
 
-7. **Callbacks dispatch async on main** — All bridge callbacks (retryAction, result callbacks) use `DispatchQueue.main.async` before invoking the `@convention(c)` callback. This matches UIKit/SwiftUI threading expectations and ensures the callback doesn't execute within a synchronous dispatch_sync frame.
+7. **Callbacks execute on `@MainActor`** — NoInternetView's retry callback dispatches async on main via `DispatchQueue.main.async`. Step 2 callbacks (onReady, onError, onResult) execute directly within `@MainActor`-isolated `Task` blocks — the `@MainActor` annotation serializes them with Free's handle-set mutation, eliminating races without an extra dispatch hop.
 
 8. **Null callbacks are no-op** — If `Create` receives a `NULL` callback function pointer, the session is created successfully but the corresponding action is a no-op. This prevents crashes from non-.NET callers that pass null.
 
@@ -309,19 +309,33 @@ Two test layers:
 - `NativeReference` for both `BlinkID.xcframework` and `BlinkIDUX.xcframework`
 - Resolver paths validated at startup with clear diagnostics if missing
 
+**Status**: Implemented and validated 2026-02-05. Both test layers pass:
+- Generator coverage: 36/45 types emitted, 44 members skipped (SwiftUI.Color/Font properties + AnyType fallbacks), 0 crashes
+- Runtime bridge: 16/16 tests pass (3/3 framework diagnostics + 5 NoInternetView + 6 scanning session + 2 cleanup)
+
+**Scripts:**
+- `./build-all-bridge.sh` — Full Step 3 pipeline (generator coverage + bridge build + test app build)
+- `./regenerate-ux-bindings.sh` — Generator coverage test only (generates TBD, runs generator, validates report)
+- `./build-ux-testapp.sh` — Build BlinkIDUXTestApp only
+- `./validate-bridge.sh` — Run runtime tests on iOS Simulator
+
 #### File Layout
 
 ```
-BindingTesting/BlinkID/
+BindingTesting/BlinkId/
 ├── BlinkIDUX.xcframework/     # Already copied by Codex
 ├── SwiftBridge/
 │   └── BlinkIDUXBridge.swift  # Hand-written bridge wrappers
-├── BlinkIDUXTestApp/          # .NET test app
+├── BlinkIDUXTestApp/          # .NET test app (16 tests)
 │   ├── BlinkIDUXTestApp.csproj
-│   └── Tests/
-│       ├── NoInternetViewTests.cs
-│       └── ScanningSessionTests.cs
+│   └── Program.cs             # P/Invoke, wrappers, tests, framework diagnostics
+├── output-ux/                 # Generator coverage output (gitignored)
+│   ├── Swift.BlinkIDUX.cs     # Generated bindings
+│   └── binding-report.json    # Skip reasons and metrics
+├── build-all-bridge.sh        # Full Step 3 pipeline
+├── regenerate-ux-bindings.sh  # Generator coverage test
 ├── build-bridge.sh            # Build SwiftBridge → dylib
+├── build-ux-testapp.sh        # Build BlinkIDUXTestApp
 └── validate-bridge.sh         # Run bridge tests on simulator
 ```
 
@@ -402,4 +416,4 @@ Types like `BlinkIDTheme` use `SwiftUI.Color` and `SwiftUI.Font` properties. The
 
 - `src/docs/known-issues-workarounds.md` — Runtime issues affecting async bridge patterns
 - `src/docs/Future/emitter-redesign-proposal.md` — Emitter architecture context
-- `BindingTesting/BlinkID/` — Existing BlinkID binding tests (core SDK) + BlinkIDUX.xcframework
+- `BindingTesting/BlinkId/` — Existing BlinkID binding tests (core SDK) + BlinkIDUX.xcframework

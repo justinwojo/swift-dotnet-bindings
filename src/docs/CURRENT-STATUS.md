@@ -2,7 +2,7 @@
 
 **Last Updated**: February 2026 (Phase 61 Complete)
 **Unit Tests**: 1,239 passed
-**Libraries Tested**: Nuke, BlinkID, Lottie
+**Libraries Tested**: Nuke, BlinkID, BlinkIDUX, Lottie
 
 ---
 
@@ -12,6 +12,7 @@
 |---------|------------------|-------------------|
 | **Nuke** | 0 | Full runtime validation |
 | **BlinkID** | 0 | Full runtime validation (18/18 tests) |
+| **BlinkIDUX** | 0 | SwiftUI bridge validation (16/16 tests) |
 | **Lottie** | 0 | Full runtime validation (9/9 tests) |
 
 ### Binding Coverage
@@ -21,6 +22,7 @@ Assessed after Phase 60 (async complex type marshalling).
 | Library | Types | Type % | Members | Member % |
 |---------|-------|--------|---------|----------|
 | BlinkID | 116/119 | 97.5% | 567/572 | 99.1% |
+| BlinkIDUX | 36/45 | 80.0% | 128/172 | 74.4% |
 | Nuke | 60/68 | 88.2% | 323/342 | 94.4% |
 | Lottie | 79/93 | 84.9% | 387/428 | 90.4% |
 
@@ -86,7 +88,7 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 - **Actor isolation enforcement** — Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
-- **SwiftUI Views** — Currently skipped; bridge pattern via UIHostingController designed, implementation pending (see `swiftui-bridge-design.md`)
+- **SwiftUI Views** — Skipped by generator; manual interop bridge via UIHostingController implemented and validated for BlinkIDUX (Steps 1-3 complete, see `swiftui-bridge-design.md`). Generator automation (Deliverable 2) deferred.
 - **Combine** — `@Published` properties and reactive streams not bridged
 
 ### Edge Cases
