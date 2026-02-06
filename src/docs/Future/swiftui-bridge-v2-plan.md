@@ -1,7 +1,7 @@
 # SwiftUI Bridge v2: Coverage-Driven Expansion
 
 **Date**: February 2026
-**Status**: Phase 1B complete (2026-02-06)
+**Status**: Phase 1C complete (2026-02-06)
 **Prerequisite**: v1 (Deliverable 2) complete and validated
 **Parent**: [SwiftUI Bridge Design](../swiftui-bridge-design.md)
 
@@ -101,7 +101,7 @@ Class parameters cross the ABI as `UnsafeMutableRawPointer`. The session retains
 - 14 new unit tests (all pass); existing 16/16 BlinkIDUX runtime tests unaffected
 - **Remaining for full acceptance**: runtime validation with a test View consuming `BoundType` param (deferred — requires test app with class-param View)
 
-### Phase 1C: TypedClosure
+### Phase 1C: TypedClosure (**Done** — 2026-02-06)
 
 Closures with typed parameters and/or return values. Max 4 closure parameters.
 
@@ -112,6 +112,22 @@ Closures with typed parameters and/or return values. Max 4 closure parameters.
 | `(T, U) -> Void` | TypedClosure | `@convention(c) (T_abi, U_abi, UnsafeMutableRawPointer?) -> Void` | `IntPtr, IntPtr` | `Action<T, U>` |
 
 Each typed closure generates a C# `[UnmanagedCallersOnly]` trampoline that unpacks `GCHandle → delegate`, converts args, calls delegate. Async and throwing closures remain unsupported (template fallback).
+
+**Callback threading semantics**: `VoidClosure` (`() -> Void`) wraps the callback in `DispatchQueue.main.async`, so the C# delegate is always invoked on the main thread asynchronously. `TypedClosure` invokes the callback **synchronously on the calling thread** — this is required because closures with return values cannot use async dispatch (the return value must be produced immediately). Consumers should be aware that `TypedClosure` callbacks may execute on any thread the SwiftUI framework calls the closure from (in practice, SwiftUI view init closures are called on the main thread, but this is not guaranteed for all closure invocation contexts).
+
+**Implementation status (2026-02-06)**:
+- `BridgeParameterKind.TypedClosure` added — closures with typed args and/or return values
+- `BridgeParameter` record extended with `ClosureArguments` (list) and `ClosureReturn` (optional)
+- `MapClosureType()` extended: recursively maps each closure arg and return type via `MapPrimitiveOrString`
+- Supported closure arg/return types: Primitives (Int, Int32, Int64, Bool, Double, Float)
+- Unsupported closure types still fall back to template: String args, async, throwing, >4 params
+- Swift: `@convention(c)` wrapper with typed ABI params + `UnsafeMutableRawPointer?` userData
+- Swift: View init wrapper generates typed Swift closure with arg/return conversion (Bool ↔ Int32)
+- C#: `[UnmanagedCallersOnly]` trampoline with ABI-typed params, GCHandle→delegate cast, arg conversion
+- C#: Factory param uses `Action<T...>?` or `Func<T..., R>?` with `= null` default
+- C#: `delegate* unmanaged[Cdecl]<argTypes..., IntPtr, returnType>` function pointer type
+- 26 new unit tests (all pass); existing tests unaffected (1373 total unit tests pass)
+- **Remaining for full acceptance**: runtime validation with a test View consuming `TypedClosure` param (deferred — requires test app with typed-closure-param View)
 
 ### Phase 1D: Optional<BoundType> for Reference Types (**Done** — 2026-02-06, shipped with Phase 1B)
 
@@ -479,7 +495,7 @@ Phase 1B: BoundType for classes + Optional<BoundType>  ✅ (2026-02-06)
     ↓
   Validate: runtime test for BoundEnum + BoundType
     ↓
-Phase 1C: TypedClosure support  ← NEXT
+Phase 1C: TypedClosure support  ✅ (2026-02-06)
     ↓
   Validate: runtime test for TypedClosure
     ↓

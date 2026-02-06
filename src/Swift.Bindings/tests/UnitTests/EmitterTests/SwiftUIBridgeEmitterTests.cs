@@ -1335,6 +1335,367 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
+    #region TypedClosure (Phase 1C)
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_IntToVoid_IsSupported()
+    {
+        var ctor = CreateConstructorWithTypedClosure("callback",
+            new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.Equal("callback", result[0].Name);
+        Assert.True(result[0].HasUserData);
+        Assert.NotNull(result[0].ClosureArguments);
+        Assert.Single(result[0].ClosureArguments!);
+        Assert.Null(result[0].ClosureReturn);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_IntToBool_IsSupported()
+    {
+        var ctor = CreateConstructorWithTypedClosure("validator",
+            new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Bool"));
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.NotNull(result[0].ClosureArguments);
+        Assert.Single(result[0].ClosureArguments!);
+        Assert.NotNull(result[0].ClosureReturn);
+        Assert.Equal("Int32", result[0].ClosureReturn!.SwiftAbiType);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_MultipleArgs_IsSupported()
+    {
+        // (Int, Bool) -> Void
+        var argsTuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"),
+        });
+        var ctor = CreateConstructorWithTypedClosure("handler", argsTuple, TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.Equal(2, result[0].ClosureArguments!.Count);
+        Assert.Equal("Int", result[0].ClosureArguments![0].SwiftAbiType);
+        Assert.Equal("Int32", result[0].ClosureArguments![1].SwiftAbiType); // Bool → Int32
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_FourArgs_IsSupported()
+    {
+        // (Int, Bool, Double, Float) -> Void — exactly 4 params (max)
+        var argsTuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"),
+            new NamedTypeSpec("Swift.Double"),
+            new NamedTypeSpec("Swift.Float"),
+        });
+        var ctor = CreateConstructorWithTypedClosure("handler", argsTuple, TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Equal(4, result[0].ClosureArguments!.Count);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_FiveArgs_ForcesTemplate()
+    {
+        // (Int, Bool, Double, Float, Int32) -> Void — 5 params exceeds max
+        var argsTuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"),
+            new NamedTypeSpec("Swift.Double"),
+            new NamedTypeSpec("Swift.Float"),
+            new NamedTypeSpec("Swift.Int32"),
+        });
+        var ctor = CreateConstructorWithTypedClosure("handler", argsTuple, TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_AsyncClosure_ForcesTemplate()
+    {
+        var closure = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), null) { IsAsync = true };
+        var ctor = CreateConstructorWithClosureSpec("callback", closure);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_ThrowingClosure_ForcesTemplate()
+    {
+        var closure = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), null) { Throws = true };
+        var ctor = CreateConstructorWithClosureSpec("callback", closure);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_StringArg_ForcesTemplate()
+    {
+        // String closure args are not supported in Phase 1C
+        var ctor = CreateConstructorWithTypedClosure("callback",
+            new NamedTypeSpec("Swift.String"), TupleTypeSpec.Empty);
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_VoidToInt_IsSupported()
+    {
+        // () -> Int — no args, typed return
+        var ctor = CreateConstructorWithTypedClosure("getter",
+            TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int"));
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.Empty(result[0].ClosureArguments!);
+        Assert.NotNull(result[0].ClosureReturn);
+        Assert.Equal("Int", result[0].ClosureReturn!.SwiftAbiType);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_SwiftAbiType_IncludesConventionC()
+    {
+        var ctor = CreateConstructorWithTypedClosure("callback",
+            new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Bool"));
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Contains("@convention(c)", result[0].SwiftAbiType);
+        Assert.Contains("UnsafeMutableRawPointer?", result[0].SwiftAbiType);
+        Assert.Contains("Int32", result[0].SwiftAbiType); // Return type (Bool → Int32)
+    }
+
+    [Fact]
+    public void EmitTypedClosure_Swift_GeneratesConventionCCallback()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@convention(c)", swiftContent);
+        Assert.Contains("callbackCallback", swiftContent);
+        Assert.Contains("callbackUserData", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_CbView_Create\")", swiftContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_Swift_GeneratesTypedClosureWrapper()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        // Should generate Swift closure with typed arg
+        Assert.Contains("arg0: Int", swiftContent);
+        Assert.Contains("cb_callback?", swiftContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_Swift_BoolArgConvertsToInt32()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "toggle",
+            new NamedTypeSpec("Swift.Bool"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("arg0: Bool", swiftContent);
+        Assert.Contains("arg0 ? 1 : 0", swiftContent); // Bool → Int32 conversion
+    }
+
+    [Fact]
+    public void EmitTypedClosure_Swift_ReturnBoolConvertsFromInt32()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
+            new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Bool")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("-> Bool", swiftContent);
+        Assert.Contains("!= 0", swiftContent); // Int32 → Bool conversion
+    }
+
+    [Fact]
+    public void EmitTypedClosure_CSharp_GeneratesTypedTrampoline()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("UnmanagedCallersOnly", csContent);
+        Assert.Contains("CallbackTrampoline", csContent);
+        Assert.Contains("nint arg0", csContent); // Int → nint in trampoline
+        Assert.Contains("Action<nint>", csContent); // Delegate cast type
+    }
+
+    [Fact]
+    public void EmitTypedClosure_CSharp_ReturnBoolTrampoline()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
+            new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Bool")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("private static int ValidatorTrampoline", csContent); // Bool return → int
+        Assert.Contains("Func<nint, bool>", csContent); // Delegate type
+        Assert.Contains("result ? 1 : 0", csContent); // Bool → int conversion
+    }
+
+    [Fact]
+    public void EmitTypedClosure_CSharp_GeneratesActionFactoryParam()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Action<nint>? callback", csContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_CSharp_GeneratesFuncFactoryParam()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "validator",
+            new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Bool")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Func<nint, bool>? validator", csContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_CSharp_GeneratesTypedFunctionPointer()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("delegate* unmanaged[Cdecl]<nint, IntPtr, void>", csContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_CSharp_UnsafeFactory()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("unsafe CbViewSession Create(", csContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_CSharp_HasGCHandleCleanup()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("_closureHandles", csContent);
+        Assert.Contains("closureHandles.Add(h)", csContent);
+        Assert.Contains("h.IsAllocated", csContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_GeneratesFunctionalBridge_NotTemplate()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",
+            new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_CbView_Create\")", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_MultipleArgs_Swift_AllArgsInClosure()
+    {
+        // (Int, Bool) -> Void
+        var argsTuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"),
+        });
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "handler", argsTuple, TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("arg0: Int", swiftContent);
+        Assert.Contains("arg1: Bool", swiftContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_MultipleArgs_CSharp_AllArgsInTrampoline()
+    {
+        var argsTuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"),
+        });
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "handler", argsTuple, TupleTypeSpec.Empty) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("nint arg0", csContent);
+        Assert.Contains("int arg1", csContent); // Bool → int
+        Assert.Contains("Action<nint, bool>", csContent);
+    }
+
+    #endregion
+
     #region Report Integration
 
     [Fact]
@@ -1788,6 +2149,63 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     {
         var view = CreateSimpleViewStruct(viewName);
         view.Methods.Add(CreateConstructorWithOptionalPrimitive(paramName, classTypeName));
+        return view;
+    }
+
+    /// <summary>
+    /// Creates a constructor with a typed closure parameter.
+    /// args/returnType: NamedTypeSpec for single arg, TupleTypeSpec for multiple args, null for void.
+    /// </summary>
+    private static MethodDecl CreateConstructorWithTypedClosure(string paramName, TypeSpec args, TypeSpec returnType)
+    {
+        var closure = new ClosureTypeSpec(args, returnType);
+        return CreateConstructorWithClosureSpec(paramName, closure);
+    }
+
+    private static MethodDecl CreateConstructorWithClosureSpec(string paramName, ClosureTypeSpec closureSpec)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.TestView"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = paramName,
+                    PrivateName = paramName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = closureSpec,
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    private static StructDecl CreateViewWithTypedClosureInit(string viewName, string paramName, TypeSpec args, TypeSpec returnType)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        view.Methods.Add(CreateConstructorWithTypedClosure(paramName, args, returnType));
         return view;
     }
 

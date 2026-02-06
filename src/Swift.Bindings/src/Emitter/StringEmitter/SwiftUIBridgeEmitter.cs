@@ -226,7 +226,7 @@ public static partial class SwiftUIBridgeEmitter
         // Store callback fields
         foreach (var param in bridgeParams)
         {
-            if (param.Kind == BridgeParameterKind.VoidClosure)
+            if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 sb.AppendLine($"    let {param.Name}Callback: ({param.SwiftAbiType.TrimEnd('?')})?");
                 sb.AppendLine($"    let {param.Name}UserData: UnsafeMutableRawPointer?");
@@ -244,7 +244,7 @@ public static partial class SwiftUIBridgeEmitter
         var initParams = new List<string>();
         foreach (var param in bridgeParams)
         {
-            if (param.Kind == BridgeParameterKind.VoidClosure)
+            if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 initParams.Add($"{param.Name}Callback: {param.SwiftAbiType}");
                 initParams.Add($"{param.Name}UserData: UnsafeMutableRawPointer?");
@@ -278,7 +278,7 @@ public static partial class SwiftUIBridgeEmitter
         // Store callbacks and retain class references
         foreach (var param in bridgeParams)
         {
-            if (param.Kind == BridgeParameterKind.VoidClosure)
+            if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 sb.AppendLine($"        self.{param.Name}Callback = {param.Name}Callback");
                 sb.AppendLine($"        self.{param.Name}UserData = {param.Name}UserData");
@@ -292,7 +292,7 @@ public static partial class SwiftUIBridgeEmitter
         // Capture locals for closure safety
         foreach (var param in bridgeParams)
         {
-            if (param.Kind == BridgeParameterKind.VoidClosure)
+            if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 sb.AppendLine($"        let cb_{param.Name} = {param.Name}Callback; let ud_{param.Name} = {param.Name}UserData");
             }
@@ -305,6 +305,10 @@ public static partial class SwiftUIBridgeEmitter
             if (param.Kind == BridgeParameterKind.VoidClosure)
             {
                 viewInitArgs.Add($"{param.Name}: {{\n            DispatchQueue.main.async {{ cb_{param.Name}?(ud_{param.Name}) }}\n        }}");
+            }
+            else if (param.Kind == BridgeParameterKind.TypedClosure)
+            {
+                viewInitArgs.Add(BuildTypedClosureViewInitArg(param));
             }
             else if (param.Kind == BridgeParameterKind.String)
             {
@@ -379,7 +383,7 @@ public static partial class SwiftUIBridgeEmitter
         var createParams = new List<string>();
         foreach (var param in bridgeParams)
         {
-            if (param.Kind == BridgeParameterKind.VoidClosure)
+            if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 createParams.Add($"_ {param.Name}Callback: {param.SwiftAbiType}");
                 createParams.Add($"_ {param.Name}UserData: UnsafeMutableRawPointer?");
@@ -415,7 +419,7 @@ public static partial class SwiftUIBridgeEmitter
         var sessionArgs = new List<string>();
         foreach (var param in bridgeParams)
         {
-            if (param.Kind == BridgeParameterKind.VoidClosure)
+            if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 sessionArgs.Add($"{param.Name}Callback: {param.Name}Callback");
                 sessionArgs.Add($"{param.Name}UserData: {param.Name}UserData");
@@ -568,7 +572,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var bridgeLib = $"{moduleName}Bridge";
-        var hasClosures = bridgeParams.Any(p => p.Kind == BridgeParameterKind.VoidClosure);
+        var hasClosures = bridgeParams.Any(p => p.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure);
         var hasStrings = bridgeParams.Any(p => p.Kind == BridgeParameterKind.String);
         var needsUnsafe = hasClosures || hasStrings;
 
@@ -585,7 +589,7 @@ public static partial class SwiftUIBridgeEmitter
         var createPInvokeParams = new List<string>();
         foreach (var param in bridgeParams)
         {
-            if (param.Kind == BridgeParameterKind.VoidClosure)
+            if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 createPInvokeParams.Add($"IntPtr {param.Name}Callback");
                 createPInvokeParams.Add($"IntPtr {param.Name}UserData");
@@ -666,6 +670,12 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine();
         }
 
+        // Typed closure trampolines
+        foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.TypedClosure))
+        {
+            EmitTypedClosureTrampoline(sb, param);
+        }
+
         // Create factory method
         EmitSimpleCreateFactory(sb, info, bridgeParams, needsUnsafe, hasClosures, hasStrings);
 
@@ -697,7 +707,7 @@ public static partial class SwiftUIBridgeEmitter
         foreach (var param in bridgeParams)
         {
             var type = GetFactoryParamType(param);
-            var defaultVal = param.Kind == BridgeParameterKind.VoidClosure ? " = null"
+            var defaultVal = param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure ? " = null"
                 : param.Kind == BridgeParameterKind.String ? " = null" : "";
             factoryParams.Add($"{type} {param.Name}{defaultVal}");
         }
@@ -714,7 +724,7 @@ public static partial class SwiftUIBridgeEmitter
             var indent = "                ";
 
             // Setup closure parameters
-            foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.VoidClosure))
+            foreach (var param in bridgeParams.Where(p => p.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure))
             {
                 var trampolineName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..] + "Trampoline";
                 sb.AppendLine($"{indent}IntPtr {param.Name}Callback = IntPtr.Zero;");
@@ -724,7 +734,10 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"{indent}    var h = GCHandle.Alloc({param.Name});");
                 sb.AppendLine($"{indent}    closureHandles.Add(h);");
                 sb.AppendLine($"{indent}    {param.Name}UserData = GCHandle.ToIntPtr(h);");
-                sb.AppendLine($"{indent}    delegate* unmanaged[Cdecl]<IntPtr, void> fn = &{trampolineName};");
+
+                // Build delegate* type matching trampoline signature
+                var fnPtrType = GetClosureFunctionPointerType(param);
+                sb.AppendLine($"{indent}    {fnPtrType} fn = &{trampolineName};");
                 sb.AppendLine($"{indent}    {param.Name}Callback = (IntPtr)fn;");
                 sb.AppendLine($"{indent}}}");
                 sb.AppendLine();
@@ -823,7 +836,7 @@ public static partial class SwiftUIBridgeEmitter
         var args = new List<string>();
         foreach (var param in bridgeParams)
         {
-            if (param.Kind == BridgeParameterKind.VoidClosure)
+            if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 args.Add($"{param.Name}Callback");
                 args.Add($"{param.Name}UserData");
@@ -872,6 +885,7 @@ public static partial class SwiftUIBridgeEmitter
     private static string GetFactoryParamType(BridgeParameter param) => param.Kind switch
     {
         BridgeParameterKind.VoidClosure => "Action?",
+        BridgeParameterKind.TypedClosure => GetTypedClosureFactoryType(param),
         BridgeParameterKind.String => "string?",
         BridgeParameterKind.Primitive when param.CSharpConversion != null => "bool",
         BridgeParameterKind.BoundEnum => param.CSharpTypeName!,
@@ -903,6 +917,160 @@ public static partial class SwiftUIBridgeEmitter
     #endregion
 
     #region Helpers
+
+    /// <summary>
+    /// Builds the Swift closure expression for a typed closure view init argument.
+    /// Generates: paramName: { (arg0: SwiftType, ...) [-> ReturnType] in callbackExpr }
+    /// </summary>
+    private static string BuildTypedClosureViewInitArg(BridgeParameter param)
+    {
+        var closureArgs = param.ClosureArguments!;
+        var closureReturn = param.ClosureReturn;
+
+        // Build closure parameter declarations: (arg0: Int, arg1: Bool)
+        var swiftArgDecls = closureArgs.Select((a, i) =>
+            $"arg{i}: {GetSwiftTypeFromAbi(a)}").ToList();
+        var argDeclStr = string.Join(", ", swiftArgDecls);
+
+        // Build callback invocation args: convert Swift types to ABI types
+        var callbackArgs = closureArgs.Select((a, i) =>
+            a.CSharpConversion != null ? $"arg{i} {a.CSharpConversion}" : $"arg{i}").ToList();
+        callbackArgs.Add($"ud_{param.Name}");
+        var callbackArgStr = string.Join(", ", callbackArgs);
+
+        if (closureReturn == null)
+        {
+            // (args...) -> Void
+            return $"{param.Name}: {{ ({argDeclStr}) in\n" +
+                   $"            cb_{param.Name}?({callbackArgStr})\n" +
+                   $"        }}";
+        }
+        else
+        {
+            // (args...) -> ReturnType
+            var swiftReturnType = GetSwiftTypeFromAbi(closureReturn);
+            var defaultVal = closureReturn.SwiftAbiType is "Double" or "Float" ? "0.0" : "0";
+            var callExpr = $"cb_{param.Name}?({callbackArgStr}) ?? {defaultVal}";
+
+            if (closureReturn.SwiftConversion != null)
+                callExpr = $"({callExpr}) {closureReturn.SwiftConversion}";
+
+            return $"{param.Name}: {{ ({argDeclStr}) -> {swiftReturnType} in\n" +
+                   $"            {callExpr}\n" +
+                   $"        }}";
+        }
+    }
+
+    /// <summary>
+    /// Maps an ABI BridgeParameter back to its Swift type name for closure signatures.
+    /// e.g., Int32 with SwiftConversion "!= 0" → Bool; Int → Int; Double → Double
+    /// </summary>
+    private static string GetSwiftTypeFromAbi(BridgeParameter param)
+    {
+        if (param.SwiftConversion == "!= 0") return "Bool";
+        return param.SwiftAbiType;
+    }
+
+    /// <summary>
+    /// Emits a typed closure [UnmanagedCallersOnly] trampoline that unpacks GCHandle → delegate,
+    /// converts ABI args to C# types, calls the delegate, and converts the return value back.
+    /// </summary>
+    private static void EmitTypedClosureTrampoline(StringBuilder sb, BridgeParameter param)
+    {
+        var trampolineName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..] + "Trampoline";
+        var closureArgs = param.ClosureArguments!;
+        var closureReturn = param.ClosureReturn;
+
+        // Build trampoline parameters: (arg0AbiType, arg1AbiType, ..., IntPtr userData)
+        var trampolineParams = closureArgs.Select((a, i) => $"{a.CSharpPInvokeType} arg{i}").ToList();
+        trampolineParams.Add("IntPtr userData");
+        var returnType = closureReturn?.CSharpPInvokeType ?? "void";
+
+        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
+        sb.AppendLine($"        private static {returnType} {trampolineName}({string.Join(", ", trampolineParams)})");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (userData != IntPtr.Zero)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                var h = GCHandle.FromIntPtr(userData);");
+
+        // Build C# delegate type for the cast
+        var delegateType = GetCSharpDelegateType(closureArgs, closureReturn);
+
+        // Convert ABI args to delegate args
+        var delegateArgs = closureArgs.Select((a, i) =>
+            a.SwiftConversion != null ? $"arg{i} {a.SwiftConversion}" : $"arg{i}").ToList();
+        var delegateArgStr = string.Join(", ", delegateArgs);
+
+        if (closureReturn == null)
+        {
+            sb.AppendLine($"                if (h.Target is {delegateType} action)");
+            sb.AppendLine($"                    action({delegateArgStr});");
+        }
+        else
+        {
+            sb.AppendLine($"                if (h.Target is {delegateType} func)");
+            sb.AppendLine("                {");
+            sb.AppendLine($"                    var result = func({delegateArgStr});");
+            if (closureReturn.CSharpConversion != null)
+                sb.AppendLine($"                    return result {closureReturn.CSharpConversion};");
+            else
+                sb.AppendLine($"                    return result;");
+            sb.AppendLine("                }");
+        }
+
+        sb.AppendLine("            }");
+        if (closureReturn != null)
+            sb.AppendLine("            return 0;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Gets the C# delegate type for a typed closure (e.g., Action&lt;nint, bool&gt; or Func&lt;nint, bool&gt;).
+    /// </summary>
+    private static string GetCSharpDelegateType(List<BridgeParameter> closureArgs, BridgeParameter? closureReturn)
+    {
+        var argTypes = closureArgs.Select(GetFactoryParamType).ToList();
+
+        if (closureReturn == null)
+        {
+            return argTypes.Count == 0 ? "Action" : $"Action<{string.Join(", ", argTypes)}>";
+        }
+        else
+        {
+            var returnType = GetFactoryParamType(closureReturn);
+            argTypes.Add(returnType);
+            return $"Func<{string.Join(", ", argTypes)}>";
+        }
+    }
+
+    /// <summary>
+    /// Gets the C# factory parameter type for a typed closure (e.g., Action&lt;nint&gt;? or Func&lt;nint, bool&gt;?).
+    /// </summary>
+    private static string GetTypedClosureFactoryType(BridgeParameter param)
+    {
+        var closureArgs = param.ClosureArguments!;
+        var closureReturn = param.ClosureReturn;
+        return GetCSharpDelegateType(closureArgs, closureReturn) + "?";
+    }
+
+    /// <summary>
+    /// Gets the delegate* unmanaged function pointer type for a closure parameter.
+    /// VoidClosure: delegate* unmanaged[Cdecl]&lt;IntPtr, void&gt;
+    /// TypedClosure: delegate* unmanaged[Cdecl]&lt;argTypes..., IntPtr, returnType&gt;
+    /// </summary>
+    private static string GetClosureFunctionPointerType(BridgeParameter param)
+    {
+        if (param.Kind == BridgeParameterKind.VoidClosure)
+            return "delegate* unmanaged[Cdecl]<IntPtr, void>";
+
+        var closureArgs = param.ClosureArguments!;
+        var closureReturn = param.ClosureReturn;
+        var fnPtrTypes = closureArgs.Select(a => a.CSharpPInvokeType).ToList();
+        fnPtrTypes.Add("IntPtr"); // userData
+        fnPtrTypes.Add(closureReturn?.CSharpPInvokeType ?? "void"); // return type
+        return $"delegate* unmanaged[Cdecl]<{string.Join(", ", fnPtrTypes)}>";
+    }
 
     private static string GetInitDescription(ViewBridgeInfo info)
     {

@@ -56,7 +56,7 @@ public static partial class SwiftUIBridgeEmitter
 
     private static BridgeParameter? MapClosureType(string paramName, ClosureTypeSpec closureSpec)
     {
-        // v1: Only () -> Void closures supported
+        // Async and throwing closures are unsupported
         if (closureSpec.IsAsync || closureSpec.Throws)
             return null;
 
@@ -74,8 +74,50 @@ public static partial class SwiftUIBridgeEmitter
                 HasUserData: true);
         }
 
-        // Closures with parameters or return types are unsupported in v1
-        return null;
+        // Typed closure: max 4 parameters
+        if (hasArgs && closureSpec.ArgumentCount() > 4)
+            return null;
+
+        // Map each closure argument to a bridge-compatible type (primitives only)
+        var closureArgs = new List<BridgeParameter>();
+        int argIndex = 0;
+        foreach (var arg in closureSpec.EachArgument())
+        {
+            if (arg is not NamedTypeSpec namedArg)
+                return null;
+            var mapped = MapPrimitiveOrString($"arg{argIndex}", namedArg);
+            if (mapped == null || mapped.Kind == BridgeParameterKind.String)
+                return null; // Only primitives supported in closure args
+            closureArgs.Add(mapped);
+            argIndex++;
+        }
+
+        // Map return type (primitives only)
+        BridgeParameter? closureReturn = null;
+        if (hasReturn)
+        {
+            if (closureSpec.ReturnType is not NamedTypeSpec namedReturn)
+                return null;
+            var mapped = MapPrimitiveOrString("result", namedReturn);
+            if (mapped == null || mapped.Kind == BridgeParameterKind.String)
+                return null;
+            closureReturn = mapped;
+        }
+
+        // Build @convention(c) signature: (ArgAbi1, ArgAbi2, ..., UnsafeMutableRawPointer?) -> ReturnAbi
+        var abiArgTypes = closureArgs.Select(a => a.SwiftAbiType).ToList();
+        abiArgTypes.Add("UnsafeMutableRawPointer?");
+        var abiReturnType = closureReturn?.SwiftAbiType ?? "Void";
+        var swiftAbiType = $"(@convention(c) ({string.Join(", ", abiArgTypes)}) -> {abiReturnType})?";
+
+        return new BridgeParameter(
+            paramName,
+            BridgeParameterKind.TypedClosure,
+            SwiftAbiType: swiftAbiType,
+            CSharpPInvokeType: "IntPtr",
+            HasUserData: true,
+            ClosureArguments: closureArgs,
+            ClosureReturn: closureReturn);
     }
 
     private static BridgeParameter? MapNamedType(string paramName, NamedTypeSpec namedSpec, BridgeContext? context)
@@ -255,6 +297,7 @@ public enum BridgeParameterKind
     Primitive,
     String,
     VoidClosure,
+    TypedClosure,
     BoundEnum,
     BoundType,
     OptionalWrapped,
@@ -279,4 +322,6 @@ public record BridgeParameter(
     string? CSharpConversion = null,
     string? BridgeTypeName = null,
     string? CSharpTypeName = null,
-    BridgeParameter? InnerParameter = null);
+    BridgeParameter? InnerParameter = null,
+    List<BridgeParameter>? ClosureArguments = null,
+    BridgeParameter? ClosureReturn = null);
