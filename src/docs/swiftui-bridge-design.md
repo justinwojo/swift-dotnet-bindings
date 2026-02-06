@@ -1,7 +1,7 @@
 # SwiftUI Interop Bridge Design
 
 **Date**: February 2026
-**Status**: v2 Phase 1A complete (BoundEnum + Optional support — 2026-02-06)
+**Status**: v2 Phase 1 complete (all parameter type expansion — 2026-02-06)
 **Prerequisite**: Must be solved before repo goes public
 **Reviewers**: Claude, Codex
 
@@ -319,6 +319,29 @@ Two test layers:
 - `./build-ux-testapp.sh` — Build BlinkIDUXTestApp only
 - `./validate-bridge.sh` — Run runtime tests on iOS Simulator
 
+#### v2 Phase 1 Runtime Validation (BridgeParamTest)
+
+Dedicated test infrastructure at `BindingTesting/BridgeTest/` validates all v2 parameter kinds end-to-end on iOS Simulator. A synthetic Swift module (`BridgeParamTestLib`) defines 7 SwiftUI Views — one per parameter kind — with supporting types. The generator produces bridge code, which compiles and runs as a .NET iOS app with 26 tests.
+
+**Parameter kinds validated:**
+- BoundEnum (`EnumParamView`) — create + value round-trip + GetViewController
+- BoundType (`ClassParamView`) — create + value round-trip + retain/release lifetime
+- TypedClosure (`TypedClosureView`) — `(Int32) -> Bool` closure round-trip via generated wrapper
+- MultiArgClosure (`MultiArgClosureView`) — `(Int32, Bool) -> Void` multi-param closure
+- MixedParam (`MixedParamView`) — enum + void closure + primitive coexistence + callback round-trip
+- Optional\<Enum\> (`OptionalEnumView`) — with-value + nil variants
+- Optional\<Class\> (`OptionalClassView`) — with-value + nil variants
+- Cleanup — 9 sessions disposed, 9 `ObjectDisposedException` verified
+
+**Status**: 26/26 tests pass (2026-02-06).
+
+**Scripts:**
+- `./build-all.sh` — Full pipeline (xcframework → generator → bridge → test app)
+- `./regenerate-bindings.sh` — Run generator on ABI JSON, typecheck generated Swift
+- `./build-bridge.sh` — Compile generated bridge + test helpers → framework
+- `./build-testapp.sh` — Build BridgeParamTestApp
+- `./validate.sh` — Run tests on iOS Simulator
+
 #### File Layout
 
 ```
@@ -337,6 +360,23 @@ BindingTesting/BlinkId/
 ├── build-bridge.sh            # Build SwiftBridge → dylib
 ├── build-ux-testapp.sh        # Build BlinkIDUXTestApp
 └── validate-bridge.sh         # Run bridge tests on simulator
+
+BindingTesting/BridgeTest/
+├── Sources/
+│   └── BridgeParamTestLib.swift   # Synthetic Views (7) + supporting types
+├── SwiftBridge/
+│   └── BridgeParamTestHelpers.swift  # @_cdecl test helpers
+├── BridgeParamTestApp/            # .NET test app (26 tests)
+│   ├── BridgeParamTestApp.csproj
+│   ├── Program.cs                 # P/Invoke, tests, validation
+│   └── Info.plist
+├── output/                        # Generator output (gitignored)
+├── build-xcframework.sh           # Compile Swift → xcframework
+├── regenerate-bindings.sh         # Generator + typecheck
+├── build-bridge.sh                # Generated bridge + helpers → framework
+├── build-testapp.sh               # Build test app
+├── build-all.sh                   # Full pipeline
+└── validate.sh                    # Run on iOS Simulator
 ```
 
 ### Deliverable 2: Generator Automation (**Implemented**)
@@ -350,7 +390,7 @@ The generator auto-detects SwiftUI Views and generates bridge code. Detection vi
 
 #### Emission Phase (**Done**, expanding in v2)
 - `SwiftUIBridgeEmitter` generates Swift + C# bridge files
-- `InitAnalyzer.MapParameterType()` classifies init params (v1: primitives, String, `() -> Void` closures; Phase 1A adds BoundEnum, OptionalWrapped)
+- `InitAnalyzer.MapParameterType()` classifies init params (v1: primitives, String, `() -> Void` closures; v2 Phase 1 adds BoundEnum, OptionalWrapped, BoundType, TypedClosure)
 - Hard-coded `KnownAsyncPatterns` for async views (BlinkIDUXView); generalized inference planned for Phase 2
 - Unsupported params → entire View falls back to commented-out template
 
@@ -423,9 +463,10 @@ v1 (Deliverable 2) is validated with 16/16 runtime tests and 52 unit tests. v2 e
 | Phase | Objective | Key Deliverable | Status |
 |-------|-----------|-----------------|--------|
 | **1A** | BoundEnum + Optional<Primitive\|Enum> | Enums and optional primitives cross the ABI | **Done** (2026-02-06) |
-| **1B** | BoundType for classes | Class parameters via retain/release | Next |
-| **1C** | TypedClosure | Closures with typed params (max 4) | |
-| **1D** | Optional<BoundType> | Optional reference types via nullable pointer | |
+| **1B** | BoundType for classes + Optional<BoundType> | Class parameters via retain/release; nullable pointer | **Done** (2026-02-06) |
+| **1C** | TypedClosure | Closures with typed params (max 4) | **Done** (2026-02-06) |
+| **1D** | Optional<BoundType> | Shipped with Phase 1B | **Done** (2026-02-06) |
+| **1-RT** | Runtime validation | 26/26 tests on iOS Simulator (BridgeParamTest) | **Done** (2026-02-06) |
 | **2** | Generalized async factory | ABI-driven inference replaces hard-coded `KnownAsyncPatterns` | |
 | **3** | Bridge hints file | JSON sidecar for user overrides and escape hatches | |
 | **4** | Corpus + 3-tier metrics | Track generated/typechecked/runtime-validated across real libraries | |

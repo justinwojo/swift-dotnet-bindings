@@ -168,6 +168,7 @@ Output: NuGet package with C# bindings
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅ (runtime validated, 18/18 tests)
 - **BlinkIDUX**: 0 errors ✅ (SwiftUI bridge validated, 16/16 tests)
+- **BridgeParamTest**: 0 errors ✅ (v2 param types validated, 26/26 tests)
 - **Lottie**: 0 errors ✅ (runtime validated, 9/9 tests pass)
 
 **Working**:
@@ -367,6 +368,19 @@ These scripts validate the SwiftUI interop bridge for BlinkIDUX (Steps 1-3 of sw
 | `./build-ux-testapp.sh` | Build the BlinkIDUXTestApp | After changing test app code |
 | `./validate-bridge.sh [timeout]` | Run bridge tests on iOS Simulator | **Always use this** for bridge testing |
 
+### BridgeParamTest Scripts (BindingTesting/BridgeTest/)
+
+These scripts validate the v2 SwiftUI bridge parameter types (BoundEnum, BoundType, TypedClosure, Optional variants) end-to-end using synthetic SwiftUI Views.
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| `./build-all.sh` | Full pipeline: xcframework + bindings + bridge + test app | After generator or bridge emitter changes |
+| `./build-xcframework.sh` | Build Swift test module as xcframework | After modifying Swift test sources |
+| `./regenerate-bindings.sh` | Run generator + typecheck generated bridge | After changing emitter/marshaler code |
+| `./build-bridge.sh` | Build generated bridge + test helpers into framework | After regenerating bindings or editing helpers |
+| `./build-testapp.sh` | Build the BridgeParamTestApp | After changing test app code |
+| `./validate.sh [timeout]` | Run 26 tests on iOS Simulator | **Always use this** for param type validation |
+
 ### Typical Workflows
 
 **After modifying generator code:**
@@ -379,6 +393,12 @@ cd BindingTesting/Nuke
 ```bash
 cd BindingTesting/BlinkId
 ./build-all-bridge.sh && ./validate-bridge.sh
+```
+
+**After modifying bridge emitter param type handling:**
+```bash
+cd BindingTesting/BridgeTest
+./build-all.sh && ./validate.sh
 ```
 
 **After modifying only the test app:**

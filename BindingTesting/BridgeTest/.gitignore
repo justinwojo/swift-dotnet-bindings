@@ -1,0 +1,9 @@
+# Build artifacts
+.build/
+output/
+*.swiftmodule
+SwiftBridge/*.framework/
+
+# .NET build output
+BridgeParamTestApp/bin/
+BridgeParamTestApp/obj/
