@@ -89,7 +89,7 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 - **Actor isolation enforcement** — Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
-- **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 Phase 1 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants (35/35 BridgeParamTest). Phase 2A adds ABI-driven async inference (constructor chain resolution). Phase 2B adds data-driven emission from inferred chains (mixed chain + leaf params, async detection fallback). Phase 2C adds cross-module type resolution via TypeDatabase (BoundType/BoundEnum in async chains) with null-pointer safety guards.
+- **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants, ABI-driven async inference, data-driven emission, and cross-module type resolution with null-pointer safety. 13 SwiftUI bridge features tracked in TestFramework coverage matrix (enum/class/closure/optional/async Views). Runtime tests at Tier 2. BridgeTest (`BindingTesting/BridgeTest/`) retained as shadow validation.
 - **Combine** — `@Published` properties and reactive streams not bridged
 
 ### Edge Cases

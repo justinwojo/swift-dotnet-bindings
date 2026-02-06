@@ -356,30 +356,23 @@ These scripts are for testing bindings against the Nuke image loading library on
 | `./build-testapp.sh` | Build the NukeTestApp | After changing test app code |
 | `./validate-sim.sh [timeout]` | Run test app on iOS Simulator | **Always use this** for simulator testing |
 
-### BlinkIDUX Bridge Scripts (BindingTesting/BlinkId/)
+### BlinkIDUX Bridge Scripts (BindingTesting/BlinkId/) — Shadow Validation
 
-These scripts validate the SwiftUI interop bridge for BlinkIDUX (Steps 1-3 of swiftui-bridge-design.md).
-
-| Script | Purpose | When to Use |
-|--------|---------|-------------|
-| `./build-all-bridge.sh` | Full Step 3 pipeline: generator coverage + bridge build + test app | After generator or bridge code changes |
-| `./regenerate-ux-bindings.sh` | Generator coverage test: run generator on BlinkIDUX | After changing emitter/marshaler code |
-| `./build-bridge.sh` | Build SwiftBridge framework from BlinkIDUXBridge.swift | After changing Swift bridge code |
-| `./build-ux-testapp.sh` | Build the BlinkIDUXTestApp | After changing test app code |
-| `./validate-bridge.sh [timeout]` | Run bridge tests on iOS Simulator | **Always use this** for bridge testing |
-
-### BridgeParamTest Scripts (BindingTesting/BridgeTest/)
-
-These scripts validate the v2 SwiftUI bridge parameter types (BoundEnum, BoundType, TypedClosure, Optional variants) end-to-end using synthetic SwiftUI Views.
+> **Note:** SwiftUI bridge testing is now integrated into TestFramework (Tier 2 runtime tests). These scripts are retained as shadow validation against real-world frameworks until TestFramework proves stable in CI.
 
 | Script | Purpose | When to Use |
 |--------|---------|-------------|
-| `./build-all.sh` | Full pipeline: xcframework + bindings + bridge + test app | After generator or bridge emitter changes |
-| `./build-xcframework.sh` | Build Swift test module as xcframework | After modifying Swift test sources |
-| `./regenerate-bindings.sh` | Run generator + typecheck generated bridge | After changing emitter/marshaler code |
-| `./build-bridge.sh` | Build generated bridge + test helpers into framework | After regenerating bindings or editing helpers |
-| `./build-testapp.sh` | Build the BridgeParamTestApp | After changing test app code |
-| `./validate.sh [timeout]` | Run 26 tests on iOS Simulator | **Always use this** for param type validation |
+| `./build-all-bridge.sh` | Full Step 3 pipeline: generator coverage + bridge build + test app | Shadow validation against BlinkIDUX |
+| `./validate-bridge.sh [timeout]` | Run bridge tests on iOS Simulator | Shadow validation |
+
+### BridgeParamTest Scripts (BindingTesting/BridgeTest/) — Shadow Validation
+
+> **Note:** SwiftUI bridge param type tests are now integrated into TestFramework (13 features in coverage matrix, Tier 2 runtime tests). These scripts are retained as shadow validation.
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| `./build-all.sh` | Full pipeline: xcframework + bindings + bridge + test app | Shadow validation against synthetic views |
+| `./validate.sh [timeout]` | Run 26 tests on iOS Simulator | Shadow validation |
 
 ### Typical Workflows
 
@@ -389,16 +382,10 @@ cd BindingTesting/Nuke
 ./build-all.sh && ./validate-sim.sh 15
 ```
 
-**After modifying bridge code:**
+**After modifying bridge emitter or SwiftUI bridge code:**
 ```bash
-cd BindingTesting/BlinkId
-./build-all-bridge.sh && ./validate-bridge.sh
-```
-
-**After modifying bridge emitter param type handling:**
-```bash
-cd BindingTesting/BridgeTest
-./build-all.sh && ./validate.sh
+cd TestFramework
+./build-and-test.sh && ./run-runtime-tests.sh --tier 2 --timeout 90
 ```
 
 **After modifying only the test app:**
@@ -431,18 +418,28 @@ These scripts are for the comprehensive Swift test library that systematically e
 |--------|---------|-------------|
 | `./build-xcframework.sh` | Build the Swift test library as xcframework | After adding/modifying Swift test files |
 | `./regenerate-bindings.sh` | Generate C# bindings from the xcframework | After generator code changes or xcframework rebuild |
-| `./build-and-test.sh` | Full pipeline: build xcframework + generate bindings | One-step validation after any changes |
+| `./build-and-test.sh` | Full pipeline: build xcframework + generate bindings + bridge | One-step validation after any changes |
+| `./build-bridge.sh` | Compile generated SwiftUI bridge + test helpers into framework | After regenerating bindings or editing bridge helpers |
+| `./run-runtime-tests.sh` | Build + run runtime tests on iOS Simulator | Runtime validation (Tier 1 default, `--tier 2` for SwiftUI bridge) |
 | `./generate-coverage-report.sh` | Generate `coverage-matrix.json` from ABI + binding report | After regenerating bindings, to assess coverage |
 
 **Typical workflow:**
 ```bash
 cd TestFramework
-./build-and-test.sh          # Full rebuild + binding generation
+./build-and-test.sh          # Full rebuild + binding generation + bridge
 ./generate-coverage-report.sh # Generate coverage report
+```
+
+**Runtime validation (includes SwiftUI bridge tests at Tier 2):**
+```bash
+cd TestFramework
+./run-runtime-tests.sh --tier 2 --timeout 90
 ```
 
 **Output files:**
 - `output/Swift.SwiftBindingsTestLib.cs` - Generated C# bindings
+- `output/Swift.SwiftBindingsTestLib.SwiftUIBridge.swift` - Generated SwiftUI bridge
+- `output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs` - Generated bridge C# bindings
 - `output/binding-report.json` - Binding completeness report
 - `output/coverage-matrix.json` - Feature coverage matrix (from generate-coverage-report.sh)
 
@@ -450,7 +447,7 @@ See `src/docs/CompletedPhases/comprehensive-test-library-design.md` for the full
 
 ## TestFramework Feedback Loop
 
-The TestFramework is the primary validation tool for generator changes. It contains 67 Swift source files exercising 145 mapped features across 18 categories (types, closures, generics, protocols, async, operators, etc.). After any generator change, the TestFramework tells you whether you fixed what you intended and whether you broke anything else.
+The TestFramework is the primary validation tool for generator changes. It contains Swift source files exercising mapped features across categories including types, closures, generics, protocols, async, operators, SwiftUI bridge, and more. After any generator change, the TestFramework tells you whether you fixed what you intended and whether you broke anything else. SwiftUI bridge tests (enum/class/closure/optional/async Views) are integrated at Tier 2.
 
 ### When to Run
 
@@ -548,16 +545,17 @@ When a member is skipped, the binding report records a `SkipReason`. These are d
 - This means you accidentally (or intentionally) enabled a new feature
 - Consider promoting it: remove it from `KNOWN_UNSUPPORTED_FEATURES` in `generate-coverage-report.sh` to make it a must_pass feature going forward
 
-### Current Baseline (Phase 61 + SwiftUI Bridge v2 Phase 2C)
+### Current Baseline (Phase 61 + SwiftUI Bridge TestFramework Migration)
 
 | Metric | Value |
 |--------|-------|
-| Must-pass features | 93 total |
-| Passing | 92 (98.9%) |
-| Degraded | 1 |
-| Known-unsupported | 52 |
-| Types emitted | 151/168 (89.9%) |
-| Members emitted | 673/747 (90.1%) |
+| Must-pass features | 112 total |
+| Passing | 57 (incl. 13 SwiftUI bridge) |
+| Degraded | 0 |
+| Missing | 51 (disabled dirs: Generics, Protocols, Async, etc.) |
+| Known-unsupported | 56 |
+| Types emitted | 54/64 |
+| Members emitted | 258/304 |
 
 **Remaining degraded features**:
 - `any_protocol_existential` — 1 skip (UnsupportedExistential: `describeAll([any Describable])` requires `SwiftArray<ExistentialContainer>` runtime support)

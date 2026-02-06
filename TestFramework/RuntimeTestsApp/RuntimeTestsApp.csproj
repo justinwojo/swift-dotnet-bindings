@@ -48,4 +48,17 @@
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>
+
+  <!-- SwiftUI bridge (conditional on generated output) -->
+  <PropertyGroup Condition="Exists('../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs')">
+    <DefineConstants>$(DefineConstants);SWIFTUI_BRIDGE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs')">
+    <Compile Include="../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('../SwiftBridge/SwiftBindingsTestLibBridge.framework')">
+    <NativeReference Include="../SwiftBridge/SwiftBindingsTestLibBridge.framework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
 </Project>

@@ -21,6 +21,14 @@ echo ""
 echo "--- Step 2: Regenerate bindings ---"
 ./regenerate-bindings.sh
 
+# Step 3: Build SwiftUI bridge (if generated)
+BRIDGE_SWIFT="output/Swift.SwiftBindingsTestLib.SwiftUIBridge.swift"
+if [ -f "$BRIDGE_SWIFT" ]; then
+    echo ""
+    echo "--- Step 3: Build SwiftUI bridge ---"
+    ./build-bridge.sh
+fi
+
 echo ""
 echo "========================================="
 echo " Results"

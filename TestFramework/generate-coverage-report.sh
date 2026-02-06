@@ -466,6 +466,23 @@ FEATURE_MAP = {
         "name": "optional_types",
         "features": ["optional_blittable_return", "optional_class_return", "optional_parameter", "optional_struct_properties"]
     },
+    "SwiftUI/SupportingTypes.swift": {
+        "name": "swiftui_supporting_types",
+        "features": ["swiftui_bridge_enum", "swiftui_bridge_class", "swiftui_bridge_async_service"]
+    },
+    "SwiftUI/SimpleViews.swift": {
+        "name": "swiftui_simple_views",
+        "features": [
+            "swiftui_enum_param_view", "swiftui_class_param_view",
+            "swiftui_typed_closure_view", "swiftui_multi_arg_closure_view",
+            "swiftui_mixed_param_view", "swiftui_optional_enum_view",
+            "swiftui_optional_class_view",
+        ]
+    },
+    "SwiftUI/AsyncViews.swift": {
+        "name": "swiftui_async_views",
+        "features": ["swiftui_async_service_view", "swiftui_deep_chain_view", "swiftui_mixed_async_view"]
+    },
 }
 
 # Features that are known unsupported (generator can't handle them yet).
@@ -657,6 +674,25 @@ FEATURE_DECLARATIONS = {
     "optional_class_return": {"findAnimalByName"},
     "optional_parameter": {"describeOptionalInt"},
     "optional_struct_properties": {"OptionalConfig"},
+
+    # SwiftUI/SupportingTypes.swift — non-View types (bind normally)
+    "swiftui_bridge_enum": {"AlertStyle"},
+    "swiftui_bridge_class": {"SimpleModel"},
+    "swiftui_bridge_async_service": {"AsyncService", "Processor"},
+
+    # SwiftUI/SimpleViews.swift — View types (checked via BridgedViews)
+    "swiftui_enum_param_view": {"EnumParamView"},
+    "swiftui_class_param_view": {"ClassParamView"},
+    "swiftui_typed_closure_view": {"TypedClosureView"},
+    "swiftui_multi_arg_closure_view": {"MultiArgClosureView"},
+    "swiftui_mixed_param_view": {"MixedParamView"},
+    "swiftui_optional_enum_view": {"OptionalEnumView"},
+    "swiftui_optional_class_view": {"OptionalClassView"},
+
+    # SwiftUI/AsyncViews.swift — async View types (checked via BridgedViews)
+    "swiftui_async_service_view": {"AsyncServiceView"},
+    "swiftui_deep_chain_view": {"DeepChainView"},
+    "swiftui_mixed_async_view": {"MixedAsyncView"},
 }
 
 
@@ -665,10 +701,14 @@ def resolve_declaration(item, module_name):
 
     For free functions (ContainingType == module), the declaration is the
     function name itself.  For type members, it is the type name.
+    For skipped types (ContainingType == None, Kind == Type), the declaration
+    is the type name directly.
     """
-    containing = item.get("ContainingType", "")
+    containing = item.get("ContainingType") or ""
     name = item.get("Name", "")
 
+    if not containing and item.get("Kind") == "Type":
+        return name  # skipped type (e.g. SwiftUI View)
     if containing == module_name:
         return name  # free function
     elif "." in containing:
@@ -725,13 +765,46 @@ def match_skipped_to_features(skipped_items, decl_map, module_name):
     return feature_skips
 
 
+# SwiftUI View features — checked via BridgedViews in binding-report.json
+# instead of normal binding emission. These types are intentionally skipped
+# from bindings (SkipReason: SwiftUIView) and bridged via the SwiftUI bridge emitter.
+SWIFTUI_VIEW_FEATURES = {
+    "swiftui_enum_param_view": "EnumParamView",
+    "swiftui_class_param_view": "ClassParamView",
+    "swiftui_typed_closure_view": "TypedClosureView",
+    "swiftui_multi_arg_closure_view": "MultiArgClosureView",
+    "swiftui_mixed_param_view": "MixedParamView",
+    "swiftui_optional_enum_view": "OptionalEnumView",
+    "swiftui_optional_class_view": "OptionalClassView",
+    "swiftui_async_service_view": "AsyncServiceView",
+    "swiftui_deep_chain_view": "DeepChainView",
+    "swiftui_mixed_async_view": "MixedAsyncView",
+}
+
+
+def build_bridged_views_map(binding_report):
+    """Build a map of View name -> BridgeStatus from binding-report.json."""
+    bridged = {}
+    if binding_report and "BridgedViews" in binding_report:
+        for view in binding_report["BridgedViews"]:
+            name = view.get("ViewName", "")
+            status = view.get("BridgeStatus", "")
+            if name:
+                bridged[name] = status
+    return bridged
+
+
 def build_feature_status(binding_report, source_files, module_name):
     """Build per-feature status from binding report and source file list.
 
     Cross-references binding report skipped items against feature categories
     to detect degraded features (test exists but bindings have skipped members).
+    SwiftUI View features use BridgedViews instead of normal binding emission.
     """
     features = []
+
+    # Build bridged views map for SwiftUI features
+    bridged_views = build_bridged_views_map(binding_report)
 
     # Build declaration map to link skipped items to source files
     source_dir = get_source_dir()
@@ -789,6 +862,10 @@ def build_feature_status(binding_report, source_files, module_name):
             is_unsupported = feature_name in KNOWN_UNSUPPORTED_FEATURES
             skips = feature_skips.get(feature_name, [])
 
+            # SwiftUI View features use bridge status instead of normal binding
+            view_name = SWIFTUI_VIEW_FEATURES.get(feature_name)
+            is_bridge_feature = view_name is not None
+
             if is_unsupported:
                 status = "known_unsupported"
                 known_unsupported_total += 1
@@ -801,6 +878,34 @@ def build_feature_status(binding_report, source_files, module_name):
                         test_status = "compiled_out"
                 else:
                     test_status = "missing"
+            elif is_bridge_feature:
+                # SwiftUI View: check BridgedViews instead of normal bindings
+                status = "must_pass"
+                must_pass_total += 1
+                bridge_status = bridged_views.get(view_name)
+                if bridge_status == "Generated":
+                    must_pass_passing += 1
+                    test_status = "passing"
+                elif bridge_status == "HintSkipped":
+                    # User-skipped via hints — excluded from totals
+                    must_pass_total -= 1
+                    test_status = "excluded"
+                elif bridge_status is not None:
+                    # TemplatePending or other non-Generated status
+                    must_pass_degraded += 1
+                    test_status = "degraded"
+                    skips = [{"name": view_name, "kind": "SwiftUIView",
+                              "reason": "BridgeNotGenerated",
+                              "details": f"BridgeStatus: {bridge_status}"}]
+                elif not file_exists:
+                    test_status = "missing"
+                else:
+                    # View not in BridgedViews at all
+                    must_pass_degraded += 1
+                    test_status = "degraded"
+                    skips = [{"name": view_name, "kind": "SwiftUIView",
+                              "reason": "NotBridged",
+                              "details": "View not found in BridgedViews"}]
             else:
                 status = "must_pass"
                 must_pass_total += 1

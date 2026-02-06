@@ -61,7 +61,7 @@ dotnet add package Nuke.Bindings
 > "I'm building a .NET MAUI app and want to use the Nuke image library. I just want to add a NuGet package and call the API."
 
 ### 2. Apple Framework Consumer
-> "I'm implementing in-app purchases and need StoreKit 2. I want to call `Product.products()` directly from C#."
+> "I'm implementing in-app purchases and need StoreKit 2. I want to call `Product.Products()` directly from C#."
 
 ### 3. Binding Author
 > "I maintain a popular Swift library and want to publish official .NET bindings so the MAUI community can use it."

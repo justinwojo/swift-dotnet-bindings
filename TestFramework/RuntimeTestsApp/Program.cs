@@ -50,7 +50,8 @@ public class Application
 
     static IntPtr ResolveBundledFramework(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
-        if (libraryName == "SwiftBindingsTestLib" || libraryName == "SwiftBindings")
+        if (libraryName == "SwiftBindingsTestLib" || libraryName == "SwiftBindings"
+            || libraryName == "SwiftBindingsTestLibBridge")
         {
             var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
             if (NativeLibrary.TryLoad(frameworkPath, out var handle))

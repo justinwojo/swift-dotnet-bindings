@@ -76,6 +76,24 @@ else
     echo ""
 fi
 
+# Step 1.5: Build SwiftUI bridge (if generated)
+BRIDGE_SWIFT="output/Swift.SwiftBindingsTestLib.SwiftUIBridge.swift"
+if [ -f "$BRIDGE_SWIFT" ]; then
+    echo "--- Step 1.5: Build SwiftUI bridge ---"
+    ./build-bridge.sh
+    echo ""
+elif [ "$SKIP_REGEN" = false ]; then
+    # SwiftUI sources exist in the test library — bridge must be generated
+    if [ -d "Sources/SwiftBindingsTestLib/SwiftUI" ]; then
+        echo "ERROR: Bridge file not generated after binding generation."
+        echo "SwiftUI sources exist but no bridge was emitted. Check generator output."
+        exit 1
+    else
+        echo "Note: No SwiftUI sources present, bridge generation skipped."
+        echo ""
+    fi
+fi
+
 # Step 2: Build the RuntimeTestsApp
 echo "--- Step 2: Build RuntimeTestsApp ---"
 cd RuntimeTestsApp
