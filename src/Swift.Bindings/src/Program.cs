@@ -36,6 +36,9 @@ namespace BindingsGeneration
             Option<string> namespacePatternOption = new(
                 aliases: new[] { "--namespace-pattern" },
                 description: "C# namespace pattern for generated modules and types. Supports {Module} and {Framework}. Default: Swift.{Module}");
+            Option<string> bridgeHintsOption = new(
+                aliases: new[] { "--bridge-hints" },
+                description: "Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
             Option<string> configOption = new(
                 aliases: new[] { "--config" },
                 description: $"Path to config JSON file. Default: {DefaultConfigFileName} in current directory.");
@@ -53,6 +56,7 @@ namespace BindingsGeneration
                 outputDirectoryOption,
                 libraryNameOption,
                 asyncLibraryOption,
+                bridgeHintsOption,
                 namespacePatternOption,
                 configOption,
                 verboseOption,
@@ -67,6 +71,7 @@ namespace BindingsGeneration
                 var outputDirectory = parseResult.GetValueForOption(outputDirectoryOption);
                 var libraryName = parseResult.GetValueForOption(libraryNameOption);
                 var asyncLibrary = parseResult.GetValueForOption(asyncLibraryOption);
+                var bridgeHints = parseResult.GetValueForOption(bridgeHintsOption);
                 var namespacePattern = parseResult.GetValueForOption(namespacePatternOption);
                 var configPath = parseResult.GetValueForOption(configOption);
                 var verbose = parseResult.GetValueForOption(verboseOption);
@@ -81,6 +86,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  -o, --output         Required. Output directory for generated bindings.");
                     Console.WriteLine("  -l, --library-name   Optional. Runtime library name for DllImport. Escape @ with backslash: '\\@rpath/...'");
                     Console.WriteLine("  --async-library      Optional. Library name for async wrapper functions. Default uses module library.");
+                    Console.WriteLine("  --bridge-hints       Optional. Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
                     Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
                     Console.WriteLine($"  --config             Optional. Path to config file. Default: {DefaultConfigFileName}");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
@@ -118,7 +124,7 @@ namespace BindingsGeneration
                 var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
                 var effectiveNamespacePattern = ResolveNamespacePattern(namespacePattern, configPath, logger);
 
-                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, effectiveNamespacePattern, logger, loggerFactory);
+                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, bridgeHints, effectiveNamespacePattern, logger, loggerFactory);
             });
 
             rootCommand.Invoke(args);
@@ -136,7 +142,7 @@ namespace BindingsGeneration
         /// <param name="namespacePattern">Namespace pattern for generated modules and types.</param>
         /// <param name="logger">ILogger instance.</param>
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
-        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
+        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
         {
             var typeDatabase = new TypeDatabase();
             typeDatabase.AsyncLibraryName = asyncLibraryName;
@@ -174,7 +180,7 @@ namespace BindingsGeneration
                 logger.LogDebug("Parsed Swift ABI file successfully.");
 
                 // Emit the C# bindings
-                var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver);
+                var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath);
                 stringEmitter.EmitModule(decl);
 
                 var report = ReportCollector.Complete();

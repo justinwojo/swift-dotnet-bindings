@@ -164,7 +164,7 @@ Output: NuGet package with C# bindings
 ## Current Capabilities
 
 **Status** (February 2026 - Phase 61 + SwiftUI Bridge v2 Phase 2C + TestFramework bridge migration):
-- **Unit Tests**: 1419 passed
+- **Unit Tests**: 1439 passed
 - **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅ (runtime validated, 18/18 tests)
@@ -634,6 +634,8 @@ The codebase is ~5,000+ lines of well-structured C# with clear separation of con
 **CLI Usage**:
 ```bash
 SwiftBindings -a path/to/abi.json -d path/to/lib.dylib -t path/to/lib.tbd -o output/
+# With bridge hints for SwiftUI view customization:
+SwiftBindings -a abi.json -d lib.dylib -t lib.tbd -o output/ --bridge-hints bridge-hints.json
 ```
 
 **Key Runtime Types**:

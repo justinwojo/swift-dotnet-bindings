@@ -307,7 +307,7 @@ public enum BridgeParameterKind
 /// <summary>
 /// Context for bridge parameter analysis. Holds shared services needed by the analyzer.
 /// </summary>
-public record BridgeContext(ITypeDatabase? TypeDatabase = null, ModuleDecl? ModuleDecl = null);
+public record BridgeContext(ITypeDatabase? TypeDatabase = null, ModuleDecl? ModuleDecl = null, BridgeHintsFile? Hints = null);
 
 /// <summary>
 /// Mapping of a Swift init parameter to its C ABI representation for bridge code.

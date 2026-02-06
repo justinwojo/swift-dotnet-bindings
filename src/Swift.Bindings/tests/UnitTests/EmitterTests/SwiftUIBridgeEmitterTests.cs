@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -3460,6 +3461,475 @@ public class SwiftUIBridgeEmitterTests : IDisposable
                 },
             },
         };
+    }
+
+    #endregion
+
+    #region Bridge Hints
+
+    private class TestLogger : ILogger
+    {
+        public List<string> Messages { get; } = new();
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception exception, Func<TState, Exception, string> formatter)
+            => Messages.Add($"[{logLevel}] {formatter(state, exception)}");
+    }
+
+    private static string CreateBridgeHintsFile(string dir, string json, string fileName = null)
+    {
+        var path = Path.Combine(dir, fileName ?? "bridge-hints.json");
+        File.WriteAllText(path, json);
+        return path;
+    }
+
+    [Fact]
+    public void BridgeHints_NoHintsPath_ProducesIdenticalOutput()
+    {
+        // No hints → same as before (null bridgeHintsPath)
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("SBW_TestModule_TestView_Create", swiftContent);
+    }
+
+    [Fact]
+    public void BridgeHints_SkipHint_ViewProducesNoOutput()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("SkipMe"), CreateSimpleViewStruct("KeepMe") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "SkipMe": { "skip": true, "reason": "Not needed" }
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.DoesNotContain("SkipMe", swiftContent);
+        Assert.Contains("SBW_TestModule_KeepMe_Create", swiftContent);
+    }
+
+    [Fact]
+    public void BridgeHints_SkipHint_GenericView_StillSkipped()
+    {
+        // skip overrides generic rejection
+        var views = new List<TypeDecl> { CreateGenericViewStruct("GenericSkipView") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "GenericSkipView": { "skip": true }
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+        // All views skipped → no bridge files created (stale cleanup)
+        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift")));
+        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs")));
+    }
+
+    [Fact]
+    public void BridgeHints_SkipHint_RecordedInReport()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("SkipMe"), CreateSimpleViewStruct("KeepMe") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "SkipMe": { "skip": true }
+            }
+        }
+        """);
+
+        // Start a report session to capture bridged views
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+                NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+            var report = ReportCollector.Complete();
+            Assert.NotNull(report);
+            var skippedView = report!.BridgedViews.FirstOrDefault(v => v.ViewName == "SkipMe");
+            Assert.NotNull(skippedView);
+            Assert.Equal("HintSkipped", skippedView!.BridgeStatus);
+            Assert.Equal("Skipped", skippedView.InitClassification);
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void BridgeHints_ForceTemplateHint_ViewGetsTemplate()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("ForceTemplateView") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "ForceTemplateView": { "forceTemplate": true, "reason": "WIP" }
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("BRIDGE TEMPLATE: ForceTemplateView", swiftContent);
+        // No functional @_cdecl for this view (template has it commented out)
+        var nonCommentLines = swiftContent.Split('\n').Where(l => !l.TrimStart().StartsWith("//"));
+        Assert.DoesNotContain(nonCommentLines, l => l.Contains("SBW_TestModule_ForceTemplateView_Create"));
+    }
+
+    [Fact]
+    public void BridgeHints_PreferredInitHint_SelectsCorrectConstructor()
+    {
+        // Create a view with 2 constructors: [0] has void closure, [1] has Int
+        var view = CreateSimpleViewStruct("MultiInitView");
+        view.Methods.Add(CreateConstructorWithVoidClosure("onTap"));
+        view.Methods.Add(CreateConstructorWithPrimitive("count", "Swift.Int"));
+        var views = new List<TypeDecl> { view };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "MultiInitView": { "preferredInit": 1 }
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        // Constructor [1] has Int param → Swift ABI uses "Int" type
+        Assert.Contains("count: Int", swiftContent);
+        // Constructor [0] has closure — it should NOT be used
+        Assert.DoesNotContain("onTapCallback", swiftContent);
+    }
+
+    [Fact]
+    public void BridgeHints_PreferredInitHint_OutOfRange_FallsBackWithWarning()
+    {
+        var testLogger = new TestLogger();
+        var view = CreateSimpleViewStruct("SingleInitView");
+        view.Methods.Add(CreateConstructorWithPrimitive("count", "Swift.Int"));
+        var views = new List<TypeDecl> { view };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "SingleInitView": { "preferredInit": 99 }
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            testLogger, bridgeHintsPath: hintsPath);
+
+        // Warning about out-of-range index
+        Assert.Contains(testLogger.Messages, m => m.Contains("preferredInit") && m.Contains("out of range"));
+        // Falls back to constructor [0]
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("count: Int", swiftContent);
+    }
+
+    [Fact]
+    public void BridgeHints_AsyncPatternHint_ForcesAsyncClassification()
+    {
+        var view = CreateSimpleViewStruct("MyAsyncView");
+        var hintsJson = """
+        {
+            "views": {
+                "MyAsyncView": {
+                    "asyncPattern": {
+                        "dependencyChain": [
+                            { "type": "SomeService", "factory": "create" }
+                        ]
+                    }
+                }
+            }
+        }
+        """;
+        var hintsPath = CreateBridgeHintsFile(_tempDir, hintsJson);
+        var hints = BridgeHintsLoader.Load(hintsPath, _tempDir, "TestModule", NullLogger.Instance);
+        var context = new BridgeContext(Hints: hints);
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule", context);
+
+        Assert.Equal(ViewInitClassification.AsyncDependency, info.Classification);
+    }
+
+    [Fact]
+    public void BridgeHints_MalformedJson_FallsBackToAutoDetection()
+    {
+        var testLogger = new TestLogger();
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, "{ invalid json!!!");
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            testLogger, bridgeHintsPath: hintsPath);
+
+        // Warning about malformed JSON
+        Assert.Contains(testLogger.Messages, m => m.Contains("Malformed bridge hints"));
+        // Still generates output normally
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("SBW_TestModule_TestView_Create", swiftContent);
+    }
+
+    [Fact]
+    public void BridgeHints_UnknownKeys_IgnoredWithWarning()
+    {
+        var testLogger = new TestLogger();
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "TestView": { "skip": false, "futureKey": true }
+            },
+            "unknownRoot": 42
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            testLogger, bridgeHintsPath: hintsPath);
+
+        // Warnings about unknown keys
+        Assert.Contains(testLogger.Messages, m => m.Contains("unknown key 'unknownRoot'"));
+        Assert.Contains(testLogger.Messages, m => m.Contains("unknown key 'futureKey'"));
+        // Still loads and generates output
+        Assert.True(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift")));
+    }
+
+    [Fact]
+    public void BridgeHints_HintsDiscovery_CliArgTakesPrecedence()
+    {
+        var testLogger = new TestLogger();
+
+        // Create both CLI file and discovered file
+        var cliHintsPath = CreateBridgeHintsFile(_tempDir, """
+        { "views": { "TestView": { "skip": true } } }
+        """, "cli-hints.json");
+        CreateBridgeHintsFile(_tempDir, """
+        { "views": { "TestView": { "forceTemplate": true } } }
+        """);
+
+        var hints = BridgeHintsLoader.Load(cliHintsPath, _tempDir, "TestModule", testLogger);
+
+        Assert.NotNull(hints);
+        Assert.True(hints!.Views!["TestView"].Skip);
+        // Warning about ignoring discovered file
+        Assert.Contains(testLogger.Messages, m => m.Contains("ignoring discovered file"));
+    }
+
+    [Fact]
+    public void BridgeHints_HintsDiscovery_ModuleSpecificFile()
+    {
+        CreateBridgeHintsFile(_tempDir, """
+        { "views": { "TestView": { "skip": true } } }
+        """, "TestModule.bridge-hints.json");
+
+        var hints = BridgeHintsLoader.Load(null, _tempDir, "TestModule", NullLogger.Instance);
+
+        Assert.NotNull(hints);
+        Assert.True(hints!.Views!["TestView"].Skip);
+    }
+
+    [Fact]
+    public void BridgeHints_HintsDiscovery_GenericFile()
+    {
+        CreateBridgeHintsFile(_tempDir, """
+        { "views": { "TestView": { "forceTemplate": true } } }
+        """);
+
+        var hints = BridgeHintsLoader.Load(null, _tempDir, "TestModule", NullLogger.Instance);
+
+        Assert.NotNull(hints);
+        Assert.True(hints!.Views!["TestView"].ForceTemplate);
+    }
+
+    [Fact]
+    public void BridgeHints_ExtraSwiftImports_MergedIntoOutput()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "TestView": {
+                    "extraSwiftImports": ["SomeFramework"]
+                }
+            },
+            "globalSettings": {
+                "extraSwiftImports": ["AnotherLib"]
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("import SomeFramework", swiftContent);
+        Assert.Contains("import AnotherLib", swiftContent);
+    }
+
+    [Fact]
+    public void BridgeHints_AllViewsSkipped_NoBridgeFilesWritten()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("ViewA"), CreateSimpleViewStruct("ViewB") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "ViewA": { "skip": true },
+                "ViewB": { "skip": true }
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift")));
+        Assert.False(File.Exists(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs")));
+    }
+
+    [Fact]
+    public void BridgeHints_AllViewsSkipped_DeletesAutoGeneratedBridgeFiles()
+    {
+        // Pre-create auto-generated bridge files (contain marker)
+        var staleSwift = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
+        var staleCs = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        File.WriteAllText(staleSwift, "// Auto-generated by SwiftBindings — SwiftUI Bridge\nimport UIKit\n");
+        File.WriteAllText(staleCs, "// Auto-generated by SwiftBindings — SwiftUI Bridge\nusing System;\n");
+        Assert.True(File.Exists(staleSwift));
+        Assert.True(File.Exists(staleCs));
+
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("OnlyView") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "OnlyView": { "skip": true }
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+        Assert.False(File.Exists(staleSwift));
+        Assert.False(File.Exists(staleCs));
+    }
+
+    [Fact]
+    public void BridgeHints_AllViewsSkipped_PreservesUserMaintainedBridgeFiles()
+    {
+        // Pre-create user-maintained bridge files (no auto-generated marker)
+        var userSwift = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift");
+        var userCs = Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs");
+        File.WriteAllText(userSwift, "// Hand-written bridge\nimport UIKit\n");
+        File.WriteAllText(userCs, "// Hand-written bridge\nusing System;\n");
+
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("OnlyView") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "OnlyView": { "skip": true }
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+        // User-maintained files should NOT be deleted
+        Assert.True(File.Exists(userSwift));
+        Assert.True(File.Exists(userCs));
+    }
+
+    [Fact]
+    public void BridgeHints_ExtraSwiftImports_NullAndEmptyFiltered()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("TestView") };
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "TestView": {
+                    "extraSwiftImports": ["ValidFramework", "", "  "]
+                }
+            },
+            "globalSettings": {
+                "extraSwiftImports": ["AnotherValid", ""]
+            }
+        }
+        """);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.TestModule", "TestModule", views,
+            NullLogger.Instance, bridgeHintsPath: hintsPath);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("import ValidFramework", swiftContent);
+        Assert.Contains("import AnotherValid", swiftContent);
+        // No blank imports
+        var lines = swiftContent.Split('\n');
+        Assert.DoesNotContain(lines, l => l.Trim() == "import" || l.Trim() == "import ");
+    }
+
+    [Fact]
+    public void BridgeHints_UnknownNestedKeys_WarnedForGlobalSettingsAndAsyncPattern()
+    {
+        var testLogger = new TestLogger();
+        var hintsPath = CreateBridgeHintsFile(_tempDir, """
+        {
+            "views": {
+                "TestView": {
+                    "asyncPattern": {
+                        "dependencyChain": [],
+                        "badAsyncKey": true
+                    }
+                }
+            },
+            "globalSettings": {
+                "maxAsyncChainDepth": 5,
+                "badGlobalKey": "oops"
+            }
+        }
+        """);
+
+        BridgeHintsLoader.Load(hintsPath, _tempDir, "TestModule", testLogger);
+
+        Assert.Contains(testLogger.Messages, m => m.Contains("unknown key 'badAsyncKey'") && m.Contains("asyncPattern"));
+        Assert.Contains(testLogger.Messages, m => m.Contains("unknown key 'badGlobalKey'") && m.Contains("globalSettings"));
+    }
+
+    [Fact]
+    public void BridgeHints_ConflictingHints_SkipWinsOverForceTemplate()
+    {
+        var view = CreateSimpleViewStruct("ConflictView");
+        var hintsJson = """
+        {
+            "views": {
+                "ConflictView": { "skip": true, "forceTemplate": true }
+            }
+        }
+        """;
+        var hintsPath = CreateBridgeHintsFile(_tempDir, hintsJson);
+        var hints = BridgeHintsLoader.Load(hintsPath, _tempDir, "TestModule", NullLogger.Instance);
+        var context = new BridgeContext(Hints: hints);
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule", context);
+
+        // skip is checked first → Skipped (not Unsupported/forceTemplate)
+        Assert.Equal(ViewInitClassification.Skipped, info.Classification);
     }
 
     #endregion

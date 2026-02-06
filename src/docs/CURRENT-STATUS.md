@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 2C + TestFramework bridge migration)
-**Unit Tests**: 1,419 passed
+**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 3 + TestFramework bridge migration)
+**Unit Tests**: 1,439 passed
 **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 **Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie
 
@@ -90,7 +90,7 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 - **Actor isolation enforcement** — Actor methods callable without async/await from C# (Swift runtime handles isolation internally)
 
 ### Framework Limitations
-- **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants, ABI-driven async inference, data-driven emission, and cross-module type resolution with null-pointer safety. 13 SwiftUI bridge features tracked in TestFramework coverage matrix (enum/class/closure/optional/async Views). Runtime tests at Tier 2. BridgeTest (`BindingTesting/BridgeTest/`) retained as shadow validation.
+- **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants, ABI-driven async inference, data-driven emission, cross-module type resolution with null-pointer safety, and bridge hints (`bridge-hints.json`) for user overrides (skip, forceTemplate, preferredInit, asyncPattern, extraSwiftImports). 13 SwiftUI bridge features tracked in TestFramework coverage matrix (enum/class/closure/optional/async Views). Runtime tests at Tier 2. BridgeTest (`BindingTesting/BridgeTest/`) retained as shadow validation.
 - **Combine** — `@Published` properties and reactive streams not bridged
 
 ### Edge Cases
@@ -150,6 +150,7 @@ SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
 | v2 Phase 2A | ABI-driven async inference (constructor chain resolution, cycle detection, depth limiting) |
 | v2 Phase 2B | Data-driven emission from inferred chains (mixed chain + leaf params, async mangled-name fallback) |
 | v2 Phase 2C | Cross-module async inference via TypeDatabase (BoundType/BoundEnum), null-pointer safety, Lottie SwiftUI bridge (15/15) |
+| v2 Phase 3 | Bridge hints JSON sidecar (skip, forceTemplate, preferredInit, asyncPattern, extraSwiftImports) with discovery, validation, and safe stale cleanup |
 
 TestFramework Phases A-D ran in parallel, adding ~184 runtime tests across string/enum/class/blittable marshalling, ownership lifecycle, negative paths, stress tests, arrays, optionals, tuples, pointers, operators, and closures.
 
@@ -159,7 +160,7 @@ TestFramework Phases A-D ran in parallel, adding ~184 runtime tests across strin
 
 | File | Purpose |
 |------|---------|
-| `swiftui-bridge-design.md` | SwiftUI View bridge pattern via UIHostingController (pre-release blocker) |
+| `swiftui-bridge-design.md` | SwiftUI View bridge pattern via UIHostingController, including bridge hints (pre-release blocker) |
 | `remaining-work.md` | Consolidated backlog (2 open items: Roslyn analyzer, NativeAOT validation) |
 | `known-issues-workarounds.md` | Three active Mono runtime blockers and workarounds |
 | `testing-gaps.md` | Known testing gaps across all layers |
