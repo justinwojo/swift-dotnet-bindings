@@ -5,10 +5,28 @@
 # Regenerates C# bindings from the built xcframework.
 # Requires: build-xcframework.sh to have been run first.
 #
-# Usage: ./regenerate-bindings.sh
+# Usage: ./regenerate-bindings.sh [--strict]
+#
+# Options:
+#   --strict    Fail if the generator exits with a non-zero exit code.
+#               Without this flag, non-zero exits are reported but tolerated.
 
 set -e
 cd "$(dirname "$0")"
+
+STRICT=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --strict)
+            STRICT=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
 MODULE_NAME="SwiftBindingsTestLib"
 PROJECT_ROOT=".."
@@ -62,6 +80,10 @@ echo "$GENERATOR_EXIT" > output/generator-exit-code
 echo ""
 if [ $GENERATOR_EXIT -ne 0 ]; then
     echo "=== Generator exited with code $GENERATOR_EXIT ==="
+    if [ "$STRICT" = true ]; then
+        echo "STRICT MODE: Failing because generator exited non-zero."
+        exit $GENERATOR_EXIT
+    fi
     echo "This is expected if the test library includes features beyond current generator support."
     echo ""
 fi

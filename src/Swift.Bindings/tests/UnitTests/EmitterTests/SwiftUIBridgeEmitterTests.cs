@@ -10,6 +10,7 @@ namespace BindingsGeneration.Tests;
 /// <summary>
 /// Tests for SwiftUIBridgeEmitter template and functional bridge generation.
 /// </summary>
+[Collection("ReportCollector")]
 public class SwiftUIBridgeEmitterTests : IDisposable
 {
     private readonly string _tempDir;

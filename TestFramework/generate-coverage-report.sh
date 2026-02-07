@@ -556,16 +556,41 @@ def get_source_dir():
 
 
 def get_source_files():
-    """Find all Swift source files relative to the Sources directory."""
+    """Find all Swift source files relative to the Sources directory.
+
+    Returns (active_files, disabled_map):
+    - active_files: list of relative paths for all .swift files found
+      (includes .swift.disabled files for completeness)
+    - disabled_map: dict mapping canonical path -> actual path for disabled files.
+      Two patterns are detected:
+      1. Dir.disabled/File.swift -> Dir/File.swift (disabled directory)
+      2. Dir/File.swift.disabled -> Dir/File.swift (disabled file)
+    """
     source_dir = get_source_dir()
 
     files = []
+    disabled_map = {}  # canonical path -> actual path
     for root, dirs, filenames in os.walk(source_dir):
         for f in filenames:
-            if f.endswith('.swift'):
+            if f.endswith('.swift') or f.endswith('.swift.disabled'):
                 rel = os.path.relpath(os.path.join(root, f), source_dir)
                 files.append(rel)
-    return sorted(files)
+
+                # Pattern 1: Dir.disabled/File.swift -> Dir/File.swift
+                parts = rel.split(os.sep)
+                for i, part in enumerate(parts):
+                    if part.endswith('.disabled') and not part.endswith('.swift.disabled'):
+                        canonical_parts = list(parts)
+                        canonical_parts[i] = part[:-len('.disabled')]
+                        canonical = os.sep.join(canonical_parts)
+                        disabled_map[canonical] = rel
+                        break
+
+                # Pattern 2: Dir/File.swift.disabled -> Dir/File.swift
+                if f.endswith('.swift.disabled'):
+                    canonical = rel[:-len('.disabled')]
+                    disabled_map[canonical] = rel
+    return sorted(files), disabled_map
 
 
 import re
@@ -794,13 +819,19 @@ def build_bridged_views_map(binding_report):
     return bridged
 
 
-def build_feature_status(binding_report, source_files, module_name):
+def build_feature_status(binding_report, source_files, module_name, disabled_map=None):
     """Build per-feature status from binding report and source file list.
 
     Cross-references binding report skipped items against feature categories
     to detect degraded features (test exists but bindings have skipped members).
     SwiftUI View features use BridgedViews instead of normal binding emission.
+
+    disabled_map: canonical path -> actual disabled path, for detecting features
+    whose source files exist in .disabled/ directories.
     """
+    if disabled_map is None:
+        disabled_map = {}
+
     features = []
 
     # Build bridged views map for SwiftUI features
@@ -849,6 +880,8 @@ def build_feature_status(binding_report, source_files, module_name):
         # feature groups for the same source file.
         actual_path = rel_path.split("+")[0] if "+" in rel_path else rel_path
         file_exists = actual_path in source_files
+        # Check if file exists in a .disabled/ directory
+        file_is_disabled = actual_path in disabled_map
 
         # Detect files guarded by #if swift(>=...) where declarations exist
         # in the source but were compiled out (not present in ABI JSON).
@@ -876,6 +909,9 @@ def build_feature_status(binding_report, source_files, module_name):
                     else:
                         known_unsupported_compiled_out += 1
                         test_status = "compiled_out"
+                elif file_is_disabled:
+                    known_unsupported_compiled_out += 1
+                    test_status = "compiled_out"
                 else:
                     test_status = "missing"
             elif is_bridge_feature:
@@ -897,8 +933,11 @@ def build_feature_status(binding_report, source_files, module_name):
                     skips = [{"name": view_name, "kind": "SwiftUIView",
                               "reason": "BridgeNotGenerated",
                               "details": f"BridgeStatus: {bridge_status}"}]
-                elif not file_exists:
+                elif not file_exists and not file_is_disabled:
                     test_status = "missing"
+                elif file_is_disabled:
+                    must_pass_compiled_out += 1
+                    test_status = "compiled_out"
                 else:
                     # View not in BridgedViews at all
                     must_pass_degraded += 1
@@ -919,6 +958,9 @@ def build_feature_status(binding_report, source_files, module_name):
                     else:
                         must_pass_passing += 1
                         test_status = "passing"
+                elif file_is_disabled:
+                    must_pass_compiled_out += 1
+                    test_status = "compiled_out"
                 else:
                     test_status = "missing"
 
@@ -968,7 +1010,7 @@ def build_feature_status(binding_report, source_files, module_name):
 
 # --- Build report ---
 
-source_files = get_source_files()
+source_files, disabled_map = get_source_files()
 
 # ABI statistics
 abi_stats = None
@@ -994,7 +1036,7 @@ if binding_report:
 
 # Feature status
 module = "SwiftBindingsTestLib"
-features, summary = build_feature_status(binding_report, source_files, module)
+features, summary = build_feature_status(binding_report, source_files, module, disabled_map)
 
 # Read generator exit code if available
 generator_exit_code = None
@@ -1034,6 +1076,10 @@ with open(output_path, "w") as f:
 # Print summary
 mp = summary["must_pass"]
 ku = summary["known_unsupported"]
+mp_compiled = mp.get('compiled_out', 0)
+ku_compiled = ku.get('compiled_out', 0)
+mp_active = mp['total'] - mp_compiled
+mp_missing = mp.get('missing', 0)
 
 print(f"\n=== Coverage Report ===")
 print(f"Source files: {len(source_files)}")
@@ -1045,13 +1091,18 @@ if binding_stats:
     print(f"Bindings: {binding_stats['emitted_types']}/{binding_stats['total_types']} types emitted, "
           f"{binding_stats['emitted_members']}/{binding_stats['total_members']} members emitted, "
           f"{binding_stats['skipped_members']} skipped")
-mp_compiled = mp.get('compiled_out', 0)
-ku_compiled = ku.get('compiled_out', 0)
-print(f"\nMust-pass features: {mp['passing']}/{mp['total']} passing"
-      f", {mp['degraded']} degraded, {mp['missing']} missing"
-      + (f", {mp_compiled} compiled out" if mp_compiled else ""))
-print(f"Known-unsupported features: {ku['with_test']}/{ku['total']} have tests"
+
+print(f"\nActive: {mp['passing']}/{mp_active} passing"
+      f", {mp['degraded']} degraded"
+      f" | Compiled-out: {mp_compiled}"
+      f" | Known-unsupported: {ku['total']}"
       + (f" ({ku_compiled} compiled out)" if ku_compiled else ""))
+
+if mp_missing > 0:
+    print(f"\n*** ERROR: {mp_missing} must-pass feature(s) have no test file ***")
+    missing = [f for f in features if f.get("test_status") == "missing"]
+    for f in missing:
+        print(f"  - {f['name']} ({f['category']}): {f['test_file']}")
 
 if mp["degraded"] > 0:
     print(f"\n*** WARNING: {mp['degraded']} must-pass feature(s) have skipped binding members ***")
@@ -1065,6 +1116,10 @@ if mp["degraded"] > 0:
             print(f"      ... and {len(skips) - 3} more")
 
 print(f"\nOutput: {output_path}")
+
+# Fail if any features are truly missing (no test file exists at all)
+if mp_missing > 0:
+    sys.exit(1)
 PYTHON_SCRIPT
 
 echo ""

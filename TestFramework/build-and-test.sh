@@ -4,10 +4,27 @@
 #
 # Convenience script: builds xcframework, regenerates bindings, reports results.
 #
-# Usage: ./build-and-test.sh
+# Usage: ./build-and-test.sh [--strict]
+#
+# Options:
+#   --strict    Pass --strict to regenerate-bindings.sh (fail on non-zero generator exit)
 
 set -e
 cd "$(dirname "$0")"
+
+REGEN_ARGS=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --strict)
+            REGEN_ARGS="--strict"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
 echo "========================================="
 echo " SwiftBindingsTestLib - Build & Generate"
@@ -19,7 +36,7 @@ echo "--- Step 1: Build xcframework ---"
 
 echo ""
 echo "--- Step 2: Regenerate bindings ---"
-./regenerate-bindings.sh
+./regenerate-bindings.sh $REGEN_ARGS
 
 # Step 3: Build SwiftUI bridge (if generated)
 BRIDGE_SWIFT="output/Swift.SwiftBindingsTestLib.SwiftUIBridge.swift"
