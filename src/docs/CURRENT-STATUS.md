@@ -28,7 +28,7 @@ Assessed after Phase 60 (async complex type marshalling).
 | Nuke | 60/68 | 88.2% | 323/342 | 94.4% |
 | Lottie | 79/93 | 84.9% | 387/428 | 90.4% |
 
-Remaining member gaps are primarily unsupported existential type arguments in bound generics (26 skips across Nuke/Lottie) and UIKit/Foundation types not in TypeDatabase. See `remaining-work.md` for details.
+Remaining member gaps are primarily unsupported existential type arguments in bound generics (26 skips across Nuke/Lottie) and UIKit/Foundation types not in TypeDatabase. See `Future/unsupported-existential-analysis.md` for details.
 
 ### TestFramework Coverage
 
@@ -161,7 +161,7 @@ TestFramework Phases A-D ran in parallel, adding ~184 runtime tests across strin
 | File | Purpose |
 |------|---------|
 | `swiftui-bridge-design.md` | SwiftUI View bridge pattern via UIHostingController, including bridge hints (pre-release blocker) |
-| `remaining-work.md` | Consolidated backlog (2 open items: Roslyn analyzer, NativeAOT validation) |
+| `roadmap.md` | Active work queue (single source of truth) |
 | `known-issues-workarounds.md` | Three active Mono runtime blockers and workarounds |
 | `testing-gaps.md` | Known testing gaps across all layers |
 | `Future/emitter-redesign-proposal.md` | Architectural north star for emitter refactoring |

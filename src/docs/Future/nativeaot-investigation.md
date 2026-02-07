@@ -7,7 +7,7 @@ _Updated: 2026-02-04 (AI model consultation — Grok, Gemini)_
 This investigates whether moving Swift interop paths from Mono JIT to NativeAOT can avoid the three known runtime blockers documented in:
 
 - `src/docs/known-issues-workarounds.md`
-- `src/docs/remaining-work.md` (item 18)
+- `src/docs/Future/` (moved from remaining-work.md)
 - `src/Swift.Runtime/src/Swift/Runtime/TypeMetadata.cs`
 
 ---

@@ -262,7 +262,7 @@ Swift Framework (.xcframework)
 ### In This Repository
 - `/docs/binding-overview.md` - Binding philosophy
 - `/src/docs/CURRENT-STATUS.md` - Current compilation status and coverage
-- `/src/docs/remaining-work.md` - Consolidated backlog
+- `/src/docs/roadmap.md` - Active work queue
 - `/src/docs/Future/emitter-redesign-proposal.md` - Architecture improvements
 
 ### External
