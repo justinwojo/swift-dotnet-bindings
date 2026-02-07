@@ -461,8 +461,8 @@ namespace BindingsGeneration
                             return $"var {resultName} = {itemName} == IntPtr.Zero ? Swift.SwiftOptional<{innerCSharp}>.NewNone() : Swift.SwiftOptional<{innerCSharp}>.NewSome(ObjCRuntime.Runtime.GetNSObject<{innerCSharp}>({itemName}));";
                         }
                     }
-                    // Non-ObjC optional: marshal from buffer
-                    return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";
+                    // Non-ObjC optional: P/Invoke type is IntPtr, pass directly (no address-of)
+                    return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>({itemName});";
                 }
 
                 // Non-optional bound generics (e.g., SwiftArray<byte>): P/Invoke type is IntPtr

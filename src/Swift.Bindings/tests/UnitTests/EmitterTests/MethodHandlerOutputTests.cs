@@ -520,6 +520,39 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_MethodReturningTupleWithOptionalNonObjC_UsesDirectIntPtrMarshalling()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Create tuple return type: (Optional<Swift.Int>, Swift.Bool)
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var boolType = new NamedTypeSpec("Swift.Bool");
+        var tupleType = new TupleTypeSpec(new List<TypeSpec> { optionalInt, boolType });
+
+        var method = CreateMethodDecl(
+            name: "decrypt",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // P/Invoke should use IntPtr for optional non-ObjC, not void*
+        Assert.DoesNotContain("void*", csOutput);
+        Assert.Contains("ValueTuple<IntPtr, System.Boolean>", csOutput);
+        // Marshal code should use result.Item1 directly (no &result.Item1)
+        Assert.Contains("MarshalFromSwift", csOutput);
+        Assert.Contains("(result.Item1)", csOutput);
+        Assert.DoesNotContain("(&result.Item1)", csOutput);
+    }
+
+    [Fact]
     public void Emit_MethodReturningTupleOfPrimitives_ReturnsTupleDirectly()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -591,6 +624,16 @@ public class MethodHandlerOutputTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
                 MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct
             });

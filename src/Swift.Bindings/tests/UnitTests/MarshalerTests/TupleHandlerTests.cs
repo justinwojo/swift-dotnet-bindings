@@ -334,6 +334,23 @@ public class TupleHandlerTests
     }
 
     [Fact]
+    public void GetPInvokeTupleType_OptionalNonObjCElement_UsesIntPtr()
+    {
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            optionalInt,
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        var result = _tupleHandler.GetPInvokeTupleType(tuple);
+
+        Assert.Equal("ValueTuple<IntPtr, System.Boolean>", result);
+        Assert.DoesNotContain("void*", result);
+    }
+
+    [Fact]
     public void GetPInvokeTupleType_MultipleBoundGenerics_UsesIntPtrForAll()
     {
         var arrayType1 = new NamedTypeSpec("Swift.Array");
@@ -425,6 +442,14 @@ public class TupleHandlerTests
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["Swift.Optional"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Struct
                 }
             };
