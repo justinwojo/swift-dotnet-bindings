@@ -205,6 +205,19 @@ public class EveryProtocolEmitter
                 continue;
 
             var methodKey = GetMethodKey(method);
+
+            // Assign vtable index matching EmitProtocolVtableStruct logic.
+            // This MUST happen before the global skip check to prevent index drift (Bug #21).
+            // The vtable struct assigns sequential indices without knowledge of global skips,
+            // so the extension must use the same indices.
+            bool isNewMethod = false;
+            if (!methodIndices.TryGetValue(methodKey, out var idx))
+            {
+                idx = methodIndex++;
+                methodIndices[methodKey] = idx;
+                isNewMethod = true;
+            }
+
             var swiftSignature = GetSwiftMethodSignature(method);
 
             // Check for global conflicts (method name + parameter count defines the signature)
@@ -214,11 +227,9 @@ public class EveryProtocolEmitter
                 continue;
             }
 
-            if (!methodIndices.TryGetValue(methodKey, out var idx))
+            // Only emit method implementation for new methods (not within-protocol duplicates)
+            if (isNewMethod)
             {
-                idx = methodIndex++;
-                methodIndices[methodKey] = idx;
-                // Only emit method implementation for new methods (not duplicates)
                 EmitMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx);
             }
         }

@@ -167,7 +167,7 @@ extension EveryProtocol: CryptoSwift.Cipher {
     public func decrypt(_ arg0: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Cipher = self
             var arg0Copy = arg0
-                let resultPtr = _cipher_vtable.func_decrypt_1!(
+                let resultPtr = _cipher_vtable.func_decrypt_2!(
                 _cipher_vtable.csVTHandle, &selfProto, &arg0Copy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
@@ -252,14 +252,14 @@ extension EveryProtocol: CryptoSwift.Updatable {
     public func finish(withBytes: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Updatable = self
             var withBytesCopy = withBytes
-                let resultPtr = _updatable_vtable.func_finish_2!(
+                let resultPtr = _updatable_vtable.func_finish_4!(
                 _updatable_vtable.csVTHandle, &selfProto, &withBytesCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
     public func finish() -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Updatable = self
-            let resultPtr = _updatable_vtable.func_finish_3!(
+            let resultPtr = _updatable_vtable.func_finish_6!(
                 _updatable_vtable.csVTHandle, &selfProto)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
@@ -268,14 +268,14 @@ extension EveryProtocol: CryptoSwift.Updatable {
             var selfProto: CryptoSwift.Updatable = self
             var withBytesCopy = withBytes
                 var outputCopy = output
-                _updatable_vtable.func_finish_4!(
+                _updatable_vtable.func_finish_7!(
                 _updatable_vtable.csVTHandle, &selfProto, &withBytesCopy, &outputCopy)
     }
     
     public func finish(output: (Swift.Array<Swift.UInt8>) -> Void) {
             var selfProto: CryptoSwift.Updatable = self
             var outputCopy = output
-                _updatable_vtable.func_finish_5!(
+                _updatable_vtable.func_finish_9!(
                 _updatable_vtable.csVTHandle, &selfProto, &outputCopy)
     }
     
@@ -665,7 +665,7 @@ extension EveryProtocol: CryptoSwift.Signature {
             var selfProto: CryptoSwift.Signature = self
             var signatureCopy = signature
                 var forValueCopy = forValue
-                let resultPtr = _signature_vtable.func_verify_1!(
+                let resultPtr = _signature_vtable.func_verify_2!(
                 _signature_vtable.csVTHandle, &selfProto, &signatureCopy, &forValueCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Bool.self).pointee
     }

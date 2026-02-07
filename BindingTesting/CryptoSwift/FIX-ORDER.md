@@ -68,21 +68,17 @@ Ordered by runtime-unblocking impact. Each step includes generator files, assert
 
 ---
 
-## Step 5: EveryProtocol vtable/index integrity (Bug #21)
+## Step 5: EveryProtocol vtable/index integrity (Bug #21) — DONE
 
 **Unblocks**: All EveryProtocol protocol conformances with deduplicated methods
 
-**Files**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/EveryProtocolEmitter.cs`
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs`
+**Files** (modified):
+- `src/Swift.Bindings/src/Emitter/StringEmitter/EveryProtocolEmitter.cs` — moved vtable index assignment before global signature dedup check
 
-**Assertion**: Emitted method body field name index always matches declared vtable field index for same signature. Skipped methods must not create index drift.
+**Tests added** (3 tests):
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/EveryProtocolEmitterTests.cs` — 3 tests (single global skip preserves indices, multiple global skips preserve indices, no-skip baseline sequential)
 
-**Tests**:
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/EveryProtocolEmitterTests.cs`
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ModuleHandlerTests.cs`
-
-**Validation**: Regenerate → `func_finish_N` in method bodies matches `func_finish_N` in vtable struct declarations
+**Validation**: `verify-fix-order.sh 5` → PASS=1 FAIL=0. Unit tests: 1529 passed. TestFramework: 61/61, 0 degraded.
 
 ---
 

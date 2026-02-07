@@ -402,6 +402,103 @@ public class EveryProtocolEmitterTests
 
     #endregion
 
+    #region Vtable Index Integrity Tests (Bug #21)
+
+    [Fact]
+    public void EmitProtocolConformance_WithGlobalSkip_VtableFieldIndicesMatchExtensionReferences()
+    {
+        // Protocol has 3 methods: start, update, finish
+        // "update" is globally skipped (already emitted by another protocol)
+        // Vtable declares: func_start_0, func_update_1, func_finish_2
+        // Extension must reference func_finish_2 (not func_finish_1)
+        var firstProtocol = CreateProtocolWithMethod("FirstProtocol", "update");
+        var secondProtocol = CreateSimpleProtocol("SecondProtocol");
+        secondProtocol.Methods.Add(CreateMethodDecl("start"));
+        secondProtocol.Methods.Add(CreateMethodDecl("update"));
+        secondProtocol.Methods.Add(CreateMethodDecl("finish"));
+
+        var globalSignatures = new HashSet<string>();
+
+        // First protocol claims "update()"
+        EmitFullConformance(firstProtocol, globalSignatures);
+
+        // Second protocol emits with global dedup — "update" skipped
+        var vtableOutput = EmitVtableStruct(secondProtocol);
+        var extensionOutput = EmitFullConformance(secondProtocol, globalSignatures);
+
+        // Vtable struct must declare all 3 fields sequentially
+        Assert.Contains("func_start_0", vtableOutput);
+        Assert.Contains("func_update_1", vtableOutput);
+        Assert.Contains("func_finish_2", vtableOutput);
+
+        // Extension must use matching indices for emitted methods
+        Assert.Contains("func_start_0", extensionOutput);
+        Assert.DoesNotContain("public func update()", extensionOutput); // globally skipped
+        Assert.Contains("func_finish_2", extensionOutput);
+        // Must NOT have func_finish_1 (the drifted index from the old bug)
+        Assert.DoesNotContain("func_finish_1", extensionOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_WithMultipleGlobalSkips_IndicesStillMatch()
+    {
+        // Protocol has 4 methods: a, b, c, d
+        // "b" and "c" are globally skipped
+        // Vtable declares: func_a_0, func_b_1, func_c_2, func_d_3
+        // Extension must reference func_d_3 (not func_d_1)
+        var proto1 = CreateProtocolWithMethod("Proto1", "b");
+        var proto2 = CreateProtocolWithMethod("Proto2", "c");
+        var proto3 = CreateSimpleProtocol("Proto3");
+        proto3.Methods.Add(CreateMethodDecl("a"));
+        proto3.Methods.Add(CreateMethodDecl("b"));
+        proto3.Methods.Add(CreateMethodDecl("c"));
+        proto3.Methods.Add(CreateMethodDecl("d"));
+
+        var globalSignatures = new HashSet<string>();
+        EmitFullConformance(proto1, globalSignatures);
+        EmitFullConformance(proto2, globalSignatures);
+
+        var vtableOutput = EmitVtableStruct(proto3);
+        var extensionOutput = EmitFullConformance(proto3, globalSignatures);
+
+        // Vtable declares all 4 fields
+        Assert.Contains("func_a_0", vtableOutput);
+        Assert.Contains("func_b_1", vtableOutput);
+        Assert.Contains("func_c_2", vtableOutput);
+        Assert.Contains("func_d_3", vtableOutput);
+
+        // Extension emits a and d, skips b and c
+        Assert.Contains("func_a_0", extensionOutput);
+        Assert.DoesNotContain("public func b()", extensionOutput);
+        Assert.DoesNotContain("public func c()", extensionOutput);
+        Assert.Contains("func_d_3", extensionOutput);
+        Assert.DoesNotContain("func_d_1", extensionOutput);
+        Assert.DoesNotContain("func_d_2", extensionOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_NoGlobalSkips_IndicesSequential()
+    {
+        // Baseline: without any global conflicts, indices are simply sequential
+        var protocol = CreateSimpleProtocol("Sequential");
+        protocol.Methods.Add(CreateMethodDecl("alpha"));
+        protocol.Methods.Add(CreateMethodDecl("beta"));
+        protocol.Methods.Add(CreateMethodDecl("gamma"));
+
+        var vtableOutput = EmitVtableStruct(protocol);
+        var extensionOutput = EmitFullConformance(protocol);
+
+        Assert.Contains("func_alpha_0", vtableOutput);
+        Assert.Contains("func_beta_1", vtableOutput);
+        Assert.Contains("func_gamma_2", vtableOutput);
+
+        Assert.Contains("func_alpha_0", extensionOutput);
+        Assert.Contains("func_beta_1", extensionOutput);
+        Assert.Contains("func_gamma_2", extensionOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitEveryProtocolClass()

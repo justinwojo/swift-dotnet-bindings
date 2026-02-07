@@ -331,25 +331,16 @@ public unsafe SHA2( SHA2.Variant variant)  // proper C# constructor
 
 These bugs were found during automated review of the generator source code against the CryptoSwift output.
 
-### Bug 21: EveryProtocol vtable/index desync
+### Bug 21: EveryProtocol vtable/index desync — FIXED
+
+**Status**: Fixed in Step 5 of FIX-ORDER.md
 
 **Component**: `EveryProtocolEmitter.cs`
 **Impact**: All EveryProtocol protocol conformances with deduplicated methods
-**Severity**: High
 
-When `EmitProtocolConformance()` skips a method due to global signature deduplication (line 211), it `continue`s without incrementing the per-emission method index. But the vtable field names are declared sequentially in the vtable struct. This creates a downward offset: the next emitted method gets a *lower* slot index than the vtable expects.
+When `EmitProtocolConformance()` skipped a method due to global signature deduplication, it `continue`d without incrementing the per-emission method index. But vtable struct fields are declared sequentially. This caused index drift — emitted method bodies referenced `func_finish_N` at a lower N than the vtable struct declared.
 
-**Manifestation** (Swift.CryptoSwift.swift:255):
-```swift
-// Emitted code calls func_finish_2, but vtable struct declares it at func_finish_4
-```
-
-**Root cause**:
-- `ModuleHandler.cs:404` — tracks global emitted signatures across protocols
-- `EveryProtocolEmitter.cs:211` — skips duplicate methods, continues without emitting
-- `EveryProtocolEmitter.cs:219` — per-emission indexing proceeds from lower count
-
-The skip-without-emit causes the emitted method index to drift lower than the vtable-declared slot index.
+**Fix**: Moved the vtable index assignment (via `methodIndices` dictionary + `methodIndex++`) before the global signature deduplication check. The index now always advances in lockstep with the vtable struct, even when a method body is skipped due to global conflicts.
 
 ---
 
@@ -447,20 +438,20 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 | `PropertyHandler.cs` | 1 | #9 |
 | `TupleHandler.cs` / pointer types | 1 | #6 (FIXED) |
 | `TypeDatabase` / type projection | 1 | #12 |
-| `EveryProtocolEmitter.cs` / `SwiftTypeNameHelper.cs` | 6 | #13, #14, #15, #21, #22, #23 |
+| `EveryProtocolEmitter.cs` / `SwiftTypeNameHelper.cs` | 6 | #13, #14, #15, #21 (FIXED), #22, #23 |
 | Swift wrapper extension emission | 2 | #16, #17 |
 | `PInvokeEmitter.cs` | 1 | #24 (FIXED) |
 | Mono runtime / interop | 2 | #18, #19 |
 | Already fixed | 1 | #5 |
 
-**Total**: 24 bugs cataloged (17 active, 5 fixed, 0 latent, 1 shared Mono/generator, 1 already fixed)
+**Total**: 24 bugs cataloged (16 active, 6 fixed, 0 latent, 1 shared Mono/generator, 1 already fixed)
 
 ## Priority for Fixes
 
 **High priority** (blocks runtime validation for many types):
 - ~~Bug #20: Init as instance method — can't construct ANY non-frozen class type~~ **FIXED**
 - Bug #1: Operator indirect result — 14 broken operators
-- Bug #21: EveryProtocol vtable/index desync — all protocol conformances broken
+- ~~Bug #21: EveryProtocol vtable/index desync — all protocol conformances broken~~ **FIXED**
 - ~~Bug #24: Frozen enum P/Invoke — runtime crash on any enum parameter~~ **FIXED**
 - Bug #23: Function-type metatype rendering — blocks Swift wrapper compilation
 
