@@ -141,9 +141,10 @@ Swift has overflow shift operators (`&<<`, `&>>`) and their compound forms. Thes
 **Component**: `TupleHandler.cs` and `WrapperEmitter.Return.cs`
 **Impact**: 2 P/Invoke declarations
 
-All code paths that returned `"void*"` for bound generic tuple elements now return `"IntPtr"` instead. Fixed in:
+All code paths that returned `"void*"` for bound generic tuple elements now return `"IntPtr"` instead. Also fixed optional non-ObjC tuple elements where the marshal code used `new IntPtr(&itemName)` (pointer-to-pointer) instead of passing the IntPtr value directly. Fixed in:
 - `TupleHandler.TranslateElementTypeToPInvoke()` — bound generic fallback and unsupported existential fallback
 - `WrapperEmitter.Return.GetPInvokeTypeForTupleElement()` — bound generic fallback and end fallback
+- `WrapperEmitter.Return.GetTupleElementMarshalCode()` — non-ObjC optional now uses `itemName` directly (no `&`)
 
 ---
 

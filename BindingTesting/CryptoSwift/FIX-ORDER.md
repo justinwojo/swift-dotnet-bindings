@@ -57,14 +57,14 @@ Ordered by runtime-unblocking impact. Each step includes generator files, assert
 **Unblocks**: 3 methods on AEADChaCha20Poly1305, plus latent `void*` risk
 
 **Files** (modified):
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.Return.cs` — added `EmitTupleReturnMarshalling()` for per-element marshalling; fixed bound generic handling in `GetTupleElementMarshalCode()`; replaced `void*` with `IntPtr` in `GetPInvokeTypeForTupleElement()`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.Return.cs` — added `EmitTupleReturnMarshalling()` for per-element marshalling; fixed bound generic handling in `GetTupleElementMarshalCode()`; replaced `void*` with `IntPtr` in `GetPInvokeTypeForTupleElement()`; fixed non-ObjC optional pointer-shape mismatch (was `&itemName`, now `itemName` directly)
 - `src/Swift.Bindings/src/Marshaler/TupleHandler.cs` — replaced `void*` with `IntPtr` in `TranslateElementTypeToPInvoke()` for bound generic and existential fallbacks
 
-**Tests added** (4 tests):
-- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/TupleHandlerTests.cs` — 2 tests (bound generic → IntPtr, multiple bound generics → IntPtr)
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/MethodHandlerOutputTests.cs` — 2 tests (tuple with bound generic emits per-element marshalling, all-primitive tuple returns directly)
+**Tests added** (6 tests):
+- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/TupleHandlerTests.cs` — 3 tests (bound generic → IntPtr, multiple bound generics → IntPtr, optional non-ObjC → IntPtr)
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/MethodHandlerOutputTests.cs` — 3 tests (tuple with bound generic emits per-element marshalling, optional non-ObjC uses direct IntPtr marshalling, all-primitive tuple returns directly)
 
-**Validation**: `verify-fix-order.sh 4` → PASS=2 FAIL=0. Unit tests: 1524 passed. TestFramework: 61/61, 0 degraded.
+**Validation**: `verify-fix-order.sh 4` → PASS=2 FAIL=0. Unit tests: 1526 passed. TestFramework: 61/61, 0 degraded.
 
 ---
 
