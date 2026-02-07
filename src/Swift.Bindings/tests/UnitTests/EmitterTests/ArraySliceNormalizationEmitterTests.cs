@@ -671,6 +671,157 @@ public class ArraySliceNormalizationEmitterTests
 
     #endregion
 
+    #region Bug #17: Internal Method Skip Tests
+
+    [Fact]
+    public void TryEmit_InternalMethod_SkipsNormalization()
+    {
+        // Bug #17: Methods marked as internal shouldn't get Swift wrappers
+        // because the wrapper would try to call an inaccessible method.
+        var (method, typeDatabase, _) = CreateMethodWithArraySlice("process64");
+        method.Visibility = Visibility.Internal;
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Empty(csOutput);
+        Assert.Empty(swiftOutput);
+    }
+
+    [Fact]
+    public void TryEmit_PublicMethod_EmitsNormalization()
+    {
+        // Public methods should still be normalized.
+        var (method, typeDatabase, _) = CreateMethodWithArraySlice("encrypt");
+        method.Visibility = Visibility.Public;
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.NotEmpty(csOutput);
+        Assert.NotEmpty(swiftOutput);
+    }
+
+    [Fact]
+    public void TryEmit_PrivateMethod_SkipsNormalization()
+    {
+        // Private methods shouldn't get wrappers either.
+        var (method, typeDatabase, _) = CreateMethodWithArraySlice("helperMethod");
+        method.Visibility = Visibility.Private;
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Empty(csOutput);
+        Assert.Empty(swiftOutput);
+    }
+
+    #endregion
+
+    #region Bug #15: Internal Parent Type Skip Tests
+
+    [Fact]
+    public void TryEmit_ParentTypeNotInTypeDatabase_SkipsNormalization()
+    {
+        // Bug #15: Methods on types without a TypeRecord (e.g., internal types like
+        // BlockEncryptor) shouldn't get Swift wrapper extensions.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Create a class but do NOT register it in the TypeDatabase
+        var internalClass = new ClassDecl
+        {
+            Name = "BlockEncryptor",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BlockEncryptor"),
+            MangledName = "$s10TestModule14BlockEncryptorCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+
+        var arraySliceUInt8 = new NamedTypeSpec("Swift.ArraySlice", new NamedTypeSpec("Swift.UInt8"));
+        var returnType = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.UInt8"));
+
+        var method = new MethodDecl
+        {
+            Name = "encrypt",
+            MangledName = "$s10TestModule14BlockEncryptorC7encryptySSSaySSGKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnType, moduleDecl),
+                CreateArgument("block", arraySliceUInt8, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = internalClass,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Empty(csOutput);
+        Assert.Empty(swiftOutput);
+    }
+
+    [Fact]
+    public void TryEmit_ParentTypeInTypeDatabase_EmitsNormalization()
+    {
+        // Methods on registered types should still be normalized.
+        var (method, typeDatabase, _) = CreateMethodWithArraySlice("encrypt");
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.NotEmpty(csOutput);
+        Assert.NotEmpty(swiftOutput);
+    }
+
+    [Fact]
+    public void TryEmit_ParentTypeIsModuleInternal_SkipsNormalization()
+    {
+        // Bug #15: Types marked as @usableFromInline internal (IsModuleInternal=true)
+        // are in the TypeDatabase but can't be extended from external modules.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var internalClass = CreateClassDecl("BlockEncryptor", moduleDecl, typeDatabase);
+        internalClass.IsModuleInternal = true;
+
+        var arraySliceUInt8 = new NamedTypeSpec("Swift.ArraySlice", new NamedTypeSpec("Swift.UInt8"));
+        var returnType = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.UInt8"));
+
+        var method = new MethodDecl
+        {
+            Name = "update",
+            MangledName = "$s10TestModule14BlockEncryptorC6updateySSSaySSGKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnType, moduleDecl),
+                CreateArgument("block", arraySliceUInt8, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = internalClass,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Empty(csOutput);
+        Assert.Empty(swiftOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static (MethodDecl method, TypeDatabase typeDatabase, ModuleDecl moduleDecl) CreateMethodWithArraySlice(

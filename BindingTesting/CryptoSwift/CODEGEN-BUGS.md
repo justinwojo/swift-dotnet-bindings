@@ -150,45 +150,37 @@ All code paths that returned `"void*"` for bound generic tuple elements now retu
 
 ---
 
-### Bug 7: Generic type missing type argument on SwiftSafeHandle
+### Bug 7: Generic type missing type argument on SwiftSafeHandle — FIXED
 
-**Component**: `MethodHandler.cs` (constructor emission for generic types)
+**Status**: Fixed in Step 8 of FIX-ORDER.md. `WrapperEmitter.EmitIndirectResultConstructor()` now includes generic type parameters when constructing the `SwiftSafeHandle<>` type name.
+
+**Component**: `WrapperEmitter.cs` (constructor emission for generic types)
 **Impact**: BatchedCollection<T0> constructor
 **Error**: `CS0305: Using the generic type 'BatchedCollection<T0>' requires 1 type arguments`
-
-**Generated (broken)**:
-```csharp
-_payload = new SwiftSafeHandle<BatchedCollection>((IntPtr)NativeMemory.Alloc(_payloadSize));
-```
-
-**Expected**:
-```csharp
-_payload = new SwiftSafeHandle<BatchedCollection<T0>>((IntPtr)NativeMemory.Alloc(_payloadSize));
-```
 
 **Root cause**: When emitting a constructor for a generic type, the `SwiftSafeHandle<>` reference drops the type parameter.
 
 ---
 
-### Bug 8: Non-frozen generic type marshalled as frozen (PayloadBuffer)
+### Bug 8: Non-frozen generic type marshalled as frozen (PayloadBuffer) — FIXED
 
-**Component**: `MethodHandler.cs` (argument marshalling)
+**Status**: Fixed in Step 8 of FIX-ORDER.md. `WrapperEmitter.Marshalling.EmitBoundGenericArguments()` now checks if the bound generic's root type is a frozen struct projected as class. Non-frozen types use `.Payload.DangerousGetHandle()` instead of `.PayloadBuffer`.
+
+**Component**: `WrapperEmitter.Marshalling.cs` (argument marshalling)
 **Impact**: BatchedCollection.Index method
 **Error**: `CS1061: 'BatchedCollectionIndex<T0>' does not contain a definition for 'PayloadBuffer'`
 
-The generated code tries to access `.PayloadBuffer` on `BatchedCollectionIndex<T0>`, but `BatchedCollectionIndex<T0>` is a non-frozen generic type that doesn't have a `PayloadBuffer` property (only frozen structs with Buffer inner types get PayloadBuffer).
-
-**Root cause**: The argument marshalling path treats generic type parameters as frozen when they should be marshalled via `SwiftSelf`/handle pattern.
+**Root cause**: The argument marshalling path treats generic type parameters as frozen when they should be marshalled via handle pattern.
 
 ---
 
-### Bug 9: Duplicate property (static + instance)
+### Bug 9: Duplicate property (static + instance) — FIXED
 
-**Component**: `PropertyHandler.cs`
+**Status**: Fixed in Step 8 of FIX-ORDER.md. `ClassHandler` now tracks emitted property names with a `HashSet<string>` and skips duplicates with `DuplicateSignature` skip reason.
+
+**Component**: `ClassHandler.cs`
 **Impact**: Rabbit.KeySize
 **Error**: `CS0102: The type already contains a definition for 'KeySize'`
-
-Both a static `KeySize` (from Cipher protocol conformance) and an instance `KeySize` are emitted, causing a duplicate member error.
 
 **Root cause**: The property handler doesn't deduplicate when the same property name is emitted from both a protocol conformance and the type itself.
 
@@ -251,7 +243,9 @@ The generated conformance now correctly declares `makeEncryptor() throws -> Any`
 
 ---
 
-### Bug 14: EveryProtocol conformance to non-existent module types
+### Bug 14: EveryProtocol conformance to non-existent module types — FIXED
+
+**Status**: Fixed in Step 8 of FIX-ORDER.md. `EmitEveryProtocolConformances` in ModuleHandler now filters protocols by TypeDatabase presence — protocols not registered as types in the target module (e.g., stdlib protocols CryptoSwift extends) are excluded.
 
 **Errors**: `no type named 'Collection' in module 'CryptoSwift'`, `no type named 'FixedWidthInteger'`, `no type named 'BatchedCollection'`
 
@@ -259,23 +253,29 @@ CryptoSwift defines internal protocol extensions on Swift standard library types
 
 ---
 
-### Bug 15: Extension on non-existent types
+### Bug 15: Extension on non-existent types — FIXED
+
+**Status**: Fixed in Step 8 of FIX-ORDER.md. Two-layer detection: (1) parser detects `@usableFromInline` without `AccessControl` in DeclAttributes → sets `TypeDecl.IsModuleInternal`; (2) ArraySlice normalization checks both `IsModuleInternal` flag and TypeDatabase presence, skipping internal types.
 
 **Errors**: `no type named 'BlockEncryptor'`, `'StreamEncryptor'`, `'StreamDecryptor'`
 
-The generated Swift wrapper emits `extension CryptoSwift.BlockEncryptor { ... }` etc., but these types are internal to CryptoSwift and not accessible from external code.
+The generated Swift wrapper emits `extension CryptoSwift.BlockEncryptor { ... }` etc., but these types are internal to CryptoSwift (`@usableFromInline internal`) and not accessible from external code.
 
 ---
 
-### Bug 16: Wrong argument labels on method wrappers
+### Bug 16: Wrong argument labels on method wrappers — NOT AN ISSUE
+
+**Status**: Verified as non-issue. All examined argument labels in generated output are correct. Closing without code change.
 
 The generated wrappers use incorrect argument labels. Example: `AES.encrypt(block:)` where the actual Swift method uses a different label or no label.
 
 ---
 
-### Bug 17: Accessing internal members
+### Bug 17: Accessing internal members — FIXED
 
-The generated wrappers call `SHA2.process64(...)`, `SHA2.process32(...)`, `SHA3.process(...)` etc., which are `internal` methods, not `public`.
+**Status**: Fixed in Step 8 of FIX-ORDER.md. Two-layer detection: (1) parser detects `@usableFromInline` without `AccessControl` in DeclAttributes → sets `Visibility.Internal` on MethodDecl; (2) ArraySlice normalization skips methods with `Visibility != Public`. Also added `Visibility.Internal` to the Visibility enum and `IsNodeModuleInternal()` helper to the parser.
+
+The generated wrappers call `SHA2.process64(...)`, `SHA2.process32(...)`, `SHA3.process(...)` etc., which are `internal` methods (`@usableFromInline`), not `public`.
 
 ---
 

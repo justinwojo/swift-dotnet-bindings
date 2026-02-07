@@ -162,14 +162,14 @@ Output: NuGet package with C# bindings
 ## Current Capabilities
 
 **Status** (February 2026 - Phase 62 + SwiftUI Bridge v2 Phase 3 + ArraySlice normalization + CryptoSwift fixes):
-- **Unit Tests**: 1558 passed
+- **Unit Tests**: 1571 passed
 - **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅ (runtime validated, 18/18 tests)
 - **BlinkIDUX**: 0 errors ✅ (SwiftUI bridge validated, 16/16 tests)
 - **BridgeParamTest**: 0 errors ✅ (v2 param types validated, 35/35 tests)
 - **Lottie**: 0 errors ✅ (runtime + SwiftUI bridge validated, 15/15 tests)
-- **CryptoSwift**: 65.1% binding coverage (103/123 types, 427/656 members) — ArraySlice normalization recovers 21 methods
+- **CryptoSwift**: 89.2% binding coverage (103/103 types, 447/501 members) — all 8 fix steps complete
 
 **Working**:
 - Classes, structs (frozen and non-frozen), enums (with associated values, runtime case construction)

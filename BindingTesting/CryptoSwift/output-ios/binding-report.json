@@ -1,12 +1,12 @@
 {
   "ModuleName": "CryptoSwift",
-  "GeneratedAt": "2026-02-07T21:50:38.579837+00:00",
+  "GeneratedAt": "2026-02-07T22:52:38.94609+00:00",
   "TotalTypes": 103,
   "EmittedTypes": 103,
   "SkippedTypes": 0,
   "TotalMembers": 501,
-  "EmittedMembers": 453,
-  "SkippedMembers": 48,
+  "EmittedMembers": 447,
+  "SkippedMembers": 54,
   "SynthesizedMembers": 199,
   "SkippedItems": [
     {
@@ -48,6 +48,38 @@
       "Reason": "AnyTypeFallback",
       "Details": "Method return type or parameter contains AnyType as a generic type argument, which violates generic constraints.",
       "RecommendedWorkaround": "Use concrete bound generic types instead of Any where possible."
+    },
+    {
+      "Kind": "Method",
+      "Name": "update",
+      "ContainingType": "CryptoSwift.BlockEncryptor",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "process64",
+      "ContainingType": "CryptoSwift.SHA2",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "process32",
+      "ContainingType": "CryptoSwift.SHA2",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "update",
+      "ContainingType": "CryptoSwift.StreamEncryptor",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
@@ -109,6 +141,14 @@
       "Kind": "Method",
       "Name": "worker",
       "ContainingType": "CryptoSwift.OFB",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "update",
+      "ContainingType": "CryptoSwift.StreamDecryptor",
       "Reason": "UnsupportedSignature",
       "Details": "Method signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
@@ -379,6 +419,14 @@
     },
     {
       "Kind": "Method",
+      "Name": "process",
+      "ContainingType": "CryptoSwift.SHA3",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
       "Name": "batched",
       "ContainingType": "CryptoSwift.Collection",
       "Reason": "AnyTypeFallback",
@@ -430,40 +478,8 @@
     {
       "Kind": "Method",
       "Name": "update",
-      "MangledName": "$s11CryptoSwift14BlockEncryptorC6update9withBytes6isLastSays5UInt8VGs10ArraySliceVyAHG_SbtKF",
-      "ContainingType": "CryptoSwift.BlockEncryptor",
-      "WrapperKind": "ArraySliceNormalization",
-      "Details": "ArraySlice parameters normalized to Array via Swift wrapper."
-    },
-    {
-      "Kind": "Method",
-      "Name": "process64",
-      "MangledName": "$s11CryptoSwift4SHA2C9process645block11currentHashys10ArraySliceVys5UInt8VG_Says6UInt64VGztF",
-      "ContainingType": "CryptoSwift.SHA2",
-      "WrapperKind": "ArraySliceNormalization",
-      "Details": "ArraySlice parameters normalized to Array via Swift wrapper."
-    },
-    {
-      "Kind": "Method",
-      "Name": "process32",
-      "MangledName": "$s11CryptoSwift4SHA2C9process325block11currentHashys10ArraySliceVys5UInt8VG_Says6UInt32VGztF",
-      "ContainingType": "CryptoSwift.SHA2",
-      "WrapperKind": "ArraySliceNormalization",
-      "Details": "ArraySlice parameters normalized to Array via Swift wrapper."
-    },
-    {
-      "Kind": "Method",
-      "Name": "update",
       "MangledName": "$s11CryptoSwift4SHA2C6update9withBytes6isLastSays5UInt8VGs10ArraySliceVyAHG_SbtKF",
       "ContainingType": "CryptoSwift.SHA2",
-      "WrapperKind": "ArraySliceNormalization",
-      "Details": "ArraySlice parameters normalized to Array via Swift wrapper."
-    },
-    {
-      "Kind": "Method",
-      "Name": "update",
-      "MangledName": "$s11CryptoSwift15StreamEncryptorC6update9withBytes6isLastSays5UInt8VGs10ArraySliceVyAHG_SbtKF",
-      "ContainingType": "CryptoSwift.StreamEncryptor",
       "WrapperKind": "ArraySliceNormalization",
       "Details": "ArraySlice parameters normalized to Array via Swift wrapper."
     },
@@ -496,14 +512,6 @@
       "Name": "decrypt",
       "MangledName": "$s11CryptoSwift3AESC7decrypt5blockSays5UInt8VGSgs10ArraySliceVyAGG_tF",
       "ContainingType": "CryptoSwift.AES",
-      "WrapperKind": "ArraySliceNormalization",
-      "Details": "ArraySlice parameters normalized to Array via Swift wrapper."
-    },
-    {
-      "Kind": "Method",
-      "Name": "update",
-      "MangledName": "$s11CryptoSwift15StreamDecryptorC6update9withBytes6isLastSays5UInt8VGs10ArraySliceVyAHG_SbtKF",
-      "ContainingType": "CryptoSwift.StreamDecryptor",
       "WrapperKind": "ArraySliceNormalization",
       "Details": "ArraySlice parameters normalized to Array via Swift wrapper."
     },
@@ -544,14 +552,6 @@
       "Name": "update",
       "MangledName": "$s11CryptoSwift14BlockDecryptorC6update9withBytes6isLastSays5UInt8VGs10ArraySliceVyAHG_SbtKF",
       "ContainingType": "CryptoSwift.BlockDecryptor",
-      "WrapperKind": "ArraySliceNormalization",
-      "Details": "ArraySlice parameters normalized to Array via Swift wrapper."
-    },
-    {
-      "Kind": "Method",
-      "Name": "process",
-      "MangledName": "$s11CryptoSwift4SHA3C7process5block11currentHashys10ArraySliceVys6UInt64VG_SayAJGztF",
-      "ContainingType": "CryptoSwift.SHA3",
       "WrapperKind": "ArraySliceNormalization",
       "Details": "ArraySlice parameters normalized to Array via Swift wrapper."
     },

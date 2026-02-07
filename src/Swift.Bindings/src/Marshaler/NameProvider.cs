@@ -208,6 +208,7 @@ public static class NameProvider
     {
         Visibility.Public => "public",
         Visibility.Private => "private",
+        Visibility.Internal => "internal",
         _ => throw new ArgumentException($"Unknown visibility: {visibility}")
     };
 

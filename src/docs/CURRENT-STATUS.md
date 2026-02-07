@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 62 + ArraySlice normalization + CryptoSwift validation + Bug #24 + Bug #20 + Bugs #1, #4, #10 + Bugs #2, #6 + Bug #21 + Bugs #22a, #23 + Bugs #3, #11, #12 fixes)
-**Unit Tests**: 1,558 passed
+**Last Updated**: February 2026 (Phase 62 + ArraySlice normalization + CryptoSwift validation + all 8 fix steps complete)
+**Unit Tests**: 1,571 passed
 **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 **Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie, CryptoSwift
 
@@ -16,7 +16,7 @@
 | **BlinkIDUX** | 0 | SwiftUI bridge validation (16/16 tests) |
 | **BridgeParamTest** | 0 | v2 param type validation (35/35 tests) |
 | **Lottie** | 0 | Full runtime + SwiftUI bridge validation (15/15 tests) |
-| **CryptoSwift** | 0 | Binding coverage validation (91.6% members, no runtime tests) |
+| **CryptoSwift** | 0 | Binding coverage validation (89.2% members, no runtime tests) |
 
 ### Binding Coverage
 
@@ -28,9 +28,9 @@ Assessed after Phase 62 (ArraySlice normalization).
 | BlinkIDUX | 36/45 | 80.0% | 128/172 | 74.4% |
 | Nuke | 60/68 | 88.2% | 323/342 | 94.4% |
 | Lottie | 79/93 | 84.9% | 387/428 | 90.4% |
-| CryptoSwift | 103/103 | 100% | 459/501 | 91.6% |
+| CryptoSwift | 103/103 | 100% | 447/501 | 89.2% |
 
-Remaining member gaps are primarily unsupported existential type arguments in bound generics (26 skips across Nuke/Lottie), UIKit/Foundation types not in TypeDatabase, and ArraySlice in unsupported contexts (closures, inout). CryptoSwift's 42 skipped members break down as: 20 compound assignment operators (`+=`, `-=`, etc. — no C# equivalent), 14 generic protocol closure signatures (`worker()` on block cipher modes), 4 AnyType property fallbacks, and 4 static protocol members. See `Future/unsupported-existential-analysis.md` for details.
+Remaining member gaps are primarily unsupported existential type arguments in bound generics (26 skips across Nuke/Lottie), UIKit/Foundation types not in TypeDatabase, and ArraySlice in unsupported contexts (closures, inout). CryptoSwift's 54 skipped members break down as: 20 compound assignment operators (`+=`, `-=`, etc. — no C# equivalent), 14 generic protocol closure signatures (`worker()` on block cipher modes), 6 AnyType property fallbacks, 4 static protocol members, and 10 internal methods with ArraySlice params (correctly excluded — wrappers can't access `@usableFromInline internal` methods). See `Future/unsupported-existential-analysis.md` for details.
 
 ### TestFramework Coverage
 
@@ -158,6 +158,8 @@ SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
 | v2 Phase 3 | Bridge hints JSON sidecar (skip, forceTemplate, preferredInit, asyncPattern, extraSwiftImports) with discovery, validation, and safe stale cleanup |
 
 TestFramework Phases A-D ran in parallel, adding ~184 runtime tests across string/enum/class/blittable marshalling, ownership lifecycle, negative paths, stress tests, arrays, optionals, tuples, pointers, operators, and closures.
+
+CryptoSwift fix steps (8 total) addressed 24 generator bugs spanning P/Invoke enum handling, constructor projection, operators, tuples, EveryProtocol vtable/index integrity, protocol proxy alignment, and wrapper extension filtering. All 8 steps verified via `verify-fix-order.sh all` (23 PASS, 0 FAIL).
 
 ---
 

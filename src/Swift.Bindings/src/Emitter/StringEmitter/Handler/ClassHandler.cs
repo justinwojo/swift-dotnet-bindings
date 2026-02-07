@@ -114,12 +114,26 @@ namespace BindingsGeneration
                 csWriter.Indent++;
 
                 // Emit properties (skip unownedExecutor for actors - it's an internal actor runtime property)
+                // Bug #9: Track emitted property C# names to detect duplicates.
+                // Swift allows a type to have both static (from protocol conformance) and instance
+                // properties with the same name, but C# does not (CS0102).
+                var emittedPropertyNames = new HashSet<string>();
+                IReadOnlySet<string>? nestedTypeNamesForProps = new HashSet<string>(classDecl.Types.Select(t => t.Name));
                 foreach (PropertyDecl propertyDecl in classDecl.Properties)
                 {
                     if (classDecl.IsActor && propertyDecl.Name == "unownedExecutor")
                     {
                         _logger.LogInformation($"Skipping actor runtime property 'unownedExecutor' on {classDecl.Name}.");
                         ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, classDecl, SkipReason.UnsupportedType, "Actor runtime property 'unownedExecutor' is not user-facing.");
+                        continue;
+                    }
+
+                    // Bug #9: Skip duplicate property names (static + instance with same C# name)
+                    var csPropertyName = NameProvider.GetPropertyName(propertyDecl.Name, nestedTypeNamesForProps, classDecl.Name);
+                    if (!emittedPropertyNames.Add(csPropertyName))
+                    {
+                        _logger.LogInformation($"Skipping duplicate property '{classDecl.Name}.{csPropertyName}' (static/instance collision).");
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, classDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted with different staticness.");
                         continue;
                     }
 

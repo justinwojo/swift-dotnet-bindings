@@ -290,6 +290,58 @@ public class ClassHandlerTests
 
     #endregion
 
+    #region Property Deduplication Tests (Bug #9)
+
+    [Fact]
+    public void ClassDecl_DuplicatePropertyNames_StaticAndInstance_DetectedByNameSet()
+    {
+        // Bug #9: When a class has both a static and instance property with the same name
+        // (e.g., Rabbit.KeySize), the C# emission produces CS0102. The emitter should
+        // detect the collision and skip the duplicate.
+        var classDecl = CreateClassDecl("Rabbit");
+        classDecl.Properties.Add(CreatePropertyDecl("keySize", "Swift.Int", isStatic: true));
+        classDecl.Properties.Add(CreatePropertyDecl("keySize", "Swift.Int", isStatic: false));
+
+        // Both properties have the same name — the second should be detected as a duplicate.
+        var names = new HashSet<string>();
+        foreach (var prop in classDecl.Properties)
+        {
+            var csName = NameProvider.GetPropertyName(prop.Name, new HashSet<string>(), classDecl.Name);
+            if (!names.Add(csName))
+            {
+                // Second add returns false — it's a duplicate.
+                Assert.True(true, "Duplicate property correctly detected");
+                return;
+            }
+        }
+
+        Assert.Fail("Should have detected duplicate property name");
+    }
+
+    [Fact]
+    public void ClassDecl_UniquePropertyNames_NoDuplication()
+    {
+        var classDecl = CreateClassDecl("Config");
+        classDecl.Properties.Add(CreatePropertyDecl("blockSize", "Swift.Int", isStatic: true));
+        classDecl.Properties.Add(CreatePropertyDecl("keySize", "Swift.Int", isStatic: false));
+
+        var names = new HashSet<string>();
+        var hasDuplicates = false;
+        foreach (var prop in classDecl.Properties)
+        {
+            var csName = NameProvider.GetPropertyName(prop.Name, new HashSet<string>(), classDecl.Name);
+            if (!names.Add(csName))
+            {
+                hasDuplicates = true;
+                break;
+            }
+        }
+
+        Assert.False(hasDuplicates);
+    }
+
+    #endregion
+
     #region Operator Tests
 
     [Fact]

@@ -404,8 +404,19 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Bug #7: Include generic type parameters in SwiftSafeHandle<> for generic types.
+            // Without this, generic types like BatchedCollection<T0> emit SwiftSafeHandle<BatchedCollection>
+            // which causes CS0305 (missing type arguments).
+            var typeName = _env.ParentDecl.Name;
+            if (_env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
+            {
+                var genericParams = string.Join(", ", typeDecl.GenericParameters.Select(p =>
+                    _env.GenericTypeMapping.TryGetValue(p.TypeName, out var mapped) ? mapped.TypeParameter : p.TypeName));
+                typeName = $"{typeName}<{genericParams}>";
+            }
+
             var text = $$"""
-            _payload = new SwiftSafeHandle<{{_env.ParentDecl.Name}}>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            _payload = new SwiftSafeHandle<{{typeName}}>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             """;
 

@@ -938,37 +938,9 @@ extension CryptoSwift.RSA {
     }
 }
 
-extension CryptoSwift.BlockEncryptor {
-    @_silgen_name("SBW_BlockEncryptor_update_B0BBB5F5")
-    public func _sbw_update_B0BBB5F5(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
-        return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
-    }
-}
-
-extension CryptoSwift.SHA2 {
-    @_silgen_name("SBW_SHA2_process64_98C3A9A4")
-    public func _sbw_process64_98C3A9A4(_ block: Array<UInt8>, _ currentHash: Array<UInt64>) -> () {
-        return self.process64(block: Swift.ArraySlice(block), currentHash: currentHash)
-    }
-}
-
-extension CryptoSwift.SHA2 {
-    @_silgen_name("SBW_SHA2_process32_996618B8")
-    public func _sbw_process32_996618B8(_ block: Array<UInt8>, _ currentHash: Array<UInt32>) -> () {
-        return self.process32(block: Swift.ArraySlice(block), currentHash: currentHash)
-    }
-}
-
 extension CryptoSwift.SHA2 {
     @_silgen_name("SBW_SHA2_update_0F871E93")
     public func _sbw_update_0F871E93(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
-        return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
-    }
-}
-
-extension CryptoSwift.StreamEncryptor {
-    @_silgen_name("SBW_StreamEncryptor_update_AA160E01")
-    public func _sbw_update_AA160E01(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
         return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
     }
 }
@@ -998,13 +970,6 @@ extension CryptoSwift.AES {
     @_silgen_name("SBW_AES_decrypt_F50B23AB")
     public func _sbw_decrypt_F50B23AB(_ block: Array<UInt8>) -> Optional<Array<UInt8>> {
         return self.decrypt(block: Swift.ArraySlice(block))
-    }
-}
-
-extension CryptoSwift.StreamDecryptor {
-    @_silgen_name("SBW_StreamDecryptor_update_714933F9")
-    public func _sbw_update_714933F9(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
-        return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
     }
 }
 
@@ -1040,13 +1005,6 @@ extension CryptoSwift.BlockDecryptor {
     @_silgen_name("SBW_BlockDecryptor_update_AF13EE4D")
     public func _sbw_update_AF13EE4D(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
         return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
-    }
-}
-
-extension CryptoSwift.SHA3 {
-    @_silgen_name("SBW_SHA3_process_37807F6A")
-    public func _sbw_process_37807F6A(_ block: Array<UInt64>, _ currentHash: Array<UInt64>) -> () {
-        return self.process(block: Swift.ArraySlice(block), currentHash: currentHash)
     }
 }
 

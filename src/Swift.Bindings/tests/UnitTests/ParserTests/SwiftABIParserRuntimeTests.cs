@@ -135,6 +135,114 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region IsInternal Visibility Tests (Bug #17)
+
+    [Fact]
+    public void ParseModule_FuncWithIsInternalTrue_SetsVisibilityInternal()
+    {
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "process64",
+            printedName: "process64()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.IsInternal = true;
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.Equal(Visibility.Internal, method.Visibility);
+    }
+
+    [Fact]
+    public void ParseModule_FuncWithIsInternalFalse_SetsVisibilityPublic()
+    {
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "encrypt",
+            printedName: "encrypt()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.IsInternal = false;
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.Equal(Visibility.Public, method.Visibility);
+    }
+
+    [Fact]
+    public void ParseModule_FuncWithIsInternalNull_SetsVisibilityPublic()
+    {
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "doWork",
+            printedName: "doWork()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.IsInternal = null;
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.Equal(Visibility.Public, method.Visibility);
+    }
+
+    [Fact]
+    public void ParseModule_FuncWithUsableFromInlineWithoutAccessControl_SetsVisibilityInternal()
+    {
+        // @usableFromInline internal methods have "UsableFromInline" but NOT "AccessControl"
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "process64",
+            printedName: "process64()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.IsInternal = null;
+        funcNode.DeclAttributes = new[] { "Final", "UsableFromInline" };
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.Equal(Visibility.Internal, method.Visibility);
+    }
+
+    [Fact]
+    public void ParseModule_FuncWithAccessControlAndUsableFromInline_SetsVisibilityPublic()
+    {
+        // Public inlinable methods have both "AccessControl" and "UsableFromInline"
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "encrypt",
+            printedName: "encrypt()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.IsInternal = null;
+        funcNode.DeclAttributes = new[] { "Final", "AccessControl", "Inlinable", "UsableFromInline" };
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.Equal(Visibility.Public, method.Visibility);
+    }
+
+    #endregion
+
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)
     {
         var root = new ABIRootNode

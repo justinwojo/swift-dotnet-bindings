@@ -130,6 +130,26 @@ namespace BindingsGeneration
         /// </summary>
         private readonly Swift5Demangler demangler = new();
 
+        /// <summary>
+        /// Determines if a declaration node represents a module-internal declaration
+        /// that is ABI-visible but not accessible from external Swift code.
+        /// This is indicated by having "UsableFromInline" without "AccessControl" in declAttributes,
+        /// or by having node.IsInternal == true.
+        /// </summary>
+        private static bool IsNodeModuleInternal(Node node)
+        {
+            if (node.IsInternal == true)
+                return true;
+
+            if (node.DeclAttributes is null)
+                return false;
+
+            bool hasUsableFromInline = Array.IndexOf(node.DeclAttributes, "UsableFromInline") != -1;
+            bool hasAccessControl = Array.IndexOf(node.DeclAttributes, "AccessControl") != -1;
+
+            return hasUsableFromInline && !hasAccessControl;
+        }
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -391,7 +411,8 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
-                MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName)
+                MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName),
+                IsModuleInternal = IsNodeModuleInternal(node)
             };
         }
 
@@ -424,7 +445,8 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
                 MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName),
-                RawValueTypeName = node.EnumRawTypeName
+                RawValueTypeName = node.EnumRawTypeName,
+                IsModuleInternal = IsNodeModuleInternal(node)
             };
         }
 
@@ -529,7 +551,8 @@ namespace BindingsGeneration
                 Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
-                IsActor = isActor
+                IsActor = isActor,
+                IsModuleInternal = IsNodeModuleInternal(node)
             };
         }
 
@@ -638,7 +661,7 @@ namespace BindingsGeneration
                 // for the "Ya" (async) marker when the demangler doesn't produce a FunctionReduction.
                 IsAsync = functionReduction?.Function?.IsAsync
                     ?? DetectAsyncFromMangledName(mangledName),
-                Visibility = Visibility.Public,
+                Visibility = IsNodeModuleInternal(node) ? Visibility.Internal : Visibility.Public,
                 IsMutating = node.funcSelfKind == "Mutating",
             };
 

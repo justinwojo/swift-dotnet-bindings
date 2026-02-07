@@ -388,6 +388,12 @@ namespace BindingsGeneration
                 .Where(p => p.Properties.Any() ||
                            p.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
                            p.Subscripts.Any())
+                // Bug #14: Filter out protocols not actually defined in this module.
+                // When a module extends stdlib protocols (e.g., CryptoSwift extends Collection),
+                // the parser may create ProtocolDecl entries with the module's name (CryptoSwift.Collection).
+                // These types don't exist in the module namespace and would fail Swift compilation.
+                // Only emit conformance for protocols that have a TypeRecord in the TypeDatabase.
+                .Where(p => typeDatabase.TryGetTypeRecord(p.SwiftTypeName, out _))
                 .ToList();
 
             if (!suitableProtocols.Any())

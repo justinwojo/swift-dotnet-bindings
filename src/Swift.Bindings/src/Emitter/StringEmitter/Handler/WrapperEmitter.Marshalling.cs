@@ -122,8 +122,22 @@ namespace BindingsGeneration
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
                 {
                     var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
-                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
-                    csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+
+                    // Bug #8: Check if the bound generic's root type is a frozen struct projected as class
+                    // (has PayloadBuffer). Non-frozen generic types (like BatchedCollectionIndex<T0>)
+                    // use SwiftSafeHandle and should be marshalled via .Payload.DangerousGetHandle().
+                    var rootTypeName = SwiftTypeName.FromTypeSpec((NamedTypeSpec)argumentDecl.SwiftTypeSpec);
+                    if (_env.TypeDatabase.TryGetTypeRecord(rootTypeName, out var argTypeRecord) &&
+                        MarshallingHelpers.IsFrozenStructProjectedAsClass(argTypeRecord))
+                    {
+                        csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
+                        csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                    }
+                    else
+                    {
+                        // Non-frozen type: use handle-based marshalling
+                        csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}.Payload.DangerousGetHandle();");
+                    }
                 }
             }
         }

@@ -56,6 +56,13 @@ namespace BindingsGeneration
         public bool IsGeneric => GenericParameters.Count > 0;
 
         /// <summary>
+        /// Whether this type is internal to its module but ABI-visible (has @usableFromInline).
+        /// Types with this flag cannot be extended from external modules, so Swift wrapper
+        /// extensions (e.g., ArraySlice normalization) should not be emitted for them.
+        /// </summary>
+        public bool IsModuleInternal { get; set; } = false;
+
+        /// <summary>
         /// Whether this type has a singleton pattern (static 'shared' property returning Self).
         /// Used for async method workarounds where passing self doesn't work correctly.
         /// </summary>

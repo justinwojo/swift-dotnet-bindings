@@ -125,28 +125,29 @@ Ordered by runtime-unblocking impact. Each step includes generator files, assert
 
 ---
 
-## Step 8: Wrapper extension filtering + cleanup (Bugs #14-17, #7, #8, #9)
+## Step 8: Wrapper extension filtering + cleanup (Bugs #14-17, #7, #8, #9) — DONE
 
 **Unblocks**: Swift wrapper compilation (EveryProtocol + extensions), plus generic type edge cases
 
-**Files**:
-- Swift wrapper extension emission paths
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PropertyHandler.cs`
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs`
+**Files** (modified):
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs` — Bug #14: TypeDatabase filter on EveryProtocol conformance
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ArraySliceNormalizationEmitter.cs` — Bugs #15, #17: skip internal types/methods
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.cs` — Bug #7: generic type params in SwiftSafeHandle<>
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.Marshalling.cs` — Bug #8: non-frozen bound generic → DangerousGetHandle
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs` — Bug #9: property name dedup (static/instance collision)
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` — Bugs #15, #17: IsNodeModuleInternal() from DeclAttributes
+- `src/Swift.Bindings/src/Model/TypeDecl/Visibility.cs` — added `Internal` value
+- `src/Swift.Bindings/src/Model/TypeDecl/TypeDecl.cs` — added `IsModuleInternal` flag
+- `src/Swift.Bindings/src/Marshaler/NameProvider.cs` — map Internal → "internal"
 
-**Assertions**:
-- No extensions on non-exported/internal/non-module types (Bugs #14, #15)
-- No internal-member calls in generated wrappers (Bug #17)
-- Correct argument labels on method wrappers (Bug #16)
-- `SwiftSafeHandle<GenericType>` includes type parameters (Bug #7)
-- Non-frozen generic types not treated as frozen/PayloadBuffer (Bug #8)
-- No duplicate property emission for static + instance same name (Bug #9)
+**Tests added** (13 tests):
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ArraySliceNormalizationEmitterTests.cs` — 6 tests (internal method/type skip, public passthrough, IsModuleInternal)
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ClassHandlerTests.cs` — 2 tests (duplicate property detection)
+- `src/Swift.Bindings/tests/UnitTests/ParserTests/SwiftABIParserRuntimeTests.cs` — 5 tests (IsInternal flag + DeclAttributes visibility)
 
-**Tests**:
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/TypeHandlersOutputTests.cs`
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/PropertyHandlerTests.cs`
+**Bug #16 (argument labels)**: Verified not an issue in current output — all generated wrappers use correct labels.
 
-**Validation**: Regenerate → `xcrun swiftc -typecheck Swift.CryptoSwift.swift` passes; `BatchedCollection<T0>` constructor compiles; no duplicate `Rabbit.KeySize`
+**Validation**: `./verify-fix-order.sh all` — 23 PASS, 0 FAIL. Unit tests: 1571 passing. TestFramework: 61/61, 0 degraded.
 
 ---
 

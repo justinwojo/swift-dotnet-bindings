@@ -243,6 +243,25 @@ public static class ArraySliceNormalizationEmitter
             return false;
         }
 
+        // Bug #17: Skip methods that aren't public — the generated Swift wrapper
+        // would call an inaccessible member from an extension in a different module.
+        if (methodDecl.Visibility != Visibility.Public)
+        {
+            logger.LogDebug("ArraySliceNormalization: skipping {Name} — method is not public ({Visibility})", methodDecl.Name, methodDecl.Visibility);
+            return false;
+        }
+
+        // Bug #15: Skip methods on types that aren't accessible from external code.
+        // Internal types with @usableFromInline (e.g., BlockEncryptor, StreamEncryptor)
+        // appear in the ABI but can't be extended from a separate module's wrapper file.
+        if (methodDecl.ParentDecl is TypeDecl parentTypeDecl &&
+            (parentTypeDecl.IsModuleInternal ||
+             !env.TypeDatabase.TryGetTypeRecord(parentTypeDecl.SwiftTypeName, out _)))
+        {
+            logger.LogDebug("ArraySliceNormalization: skipping {Name} — parent type {Type} is module-internal or has no TypeRecord", methodDecl.Name, parentTypeDecl.SwiftTypeName.ModuleQualifiedName);
+            return false;
+        }
+
         // Build normalized MethodDecl with ArraySlice → Array replacement
         var normalizedMethodDecl = NormalizeMethodDecl(methodDecl);
 

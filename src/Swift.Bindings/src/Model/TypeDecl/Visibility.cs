@@ -17,5 +17,10 @@ public enum Visibility
     /// <summary>
     /// Private visibility.
     /// </summary>
-    Private
+    Private,
+
+    /// <summary>
+    /// Internal visibility (accessible within the module but not externally).
+    /// </summary>
+    Internal
 }
