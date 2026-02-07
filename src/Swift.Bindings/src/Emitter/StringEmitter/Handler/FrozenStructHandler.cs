@@ -217,6 +217,10 @@ namespace BindingsGeneration
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
                         }
                     }
+                    else
+                    {
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.OperatorSymbol, structDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.OperatorSymbol}' has no C# equivalent.");
+                    }
                 }
                 // Handle paired operators (e.g., if == is defined but != is not)
                 // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures

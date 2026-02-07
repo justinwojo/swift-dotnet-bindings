@@ -119,6 +119,7 @@ namespace BindingsGeneration
                     if (classDecl.IsActor && propertyDecl.Name == "unownedExecutor")
                     {
                         _logger.LogInformation($"Skipping actor runtime property 'unownedExecutor' on {classDecl.Name}.");
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, classDecl, SkipReason.UnsupportedType, "Actor runtime property 'unownedExecutor' is not user-facing.");
                         continue;
                     }
 
@@ -148,6 +149,10 @@ namespace BindingsGeneration
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
                         }
+                    }
+                    else
+                    {
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.OperatorSymbol, classDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.OperatorSymbol}' has no C# equivalent.");
                     }
                 }
                 // Handle paired operators (e.g., if == is defined but != is not)

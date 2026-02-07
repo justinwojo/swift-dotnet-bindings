@@ -167,10 +167,10 @@ public static class ReportCollector
             if (_report == null)
                 return;
 
-            // Use mangled name in key to distinguish overloaded init methods
-            var key = mangledName != null
-                ? $"{kind}:{GetContainingTypeName(containingDecl)}:{name}:{mangledName}"
-                : GetMemberKey(kind, name, containingDecl);
+            // Use simple key (same as CountTypeAndMembers which counts distinct names).
+            // Overloaded methods with different mangled names share a single simple key,
+            // matching the distinct-name counting in CalculateTotals.
+            var key = GetMemberKey(kind, name, containingDecl);
             EmittedMemberKeys.Add(key);
 
             _report.WrappedItems.Add(new WrappedItem
@@ -236,13 +236,13 @@ public static class ReportCollector
     private static (int totalTypes, int totalMembers) CalculateTotals(ModuleDecl moduleDecl)
     {
         var totalTypes = 0;
-        var totalMembers = moduleDecl.Methods.Count + moduleDecl.Properties.Count;
+        var totalMembers = moduleDecl.Methods.Where(m => !m.IsAccessor).Select(m => m.Name).Distinct().Count()
+                        + moduleDecl.Properties.Select(p => p.Name).Distinct().Count();
 
+        // moduleDecl.Types already includes ProtocolDecl instances (ProtocolDecl : TypeDecl),
+        // so we don't separately iterate moduleDecl.Protocols to avoid double-counting.
         foreach (var typeDecl in moduleDecl.Types)
             CountTypeAndMembers(typeDecl, ref totalTypes, ref totalMembers);
-
-        foreach (var protocolDecl in moduleDecl.Protocols)
-            CountTypeAndMembers(protocolDecl, ref totalTypes, ref totalMembers);
 
         return (totalTypes, totalMembers);
     }
@@ -250,7 +250,15 @@ public static class ReportCollector
     private static void CountTypeAndMembers(TypeDecl typeDecl, ref int totalTypes, ref int totalMembers)
     {
         totalTypes++;
-        totalMembers += typeDecl.Methods.Count + typeDecl.Properties.Count + typeDecl.Operators.Count + typeDecl.Subscripts.Count;
+        // Count distinct member names per kind, matching the deduplication in the recording
+        // HashSets (keyed by "Kind:ContainingType:Name"). Overloaded methods/constructors
+        // with the same name share a single key and should be counted once.
+        // Protocol subscripts are all recorded under the single name "subscript",
+        // so overloads share one HashSet key. Count at most 1 to match.
+        totalMembers += typeDecl.Methods.Where(m => !m.IsAccessor).Select(m => m.Name).Distinct().Count()
+                      + typeDecl.Properties.Select(p => p.Name).Distinct().Count()
+                      + typeDecl.Operators.Select(o => o.Name).Distinct().Count()
+                      + (typeDecl is ProtocolDecl && typeDecl.Subscripts.Count > 0 ? 1 : 0);
 
         // Protocol nested types are not currently emitted by ProtocolHandler.
         if (typeDecl is ProtocolDecl)

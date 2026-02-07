@@ -98,6 +98,7 @@ public class ReportCollectorTests
 
         var report = ReportCollector.Complete();
         Assert.NotNull(report);
+        // Simple key only — matches distinct-name counting in CalculateTotals
         Assert.Equal(1, report.EmittedMembers);
         Assert.Single(report.WrappedItems);
         Assert.Equal("init", report.WrappedItems[0].Name);
@@ -123,7 +124,8 @@ public class ReportCollectorTests
 
         var report = ReportCollector.Complete();
         Assert.NotNull(report);
-        Assert.Equal(2, report.EmittedMembers);
+        // Both overloads share the simple key "Method:TestModule.Loader:init"
+        Assert.Equal(1, report.EmittedMembers);
         Assert.Equal(2, report.WrappedItems.Count);
 
         ReportCollector.Reset();
@@ -274,6 +276,9 @@ public class ReportCollectorTests
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl
         };
+        // ProtocolDecl : TypeDecl, so the parser's OfType<TypeDecl>() puts protocols
+        // in both moduleDecl.Types and moduleDecl.Protocols.
+        moduleDecl.Types.Add(protocolDecl);
         moduleDecl.Protocols.Add(protocolDecl);
 
         return moduleDecl;

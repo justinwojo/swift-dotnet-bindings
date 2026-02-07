@@ -155,6 +155,12 @@ namespace BindingsGeneration
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
             }
 
+            // Record operators as skipped - C# interfaces cannot have operator overloads
+            foreach (var operatorDecl in protocolDecl.Operators)
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Protocol operator requirements cannot be declared in C# interfaces.");
+            }
+
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
@@ -339,9 +345,12 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
         {
-            // Skip constructors - they can't be in interfaces
+            // Skip constructors - they can't be in C# interfaces
             if (methodDecl.IsConstructor)
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolContext, SkipReason.StaticProtocolMember, "Protocol constructor requirements cannot be declared in C# interfaces.");
                 return;
+            }
 
             // Skip static methods - C# interfaces cannot have static members as requirements
             // Note: Static methods are still emitted on conforming types, just not in the interface

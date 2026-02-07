@@ -187,6 +187,7 @@ namespace BindingsGeneration
                 if (propertyDecl.IsStatic && emittedCaseConstructorNames.Contains(propertyName))
                 {
                     _logger.LogInformation($"Skipping enum static property '{enumDecl.Name}.{propertyName}' because a case constructor with the same C# name is already emitted.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl, SkipReason.DuplicateSignature, $"Enum static property '{propertyName}' collides with case constructor name.");
                     continue;
                 }
 
@@ -209,6 +210,20 @@ namespace BindingsGeneration
             // Include nested type names and containing type name for consistent naming with PropertyHandler
             var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p =>
                 NameProvider.GetPropertyName(p.Name, nestedTypeNames, enumDecl.Name)));
+
+            // Record enum operators — equality operators are handled by C# enum semantics
+            // (RawValue comparison), other operators are unsupported on enum types.
+            foreach (var operatorDecl in enumDecl.Operators)
+            {
+                if (operatorDecl.Name == "==" || operatorDecl.Name == "!=")
+                    ReportCollector.RecordMemberEmitted(BindingItemKind.Operator, operatorDecl.Name, enumDecl);
+                else
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.Name, enumDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.Name}' is not supported on enum types.");
+            }
+
+            // Record enum constructors as emitted (case constructors handle initialization)
+            foreach (var methodDecl in enumDecl.Methods.Where(m => m.IsConstructor))
+                ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
 
             // Emit nested types and methods using base handler
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase);
