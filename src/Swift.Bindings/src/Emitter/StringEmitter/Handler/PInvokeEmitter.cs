@@ -311,16 +311,24 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Enum values are projected as managed wrappers (C# classes with SafeHandle payload),
+                // which are non-blittable for Swift calling convention P/Invoke.
+                // Pass raw payload pointer instead. This applies to both frozen and non-frozen enums.
+                if (argumentTypeRecord.Kind == TypeRecordKind.Enum)
+                {
+                    if (_env.MethodDecl.IsAsync)
+                        AddParameter("IntPtrFromNonFrozen", argument.Name);
+                    else
+                        AddParameter("EnumSafeHandle", argument.Name);
+                    continue;
+                }
+
                 if (!MarshallingHelpers.IsTypeFrozen(argumentTypeRecord))
                 {
                     // For async methods, SafeHandle cannot be used with Swift calling convention.
                     // Use IntPtr and manage lifetime manually via DangerousAddRef/DangerousRelease.
                     if (_env.MethodDecl.IsAsync)
                         AddParameter("IntPtrFromNonFrozen", argument.Name);
-                    // Enum values are projected as managed wrappers, but SafeHandle is non-blittable
-                    // for Swift calling convention P/Invoke. Pass raw payload pointer instead.
-                    else if (argumentTypeRecord.Kind == TypeRecordKind.Enum)
-                        AddParameter("EnumSafeHandle", argument.Name);
                     else
                         AddParameter("SafeHandle", argument.Name);
                     continue;

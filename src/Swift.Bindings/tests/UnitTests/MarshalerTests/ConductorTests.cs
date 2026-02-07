@@ -119,6 +119,7 @@ public class ConductorTests
     private static MethodDecl CreateMethodDecl(
         string name = "testMethod",
         bool isConstructor = false,
+        bool isAsync = false,
         BaseDecl? parent = null,
         MethodType methodType = MethodType.Instance)
     {
@@ -133,7 +134,7 @@ public class ConductorTests
             IsConstructor = isConstructor,
             CSSignature = new List<ArgumentDecl>(),
             Throws = false,
-            IsAsync = false,
+            IsAsync = isAsync,
             GenericParameters = new List<GenericArgumentDecl>(),
             Visibility = Visibility.Public,
         };
@@ -239,14 +240,33 @@ public class ConductorTests
     }
 
     [Fact]
-    public void TryGetMethodHandler_ClassConstructor_ReturnsMethodHandler()
+    public void TryGetMethodHandler_ClassConstructor_ReturnsConstructorHandler()
     {
-        // ConstructorHandlerFactory only handles constructors on StructDecl,
-        // so a class constructor falls through to the general MethodHandler.
+        // ConstructorHandlerFactory handles constructors on both StructDecl and ClassDecl,
+        // so a class constructor is dispatched to ConstructorHandler for proper C# constructor emission.
         var classDecl = CreateClassDecl();
         var methodDecl = CreateMethodDecl(
             name: "init",
             isConstructor: true,
+            parent: classDecl);
+
+        var result = _conductor.TryGetMethodHandler(methodDecl, out var handler);
+
+        Assert.True(result);
+        Assert.NotNull(handler);
+        Assert.IsType<ConstructorHandler>(handler);
+    }
+
+    [Fact]
+    public void TryGetMethodHandler_AsyncClassConstructor_ReturnsMethodHandler()
+    {
+        // Async constructors need callback-based factory method emission (C# doesn't support
+        // async constructors), so they fall through to MethodHandler instead of ConstructorHandler.
+        var classDecl = CreateClassDecl();
+        var methodDecl = CreateMethodDecl(
+            name: "init",
+            isConstructor: true,
+            isAsync: true,
             parent: classDecl);
 
         var result = _conductor.TryGetMethodHandler(methodDecl, out var handler);

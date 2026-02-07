@@ -232,6 +232,13 @@ namespace BindingsGeneration
                 return $"{paramName}.Handle";
             }
 
+            // Enum values are projected as managed wrappers with SafeHandle payload.
+            // Extract the raw pointer for P/Invoke.
+            if (typeRecord.Kind == TypeRecordKind.Enum)
+            {
+                return $"{paramName}.Payload.DangerousGetHandle()";
+            }
+
             // For types that have payloads (non-frozen structs, classes), access the Payload.DangerousGetHandle()
             if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
             {
@@ -273,6 +280,14 @@ namespace BindingsGeneration
             }
 
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+            // Enum values are projected as managed wrappers (C# classes with SafeHandle payload),
+            // which are non-blittable for Swift calling convention P/Invoke.
+            // Always use IntPtr for enum parameters.
+            if (typeRecord.Kind == TypeRecordKind.Enum)
+            {
+                return "IntPtr";
+            }
 
             // For types that require memory management, use IntPtr in P/Invoke
             if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))

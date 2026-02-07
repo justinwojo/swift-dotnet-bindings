@@ -100,6 +100,94 @@ public class ConstructorHandlerOutputTests
         Assert.Equal(string.Empty, swiftOutput);
     }
 
+    #region Class Constructor Tests
+
+    [Fact]
+    public void Emit_ClassConstructor_EmitsProperConstructorSignature()
+    {
+        // Non-frozen class constructors should emit as C# constructors, not instance methods.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var constructor = CreateConstructorDeclForClass(
+            "init",
+            parentDecl,
+            moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("age", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        // Should emit constructor syntax, not instance method
+        Assert.Contains("public unsafe Animal(", csOutput);
+        // Should NOT contain a return type (constructors don't have one)
+        Assert.DoesNotContain("Swift.TestModule.Animal Init(", csOutput);
+        Assert.DoesNotContain("return ", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ClassConstructor_UsesIndirectResult()
+    {
+        // Non-frozen class constructors require indirect result: allocate _payload and
+        // pass it as SwiftIndirectResult to the P/Invoke.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var constructor = CreateConstructorDeclForClass("init", parentDecl, moduleDecl);
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("_payload = new SwiftSafeHandle<Animal>", csOutput);
+        Assert.Contains("NativeMemory.Alloc(_payloadSize)", csOutput);
+        Assert.Contains("new SwiftIndirectResult", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ClassConstructorWithEnumParam_UsesIntPtrInPInvoke()
+    {
+        // Class constructors should handle enum parameters the same as struct constructors.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterEnumType(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var constructor = CreateConstructorDeclForClass(
+            "init",
+            parentDecl,
+            moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("variant", new NamedTypeSpec("TestModule.Variant"), moduleDecl)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("public unsafe Animal(", csOutput);
+        // The extern P/Invoke should use IntPtr for the enum parameter
+        var lines = csOutput.Split('\n');
+        var externLine = Array.Find(lines, line => line.Contains("extern", StringComparison.Ordinal));
+        Assert.NotNull(externLine);
+        Assert.Contains("IntPtr", externLine);
+        Assert.DoesNotContain("Swift.TestModule.Variant", externLine);
+    }
+
+    [Fact]
+    public void Emit_FailableClassConstructor_Skipped()
+    {
+        // Failable initializers on classes are not yet supported in TryCreate() pattern.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var constructor = CreateConstructorDeclForClass("init", parentDecl, moduleDecl, isFailable: true);
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+    }
+
+    #endregion
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();
@@ -248,6 +336,93 @@ public class ConstructorHandlerOutputTests
                     Kind: ConformanceKind.Protocol)
             },
             AssosiatedTypeConformances: new List<GenericParameterConformance>());
+    }
+
+    private static ClassDecl CreateClassDecl(string name, ModuleDecl moduleDecl, TypeDatabase typeDatabase)
+    {
+        var classDecl = new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(classDecl);
+
+        // Register the class type in the TypeDatabase
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: classDecl.SwiftTypeName, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", name),
+                SwiftTypeName = classDecl.SwiftTypeName,
+                MetadataAccessor = $"$s10TestModule{name.Length}{name}CMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            })
+        });
+
+        return classDecl;
+    }
+
+    private static MethodDecl CreateConstructorDeclForClass(
+        string name,
+        ClassDecl parentDecl,
+        ModuleDecl moduleDecl,
+        bool throws = false,
+        bool isFailable = false,
+        List<ArgumentDecl>? parameters = null,
+        List<GenericArgumentDecl>? genericParameters = null)
+    {
+        var signature = new List<ArgumentDecl>
+        {
+            CreateArgument(string.Empty, new NamedTypeSpec($"{moduleDecl.Name}.{parentDecl.Name}"), moduleDecl)
+        };
+        if (parameters != null)
+        {
+            signature.AddRange(parameters);
+        }
+
+        var method = new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{parentDecl.Name.Length}{parentDecl.Name}C{name}yACyF",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            IsFailable = isFailable,
+            CSSignature = signature,
+            GenericParameters = genericParameters ?? new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = throws,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+        return method;
+    }
+
+    private static void RegisterEnumType(TypeDatabase typeDatabase)
+    {
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+                MetadataAccessor = "$s10TestModule7VariantOMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            })
+        });
     }
 
     private static (string csOutput, string swiftOutput) EmitConstructor(MethodDecl methodDecl, TypeDatabase typeDatabase)

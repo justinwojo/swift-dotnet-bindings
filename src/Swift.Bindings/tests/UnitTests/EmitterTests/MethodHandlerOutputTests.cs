@@ -255,6 +255,65 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_MethodWithFrozenEnumParameter_UsesIntPtrInPInvokeSignature()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "setVariant",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("variant", new NamedTypeSpec("TestModule.Variant"), moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // The P/Invoke (extern) declaration should use IntPtr for the frozen enum
+        var externLine = Array.Find(csOutput.Split('\n'), line => line.Contains("extern", StringComparison.Ordinal));
+        Assert.NotNull(externLine);
+        Assert.Contains("IntPtr variant", externLine!);
+        Assert.DoesNotContain("Swift.TestModule.Variant", externLine!);
+        // Wrapper should extract handle from payload
+        Assert.Contains("variant.Payload.DangerousGetHandle()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_AsyncMethodWithFrozenEnumParameter_SynthesizesHandleVariable()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "fetchWithVariant",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: true,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("variant", new NamedTypeSpec("TestModule.Variant"), moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // P/Invoke should use IntPtr for the frozen enum param
+        var externLine = Array.Find(csOutput.Split('\n'), line => line.Contains("extern", StringComparison.Ordinal));
+        Assert.NotNull(externLine);
+        Assert.Contains("IntPtr variant", externLine!);
+        // C# wrapper must synthesize variantHandle via InitializeWithCopy (copy-buffer pattern)
+        Assert.Contains("variantHandle", csOutput);
+        Assert.Contains("variantCopyBuffer", csOutput);
+        Assert.Contains("variant.Payload.DangerousGetHandle()", csOutput);
+        // Swift wrapper should receive as UnsafeRawPointer and read via .pointee
+        Assert.Contains("variant: UnsafeRawPointer", swiftOutput);
+        Assert.Contains("variantValue", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_MethodWithEscapingClosureReturningFrozenStruct_EmitsTypedCallbackReturn()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -503,6 +562,16 @@ public class MethodHandlerOutputTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ColorFormatDenominator"),
                 MetadataAccessor = "$s10TestModule22ColorFormatDenominatorOMa",
                 Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Enum
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+                MetadataAccessor = "$s10TestModule7VariantOMa",
+                Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Enum
             });
         typeDatabase.AddModuleDatabase(module);

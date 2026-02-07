@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 62 + ArraySlice normalization + CryptoSwift validation)
-**Unit Tests**: 1,503 passed
+**Last Updated**: February 2026 (Phase 62 + ArraySlice normalization + CryptoSwift validation + Bug #24 + Bug #20 fixes)
+**Unit Tests**: 1,517 passed
 **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 **Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie, CryptoSwift
 
@@ -16,7 +16,7 @@
 | **BlinkIDUX** | 0 | SwiftUI bridge validation (16/16 tests) |
 | **BridgeParamTest** | 0 | v2 param type validation (35/35 tests) |
 | **Lottie** | 0 | Full runtime + SwiftUI bridge validation (15/15 tests) |
-| **CryptoSwift** | 0 | Binding coverage validation (65.1% members) |
+| **CryptoSwift** | 0 | Binding coverage validation (91.6% members, no runtime tests) |
 
 ### Binding Coverage
 
@@ -28,9 +28,9 @@ Assessed after Phase 62 (ArraySlice normalization).
 | BlinkIDUX | 36/45 | 80.0% | 128/172 | 74.4% |
 | Nuke | 60/68 | 88.2% | 323/342 | 94.4% |
 | Lottie | 79/93 | 84.9% | 387/428 | 90.4% |
-| CryptoSwift | 103/123 | 83.7% | 427/656 | 65.1% |
+| CryptoSwift | 103/103 | 100% | 459/501 | 91.6% |
 
-Remaining member gaps are primarily unsupported existential type arguments in bound generics (26 skips across Nuke/Lottie), UIKit/Foundation types not in TypeDatabase, and ArraySlice in unsupported contexts (closures, inout). CryptoSwift's lower member coverage is due to heavy use of generic protocol closures (`CipherModeWorker`) in block cipher modes. See `Future/unsupported-existential-analysis.md` for details.
+Remaining member gaps are primarily unsupported existential type arguments in bound generics (26 skips across Nuke/Lottie), UIKit/Foundation types not in TypeDatabase, and ArraySlice in unsupported contexts (closures, inout). CryptoSwift's 42 skipped members break down as: 20 compound assignment operators (`+=`, `-=`, etc. — no C# equivalent), 14 generic protocol closure signatures (`worker()` on block cipher modes), 4 AnyType property fallbacks, and 4 static protocol members. See `Future/unsupported-existential-analysis.md` for details.
 
 ### TestFramework Coverage
 
@@ -142,7 +142,7 @@ Remaining member gaps are primarily unsupported existential type arguments in bo
 | 59 | Async Array\<String> callback marshalling |
 | 60 | Async complex type callback marshalling (BlinkID 18/18) |
 | 61 | Fix IntPtr\<T> generic emission bug (integration tests 0 compile errors) |
-| 62 | ArraySlice parameter normalization via Swift wrappers, CryptoSwift validation (65.1%), `IsMutating` + `UsesWrapperLibrary` model additions |
+| 62 | ArraySlice parameter normalization via Swift wrappers, CryptoSwift validation (91.6%), `IsMutating` + `UsesWrapperLibrary` model additions |
 
 SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
 

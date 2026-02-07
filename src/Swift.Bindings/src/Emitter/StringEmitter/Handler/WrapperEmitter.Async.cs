@@ -29,14 +29,17 @@ namespace BindingsGeneration
             // Detect Array<String> return type - requires flat buffer marshalling
             bool isArrayStringReturn = !isEmptyTuple && IsArrayOfString(returnTypeSpec);
 
-            // Identify non-frozen parameters that need to be kept alive until callback
+            // Identify parameters that need copy-buffer treatment for async safety.
+            // Non-frozen types always need this. Enum types also need it regardless of
+            // frozen status because they're projected as managed C# classes with SafeHandle
+            // payload, which can't be passed directly through P/Invoke with Swift calling convention.
             var nonFrozenParams = _env.MethodDecl.CSSignature
                 .Skip(1)
                 .Where(p => !p.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(p) && !_env.ClosureHandler.IsClosure(p) && !_env.TupleHandler.IsTuple(p))
                 .Where(p =>
                 {
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
-                    return !MarshallingHelpers.IsTypeFrozen(typeRecord);
+                    return !MarshallingHelpers.IsTypeFrozen(typeRecord) || typeRecord.Kind == TypeRecordKind.Enum;
                 })
                 .ToList();
 

@@ -732,6 +732,79 @@ dotnet new swift-binding -n Nuke.Swift.iOS
 
 ---
 
+## Pragmatic Implementation Sequence
+
+> Added February 2026. The 3A → 3B → 3C → 3D roadmap above is the right *logical* decomposition, but for getting external users consuming bindings, the work should be reordered by what unblocks real usage first.
+
+### Current State Assessment
+
+- **Binding generation works** but requires manual orchestration (5+ shell scripts per framework: `regenerate-bindings.sh`, `build-swift-wrapper.sh`, `build-testapp.sh`, etc.)
+- **No NuGet packaging pipeline exists** — only `generate.sh`'s `CreateProject()` produces a basic `.csproj` for Apple framework bindings
+- **No metadata extraction** (iOS version, library version) is implemented in the generator
+- **No `.targets` file generation** — the 4-layer dependency enforcement is entirely on paper
+- **Swift.Runtime is `IsPackable=false`** — external users have no way to get the runtime support library
+- **The main roadmap (roadmap.md) puts Phase 3 DX work *after* Phases B and C** (testing hardening, feature enablement, new library validation)
+
+### DX-1: "Hello World" External Consumption (smallest useful increment)
+
+**Goal**: An external user can take a generated binding + xcframework and use it in their .NET iOS app.
+
+**Prerequisite**: None. Can start immediately.
+
+1. **Package Swift.Runtime as a NuGet** — currently `IsPackable=false` in Swift.Runtime.csproj. External users need this as a dependency. Flip the flag, add package metadata (id, description, license), publish.
+2. **Generator emits a compilable `.csproj`** — today the generator outputs loose `.cs` files + a `Swift/` runtime copy. Instead, emit a ready-to-use binding project that references `Swift.Runtime` via PackageReference and compiles the generated `.cs` files. This replaces the manual project setup users currently have to do.
+3. **Document the manual workflow** — a clear "Getting Started" guide that walks through: obtain xcframework → extract ABI JSON (`swift-frontend -compile-module-from-interface`) → run generator → build Swift wrapper (`xcrun swiftc`) → reference in app. Codify what `build-all.sh` does into a reproducible guide for someone who doesn't have the repo.
+
+**Success criteria**: Someone outside the project can follow the guide, generate bindings for Nuke, and call `ImagePipeline.shared` from a .NET iOS app.
+
+### DX-2: NuGet Packaging (automate distribution)
+
+**Goal**: `dotnet pack` on the generated project produces a correct `.nupkg`.
+
+**Prerequisite**: DX-1 (compilable generated project exists).
+
+1. **`.targets` file generation** from the generator — emit `build/` and `buildTransitive/` targets with NativeReference injection (Layer 2) and `SwiftBindingFramework` validation (Layer 3)
+2. **iOS version extraction** — implement the fallback chain: Info.plist `MinimumOSVersion` → `.swiftinterface` target triple → Mach-O `LC_BUILD_VERSION`/`LC_VERSION_MIN_*`
+3. **Library version extraction** — `CFBundleShortVersionString` with placeholder detection heuristic
+4. **`binding-metadata.json` emission** — alongside `binding-report.json`
+5. **Pack script** (`pack-binding.sh`) — arranges the correct NuGet directory structure (lib/, build/, buildTransitive/, runtimes/) and runs `dotnet pack`
+
+**Success criteria**: `./pack-binding.sh` produces a `.nupkg` that a consumer can install and get working NativeReference injection automatically.
+
+### DX-3: Multi-Framework Dependencies
+
+**Goal**: Libraries like Nuke (Nuke + NukeUI + NukeExtensions) package correctly with dependency tracking.
+
+**Prerequisite**: DX-2 (single-framework packaging works).
+
+1. **Dependency manifest generation** — `dependency-manifest.json` from binary linkage (`otool -L` / `LC_LOAD_DYLIB`) + type-level cross-reference analysis
+2. **`SwiftBindingFramework` MSBuild item** — cross-package registration and validation (Layer 3 in the design)
+3. **`pack-all.sh`** — topological sort from dependency manifest, builds packages bottom-up
+4. **End-to-end validation** — install generated packages in a clean project, verify all 4 enforcement layers work (NuGet restore fails without deps, build error with `SWIFTBIND001`, `CS0012` on missing assembly)
+
+**Success criteria**: Install `NukeUI.Swift.iOS` without `Nuke.Swift.iOS` → clear build error. Install both → app runs.
+
+### DX-4: MSBuild SDK + Templates (the full vision)
+
+**Goal**: `dotnet new swift-binding` + `dotnet build` = NuGet package.
+
+**Prerequisite**: DX-1 through DX-3 validated with real users.
+
+This maps to Phase 3C + 3D from the original roadmap. Only pursue once the script-based workflow is proven and user feedback confirms the automation is worth the MSBuild SDK complexity.
+
+### Relationship to Roadmap Phases B and C
+
+Phases B (enable TestFramework features) and C (new library validation) are about **generator completeness** — making the bindings cover more Swift patterns. The DX phases are about **consumability** — making existing bindings usable by people outside the project. These are largely independent tracks:
+
+- **DX-1 can start immediately** — it doesn't require more features, just packaging of what already works
+- **Phase B improves confidence** — more test coverage means fewer surprises for external users
+- **Phase C validates generalization** — trying new libraries finds patterns the generator misses
+- **DX-2 and DX-3 benefit from Phase C** — multi-framework packaging is easier to test with real multi-framework libraries
+
+A reasonable interleaving: **DX-1 → Phase B → DX-2 → Phase C → DX-3**. This way external users can start experimenting (DX-1) while generator coverage improves (B), then packaging automation (DX-2) lands alongside new library validation (C).
+
+---
+
 ## Platform Coverage
 
 ### Supported Platforms
@@ -827,3 +900,9 @@ These were previously open questions that have been resolved:
 2. **SwiftUI bridge packaging**: Bundle bridge xcframework in the main package, or separate `*.Bridge` package? Depends on whether the bridge adds significant size.
 
 3. **Source-module / overlay packaging**: For extension libraries like NukeExtensions that may be distributed as source (SPM target) rather than a prebuilt binary, do we need a source-compilation path in the packaging pipeline? Or do we require all inputs to be prebuilt xcframeworks?
+
+4. **Swift.Runtime packaging strategy**: Should Swift.Runtime be a separate NuGet package (as the architecture assumes with `Swift.Runtime` at the bottom of the dependency graph) or bundled into each binding package? Separate is cleaner and avoids duplication, but adds a dependency for users to manage. If separate, what's the versioning strategy — does it version independently from bindings, or lock-step?
+
+5. **Target audience for DX-1**: Are we targeting binding *authors* (someone who builds their own bindings from an xcframework) or binding *consumers* (someone who installs a pre-made NuGet)? The DX phases assume authors first, since there's no binding marketplace yet. But if the immediate goal is to publish a few "reference" packages (Nuke, StoreKit) for consumers, the priorities shift toward packaging quality over workflow documentation.
+
+6. **DX work vs. generator completeness sequencing**: DX-1 can start immediately without more generator features. But should DX-2/DX-3 wait for Phases B and C (test coverage + new library validation), or proceed in parallel? Risk of doing DX too early: packaging a generator that still has coverage gaps. Risk of waiting: nobody outside the project can use the tool until everything is polished. See [Pragmatic Implementation Sequence](#pragmatic-implementation-sequence) for a proposed interleaving.

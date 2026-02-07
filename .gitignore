@@ -220,6 +220,9 @@ BindingTesting/**/output*/BindingTesting/
 BindingTesting/BlinkId/output-ux/
 # Exclude compiled Swift bridge framework (rebuilt by build-bridge.sh)
 BindingTesting/BlinkId/SwiftBridge/BlinkIDUXBridge.framework/
+# Exclude CryptoSwift build artifacts and source clone (can be rebuilt/re-cloned)
+BindingTesting/CryptoSwift/build/
+BindingTesting/CryptoSwift/CryptoSwiftSource/
 # Include abi.json files inside xcframeworks (needed for binding generation)
 !BindingTesting/**/*.xcframework/**/*.abi.json
 

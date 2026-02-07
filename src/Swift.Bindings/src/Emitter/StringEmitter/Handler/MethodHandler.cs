@@ -42,7 +42,10 @@ namespace BindingsGeneration
         /// <param name="decl">The base declaration.</param>
         public bool Handles(BaseDecl decl)
         {
-            return decl is MethodDecl methodDecl && methodDecl.IsConstructor && decl.ParentDecl is StructDecl;
+            // Async constructors are emitted as factory methods (C# doesn't support async constructors),
+            // so they fall through to MethodHandler for callback-based async emission.
+            return decl is MethodDecl methodDecl && methodDecl.IsConstructor && !methodDecl.IsAsync &&
+                   (decl.ParentDecl is StructDecl || decl.ParentDecl is ClassDecl);
         }
 
         /// <summary>
@@ -184,6 +187,20 @@ namespace BindingsGeneration
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
             if (methodEnv.MethodDecl.IsFailable)
             {
+                // Failable initializers on classes are not yet supported as TryCreate() factory methods.
+                // Skip with a proper skip reason rather than emitting broken code.
+                if (methodEnv.ParentDecl is ClassDecl)
+                {
+                    _logger.LogWarning($"Skipping failable class constructor {methodEnv.MethodDecl.Name}: failable initializers on classes are not yet supported.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.ParentDecl,
+                        SkipReason.UnsupportedSignature,
+                        "Failable initializers on classes are not yet supported.");
+                    return;
+                }
+
                 wrapperEmitter.EmitFailableFactory(csWriter);
 
                 // Emit the SwiftOptional metadata accessor P/Invoke once per type.

@@ -654,6 +654,93 @@ public class SignatureBuilderTests
 
     #endregion
 
+    #region PInvoke Enum Parameter Tests
+
+    [Theory]
+    [InlineData(TypeRecordFlags.Frozen, "EnumSafeHandle")]
+    [InlineData(TypeRecordFlags.None, "EnumSafeHandle")]
+    public void PInvokeSignature_EnumParameter_UsesEnumSafeHandle(TypeRecordFlags enumFlags, string expectedType)
+    {
+        var typeDatabase = CreateTypeDatabaseWithEnum(enumFlags);
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Loader", moduleDecl);
+        var method = CreateMethodDeclFull("process", parentDecl, moduleDecl);
+        method.CSSignature.Add(CreateArgumentDeclFull("variant", new NamedTypeSpec("TestModule.Variant"), moduleDecl));
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var builder = new PInvokeSignatureBuilder(env);
+        builder.HandleReturnType();
+        builder.HandleArguments();
+        var signature = builder.Build();
+
+        var variantParam = signature.Parameters.First(p => p.Name == "variant");
+        Assert.Equal(expectedType, variantParam.Type);
+        // EnumSafeHandle maps to IntPtr in the actual P/Invoke signature
+        Assert.Contains("IntPtr", variantParam.SignatureString());
+    }
+
+    [Theory]
+    [InlineData(TypeRecordFlags.Frozen)]
+    [InlineData(TypeRecordFlags.None)]
+    public void PInvokeSignature_EnumParameter_CallArgExtractsPayloadHandle(TypeRecordFlags enumFlags)
+    {
+        var typeDatabase = CreateTypeDatabaseWithEnum(enumFlags);
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Loader", moduleDecl);
+        var method = CreateMethodDeclFull("process", parentDecl, moduleDecl);
+        method.CSSignature.Add(CreateArgumentDeclFull("variant", new NamedTypeSpec("TestModule.Variant"), moduleDecl));
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var signatureHandler = new SignatureHandler(env);
+        var pInvokeSignature = signatureHandler.GetPInvokeSignature();
+
+        // The call argument should extract the handle from the payload
+        Assert.Contains("variant.Payload.DangerousGetHandle()", pInvokeSignature.CallArgumentsString());
+    }
+
+    [Fact]
+    public void PInvokeSignature_FrozenEnumParameter_NeverUsesManagedType()
+    {
+        var typeDatabase = CreateTypeDatabaseWithEnum(TypeRecordFlags.Frozen);
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Loader", moduleDecl);
+        var method = CreateMethodDeclFull("process", parentDecl, moduleDecl);
+        method.CSSignature.Add(CreateArgumentDeclFull("variant", new NamedTypeSpec("TestModule.Variant"), moduleDecl));
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var signatureHandler = new SignatureHandler(env);
+        var pInvokeSignature = signatureHandler.GetPInvokeSignature();
+
+        // Must not contain the managed enum type name in the P/Invoke signature
+        Assert.DoesNotContain("Swift.TestModule.Variant", pInvokeSignature.ParametersString());
+    }
+
+    [Theory]
+    [InlineData(TypeRecordFlags.Frozen)]
+    [InlineData(TypeRecordFlags.None)]
+    public void PInvokeSignature_AsyncEnumParameter_UsesIntPtrFromNonFrozen(TypeRecordFlags enumFlags)
+    {
+        var typeDatabase = CreateTypeDatabaseWithEnum(enumFlags);
+        var moduleDecl = CreateModuleDeclFull();
+        var parentDecl = CreateClassDeclFull("Loader", moduleDecl);
+        var method = CreateMethodDeclFull("fetch", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        method.CSSignature.Add(CreateArgumentDeclFull("variant", new NamedTypeSpec("TestModule.Variant"), moduleDecl));
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var builder = new PInvokeSignatureBuilder(env);
+        builder.HandleReturnType();
+        builder.HandleArguments();
+        var signature = builder.Build();
+
+        var variantParam = signature.Parameters.First(p => p.Name == "variant");
+        // Async enum params use IntPtrFromNonFrozen for copy-buffer lifetime management
+        Assert.Equal("IntPtrFromNonFrozen", variantParam.Type);
+        Assert.Contains("IntPtr", variantParam.SignatureString());
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MethodDecl CreateMethodDecl(
@@ -774,6 +861,122 @@ public class SignatureBuilderTests
             ModuleDecl = null,
             IsFrozen = true,
             MetadataAccessor = ""
+        };
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithEnum(TypeRecordFlags enumFlags)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+                MetadataAccessor = "$s10TestModule6LoaderCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+                MetadataAccessor = "$s10TestModule7VariantOMa",
+                Flags = enumFlags,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
+    }
+
+    private static ModuleDecl CreateModuleDeclFull()
+    {
+        return new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static ClassDecl CreateClassDeclFull(string name, ModuleDecl moduleDecl)
+    {
+        var classDecl = new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(classDecl);
+        return classDecl;
+    }
+
+    private static MethodDecl CreateMethodDeclFull(string name, ClassDecl parentDecl, ModuleDecl moduleDecl)
+    {
+        var method = new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule6LoaderC{name.Length}{name}SiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgumentDeclFull("", TupleTypeSpec.Empty, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+        return method;
+    }
+
+    private static ArgumentDecl CreateArgumentDeclFull(string name, TypeSpec typeSpec, ModuleDecl moduleDecl)
+    {
+        return new ArgumentDecl
+        {
+            Name = name,
+            PrivateName = name,
+            SwiftTypeSpec = typeSpec,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
         };
     }
 
