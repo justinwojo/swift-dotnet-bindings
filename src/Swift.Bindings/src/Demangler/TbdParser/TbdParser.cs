@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -31,7 +32,7 @@ namespace TbdParsing
             _formatParsers = new List<ITbdFormatParser>
             {
                 new YamlLikeTbdFormatParser(loggerFactory.CreateLogger<YamlLikeTbdFormatParser>()),
-                // new JsonTbdFormatParser(loggerFactory.CreateLogger<JsonTbdFormatParser>()) // TODO: Parser of TBD in JSON format is not implemented yet
+                new JsonTbdFormatParser(loggerFactory.CreateLogger<JsonTbdFormatParser>())
             };
 
             _logger.LogDebug("TBD Parser initialized with parsers: {Parsers}", string.Join(", ",

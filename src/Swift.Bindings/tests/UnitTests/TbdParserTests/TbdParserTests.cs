@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -167,6 +168,279 @@ exports:
                 {
                     // Clean up temporary file
                     File.Delete(invalidTbdPath);
+                }
+            }
+
+            [Fact]
+            public static void TestMockJsonTbdFile()
+            {
+                string jsonTbdPath = Path.GetTempFileName();
+                File.WriteAllText(jsonTbdPath, @"{
+  ""tapi_tbd_version"": 5,
+  ""main_library"": {
+    ""target_info"": [
+      { ""target"": ""arm64-ios"", ""min_deployment"": ""15"" },
+      { ""target"": ""arm64-ios-simulator"", ""min_deployment"": ""15"" }
+    ],
+    ""install_names"": [
+      { ""name"": ""@rpath/TestLib.framework/TestLib"" }
+    ],
+    ""swift_abi"": [
+      { ""abi"": 7 }
+    ],
+    ""exported_symbols"": [
+      {
+        ""data"": {
+          ""global"": [
+            ""_$s7TestLib5ClassCMa"",
+            ""_$s7TestLib5ClassCMn"",
+            ""_globalFunc""
+          ]
+        }
+      }
+    ]
+  }
+}");
+
+                try
+                {
+                    TbdFile tbdFile = _tbdParser.ParseFile(jsonTbdPath);
+
+                    Assert.Equal(5, tbdFile.Version);
+                    Assert.Equal(2, tbdFile.Targets.Count);
+                    Assert.Contains("arm64-ios", tbdFile.Targets);
+                    Assert.Contains("arm64-ios-simulator", tbdFile.Targets);
+                    Assert.Equal("@rpath/TestLib.framework/TestLib", tbdFile.InstallName);
+                    Assert.Equal(7, tbdFile.SwiftAbiVersion);
+
+                    Assert.Single(tbdFile.Exports);
+                    var export = tbdFile.Exports[0];
+                    Assert.Equal(3, export.Symbols.Count);
+
+                    // Swift symbols (start with _$s)
+                    Assert.Equal(2, export.SwiftSymbols.Count());
+                    Assert.Contains(export.SwiftSymbols, s => s.Name == "_$s7TestLib5ClassCMa");
+                    Assert.Contains(export.SwiftSymbols, s => s.Name == "_$s7TestLib5ClassCMn");
+
+                    // _globalFunc starts with _ (not _$) → classified as ObjectiveC
+                    Assert.Single(export.ObjectiveCSymbols);
+                }
+                finally
+                {
+                    File.Delete(jsonTbdPath);
+                }
+            }
+
+            [Fact]
+            public static void TestJsonTbdWithObjcClasses()
+            {
+                string jsonTbdPath = Path.GetTempFileName();
+                File.WriteAllText(jsonTbdPath, @"{
+  ""tapi_tbd_version"": 5,
+  ""main_library"": {
+    ""target_info"": [
+      { ""target"": ""arm64-ios"" }
+    ],
+    ""install_names"": [
+      { ""name"": ""@rpath/ObjCLib.framework/ObjCLib"" }
+    ],
+    ""exported_symbols"": [
+      {
+        ""data"": {
+          ""global"": [ ""_$s5ObjCLibClassCMa"" ],
+          ""objc_class"": [ ""ObjCClass1"", ""ObjCClass2"" ],
+          ""objc_ivar"": [ ""ObjCClass1._name"", ""ObjCClass1._value"" ]
+        }
+      }
+    ]
+  }
+}");
+
+                try
+                {
+                    TbdFile tbdFile = _tbdParser.ParseFile(jsonTbdPath);
+
+                    Assert.Single(tbdFile.Exports);
+                    var export = tbdFile.Exports[0];
+
+                    Assert.Equal(2, export.ObjcClasses.Count);
+                    Assert.Contains("ObjCClass1", export.ObjcClasses);
+                    Assert.Contains("ObjCClass2", export.ObjcClasses);
+
+                    Assert.Equal(2, export.ObjcIvars.Count);
+                    Assert.Contains("ObjCClass1._name", export.ObjcIvars);
+                    Assert.Contains("ObjCClass1._value", export.ObjcIvars);
+                }
+                finally
+                {
+                    File.Delete(jsonTbdPath);
+                }
+            }
+
+            [Fact]
+            public static void TestJsonTbdMissingOptionalFields()
+            {
+                string jsonTbdPath = Path.GetTempFileName();
+                File.WriteAllText(jsonTbdPath, @"{
+  ""tapi_tbd_version"": 5,
+  ""main_library"": {
+    ""exported_symbols"": [
+      {
+        ""data"": {
+          ""global"": [ ""_$s4Test5FuncyyF"" ]
+        }
+      }
+    ]
+  }
+}");
+
+                try
+                {
+                    TbdFile tbdFile = _tbdParser.ParseFile(jsonTbdPath);
+
+                    Assert.Equal(5, tbdFile.Version);
+                    Assert.Empty(tbdFile.Targets);
+                    Assert.Equal(string.Empty, tbdFile.InstallName);
+                    Assert.Equal(0, tbdFile.SwiftAbiVersion);
+
+                    // Symbols still parse
+                    Assert.Single(tbdFile.Exports);
+                    Assert.Single(tbdFile.Exports[0].Symbols);
+                    Assert.Equal("_$s4Test5FuncyyF", tbdFile.Exports[0].Symbols[0].Name);
+                }
+                finally
+                {
+                    File.Delete(jsonTbdPath);
+                }
+            }
+
+            [Fact]
+            public static void TestJsonTbdWithTextSegment()
+            {
+                string jsonTbdPath = Path.GetTempFileName();
+                File.WriteAllText(jsonTbdPath, @"{
+  ""tapi_tbd_version"": 5,
+  ""main_library"": {
+    ""target_info"": [
+      { ""target"": ""arm64-ios"" }
+    ],
+    ""install_names"": [
+      { ""name"": ""@rpath/Mixed.framework/Mixed"" }
+    ],
+    ""exported_symbols"": [
+      {
+        ""data"": {
+          ""global"": [ ""_$s5Mixed6StructVMa"", ""_$s5Mixed6StructVMn"" ]
+        },
+        ""text"": {
+          ""global"": [ ""__ZN5swift39override_conformsToSwiftProtocolE"", ""__ZN5swift20class_getSuperclassE"" ]
+        }
+      }
+    ]
+  }
+}");
+
+                try
+                {
+                    TbdFile tbdFile = _tbdParser.ParseFile(jsonTbdPath);
+
+                    Assert.Single(tbdFile.Exports);
+                    var export = tbdFile.Exports[0];
+
+                    // Both data and text symbols should be combined
+                    Assert.Equal(4, export.Symbols.Count);
+
+                    // 2 Swift symbols from data
+                    Assert.Equal(2, export.SwiftSymbols.Count());
+
+                    // 2 C++ symbols from text (start with __ → classified as ObjectiveC by prefix rule)
+                    Assert.Equal(2, export.ObjectiveCSymbols.Count());
+                    Assert.Contains(export.Symbols, s => s.Name == "__ZN5swift39override_conformsToSwiftProtocolE");
+                    Assert.Contains(export.Symbols, s => s.Name == "__ZN5swift20class_getSuperclassE");
+                }
+                finally
+                {
+                    File.Delete(jsonTbdPath);
+                }
+            }
+
+            [Fact]
+            public static void TestJsonTbdParseThroughTbdParser()
+            {
+                string jsonTbdPath = Path.GetTempFileName();
+                File.WriteAllText(jsonTbdPath, @"{
+  ""tapi_tbd_version"": 5,
+  ""main_library"": {
+    ""target_info"": [
+      { ""target"": ""arm64-macos"" }
+    ],
+    ""install_names"": [
+      { ""name"": ""/usr/lib/libTest.dylib"" }
+    ],
+    ""swift_abi"": [
+      { ""abi"": 7 }
+    ],
+    ""exported_symbols"": [
+      {
+        ""data"": {
+          ""global"": [ ""_$s4Test5HelloCMa"" ]
+        }
+      }
+    ]
+  }
+}");
+
+                try
+                {
+                    // Parse through the top-level TbdParser (not direct parser)
+                    TbdFile tbdFile = _tbdParser.ParseFile(jsonTbdPath);
+
+                    Assert.NotNull(tbdFile);
+                    Assert.Equal(5, tbdFile.Version);
+                    Assert.Single(tbdFile.Targets);
+                    Assert.Contains("arm64-macos", tbdFile.Targets);
+                    Assert.Equal("/usr/lib/libTest.dylib", tbdFile.InstallName);
+                    Assert.Equal(7, tbdFile.SwiftAbiVersion);
+                    Assert.Single(tbdFile.Exports);
+                    Assert.Single(tbdFile.Exports[0].Symbols);
+                }
+                finally
+                {
+                    File.Delete(jsonTbdPath);
+                }
+            }
+
+            [Fact]
+            public static void TestInvalidJsonTbdFormat()
+            {
+                string invalidJsonPath = Path.GetTempFileName();
+                File.WriteAllText(invalidJsonPath, @"{""not_a_tbd"": true}");
+
+                try
+                {
+                    // No tapi_tbd_version → CanParse returns false → "unsupported format"
+                    Assert.Throws<ParsingException>(() => _tbdParser.ParseFile(invalidJsonPath));
+                }
+                finally
+                {
+                    File.Delete(invalidJsonPath);
+                }
+            }
+
+            [Fact]
+            public static void TestMalformedJsonTbdFormat()
+            {
+                string malformedPath = Path.GetTempFileName();
+                File.WriteAllText(malformedPath, @"{broken json???");
+
+                try
+                {
+                    // Invalid JSON → CanParse safely returns false → "unsupported format"
+                    Assert.Throws<ParsingException>(() => _tbdParser.ParseFile(malformedPath));
+                }
+                finally
+                {
+                    File.Delete(malformedPath);
                 }
             }
 
