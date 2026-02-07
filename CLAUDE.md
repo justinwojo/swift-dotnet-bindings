@@ -79,8 +79,6 @@ swift-bindings/
 │   │       ├── SwiftArray<T>, SwiftString, SwiftSet<T>, etc.
 │   │       └── Runtime/         # Handles, metadata, ARC, marshalling
 │   │
-│   ├── Dynamo/                  # Generic code generation utilities
-│   ├── samples/                 # HelloWorld, HikingApp examples
 │   └── docs/                    # Emitter redesign proposal
 │
 ├── BindingTesting/              # Real-world binding test projects
