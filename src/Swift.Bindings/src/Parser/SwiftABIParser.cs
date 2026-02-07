@@ -59,6 +59,7 @@ namespace BindingsGeneration
         public required string? EnumRawTypeName { get; set; }
         public required string? paramValueOwnership { get; set; }
         public required bool? hasDefaultArg { get; set; }
+        public string? funcSelfKind { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Accessors { get; set; } = Enumerable.Empty<Node>();
@@ -638,6 +639,7 @@ namespace BindingsGeneration
                 IsAsync = functionReduction?.Function?.IsAsync
                     ?? DetectAsyncFromMangledName(mangledName),
                 Visibility = Visibility.Public,
+                IsMutating = node.funcSelfKind == "Mutating",
             };
 
             for (int i = 0; i < node.Children.Count(); i++)

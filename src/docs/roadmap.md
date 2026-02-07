@@ -74,18 +74,26 @@ cd TestFramework
 
 ## Phase C: New Library Validation
 
-**Status**: Not Started
+**Status**: In Progress (CryptoSwift done)
 **Effort**: Medium (2-3 sessions)
 **Why**: 3 libraries validated so far (Nuke, BlinkID, Lottie). Trying 1-2 more confirms the generator generalizes beyond tested patterns.
 
-### C1. Select and bind a new library
-Candidates (pick 1-2):
+### C1. CryptoSwift (Done)
+- Built xcframework, ran generator: 61.3% member coverage initially
+- **Finding**: 34 of 42 skipped members blocked by `ArraySlice<T>` (no TypeDatabase registration)
+- **Fix**: ArraySlice parameter normalization (Phase 62) — Swift wrapper accepts `Array<T>`, converts to `ArraySlice<T>` at call site
+- **Result**: 65.1% member coverage (427/656), 21 methods recovered, 103/123 types emitted
+- Remaining gaps: `CipherModeWorker` closure params (10 methods), mutating struct methods (2), `inout Array` secondary blockers (3)
+- Added to `BindingTesting/CryptoSwift/` with regenerate-bindings.sh
+- Added 4 ArraySlice features to TestFramework coverage matrix
+
+### C2. Select and bind a second library
+Candidates (pick 1):
 - **Alamofire** — networking, heavy closure/async patterns
 - **Kingfisher** — image loading, different patterns from Nuke
 - **SwiftProtobuf** — value types, generics, enums heavy
-- **CryptoKit** (Apple framework) — system framework, different from StoreKit
 
-### C2. Process
+### C3. Process (for remaining library)
 1. Build xcframework for the library
 2. Run generator, check binding report
 3. Compare member coverage to existing libraries (target: 90%+)
@@ -93,7 +101,7 @@ Candidates (pick 1-2):
 5. Add to `BindingTesting/` with build/validate scripts
 6. If bugs are found, add targeted TestFramework features for the patterns that failed
 
-### C3. Document findings
+### C4. Document findings
 - Update this roadmap if new architectural gaps found
 - Update `CURRENT-STATUS.md` with new library stats
 - Add any new skip reasons to `testing-gaps.md`
@@ -103,9 +111,9 @@ Candidates (pick 1-2):
 ## After All Phases
 
 Once A, B, C are complete:
-- Must-pass features should be 80+ passing (up from 57)
+- Must-pass features should be 80+ passing (up from 61)
 - Runtime test coverage should cover most of the contract matrix
-- 4-5 real-world libraries validated
+- 5-6 real-world libraries validated
 - Test pipeline catches regressions automatically
 
 Next priorities would be:

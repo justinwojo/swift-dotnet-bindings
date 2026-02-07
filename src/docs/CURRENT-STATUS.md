@@ -1,9 +1,9 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 61 + SwiftUI Bridge v2 Phase 3 + TestFramework bridge migration)
-**Unit Tests**: 1,439 passed
+**Last Updated**: February 2026 (Phase 62 + ArraySlice normalization + CryptoSwift validation)
+**Unit Tests**: 1,503 passed
 **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
-**Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie
+**Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie, CryptoSwift
 
 ---
 
@@ -16,10 +16,11 @@
 | **BlinkIDUX** | 0 | SwiftUI bridge validation (16/16 tests) |
 | **BridgeParamTest** | 0 | v2 param type validation (35/35 tests) |
 | **Lottie** | 0 | Full runtime + SwiftUI bridge validation (15/15 tests) |
+| **CryptoSwift** | 0 | Binding coverage validation (65.1% members) |
 
 ### Binding Coverage
 
-Assessed after Phase 60 (async complex type marshalling).
+Assessed after Phase 62 (ArraySlice normalization).
 
 | Library | Types | Type % | Members | Member % |
 |---------|-------|--------|---------|----------|
@@ -27,21 +28,23 @@ Assessed after Phase 60 (async complex type marshalling).
 | BlinkIDUX | 36/45 | 80.0% | 128/172 | 74.4% |
 | Nuke | 60/68 | 88.2% | 323/342 | 94.4% |
 | Lottie | 79/93 | 84.9% | 387/428 | 90.4% |
+| CryptoSwift | 103/123 | 83.7% | 427/656 | 65.1% |
 
-Remaining member gaps are primarily unsupported existential type arguments in bound generics (26 skips across Nuke/Lottie) and UIKit/Foundation types not in TypeDatabase. See `Future/unsupported-existential-analysis.md` for details.
+Remaining member gaps are primarily unsupported existential type arguments in bound generics (26 skips across Nuke/Lottie), UIKit/Foundation types not in TypeDatabase, and ArraySlice in unsupported contexts (closures, inout). CryptoSwift's lower member coverage is due to heavy use of generic protocol closures (`CipherModeWorker`) in block cipher modes. See `Future/unsupported-existential-analysis.md` for details.
 
 ### TestFramework Coverage
 
 | Metric | Value |
 |--------|-------|
-| Must-pass features | 93 |
-| Passing | 92 (98.9%) |
-| Degraded | 1 |
-| Known-unsupported | 52 |
-| Types emitted | 151/168 (89.9%) |
-| Members emitted | 673/747 (90.1%) |
+| Must-pass features | 116 |
+| Passing | 61 |
+| Degraded | 0 |
+| Missing | 51 (disabled dirs) |
+| Known-unsupported | 56 |
+| Types emitted | 55/65 |
+| Members emitted | 266/312 |
 
-Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedExistential: `describeAll([any Describable])` requires `SwiftArray<ExistentialContainer>` runtime support).
+4 ArraySlice features added in Phase 62: `array_slice_parameter`, `array_slice_multiple_params`, `array_slice_class_method`, `array_slice_throwing`.
 
 ---
 
@@ -66,6 +69,7 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 
 ### Special Types
 - SwiftString, SwiftArray\<T>, SwiftSet\<T>, SwiftOptional\<T>
+- ArraySlice\<T> parameters (normalized to Array\<T> via Swift wrapper with `ArraySlice()` conversion at call site)
 - Closures (@convention(c), @escaping with frozen types, throwing closures)
 - Tuples (1-7 elements, named elements preserved)
 - Opaque return types (`some Protocol` → existential container via Swift wrapper)
@@ -138,6 +142,7 @@ Remaining degraded feature: `any_protocol_existential` — 1 skip (UnsupportedEx
 | 59 | Async Array\<String> callback marshalling |
 | 60 | Async complex type callback marshalling (BlinkID 18/18) |
 | 61 | Fix IntPtr\<T> generic emission bug (integration tests 0 compile errors) |
+| 62 | ArraySlice parameter normalization via Swift wrappers, CryptoSwift validation (65.1%), `IsMutating` + `UsesWrapperLibrary` model additions |
 
 SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
 

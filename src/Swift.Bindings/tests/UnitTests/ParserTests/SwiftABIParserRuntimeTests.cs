@@ -70,6 +70,71 @@ public class SwiftABIParserRuntimeTests
         Assert.Empty(result.TypeDecls);
     }
 
+    #region funcSelfKind → IsMutating Tests
+
+    [Fact]
+    public void ParseModule_FuncWithMutatingFuncSelfKind_SetsIsMutatingTrue()
+    {
+        // A function node with funcSelfKind = "Mutating"
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var paramNode = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$s");
+        paramNode.PrintedName = "Int";
+
+        var funcNode = CreateFunctionNode(
+            name: "update",
+            printedName: "update(_:)",
+            funcSelfKind: "Mutating",
+            children: new[] { returnTypeNode, paramNode });
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.True(method.IsMutating);
+    }
+
+    [Fact]
+    public void ParseModule_FuncWithNonMutatingFuncSelfKind_SetsIsMutatingFalse()
+    {
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "read",
+            printedName: "read()",
+            funcSelfKind: "NonMutating",
+            children: new[] { returnTypeNode });
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.False(method.IsMutating);
+    }
+
+    [Fact]
+    public void ParseModule_FuncWithNullFuncSelfKind_SetsIsMutatingFalse()
+    {
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "process",
+            printedName: "process()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.False(method.IsMutating);
+    }
+
+    #endregion
+
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)
     {
         var root = new ABIRootNode
@@ -152,6 +217,37 @@ public class SwiftABIParserRuntimeTests
             EnumRawTypeName = null,
             paramValueOwnership = null,
             hasDefaultArg = null,
+            Children = children ?? [],
+            Conformances = [],
+            Accessors = []
+        };
+    }
+
+    private static Node CreateFunctionNode(
+        string name,
+        string printedName,
+        string? funcSelfKind,
+        IEnumerable<Node>? children = null)
+    {
+        return new Node
+        {
+            Kind = "Function",
+            DeclKind = "Func",
+            Name = name,
+            MangledName = $"$s10TestModule{name.Length}{name}yyF",
+            PrintedName = printedName,
+            ModuleName = "TestModule",
+            DeclAttributes = [],
+            @static = false,
+            IsInternal = false,
+            GenericSig = null,
+            sugared_genericSig = null,
+            throwing = false,
+            AccessorKind = null,
+            EnumRawTypeName = null,
+            paramValueOwnership = null,
+            hasDefaultArg = null,
+            funcSelfKind = funcSelfKind,
             Children = children ?? [],
             Conformances = [],
             Accessors = []

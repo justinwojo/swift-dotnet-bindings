@@ -320,6 +320,20 @@ namespace BindingsGeneration
                 }
             }
 
+            // Try ArraySlice normalization — emits Swift wrapper + normalized C# method
+            if (!isAccessor && ArraySliceNormalizationEmitter.TryEmitNormalizedMethod(
+                csWriter, swiftWriter, methodEnv, _logger))
+            {
+                ReportCollector.RecordMemberWrapped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName,
+                    methodEnv.MethodDecl.ParentDecl,
+                    "ArraySliceNormalization",
+                    "ArraySlice parameters normalized to Array via Swift wrapper.");
+                return;
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)

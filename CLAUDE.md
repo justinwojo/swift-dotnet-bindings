@@ -161,14 +161,15 @@ Output: NuGet package with C# bindings
 
 ## Current Capabilities
 
-**Status** (February 2026 - Phase 61 + SwiftUI Bridge v2 Phase 2C + TestFramework bridge migration):
-- **Unit Tests**: 1439 passed
+**Status** (February 2026 - Phase 62 + SwiftUI Bridge v2 Phase 3 + ArraySlice normalization):
+- **Unit Tests**: 1503 passed
 - **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅ (runtime validated, 18/18 tests)
 - **BlinkIDUX**: 0 errors ✅ (SwiftUI bridge validated, 16/16 tests)
 - **BridgeParamTest**: 0 errors ✅ (v2 param types validated, 35/35 tests)
 - **Lottie**: 0 errors ✅ (runtime + SwiftUI bridge validated, 15/15 tests)
+- **CryptoSwift**: 65.1% binding coverage (103/123 types, 427/656 members) — ArraySlice normalization recovers 21 methods
 
 **Working**:
 - Classes, structs (frozen and non-frozen), enums (with associated values, runtime case construction)
@@ -184,6 +185,7 @@ Output: NuGet package with C# bindings
 - CoreGraphics opaque types (CGImage, CGColor, CGContext → IntPtr)
 - Swift pointer types (OpaquePointer, UnsafePointer, etc. → IntPtr)
 - NSObject subclass parameters in free functions (ObjC bridged marshalling)
+- ArraySlice parameter normalization (Swift wrapper converts Array→ArraySlice at call site)
 - Binding completeness report (`binding-report.json`)
 - `[UnsupportedSwiftType]` attribute on degraded members
 - StoreKit 2 bindings (published as experimental NuGet)
@@ -545,21 +547,18 @@ When a member is skipped, the binding report records a `SkipReason`. These are d
 - This means you accidentally (or intentionally) enabled a new feature
 - Consider promoting it: remove it from `KNOWN_UNSUPPORTED_FEATURES` in `generate-coverage-report.sh` to make it a must_pass feature going forward
 
-### Current Baseline (Phase 61 + SwiftUI Bridge TestFramework Migration)
+### Current Baseline (Phase 62 + ArraySlice normalization)
 
 | Metric | Value |
 |--------|-------|
-| Must-pass features | 112 total |
-| Passing | 57 (incl. 13 SwiftUI bridge) |
+| Must-pass features | 116 total |
+| Passing | 61 (incl. 13 SwiftUI bridge + 4 ArraySlice) |
 | Degraded | 0 |
 | Missing | 51 (disabled dirs: Generics, Protocols, Async, etc.) |
 | Known-unsupported | 56 |
-| Types emitted | 54/64 |
-| Members emitted | 258/304 |
+| Types emitted | 55/65 |
+| Members emitted | 266/312 |
 | Runtime tests (Tier 2) | 13/13 SwiftUI bridge passing |
-
-**Remaining degraded features**:
-- `any_protocol_existential` — 1 skip (UnsupportedExistential: `describeAll([any Describable])` requires `SwiftArray<ExistentialContainer>` runtime support)
 
 **Runtime test tier notes**:
 - Tier 1: Core marshalling (string, enum, class, blittable) — pass

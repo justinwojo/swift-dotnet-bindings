@@ -462,6 +462,10 @@ FEATURE_MAP = {
         "name": "array_operations",
         "features": ["array_parameter", "array_return", "array_of_class", "array_round_trip"]
     },
+    "Collections/ArraySliceOperations.swift": {
+        "name": "array_slice_operations",
+        "features": ["array_slice_parameter", "array_slice_multiple_params", "array_slice_class_method", "array_slice_throwing"]
+    },
     "Optionals/OptionalTypes.swift": {
         "name": "optional_types",
         "features": ["optional_blittable_return", "optional_class_return", "optional_parameter", "optional_struct_properties"]
@@ -693,6 +697,12 @@ FEATURE_DECLARATIONS = {
     "array_return": {"createIntArray", "createStringArray", "reverseIntArray"},
     "array_of_class": {"describeAnimals"},
     "array_round_trip": {"filterPositive"},
+
+    # Collections/ArraySliceOperations.swift — ArraySlice normalization features
+    "array_slice_parameter": {"sumArraySlice", "arraySliceCount", "isEmptyArraySlice"},
+    "array_slice_multiple_params": {"combinedSliceCount"},
+    "array_slice_class_method": {"SliceProcessor"},
+    "array_slice_throwing": {"firstOrThrow"},
 
     # Optionals/OptionalTypes.swift — optional features
     "optional_blittable_return": {"findIndex"},

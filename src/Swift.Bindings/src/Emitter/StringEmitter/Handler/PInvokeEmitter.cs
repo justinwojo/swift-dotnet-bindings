@@ -500,7 +500,7 @@ namespace BindingsGeneration
             // If AsyncLibraryName is set, use it; otherwise fall back to the module's library
             var moduleLibPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
             var hasOpaqueReturn = methodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
-            var needsWrapperLib = methodDecl.IsAsync || hasOpaqueReturn;
+            var needsWrapperLib = methodDecl.IsAsync || hasOpaqueReturn || methodDecl.UsesWrapperLibrary;
             var libPath = needsWrapperLib && methodEnv.TypeDatabase.AsyncLibraryName != null
                 ? methodEnv.TypeDatabase.AsyncLibraryName
                 : moduleLibPath;

@@ -65,6 +65,18 @@ namespace BindingsGeneration
         /// When true, automatic type conversions should not be applied.
         /// </summary>
         public bool IsAccessor { get; set; } = false;
+
+        /// <summary>
+        /// Indicates if the method is mutating (modifies self on value types).
+        /// Parsed from funcSelfKind in the ABI JSON.
+        /// </summary>
+        public bool IsMutating { get; set; } = false;
+
+        /// <summary>
+        /// When true, PInvokeEmitter uses the wrapper library (AsyncLibraryName) instead of the module library.
+        /// Set by normalization emitters that generate Swift wrapper functions.
+        /// </summary>
+        public bool UsesWrapperLibrary { get; set; } = false;
     }
 
     /// <summary>
