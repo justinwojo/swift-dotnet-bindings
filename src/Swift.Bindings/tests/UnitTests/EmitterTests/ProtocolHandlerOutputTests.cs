@@ -280,6 +280,260 @@ public class ProtocolHandlerOutputTests
         };
     }
 
+    #region AnyType Generic Argument Skip Tests
+
+    [Fact]
+    public void Emit_MethodWithAnyTypeGenericReturnArg_SkipsMethodOnInterface()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Register a bound generic type (e.g., BatchedCollection) so it doesn't fall back to AnyType itself
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.BatchedCollection"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BatchedCollection"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BatchedCollection"),
+                MetadataAccessor = "$s10TestModule17BatchedCollectionVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        // Create a bound generic return type with an unresolvable type parameter
+        // → resolves to BatchedCollection<Swift.AnyType>
+        var returnTypeSpec = new NamedTypeSpec("TestModule.BatchedCollection");
+        returnTypeSpec.GenericParameters.Add(new NamedTypeSpec("SomeUnknownProtocol"));
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "SwiftCollection",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SwiftCollection"),
+            MangledName = "$s10TestModule15SwiftCollectionP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDeclWithReturn("batched", returnTypeSpec, moduleDecl),
+                CreateMethodDecl("toArray", moduleDecl) // normal method, should still emit
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface should NOT contain Batched (AnyType generic arg)
+        Assert.DoesNotContain("Batched", csOutput.Split("class")[0]); // only check interface part
+        // Interface should still contain ToArray (no AnyType issue)
+        Assert.Contains("void ToArray();", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithAnyTypeGenericReturnArg_SkipsMethodOnProxy()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.BatchedCollection"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BatchedCollection"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BatchedCollection"),
+                MetadataAccessor = "$s10TestModule17BatchedCollectionVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        var returnTypeSpec = new NamedTypeSpec("TestModule.BatchedCollection");
+        returnTypeSpec.GenericParameters.Add(new NamedTypeSpec("SomeUnknownProtocol"));
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "SwiftCollection",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SwiftCollection"),
+            MangledName = "$s10TestModule15SwiftCollectionP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDeclWithReturn("batched", returnTypeSpec, moduleDecl),
+                CreateMethodDecl("toArray", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Proxy class should NOT contain a public Batched method
+        var proxyPart = csOutput.Substring(csOutput.IndexOf("class SwiftCollectionProxy"));
+        Assert.DoesNotContain("public TestModule.BatchedCollection<Swift.AnyType> Batched", proxyPart);
+        // Proxy class should NOT contain a Receive_batched receiver
+        Assert.DoesNotContain("Receive_batched", proxyPart);
+        // Proxy should still contain ToArray
+        Assert.Contains("public void ToArray()", proxyPart);
+    }
+
+    [Fact]
+    public void Emit_MethodWithAnyTypeGenericReturnArg_PreservesVtableField()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.BatchedCollection"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BatchedCollection"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BatchedCollection"),
+                MetadataAccessor = "$s10TestModule17BatchedCollectionVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        var returnTypeSpec = new NamedTypeSpec("TestModule.BatchedCollection");
+        returnTypeSpec.GenericParameters.Add(new NamedTypeSpec("SomeUnknownProtocol"));
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "SwiftCollection",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SwiftCollection"),
+            MangledName = "$s10TestModule15SwiftCollectionP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDeclWithReturn("batched", returnTypeSpec, moduleDecl),
+                CreateMethodDecl("toArray", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Vtable struct fields must still exist (Swift layout preservation)
+        Assert.Contains("func_batched_0", csOutput);
+        Assert.Contains("Func_batched_0", csOutput);
+        // But vtable assignment should NOT reference a receiver
+        Assert.DoesNotContain("&Receive_batched_0", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithValidBoundGenericReturn_EmitsNormally()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Register both the generic container and its type argument
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Container"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+                MetadataAccessor = "$s10TestModule9ContainerVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        // Return Container<Int> — Int resolves to Int64, no AnyType
+        var returnTypeSpec = new NamedTypeSpec("TestModule.Container");
+        returnTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "DataProvider",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataProvider"),
+            MangledName = "$s10TestModule12DataProviderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDeclWithReturn("getData", returnTypeSpec, moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface should contain GetData with valid Container<System.Int64> return
+        Assert.Contains("TestModule.Container<System.Int64> GetData();", csOutput);
+        // Proxy should also have GetData
+        Assert.Contains("public TestModule.Container<System.Int64> GetData()", csOutput);
+    }
+
+    [Theory]
+    [InlineData("BatchedCollection<Swift.AnyType>", true)]
+    [InlineData("BatchedCollection<AnyType>", true)]
+    [InlineData("Swift.AnyType", false)]
+    [InlineData("AnyType", false)]
+    [InlineData("Container<System.Int64>", false)]
+    [InlineData("System.String", false)]
+    [InlineData("Func<Swift.AnyType, System.Boolean>", true)]
+    public void ContainsAnyTypeGenericArg_DetectsCorrectly(string typeName, bool expected)
+    {
+        Assert.Equal(expected, ProtocolHandler.ContainsAnyTypeGenericArg(typeName));
+    }
+
+    #endregion
+
+    private static MethodDecl CreateMethodDeclWithReturn(string name, TypeSpec returnTypeSpec, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name}yyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnTypeSpec, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
     private static (string csOutput, string swiftOutput) EmitProtocol(ProtocolDecl protocolDecl, TypeDatabase typeDatabase)
     {
         var csOutput = new StringWriter();

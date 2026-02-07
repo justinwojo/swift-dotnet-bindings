@@ -104,6 +104,9 @@ public partial class ProtocolProxyEmitter
             {
                 var idx = methodIndex++;
                 methodIndices[methodKey] = idx;
+                // Skip assignment for methods that the interface skipped (field stays default/null)
+                if (_skippedMethodKeys.Contains(methodKey))
+                    continue;
                 EmitLocalVtableMethodAssignment(writer, method, idx);
             }
         }
@@ -161,6 +164,9 @@ public partial class ProtocolProxyEmitter
             {
                 var idx = methodIndex++;
                 methodIndices[methodKey] = idx;
+                // Skip assignment for methods that the interface skipped (field stays IntPtr.Zero)
+                if (_skippedMethodKeys.Contains(methodKey))
+                    continue;
                 EmitSwiftVtableMethodAssignment(writer, method, idx);
             }
         }

@@ -87,7 +87,9 @@ return (elem0, elem1);
 
 ---
 
-### Bug 3: Protocol proxy closure type mismatch
+### Bug 3: Protocol proxy closure type mismatch — FIXED
+
+**Status**: Fixed in Step 7 of FIX-ORDER.md. Methods whose resolved C# types contain AnyType as a generic type argument are now skipped on both the interface and proxy, preventing the type mismatch. The root cause (closure params resolving to AnyType while proxy resolves them differently) is eliminated by skipping before either emission path diverges.
 
 **Component**: `ProtocolProxyEmitter.cs`
 **Impact**: 3 methods on UpdatableProxy
@@ -204,7 +206,9 @@ Operators on `BatchedCollectionIndex<T0>` use `T1` instead of `T0` for the gener
 
 ---
 
-### Bug 11: Protocol proxy dispatches method not on interface
+### Bug 11: Protocol proxy dispatches method not on interface — FIXED
+
+**Status**: Fixed in Step 7 of FIX-ORDER.md. The proxy emitter now receives a set of skipped method keys from the interface emitter and consistently skips receivers, vtable assignments, and implementation for methods that were skipped on the interface. Vtable struct fields are preserved for Swift layout compatibility.
 
 **Component**: `ProtocolProxyEmitter.cs`
 **Impact**: CollectionProxy (ISwiftCollection)
@@ -216,7 +220,9 @@ The `CollectionProxy` has a `Receive_batched_2` dispatch method that calls `_csh
 
 ---
 
-### Bug 12: AnyType used as generic type argument with ISwiftCollection constraint
+### Bug 12: AnyType used as generic type argument with ISwiftCollection constraint — FIXED
+
+**Status**: Fixed in Step 7 of FIX-ORDER.md. Methods whose resolved C# return type or parameter types contain `AnyType` inside generic type arguments (e.g., `BatchedCollection<AnyType>`) are now detected by `ContainsAnyTypeGenericArg()` and skipped on both the interface and proxy before emission diverges.
 
 **Component**: `TypeDatabase` or type projection
 **Impact**: ISwiftCollection interface and CollectionProxy
@@ -427,17 +433,17 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 | `OperatorHandler.cs` | 3 | #1, #4, #10 |
 | `MethodHandler.cs` / constructors | 3 | #7, #8, #20 (FIXED) |
 | `WrapperEmitter.Return.cs` | 1 | #2 (FIXED) |
-| `ProtocolProxyEmitter.cs` | 2 | #3, #11 |
+| `ProtocolProxyEmitter.cs` | 2 | #3 (FIXED), #11 (FIXED) |
 | `PropertyHandler.cs` | 1 | #9 |
 | `TupleHandler.cs` / pointer types | 1 | #6 (FIXED) |
-| `TypeDatabase` / type projection | 1 | #12 |
+| `TypeDatabase` / type projection | 1 | #12 (FIXED) |
 | `EveryProtocolEmitter.cs` / `SwiftTypeNameHelper.cs` | 6 | #13 (PARTIAL), #14, #15, #21 (FIXED), #22a (FIXED), #22b (WON'T FIX), #23 (FIXED) |
 | Swift wrapper extension emission | 2 | #16, #17 |
 | `PInvokeEmitter.cs` | 1 | #24 (FIXED) |
 | Mono runtime / interop | 2 | #18, #19 |
 | Already fixed | 1 | #5 |
 
-**Total**: 24 bugs cataloged (13 active, 9 fixed, 1 won't fix, 1 shared Mono/generator, 1 already fixed)
+**Total**: 24 bugs cataloged (10 active, 12 fixed, 1 won't fix, 1 shared Mono/generator, 1 already fixed)
 
 ## Priority for Fixes
 
@@ -450,7 +456,7 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 
 **Medium priority** (affects specific type patterns):
 - ~~Bug #2: Tuple return marshalling~~ **FIXED**
-- Bug #3, #11: Protocol proxy/interface mismatch (related to #21)
+- ~~Bug #3, #11: Protocol proxy/interface mismatch (related to #21)~~ **FIXED**
 - Bug #7, #8: Generic type constructor/marshalling
 - Bug #13: EveryProtocol return type `Any` instead of protocol composition existential (throws portion **FIXED**)
 - ~~Bug #22a: EveryProtocol throws emission~~ **FIXED**
@@ -461,7 +467,7 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 - Bug #5: ~~Overflow operators~~ (already fixed)
 - ~~Bug #6: void* in ValueTuple~~ **FIXED**
 - Bug #9: Duplicate property
-- Bug #12: AnyType constraint satisfaction
+- ~~Bug #12: AnyType constraint satisfaction~~ **FIXED**
 - Bug #16, #17: Wrong argument labels, internal member access
 
 **Runtime/shared** (requires Mono investigation + generator-side marshalling review):

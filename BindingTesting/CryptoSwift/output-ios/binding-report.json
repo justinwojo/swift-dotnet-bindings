@@ -1,12 +1,12 @@
 {
   "ModuleName": "CryptoSwift",
-  "GeneratedAt": "2026-02-07T21:26:26.92667+00:00",
+  "GeneratedAt": "2026-02-07T21:50:38.579837+00:00",
   "TotalTypes": 103,
   "EmittedTypes": 103,
   "SkippedTypes": 0,
   "TotalMembers": 501,
-  "EmittedMembers": 455,
-  "SkippedMembers": 46,
+  "EmittedMembers": 453,
+  "SkippedMembers": 48,
   "SynthesizedMembers": 199,
   "SkippedItems": [
     {
@@ -39,6 +39,14 @@
       "ContainingType": "CryptoSwift.AEADChaCha20Poly1305",
       "Reason": "AnyTypeFallback",
       "Details": "Property type resolved to AnyType (Swift.AnyType).",
+      "RecommendedWorkaround": "Use concrete bound generic types instead of Any where possible."
+    },
+    {
+      "Kind": "Method",
+      "Name": "worker",
+      "ContainingType": "CryptoSwift.BlockMode",
+      "Reason": "AnyTypeFallback",
+      "Details": "Method return type or parameter contains AnyType as a generic type argument, which violates generic constraints.",
       "RecommendedWorkaround": "Use concrete bound generic types instead of Any where possible."
     },
     {
@@ -368,6 +376,14 @@
       "Reason": "UnsupportedSignature",
       "Details": "Method signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "batched",
+      "ContainingType": "CryptoSwift.Collection",
+      "Reason": "AnyTypeFallback",
+      "Details": "Method return type or parameter contains AnyType as a generic type argument, which violates generic constraints.",
+      "RecommendedWorkaround": "Use concrete bound generic types instead of Any where possible."
     },
     {
       "Kind": "Method",

@@ -44,6 +44,9 @@ public partial class ProtocolProxyEmitter
             {
                 idx = methodIndex++;
                 methodIndices[methodKey] = idx;
+                // Skip receivers for methods that the interface skipped due to AnyType generic args
+                if (_skippedMethodKeys.Contains(methodKey))
+                    continue;
                 // Only emit receiver for new methods
                 EmitMethodReceiver(writer, method, protocolDecl, interfaceName, idx, emittedReceivers);
             }

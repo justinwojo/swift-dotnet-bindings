@@ -225,7 +225,7 @@ run_step_7() {
         "No closure-type mismatch proxy stubs remain"
     check_absent "7" "$CS_OUT" "Generator bug: Batched\\(\\) not on ISwiftCollection interface" \
         "No Batched()/ISwiftCollection proxy mismatch stubs remain"
-    check_absent "7" "$CS_OUT" "BatchedCollection<AnyType>" \
+    check_absent "7" "$CS_OUT" "BatchedCollection<(Swift\\.)?AnyType>" \
         "No AnyType generic constraint violations in BatchedCollection projection"
 }
 

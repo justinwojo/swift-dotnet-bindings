@@ -106,21 +106,22 @@ Ordered by runtime-unblocking impact. Each step includes generator files, assert
 
 ---
 
-## Step 7: Proxy/interface conformance alignment (Bugs #3, #11, #12)
+## Step 7: Proxy/interface conformance alignment (Bugs #3, #11, #12) — DONE
 
 **Unblocks**: Protocol proxy dispatch for protocols with closure parameters or generic returns
 
-**Files**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/ProtocolProxyEmitter.cs`
-- Type-projection / TypeDatabase code paths
+**Files** (modified):
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ProtocolHandler.cs` — added `ContainsAnyTypeGenericArg()`, `HasAnyTypeGenericArgInSignature()`, `ResolveMethodTypeName()` helpers; restructured `Emit()` loop to check for AnyType generic args before interface emission; collects `skippedMethodKeys` and passes to proxy
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ProtocolProxyEmitter.cs` — added `_skippedMethodKeys` field; `EmitProxyClass()` accepts skip set parameter
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ProtocolProxyEmitter.Helpers.cs` — changed `GetMethodKey` from `private` to `internal static`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ProtocolProxyEmitter.InterfaceImpl.cs` — skip implementation for methods in `_skippedMethodKeys`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ProtocolProxyEmitter.Receivers.cs` — skip receivers for methods in `_skippedMethodKeys`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ProtocolProxyEmitter.StaticInit.cs` — skip vtable assignments (both local and Swift) for methods in `_skippedMethodKeys`
 
-**Assertion**: Interface, proxy receive-dispatch, and vtable all agree on parameter/return type projection and skip decisions. If interface skips a method, proxy must also skip it.
+**Tests added** (11 tests):
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ProtocolHandlerOutputTests.cs` — 4 tests (AnyType generic return skipped on interface, skipped on proxy, vtable field preserved, valid bound generic emits normally) + 1 Theory with 7 inline data cases (ContainsAnyTypeGenericArg detection)
 
-**Tests**:
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ProtocolProxyEmitterTests.cs`
-- `src/Swift.Bindings/tests/UnitTests/TypeDatabaseTests`
-
-**Validation**: Regenerate → no `CS1503` or `CS1061` on proxy classes; `UpdatableProxy` and `CollectionProxy` compile clean
+**Validation**: `verify-fix-order.sh 7` → PASS=3 FAIL=0. Unit tests: 1551 passed. TestFramework: 61/61, 0 degraded.
 
 ---
 

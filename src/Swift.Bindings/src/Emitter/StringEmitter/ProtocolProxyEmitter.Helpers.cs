@@ -247,7 +247,7 @@ public partial class ProtocolProxyEmitter
         return $"EveryProtocol_{protocolDecl.Name}_WT";
     }
 
-    private static string GetMethodKey(MethodDecl method)
+    internal static string GetMethodKey(MethodDecl method)
     {
         return method.Name + "(" + string.Join(",", method.CSSignature.Skip(1).Select(p => p.SwiftTypeSpec?.ToString() ?? "")) + ")";
     }

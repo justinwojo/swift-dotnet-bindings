@@ -140,8 +140,22 @@ namespace BindingsGeneration
             }
 
             // Emit methods as interface members
+            var skippedMethodKeys = new HashSet<string>();
             foreach (var methodDecl in protocolDecl.Methods)
             {
+                // Skip constructors and static methods early (they can't be in C# interfaces)
+                if (methodDecl.IsConstructor)
+                {
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Protocol constructor requirements cannot be declared in C# interfaces.");
+                    continue;
+                }
+                if (methodDecl.MethodType == MethodType.Static)
+                {
+                    _logger.LogDebug($"Skipping static method '{methodDecl.Name}' in interface {protocolDecl.Name} - static interface members are not supported.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Static protocol members cannot be declared in C# interfaces.");
+                    continue;
+                }
+
                 // Create a unique key for the method (name + parameter types)
                 var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl);
                 if (emittedMethods.Contains(methodKey))
@@ -151,6 +165,17 @@ namespace BindingsGeneration
                     continue;
                 }
                 emittedMethods.Add(methodKey);
+
+                // Check for AnyType as a generic type argument in the method signature
+                // (e.g., BatchedCollection<AnyType> violates where T0 : ISwiftCollection)
+                if (HasAnyTypeGenericArgInSignature(methodDecl, env.TypeDatabase, protocolDecl))
+                {
+                    skippedMethodKeys.Add(ProtocolProxyEmitter.GetMethodKey(methodDecl));
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - contains AnyType as generic type argument.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument, which violates generic constraints.");
+                    continue;
+                }
+
                 EmitInterfaceMethod(csWriter, methodDecl, env.TypeDatabase, protocolDecl);
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
             }
@@ -166,18 +191,18 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // Emit the proxy class that enables C# implementations of this protocol
-            EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase);
+            EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys);
         }
 
         /// <summary>
         /// Emits a proxy class that enables C# code to implement this protocol.
         /// The proxy wraps either a C# implementation or a Swift existential container.
         /// </summary>
-        private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase)
+        private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase, HashSet<string> skippedMethodKeys)
         {
             var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
             var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName);
-            proxyEmitter.EmitProxyClass(csWriter, protocolDecl);
+            proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys);
         }
 
         /// <summary>
@@ -345,21 +370,9 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
         {
-            // Skip constructors - they can't be in C# interfaces
-            if (methodDecl.IsConstructor)
-            {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolContext, SkipReason.StaticProtocolMember, "Protocol constructor requirements cannot be declared in C# interfaces.");
-                return;
-            }
-
-            // Skip static methods - C# interfaces cannot have static members as requirements
-            // Note: Static methods are still emitted on conforming types, just not in the interface
-            if (methodDecl.MethodType == MethodType.Static)
-            {
-                _logger.LogDebug($"Skipping static method '{methodDecl.Name}' in interface {protocolContext?.Name} - static interface members are not supported.");
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolContext, SkipReason.StaticProtocolMember, "Static protocol members cannot be declared in C# interfaces.");
-                return;
-            }
+            // Note: Constructor, static, duplicate, and AnyType generic arg checks
+            // are handled at the loop level in Emit(). This method is only called
+            // for methods that pass all pre-checks.
 
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -548,6 +561,78 @@ namespace BindingsGeneration
             }
 
             return $"({string.Join(", ", elements)})";
+        }
+
+        /// <summary>
+        /// Checks if a protocol method's resolved C# signature contains AnyType as a
+        /// generic type argument (e.g., BatchedCollection&lt;AnyType&gt;), which would
+        /// violate generic constraints and produce uncompilable code.
+        /// </summary>
+        private bool HasAnyTypeGenericArgInSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+
+            // Check return type
+            if (methodDecl.CSSignature.Count > 0)
+            {
+                var returnArg = methodDecl.CSSignature[0];
+                if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
+                {
+                    var returnType = ResolveMethodTypeName(returnArg.SwiftTypeSpec, isParameter: false,
+                        typeDatabase, boundGenericsHandler, typeConversionHandler, protocolContext);
+                    if (ContainsAnyTypeGenericArg(returnType))
+                        return true;
+                }
+            }
+
+            // Check parameters
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var arg = methodDecl.CSSignature[i];
+                var paramType = ResolveMethodTypeName(arg.SwiftTypeSpec, isParameter: true,
+                    typeDatabase, boundGenericsHandler, typeConversionHandler, protocolContext);
+                if (ContainsAnyTypeGenericArg(paramType))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves a Swift type spec to its C# type name for a protocol method signature,
+        /// using the same resolution chain as EmitInterfaceMethod.
+        /// </summary>
+        private string ResolveMethodTypeName(TypeSpec swiftTypeSpec, bool isParameter,
+            ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
+            TypeConversionHandler typeConversionHandler, ProtocolDecl? protocolContext)
+        {
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(swiftTypeSpec, isParameter: isParameter);
+            if (idiomaticType != null)
+                return idiomaticType;
+
+            if (typeConversionHandler.HasNativeTypeRemapping(swiftTypeSpec))
+            {
+                return typeConversionHandler.GetNativeTypeName(swiftTypeSpec)
+                    ?? GetCSharpTypeName(swiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+            }
+
+            return GetCSharpTypeName(swiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+        }
+
+        /// <summary>
+        /// Checks if a resolved C# type name contains AnyType as a generic type argument
+        /// (inside angle brackets). Plain AnyType as a standalone type is NOT flagged —
+        /// it's degraded but compilable. Only AnyType within a bound generic (e.g.,
+        /// BatchedCollection&lt;Swift.AnyType&gt;) is problematic because it violates
+        /// generic constraints.
+        /// </summary>
+        internal static bool ContainsAnyTypeGenericArg(string csharpTypeName)
+        {
+            int angleBracketStart = csharpTypeName.IndexOf('<');
+            if (angleBracketStart < 0) return false;
+            var genericPart = csharpTypeName.Substring(angleBracketStart);
+            return genericPart.Contains("AnyType");
         }
 
     }

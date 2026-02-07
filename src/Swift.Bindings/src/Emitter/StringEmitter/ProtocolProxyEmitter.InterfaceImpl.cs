@@ -51,6 +51,9 @@ public partial class ProtocolProxyEmitter
             {
                 var idx = methodIndex++;
                 methodIndices[methodKey] = idx;
+                // Skip methods that the interface skipped due to AnyType generic args
+                if (_skippedMethodKeys.Contains(methodKey))
+                    continue;
                 EmitMethodImplementation(writer, method, protocolDecl, dispatchEmitter, idx);
             }
         }
