@@ -316,6 +316,41 @@ public class TupleHandlerTests
         Assert.Equal("ValueTuple<System.Int64, System.Boolean, System.Double>", result);
     }
 
+    [Fact]
+    public void GetPInvokeTupleType_BoundGenericElement_UsesIntPtrNotVoidStar()
+    {
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            arrayType,
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        var result = _tupleHandler.GetPInvokeTupleType(tuple);
+
+        Assert.Equal("ValueTuple<IntPtr, System.Boolean>", result);
+        Assert.DoesNotContain("void*", result);
+    }
+
+    [Fact]
+    public void GetPInvokeTupleType_MultipleBoundGenerics_UsesIntPtrForAll()
+    {
+        var arrayType1 = new NamedTypeSpec("Swift.Array");
+        arrayType1.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var arrayType2 = new NamedTypeSpec("Swift.Array");
+        arrayType2.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            arrayType1,
+            arrayType2
+        });
+
+        var result = _tupleHandler.GetPInvokeTupleType(tuple);
+
+        Assert.Equal("ValueTuple<IntPtr, IntPtr>", result);
+    }
+
     #endregion
 
     #region TupleTypeSpec Kind Tests

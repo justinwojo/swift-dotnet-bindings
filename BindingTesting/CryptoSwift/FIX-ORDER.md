@@ -52,23 +52,19 @@ Ordered by runtime-unblocking impact. Each step includes generator files, assert
 
 ---
 
-## Step 4: Tuple return marshalling + pointer safety (Bugs #2, #6)
+## Step 4: Tuple return marshalling + pointer safety (Bugs #2, #6) — DONE
 
 **Unblocks**: 3 methods on AEADChaCha20Poly1305, plus latent `void*` risk
 
-**Files**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.Return.cs`
-- `src/Swift.Bindings/src/Marshaler/TupleHandler.cs`
+**Files** (modified):
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.Return.cs` — added `EmitTupleReturnMarshalling()` for per-element marshalling; fixed bound generic handling in `GetTupleElementMarshalCode()`; replaced `void*` with `IntPtr` in `GetPInvokeTypeForTupleElement()`
+- `src/Swift.Bindings/src/Marshaler/TupleHandler.cs` — replaced `void*` with `IntPtr` in `TranslateElementTypeToPInvoke()` for bound generic and existential fallbacks
 
-**Assertions**:
-- Tuple elements are individually marshalled via `SwiftMarshal.MarshalFromSwift<T>()` (Bug #2)
-- No `ValueTuple<void*, ...>` in generated C# — use `IntPtr` instead (Bug #6 latent)
+**Tests added** (4 tests):
+- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/TupleHandlerTests.cs` — 2 tests (bound generic → IntPtr, multiple bound generics → IntPtr)
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/MethodHandlerOutputTests.cs` — 2 tests (tuple with bound generic emits per-element marshalling, all-primitive tuple returns directly)
 
-**Tests**:
-- `src/Swift.Bindings/tests/UnitTests/MarshalerTests/TupleHandlerTests.cs`
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/MethodHandlerOutputTests.cs`
-
-**Validation**: Regenerate → `AEADChaCha20Poly1305.Encrypt()` has per-element marshalling; `TupleHandler` never returns `"void*"`
+**Validation**: `verify-fix-order.sh 4` → PASS=2 FAIL=0. Unit tests: 1524 passed. TestFramework: 61/61, 0 degraded.
 
 ---
 

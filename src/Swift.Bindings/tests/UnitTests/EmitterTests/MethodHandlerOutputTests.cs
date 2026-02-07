@@ -486,6 +486,69 @@ public class MethodHandlerOutputTests
         Assert.Equal(string.Empty, swiftOutput);
     }
 
+    [Fact]
+    public void Emit_MethodReturningTupleWithBoundGeneric_EmitsPerElementMarshalling()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Create tuple return type: (Swift.Array<Swift.Int>, Swift.Bool)
+        var arrayOfInt = new NamedTypeSpec("Swift.Array");
+        arrayOfInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var boolType = new NamedTypeSpec("Swift.Bool");
+        var tupleType = new TupleTypeSpec(new List<TypeSpec> { arrayOfInt, boolType });
+
+        var method = CreateMethodDecl(
+            name: "encrypt",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // P/Invoke should use IntPtr for bound generic, not void*
+        Assert.DoesNotContain("void*", csOutput);
+        Assert.Contains("ValueTuple<IntPtr, System.Boolean>", csOutput);
+        // Return should use per-element marshalling, not raw `return result;`
+        Assert.Contains("MarshalFromSwift", csOutput);
+        Assert.Contains("result.Item1", csOutput);
+        Assert.Contains("return (elem0, elem1);", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodReturningTupleOfPrimitives_ReturnsTupleDirectly()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Create tuple return type: (Swift.Int, Swift.Bool)
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        var method = CreateMethodDecl(
+            name: "status",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // All-primitive tuple should use direct return (no per-element marshalling)
+        Assert.Contains("return result;", csOutput);
+        Assert.DoesNotContain("MarshalFromSwift", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();
@@ -509,6 +572,26 @@ public class MethodHandlerOutputTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
                 MetadataAccessor = "$sSdMa",
                 Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(swiftModule);

@@ -62,24 +62,28 @@ public static BigUInt operator /(BigUInt arg0, BigUInt arg1)
 
 ---
 
-### Bug 2: Tuple return values not marshalled
+### Bug 2: Tuple return values not marshalled — FIXED
 
-**Component**: `WrapperEmitter.Return.cs` (return emission logic, specifically around line 150)
+**Status**: Fixed in Step 4 of FIX-ORDER.md
+
+**Component**: `WrapperEmitter.Return.cs` (return emission logic)
 **Impact**: 3 methods on AEADChaCha20Poly1305
-**Error**: `CS0029: Cannot implicitly convert type '(nint, nint)' to '(SwiftArray<byte>, SwiftArray<byte>)'`
 
-Methods returning named tuples emit `return result;` where `result` is the raw P/Invoke return (`ValueTuple<IntPtr, IntPtr>`) but the C# method signature declares `(SwiftArray<byte> cipherText, SwiftArray<byte> authenticationTag)`. The tuple elements (IntPtr) need to be marshalled back to their managed types.
+Methods returning named tuples now emit per-element marshalling via `SwiftMarshal.MarshalFromSwift<T>()` instead of raw `return result;`. Each tuple element is individually marshalled from its P/Invoke representation to the C# type.
 
-**Generated (broken)**:
+**Before** (broken):
 ```csharp
-public static (SwiftArray<byte> cipherText, SwiftArray<byte> authenticationTag) Encrypt(...)
-{
-    var result = PInvoke_encrypt(...); // returns ValueTuple<IntPtr, IntPtr>
-    return result; // ERROR: can't convert (nint, nint) to (SwiftArray<byte>, SwiftArray<byte>)
-}
+var result = PInvoke_encrypt(...); // returns ValueTuple<IntPtr, IntPtr>
+return result; // ERROR: can't convert (nint, nint) to (SwiftArray<byte>, SwiftArray<byte>)
 ```
 
-**Expected**: Each tuple element should be individually marshalled from its IntPtr via `SwiftMarshal.MarshalFromSwift<T>()`.
+**After** (fixed):
+```csharp
+var result = PInvoke_encrypt(...); // returns ValueTuple<IntPtr, IntPtr>
+var elem0 = SwiftMarshal.MarshalFromSwift<SwiftArray<byte>>(result.Item1);
+var elem1 = SwiftMarshal.MarshalFromSwift<SwiftArray<byte>>(result.Item2);
+return (elem0, elem1);
+```
 
 ---
 
@@ -130,19 +134,16 @@ Swift has overflow shift operators (`&<<`, `&>>`) and their compound forms. Thes
 
 ---
 
-### Bug 6: `void*` used as generic type argument in ValueTuple
+### Bug 6: `void*` used as generic type argument in ValueTuple — FIXED
 
-> **Status: LATENT RISK** — Not currently reproduced in the generated CryptoSwift output (the `void*` instances were patched to `IntPtr` in the manual fix pass). However, the code paths that return `void*` still exist in `TupleHandler.cs:417` and `WrapperEmitter.Return.cs:315`, so this will manifest for any protocol method returning a tuple with a bound generic element.
+**Status**: Fixed in Step 4 of FIX-ORDER.md
 
-**Component**: `TupleHandler.cs` or pointer type projection
+**Component**: `TupleHandler.cs` and `WrapperEmitter.Return.cs`
 **Impact**: 2 P/Invoke declarations
-**Error**: `CS8500: takes the address of a managed type`
 
-Generated code uses `ValueTuple<void*, void*>` and `ValueTuple<void*, System.Boolean>` as P/Invoke return types. `void*` cannot be used as a generic type argument in C#.
-
-**Fix**: Replace `void*` with `IntPtr` in tuple element positions. Specifically:
-- `src/Swift.Bindings/src/Marshaler/TupleHandler.cs:417` — returns `"void*"` for bound generic tuple elements
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.Return.cs:315` — same issue in return type emission
+All code paths that returned `"void*"` for bound generic tuple elements now return `"IntPtr"` instead. Fixed in:
+- `TupleHandler.TranslateElementTypeToPInvoke()` — bound generic fallback and unsupported existential fallback
+- `WrapperEmitter.Return.GetPInvokeTypeForTupleElement()` — bound generic fallback and end fallback
 
 ---
 
@@ -440,10 +441,10 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 |-----------|------|-----|
 | `OperatorHandler.cs` | 3 | #1, #4, #10 |
 | `MethodHandler.cs` / constructors | 3 | #7, #8, #20 (FIXED) |
-| `WrapperEmitter.Return.cs` | 1 | #2 |
+| `WrapperEmitter.Return.cs` | 1 | #2 (FIXED) |
 | `ProtocolProxyEmitter.cs` | 2 | #3, #11 |
 | `PropertyHandler.cs` | 1 | #9 |
-| `TupleHandler.cs` / pointer types | 1 | #6 (latent) |
+| `TupleHandler.cs` / pointer types | 1 | #6 (FIXED) |
 | `TypeDatabase` / type projection | 1 | #12 |
 | `EveryProtocolEmitter.cs` / `SwiftTypeNameHelper.cs` | 6 | #13, #14, #15, #21, #22, #23 |
 | Swift wrapper extension emission | 2 | #16, #17 |
@@ -451,7 +452,7 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 | Mono runtime / interop | 2 | #18, #19 |
 | Already fixed | 1 | #5 |
 
-**Total**: 24 bugs cataloged (19 active, 3 fixed, 1 latent, 1 shared Mono/generator)
+**Total**: 24 bugs cataloged (17 active, 5 fixed, 0 latent, 1 shared Mono/generator, 1 already fixed)
 
 ## Priority for Fixes
 
@@ -463,7 +464,7 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 - Bug #23: Function-type metatype rendering — blocks Swift wrapper compilation
 
 **Medium priority** (affects specific type patterns):
-- Bug #2: Tuple return marshalling
+- ~~Bug #2: Tuple return marshalling~~ **FIXED**
 - Bug #3, #11: Protocol proxy/interface mismatch (related to #21)
 - Bug #7, #8: Generic type constructor/marshalling
 - Bug #13, #22: EveryProtocol return types and throws specifiers
@@ -472,7 +473,7 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 **Low priority** (edge cases or partially addressed):
 - Bug #4, #10: Operator edge cases (generic shifts, T1/T0)
 - Bug #5: ~~Overflow operators~~ (already fixed)
-- Bug #6: void* in ValueTuple (latent risk)
+- ~~Bug #6: void* in ValueTuple~~ **FIXED**
 - Bug #9: Duplicate property
 - Bug #12: AnyType constraint satisfaction
 - Bug #16, #17: Wrong argument labels, internal member access

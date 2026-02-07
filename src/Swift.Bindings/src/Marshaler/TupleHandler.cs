@@ -391,7 +391,7 @@ public class TupleHandler
             var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
             if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
                 return _existentialHandler.GetPInvokeExistentialType(protocolList);
-            return "void*";
+            return "IntPtr";
         }
 
         if (typeSpec is NamedTypeSpec namedType)
@@ -413,8 +413,8 @@ public class TupleHandler
                         return "IntPtr";
                     }
                 }
-                // Other bound generics → void*
-                return "void*";
+                // Other bound generics → IntPtr (opaque pointer, safe for C# generic type arguments)
+                return "IntPtr";
             }
 
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);

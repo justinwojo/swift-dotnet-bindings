@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 62 + ArraySlice normalization + CryptoSwift validation + Bug #24 + Bug #20 + Bugs #1, #4, #10 fixes)
-**Unit Tests**: 1,520 passed
+**Last Updated**: February 2026 (Phase 62 + ArraySlice normalization + CryptoSwift validation + Bug #24 + Bug #20 + Bugs #1, #4, #10 + Bugs #2, #6 fixes)
+**Unit Tests**: 1,524 passed
 **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 **Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie, CryptoSwift
 

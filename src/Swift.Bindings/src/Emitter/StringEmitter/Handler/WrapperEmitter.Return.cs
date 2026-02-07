@@ -147,10 +147,10 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Handle tuple return types - result is ValueTuple, return as-is
+            // Handle tuple return types - marshal each element individually
             if (_env.TupleHandler.IsTuple(returnArg))
             {
-                csWriter.WriteLine("return result;");
+                EmitTupleReturnMarshalling(csWriter, returnArg);
                 return;
             }
 
@@ -220,6 +220,59 @@ namespace BindingsGeneration
             }
 
             csWriter.WriteLine("return result;");
+        }
+
+        /// <summary>
+        /// Emits per-element marshalling for tuple return types.
+        /// Each tuple element is individually marshalled from its P/Invoke representation
+        /// to the corresponding C# type.
+        /// </summary>
+        private void EmitTupleReturnMarshalling(CSharpWriter csWriter, ArgumentDecl returnArg)
+        {
+            var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(returnArg);
+            if (tupleTypeSpec == null)
+            {
+                csWriter.WriteLine("return result;");
+                return;
+            }
+
+            var elements = tupleTypeSpec.Elements;
+            var marshalLines = new List<string>();
+            var resultElements = new List<string>();
+            bool needsMarshalling = false;
+
+            for (int i = 0; i < elements.Count; i++)
+            {
+                var element = elements[i];
+                var itemName = $"result.Item{i + 1}";
+                var resultName = $"elem{i}";
+                var csharpType = GetCSharpTypeForTupleElement(element);
+
+                var marshalCode = GetTupleElementMarshalCode(element, itemName, resultName, csharpType);
+                if (marshalCode != null)
+                {
+                    marshalLines.Add(marshalCode);
+                    // Check if this element actually needs marshalling (not a simple pass-through)
+                    if (!marshalCode.Contains($"= {itemName};"))
+                        needsMarshalling = true;
+                }
+
+                resultElements.Add(resultName);
+            }
+
+            // If no elements need marshalling, return directly
+            if (!needsMarshalling)
+            {
+                csWriter.WriteLine("return result;");
+                return;
+            }
+
+            // Emit per-element marshalling and tuple reconstruction
+            foreach (var line in marshalLines)
+            {
+                csWriter.WriteLine(line);
+            }
+            csWriter.WriteLine($"return ({string.Join(", ", resultElements)});");
         }
 
         /// <summary>
@@ -311,8 +364,8 @@ namespace BindingsGeneration
                         return "IntPtr";
                     }
                 }
-                // Other bound generics → void* (opaque pointer)
-                return "void*";
+                // Other bound generics → IntPtr (opaque pointer, safe for C# generic type arguments)
+                return "IntPtr";
             }
 
             if (element is NamedTypeSpec named)
@@ -342,7 +395,7 @@ namespace BindingsGeneration
                 return typeRecord.CSharpTypeName.FullyQualifiedName;
             }
 
-            return "void*";
+            return "IntPtr";
         }
 
         /// <summary>
@@ -386,7 +439,7 @@ namespace BindingsGeneration
         /// </summary>
         private string? GetTupleElementMarshalCode(TypeSpec element, string itemName, string resultName, string csharpType)
         {
-            // Handle Optional<T> types
+            // Handle bound generic types (Optional<T>, Array<T>, etc.)
             if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
             {
                 var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
@@ -411,6 +464,10 @@ namespace BindingsGeneration
                     // Non-ObjC optional: marshal from buffer
                     return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";
                 }
+
+                // Non-optional bound generics (e.g., SwiftArray<byte>): P/Invoke type is IntPtr
+                // The IntPtr IS the pointer value, so pass it directly (no address-of)
+                return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>({itemName});";
             }
 
             // Handle non-generic types
