@@ -506,9 +506,180 @@ public class ProtocolHandlerOutputTests
     [InlineData("Container<System.Int64>", false)]
     [InlineData("System.String", false)]
     [InlineData("Func<Swift.AnyType, System.Boolean>", true)]
+    [InlineData("Container<MyAnyTypeModel>", false)]   // substring false-positive guard
+    [InlineData("Container<AnyTypeHelper>", false)]     // prefix match guard
+    [InlineData("Container<SomeAnyType>", false)]       // suffix match guard
+    [InlineData("Container<_AnyType>", false)]          // underscore prefix guard
+    [InlineData("Container<AnyType_>", false)]          // underscore suffix guard
     public void ContainsAnyTypeGenericArg_DetectsCorrectly(string typeName, bool expected)
     {
         Assert.Equal(expected, ProtocolHandler.ContainsAnyTypeGenericArg(typeName));
+    }
+
+    [Fact]
+    public void Emit_PropertyWithAnyTypeGenericArg_SkipsPropertyOnInterfaceAndProxy()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.BatchedCollection"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BatchedCollection"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BatchedCollection"),
+                MetadataAccessor = "$s10TestModule17BatchedCollectionVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        // Property type: BatchedCollection<SomeUnknownProtocol> → BatchedCollection<Swift.AnyType>
+        var propertyTypeSpec = new NamedTypeSpec("TestModule.BatchedCollection");
+        propertyTypeSpec.GenericParameters.Add(new NamedTypeSpec("SomeUnknownProtocol"));
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "SwiftCollection",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SwiftCollection"),
+            MangledName = "$s10TestModule15SwiftCollectionP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "batchedItems",
+                    SwiftTypeSpec = propertyTypeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "batchedItems_Get",
+                                MangledName = "$s10TestModule15SwiftCollectionP12batchedItemsVg",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl> { CreateArgument(string.Empty, propertyTypeSpec, moduleDecl) },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                Visibility = Visibility.Public
+                            }
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDecl("toArray", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface should NOT contain the property with AnyType generic arg
+        Assert.DoesNotContain("BatchedItems", csOutput.Substring(0, csOutput.IndexOf("class SwiftCollectionProxy")));
+        // Proxy class should NOT contain the property
+        var proxyPart = csOutput.Substring(csOutput.IndexOf("class SwiftCollectionProxy"));
+        Assert.DoesNotContain("BatchedItems", proxyPart);
+        Assert.DoesNotContain("Receive_batchedItems", proxyPart);
+        // Proxy should still contain ToArray
+        Assert.Contains("public void ToArray()", proxyPart);
+        // Vtable struct fields must still exist (Swift layout preservation)
+        Assert.Contains("func_batchedItems_get", proxyPart);
+    }
+
+    [Fact]
+    public void Emit_SubscriptWithAnyTypeGenericArg_SkipsSubscriptOnInterfaceAndProxy()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Wrapper"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Wrapper"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Wrapper"),
+                MetadataAccessor = "$s10TestModule7WrapperVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        // Subscript return type: Wrapper<SomeUnknownProtocol> → Wrapper<Swift.AnyType>
+        var returnTypeSpec = new NamedTypeSpec("TestModule.Wrapper");
+        returnTypeSpec.GenericParameters.Add(new NamedTypeSpec("SomeUnknownProtocol"));
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "IndexedCollection",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.IndexedCollection"),
+            MangledName = "$s10TestModule17IndexedCollectionP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDecl("count", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>
+            {
+                new()
+                {
+                    Name = "subscript",
+                    MangledName = "$s10TestModule17IndexedCollectionP9subscriptSig",
+                    ReturnTypeSpec = returnTypeSpec,
+                    IsStatic = false,
+                    IndexParameters = new List<ArgumentDecl>
+                    {
+                        CreateArgument("index", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                    },
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl { Method = CreateMethodDecl("subscript_get", moduleDecl) }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface should NOT contain the subscript with AnyType generic arg
+        Assert.DoesNotContain("this[", csOutput.Substring(0, csOutput.IndexOf("class IndexedCollectionProxy")));
+        // Proxy class should NOT contain the subscript
+        var proxyPart = csOutput.Substring(csOutput.IndexOf("class IndexedCollectionProxy"));
+        Assert.DoesNotContain("this[", proxyPart.Substring(proxyPart.IndexOf("Interface Implementation")));
+        Assert.DoesNotContain("Receive_subscript_0", proxyPart);
+        // Proxy should still contain Count
+        Assert.Contains("public void Count()", proxyPart);
+        // Vtable struct fields must still exist (Swift layout preservation)
+        Assert.Contains("func_subscript_0_get", proxyPart);
     }
 
     #endregion

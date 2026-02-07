@@ -18,6 +18,8 @@ public partial class ProtocolProxyEmitter
     private readonly ILogger _logger;
     private readonly string _moduleName;
     private HashSet<string> _skippedMethodKeys = new HashSet<string>();
+    private HashSet<string> _skippedPropertyNames = new HashSet<string>();
+    private HashSet<int> _skippedSubscriptIndices = new HashSet<int>();
 
     public ProtocolProxyEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName)
     {
@@ -29,9 +31,14 @@ public partial class ProtocolProxyEmitter
     /// <summary>
     /// Emits the complete proxy class for a protocol.
     /// </summary>
-    public void EmitProxyClass(CSharpWriter writer, ProtocolDecl protocolDecl, HashSet<string>? skippedMethodKeys = null)
+    public void EmitProxyClass(CSharpWriter writer, ProtocolDecl protocolDecl,
+        HashSet<string>? skippedMethodKeys = null,
+        HashSet<string>? skippedPropertyNames = null,
+        HashSet<int>? skippedSubscriptIndices = null)
     {
         _skippedMethodKeys = skippedMethodKeys ?? new HashSet<string>();
+        _skippedPropertyNames = skippedPropertyNames ?? new HashSet<string>();
+        _skippedSubscriptIndices = skippedSubscriptIndices ?? new HashSet<int>();
 
         // Skip protocols with Self requirements - these require special handling
         // that can't be done with simple generic parameters

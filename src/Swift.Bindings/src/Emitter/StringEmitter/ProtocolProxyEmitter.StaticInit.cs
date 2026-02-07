@@ -73,6 +73,9 @@ public partial class ProtocolProxyEmitter
         {
             if (property.IsStatic)
                 continue;
+            // Skip assignment for properties that the interface skipped (field stays default/null)
+            if (_skippedPropertyNames.Contains(property.Name))
+                continue;
             EmitLocalVtablePropertyAssignment(writer, property, emittedLocalAssignments);
         }
 
@@ -86,7 +89,9 @@ public partial class ProtocolProxyEmitter
             var subscriptKey = $"subscript_{subscriptIndex}";
             if (emittedSubscripts.Add(subscriptKey))
             {
-                EmitLocalVtableSubscriptAssignment(writer, subscript, subscriptIndex);
+                // Skip assignment for subscripts that the interface skipped (field stays default/null)
+                if (!_skippedSubscriptIndices.Contains(subscriptIndex))
+                    EmitLocalVtableSubscriptAssignment(writer, subscript, subscriptIndex);
             }
             subscriptIndex++;
         }
@@ -133,6 +138,9 @@ public partial class ProtocolProxyEmitter
         {
             if (property.IsStatic)
                 continue;
+            // Skip assignment for properties that the interface skipped (field stays IntPtr.Zero)
+            if (_skippedPropertyNames.Contains(property.Name))
+                continue;
             EmitSwiftVtablePropertyAssignment(writer, property, emittedSwiftAssignments);
         }
 
@@ -146,7 +154,9 @@ public partial class ProtocolProxyEmitter
             var subscriptKey = $"subscript_{subscriptIndex}";
             if (emittedSubscripts.Add(subscriptKey))
             {
-                EmitSwiftVtableSubscriptAssignment(writer, subscript, subscriptIndex);
+                // Skip assignment for subscripts that the interface skipped (field stays IntPtr.Zero)
+                if (!_skippedSubscriptIndices.Contains(subscriptIndex))
+                    EmitSwiftVtableSubscriptAssignment(writer, subscript, subscriptIndex);
             }
             subscriptIndex++;
         }

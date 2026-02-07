@@ -18,6 +18,9 @@ public partial class ProtocolProxyEmitter
         {
             if (property.IsStatic)
                 continue;
+            // Skip receivers for properties that the interface skipped due to AnyType generic args
+            if (_skippedPropertyNames.Contains(property.Name))
+                continue;
             EmitPropertyReceivers(writer, property, protocolDecl, interfaceName, emittedReceivers);
         }
 
@@ -27,6 +30,12 @@ public partial class ProtocolProxyEmitter
         {
             if (subscript.IsStatic)
                 continue;
+            // Skip receivers for subscripts that the interface skipped due to AnyType generic args
+            if (_skippedSubscriptIndices.Contains(subscriptIndex))
+            {
+                subscriptIndex++;
+                continue;
+            }
             EmitSubscriptReceivers(writer, subscript, protocolDecl, interfaceName, subscriptIndex, emittedReceivers);
             subscriptIndex++;
         }

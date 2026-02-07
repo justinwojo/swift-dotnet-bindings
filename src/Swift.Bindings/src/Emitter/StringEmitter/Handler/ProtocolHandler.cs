@@ -90,6 +90,7 @@ namespace BindingsGeneration
             var emittedSubscripts = new HashSet<string>();
 
             // Emit properties as interface members
+            var skippedPropertyNames = new HashSet<string>();
             foreach (var propertyDecl in protocolDecl.Properties)
             {
                 // Skip static properties - C# interfaces cannot have static members as requirements
@@ -110,11 +111,23 @@ namespace BindingsGeneration
                     continue;
                 }
                 emittedProperties.Add(propertyKey);
+
+                // Check for AnyType as a generic type argument in the property type
+                if (HasAnyTypeGenericArgInPropertyType(propertyDecl, env.TypeDatabase, protocolDecl))
+                {
+                    skippedPropertyNames.Add(propertyDecl.Name);
+                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - type contains AnyType as generic type argument.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.AnyTypeFallback, "Property type contains AnyType as a generic type argument, which violates generic constraints.");
+                    continue;
+                }
+
                 EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase, protocolDecl);
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
             }
 
             // Emit subscripts as interface indexers
+            var skippedSubscriptIndices = new HashSet<int>();
+            int subscriptIndex = 0;
             foreach (var subscriptDecl in protocolDecl.Subscripts)
             {
                 // Skip static subscripts - C# interfaces cannot have static members as requirements
@@ -132,11 +145,24 @@ namespace BindingsGeneration
                 {
                     _logger.LogDebug($"Skipping duplicate subscript in interface {protocolDecl.Name}");
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol subscript signature.");
+                    subscriptIndex++;
                     continue;
                 }
                 emittedSubscripts.Add(subscriptKey);
+
+                // Check for AnyType as a generic type argument in the subscript signature
+                if (HasAnyTypeGenericArgInSubscriptSignature(subscriptDecl, env.TypeDatabase, protocolDecl))
+                {
+                    skippedSubscriptIndices.Add(subscriptIndex);
+                    _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - signature contains AnyType as generic type argument.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.AnyTypeFallback, "Subscript type contains AnyType as a generic type argument, which violates generic constraints.");
+                    subscriptIndex++;
+                    continue;
+                }
+
                 EmitInterfaceSubscript(csWriter, subscriptDecl, env.TypeDatabase, protocolDecl);
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Subscript, "subscript", protocolDecl);
+                subscriptIndex++;
             }
 
             // Emit methods as interface members
@@ -191,18 +217,19 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // Emit the proxy class that enables C# implementations of this protocol
-            EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys);
+            EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices);
         }
 
         /// <summary>
         /// Emits a proxy class that enables C# code to implement this protocol.
         /// The proxy wraps either a C# implementation or a Swift existential container.
         /// </summary>
-        private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase, HashSet<string> skippedMethodKeys)
+        private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
+            HashSet<string> skippedMethodKeys, HashSet<string> skippedPropertyNames, HashSet<int> skippedSubscriptIndices)
         {
             var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
             var proxyEmitter = new ProtocolProxyEmitter(typeDatabase, _logger, moduleName);
-            proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys);
+            proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices);
         }
 
         /// <summary>
@@ -564,6 +591,78 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Checks if a property's resolved C# type contains AnyType as a generic type argument.
+        /// Uses the same resolution chain as EmitInterfaceProperty.
+        /// </summary>
+        private bool HasAnyTypeGenericArgInPropertyType(PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            string csharpTypeName;
+            if (propertyDecl.SwiftTypeSpec is AssociatedTypeReferenceSpec assocRef)
+            {
+                csharpTypeName = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+            }
+            else if (boundGenericsHandler.IsBoundGeneric(propertyDecl))
+            {
+                csharpTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(propertyDecl);
+            }
+            else
+            {
+                csharpTypeName = typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+            }
+
+            return ContainsAnyTypeGenericArg(csharpTypeName);
+        }
+
+        /// <summary>
+        /// Checks if a subscript's resolved C# return type or index parameter types contain
+        /// AnyType as a generic type argument. Uses the same resolution chain as EmitInterfaceSubscript.
+        /// </summary>
+        private bool HasAnyTypeGenericArgInSubscriptSignature(SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Check return type
+            string returnTypeName;
+            if (subscriptDecl.ReturnTypeSpec is AssociatedTypeReferenceSpec assocRef)
+            {
+                returnTypeName = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+            }
+            else if (subscriptDecl.ReturnTypeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            {
+                var tempProperty = new PropertyDecl
+                {
+                    Name = "_temp",
+                    SwiftTypeSpec = subscriptDecl.ReturnTypeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                };
+                returnTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+            }
+            else
+            {
+                returnTypeName = typeDatabase.GetTypeRecordOrAnyType(subscriptDecl.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
+            }
+
+            if (ContainsAnyTypeGenericArg(returnTypeName))
+                return true;
+
+            // Check index parameters
+            foreach (var param in subscriptDecl.IndexParameters)
+            {
+                var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                if (ContainsAnyTypeGenericArg(paramTypeName))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Checks if a protocol method's resolved C# signature contains AnyType as a
         /// generic type argument (e.g., BatchedCollection&lt;AnyType&gt;), which would
         /// violate generic constraints and produce uncompilable code.
@@ -632,8 +731,21 @@ namespace BindingsGeneration
             int angleBracketStart = csharpTypeName.IndexOf('<');
             if (angleBracketStart < 0) return false;
             var genericPart = csharpTypeName.Substring(angleBracketStart);
-            return genericPart.Contains("AnyType");
+            // Token-aware match: ensure "AnyType" is a standalone type identifier,
+            // not part of a larger name (e.g., reject "MyAnyTypeModel")
+            int idx = 0;
+            while ((idx = genericPart.IndexOf("AnyType", idx, StringComparison.Ordinal)) >= 0)
+            {
+                bool startOk = idx == 0 || !IsIdentifierChar(genericPart[idx - 1]);
+                int end = idx + "AnyType".Length;
+                bool endOk = end >= genericPart.Length || !IsIdentifierChar(genericPart[end]);
+                if (startOk && endOk) return true;
+                idx++;
+            }
+            return false;
         }
+
+        private static bool IsIdentifierChar(char c) => char.IsLetterOrDigit(c) || c == '_';
 
     }
 }

@@ -20,6 +20,9 @@ public partial class ProtocolProxyEmitter
                 continue;
             if (emittedMembers.Add($"property:{property.Name}"))
             {
+                // Skip properties that the interface skipped due to AnyType generic args
+                if (_skippedPropertyNames.Contains(property.Name))
+                    continue;
                 EmitPropertyImplementation(writer, property, protocolDecl, dispatchEmitter);
             }
         }
@@ -33,6 +36,12 @@ public partial class ProtocolProxyEmitter
             var key = $"subscript:{subscriptIndex}";
             if (emittedMembers.Add(key))
             {
+                // Skip subscripts that the interface skipped due to AnyType generic args
+                if (_skippedSubscriptIndices.Contains(subscriptIndex))
+                {
+                    subscriptIndex++;
+                    continue;
+                }
                 EmitSubscriptImplementation(writer, subscript, protocolDecl, subscriptIndex);
             }
             subscriptIndex++;
