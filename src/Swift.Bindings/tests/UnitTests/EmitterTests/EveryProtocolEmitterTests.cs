@@ -542,6 +542,61 @@ public class EveryProtocolEmitterTests
         Assert.Contains("func_gamma_2", extensionOutput);
     }
 
+    [Fact]
+    public void EmitProtocolConformance_ThrowingFirstThenNonThrowing_EmitsNonThrowingWithOverride()
+    {
+        // Protocol A has "process()" as throwing, Protocol B has it as non-throwing.
+        // In Swift, a non-throwing func satisfies both requirements, but a throwing func
+        // does NOT satisfy a non-throwing requirement. The non-throwing variant must win.
+        var throwingProtocol = CreateSimpleProtocol("ThrowingProto");
+        throwingProtocol.Methods.Add(CreateMethodDecl("process", throws: true));
+
+        var nonThrowingProtocol = CreateSimpleProtocol("NonThrowingProto");
+        nonThrowingProtocol.Methods.Add(CreateMethodDecl("process", throws: false));
+
+        // Build the non-throwing overrides set (simulates what ModuleHandler.ComputeNonThrowingOverrides does)
+        var nonThrowingOverrides = new HashSet<string> { "process()" };
+        var globalSignatures = new HashSet<string>();
+
+        // Throwing protocol emitted first — but the override forces non-throwing
+        var throwingOutput = EmitFullConformance(throwingProtocol, globalSignatures, nonThrowingOverrides);
+
+        // The emitted method should NOT have "throws" because the override suppresses it
+        Assert.Contains("public func process()", throwingOutput);
+        Assert.DoesNotContain("throws", throwingOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_NonThrowingOnlySignature_NoOverrideNeeded()
+    {
+        // When a method is only non-throwing (no conflict), it should emit normally
+        var protocol = CreateSimpleProtocol("SimpleProto");
+        protocol.Methods.Add(CreateMethodDecl("process", throws: false));
+
+        var nonThrowingOverrides = new HashSet<string>(); // empty — no conflicts
+        var globalSignatures = new HashSet<string>();
+
+        var output = EmitFullConformance(protocol, globalSignatures, nonThrowingOverrides);
+
+        Assert.Contains("public func process()", output);
+        Assert.DoesNotContain("throws", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_ThrowingOnlySignature_EmitsThrowsNormally()
+    {
+        // When a method is only throwing (no conflict), it should emit with throws
+        var protocol = CreateSimpleProtocol("ThrowingOnly");
+        protocol.Methods.Add(CreateMethodDecl("process", throws: true));
+
+        var nonThrowingOverrides = new HashSet<string>(); // empty — no conflicts
+        var globalSignatures = new HashSet<string>();
+
+        var output = EmitFullConformance(protocol, globalSignatures, nonThrowingOverrides);
+
+        Assert.Contains("public func process() throws", output);
+    }
+
     #endregion
 
     #region Helper Methods
@@ -591,6 +646,14 @@ public class EveryProtocolEmitterTests
         var stringWriter = new StringWriter();
         var writer = new SwiftWriter(stringWriter);
         _emitter.EmitProtocolConformance(writer, protocolDecl, globalSignatures);
+        return stringWriter.ToString();
+    }
+
+    private string EmitFullConformance(ProtocolDecl protocolDecl, HashSet<string> globalSignatures, HashSet<string> nonThrowingOverrides)
+    {
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocolDecl, globalSignatures, nonThrowingOverrides);
         return stringWriter.ToString();
     }
 

@@ -403,13 +403,52 @@ namespace BindingsGeneration
             // Key is the Swift method signature (e.g., "removeAll()")
             var globalEmittedSignatures = new HashSet<string>();
 
+            // Pre-pass: determine which method signatures must be emitted non-throwing.
+            // In Swift, a non-throwing method satisfies both throwing and non-throwing protocol
+            // requirements, but a throwing method does NOT satisfy a non-throwing requirement.
+            // If two protocols share the same method signature but differ in throws-ness,
+            // we must emit the non-throwing variant to satisfy both conformances.
+            var nonThrowingOverrides = ComputeNonThrowingOverrides(suitableProtocols, emitter);
+
             // Emit conformances and witness dispatch accessors for each suitable protocol
             foreach (var protocolDecl in suitableProtocols)
             {
                 _logger.LogDebug($"Emitting EveryProtocol conformance for {protocolDecl.Name}");
-                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures);
+                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
                 dispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
             }
+        }
+
+        /// <summary>
+        /// Pre-computes the set of method signatures that must be emitted non-throwing.
+        /// A signature is included if it appears as both throwing (in at least one protocol)
+        /// and non-throwing (in at least one other protocol). The non-throwing variant must
+        /// win because it satisfies both requirements.
+        /// </summary>
+        private static HashSet<string> ComputeNonThrowingOverrides(
+            IEnumerable<ProtocolDecl> protocols, EveryProtocolEmitter emitter)
+        {
+            var throwingSignatures = new HashSet<string>();
+            var nonThrowingSignatures = new HashSet<string>();
+
+            foreach (var protocol in protocols)
+            {
+                foreach (var method in protocol.Methods)
+                {
+                    if (method.IsConstructor || method.MethodType == MethodType.Static)
+                        continue;
+
+                    var sig = emitter.GetSwiftMethodSignature(method);
+                    if (method.Throws)
+                        throwingSignatures.Add(sig);
+                    else
+                        nonThrowingSignatures.Add(sig);
+                }
+            }
+
+            // Only override signatures that appear in BOTH sets (i.e., a real conflict exists)
+            nonThrowingSignatures.IntersectWith(throwingSignatures);
+            return nonThrowingSignatures;
         }
     }
 }

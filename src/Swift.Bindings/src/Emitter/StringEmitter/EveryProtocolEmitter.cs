@@ -132,7 +132,9 @@ public class EveryProtocolEmitter
     /// Each method/property implementation calls back to C# via the vtable.
     /// </summary>
     /// <param name="globalEmittedSignatures">Optional set to track signatures globally across protocols.</param>
-    private void EmitProtocolExtension(SwiftWriter writer, ProtocolDecl protocolDecl, HashSet<string>? globalEmittedSignatures)
+    /// <param name="nonThrowingOverrides">Signatures where throws must be suppressed (see EmitProtocolConformance).</param>
+    private void EmitProtocolExtension(SwiftWriter writer, ProtocolDecl protocolDecl,
+        HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides = null)
     {
         var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
         var vtableInstanceName = GetVtableInstanceName(protocolDecl);
@@ -230,7 +232,12 @@ public class EveryProtocolEmitter
             // Only emit method implementation for new methods (not within-protocol duplicates)
             if (isNewMethod)
             {
-                EmitMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx);
+                // If this signature is in the non-throwing overrides set, suppress throws.
+                // A non-throwing method satisfies both throwing and non-throwing protocol requirements,
+                // but a throwing method does NOT satisfy a non-throwing requirement.
+                var effectiveThrows = method.Throws &&
+                    !(nonThrowingOverrides?.Contains(swiftSignature) == true);
+                EmitMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, effectiveThrows);
             }
         }
 
@@ -241,8 +248,9 @@ public class EveryProtocolEmitter
 
     /// <summary>
     /// Gets a Swift method signature string for conflict detection.
+    /// Internal so ModuleHandler can use it for pre-pass analysis.
     /// </summary>
-    private string GetSwiftMethodSignature(MethodDecl method)
+    internal string GetSwiftMethodSignature(MethodDecl method)
     {
         // Generate signature like "removeAll()" or "process(_:)"
         var paramLabels = new List<string>();
@@ -339,6 +347,19 @@ public class EveryProtocolEmitter
     /// When provided, methods that would conflict with already-emitted signatures are skipped.</param>
     public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl, HashSet<string>? globalEmittedSignatures)
     {
+        EmitProtocolConformance(writer, protocolDecl, globalEmittedSignatures, null);
+    }
+
+    /// <summary>
+    /// Emits all Swift code needed for a protocol's EveryProtocol conformance.
+    /// </summary>
+    /// <param name="globalEmittedSignatures">Optional set to track method signatures globally across protocols.</param>
+    /// <param name="nonThrowingOverrides">Signatures where non-throwing MUST be emitted because at least one
+    /// protocol requires the method non-throwing. A non-throwing method satisfies both throwing and non-throwing
+    /// protocol requirements, but a throwing method does NOT satisfy a non-throwing requirement.</param>
+    public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl,
+        HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides)
+    {
         // Skip protocols with Self requirements - these require special handling
         // that can't be done with simple type erasure to Any
         if (protocolDecl.HasSelfRequirement)
@@ -359,7 +380,7 @@ public class EveryProtocolEmitter
         }
 
         EmitProtocolVtableStruct(writer, protocolDecl);
-        EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures);
+        EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
         EmitSetVtableFunction(writer, protocolDecl);
         EmitWitnessTableGetter(writer, protocolDecl);
     }
@@ -532,7 +553,8 @@ public class EveryProtocolEmitter
         writer.WriteLine();
     }
 
-    private void EmitMethodImplementation(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string vtableInstanceName, int index)
+    private void EmitMethodImplementation(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        string vtableInstanceName, int index, bool? effectiveThrows = null)
     {
         // Build parameter list with proper Swift labeling
         var parameters = new List<string>();
@@ -566,7 +588,7 @@ public class EveryProtocolEmitter
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? GetSwiftTypeName(returnType!) : "Void";
         var returnTypeNameForMetatype = hasReturn ? GetSwiftTypeNameForMetatype(returnType!) : "Void";
-        var throwsDecl = method.Throws ? " throws" : "";
+        var throwsDecl = (effectiveThrows ?? method.Throws) ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         var fieldName = GetMethodVtableFieldName(method, index);

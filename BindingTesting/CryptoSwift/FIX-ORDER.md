@@ -92,11 +92,17 @@ Ordered by runtime-unblocking impact. Each step includes generator files, assert
 
 **Bug #22b (rethrows)**: Investigated and documented as WON'T FIX — the Swift ABI JSON format only provides `"throwing": true` (boolean), with no way to distinguish `throws` from `rethrows`. CryptoSwift has no `rethrows` methods.
 
-**Tests added** (8 tests):
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/EveryProtocolEmitterTests.cs` — 3 tests (throwing method emits throws, throwing method with return type, non-throwing method no throws)
+**Additional fix** (from Codex review): Cross-protocol dedup was throws-order-dependent. If a throwing protocol was emitted first and a non-throwing protocol with the same method came second, the non-throwing requirement couldn't be satisfied. Fixed with a pre-pass in `ModuleHandler.cs` that computes `nonThrowingOverrides` — signatures where non-throwing MUST win. The emitter now suppresses `throws` for these signatures.
+
+**Files** (modified for dedup fix):
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs` — added `ComputeNonThrowingOverrides()` pre-pass
+- `src/Swift.Bindings/src/Emitter/StringEmitter/EveryProtocolEmitter.cs` — `GetSwiftMethodSignature` → internal; `EmitMethodImplementation` accepts `effectiveThrows` override; `EmitProtocolConformance` threads `nonThrowingOverrides` through
+
+**Tests added** (11 tests):
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/EveryProtocolEmitterTests.cs` — 6 tests (3 throws emission + 3 cross-protocol dedup override)
 - `src/Swift.Bindings/tests/UnitTests/EmitterTests/SwiftTypeNameHelperTests.cs` — 5 tests (function type metatype parenthesization, optional return, simple named type, existential type, throwing function type)
 
-**Validation**: `verify-fix-order.sh 6` → PASS=2 FAIL=0 WARN=1. Unit tests: 1537 passed. TestFramework: 61/61, 0 degraded.
+**Validation**: `verify-fix-order.sh 6` → PASS=2 FAIL=0 WARN=1. Unit tests: 1540 passed. TestFramework: 61/61, 0 degraded.
 
 ---
 
