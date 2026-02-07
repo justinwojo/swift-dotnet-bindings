@@ -27,7 +27,7 @@ CryptoSwift is a complex, real-world Swift library (103 types, 501 members) that
 
 These bugs originally produced C# code that won't compile. The current generated file compiles because 24 broken members are stubbed with `NotImplementedException` (e.g., Swift.CryptoSwift.cs:5430, :17866). Each entry below describes the generator's incorrect output before stubbing.
 
-### Bug 1: Operators missing SwiftIndirectResult allocation
+### Bug 1: Operators missing SwiftIndirectResult allocation — FIXED
 
 **Component**: `OperatorHandler.cs`
 **Impact**: 14 operators on BigUInt (6) and BigInt (8)
@@ -99,7 +99,7 @@ When a protocol method has a closure parameter, the interface declares it as `An
 
 ---
 
-### Bug 4: Shift operators with unresolved generic type parameter
+### Bug 4: Shift operators with unresolved generic type parameter — FIXED
 
 **Component**: `OperatorHandler.cs`
 **Impact**: 4 operators on BigUInt, 4 on BigInt
@@ -190,7 +190,7 @@ Both a static `KeySize` (from Cipher protocol conformance) and an instance `KeyS
 
 ---
 
-### Bug 10: Generic operator uses wrong type parameter name (T1 vs T0)
+### Bug 10: Generic operator uses wrong type parameter name (T1 vs T0) — FIXED
 
 **Component**: `OperatorHandler.cs`
 **Impact**: 4 operators on BatchedCollectionIndex

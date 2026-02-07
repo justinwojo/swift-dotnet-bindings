@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace BindingsGeneration
@@ -169,11 +170,20 @@ namespace BindingsGeneration
                 return false;
             }
 
+            // Bug #4: C# operators cannot have generic type parameters. If any operand is a bare
+            // generic type parameter (e.g., shift operators with generic second operand), skip.
+            if (methodDecl.CSSignature.Skip(1).Any(arg => arg.IsGeneric))
+            {
+                _logger.LogWarning($"Operator '{symbol}' has generic type parameter operand — C# operators cannot be generic.");
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedSignature, "C# operators cannot have generic type parameters.");
+                return false;
+            }
+
             // Get type name with generics for proper operator parameter types (fixes CS0563, CS0305)
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(parentDecl);
 
             // Emit the operator wrapper and PInvoke
-            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics, pinvokeHelperContext, isReferenceType);
+            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv);
             EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext);
             ReportCollector.RecordMemberEmitted(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl);
             csWriter.WriteLine();
@@ -189,18 +199,54 @@ namespace BindingsGeneration
         /// <param name="typeName">The base type name (without generics).</param>
         /// <param name="typeNameWithGenerics">The type name with generic parameters (e.g., "DateResult&lt;T0&gt;").</param>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
-        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, bool isReferenceType)
+        /// <param name="isReferenceType">Whether the containing type is a reference type.</param>
+        /// <param name="methodEnv">The method environment for indirect result detection.</param>
+        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, bool isReferenceType, MethodEnvironment methodEnv)
         {
             var symbol = operatorDecl.OperatorSymbol;
             var csOperator = GetCSharpOperator(symbol)!;
             var wrapperSignature = signatureHandler.GetWrapperSignature();
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
+            // Bug #1: Detect if the operator return type requires indirect result allocation.
+            // Non-frozen/class return types (BigUInt, BigInt) need SwiftIndirectResult.
+            bool requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
+
+            // Bug #10: Build generic parameter remapping for operators on generic types.
+            // Operators are static methods that may have method-own generic params shadowing the
+            // type's generics (e.g., τ_1_0 for the method vs τ_0_0 for the type). Since C# operators
+            // can't be generic, remap method-own params back to type-level names (T1 → T0, etc.).
+            Dictionary<string, string>? genericRemap = null;
+            var parentTypeDecl = operatorDecl.ParentDecl as TypeDecl;
+            if (parentTypeDecl is { IsGeneric: true } && operatorDecl.UnderlyingMethod.IsGeneric)
+            {
+                var typeParamNames = new HashSet<string>(parentTypeDecl.GenericParameters.Select(p => p.TypeName));
+                var methodOnlyParams = operatorDecl.UnderlyingMethod.GenericParameters
+                    .Where(p => !typeParamNames.Contains(p.TypeName))
+                    .ToList();
+
+                if (methodOnlyParams.Count > 0 && methodOnlyParams.Count <= parentTypeDecl.GenericParameters.Count)
+                {
+                    genericRemap = new Dictionary<string, string>();
+                    int typeParamCount = parentTypeDecl.GenericParameters.Count;
+                    for (int i = 0; i < methodOnlyParams.Count; i++)
+                    {
+                        var methodParamCsName = $"T{typeParamCount + i}";
+                        var typeParamCsName = $"T{i}";
+                        if (methodParamCsName != typeParamCsName)
+                            genericRemap[methodParamCsName] = typeParamCsName;
+                    }
+                }
+            }
+
             // Helper function to fix generic type names in operator signatures
             // When the type is the containing type, replace with the generic version
             // e.g., "DateResult" -> "DateResult<T0>" for generic types
             string FixGenericTypeName(string type) =>
                 type == typeName ? typeNameWithGenerics : type;
+
+            // Helper to apply method-own → type-level generic parameter remapping (Bug #10)
+            string ApplyRemap(string type) => ApplyGenericRemap(type, genericRemap);
 
             if (operatorDecl.Kind == OperatorKind.Binary)
             {
@@ -214,9 +260,9 @@ namespace BindingsGeneration
 
                 var leftParam = parameters[0];
                 var rightParam = parameters[1];
-                var returnType = FixGenericTypeName(wrapperSignature.ReturnType);
-                var leftType = FixGenericTypeName(leftParam.Type);
-                var rightType = FixGenericTypeName(rightParam.Type);
+                var returnType = ApplyRemap(FixGenericTypeName(wrapperSignature.ReturnType));
+                var leftType = ApplyRemap(FixGenericTypeName(leftParam.Type));
+                var rightType = ApplyRemap(FixGenericTypeName(rightParam.Type));
 
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({leftType} {leftParam.Name}, {rightType} {rightParam.Name})");
                 csWriter.WriteLine("{");
@@ -238,27 +284,8 @@ namespace BindingsGeneration
                     }
                 }
 
-                // Call the PInvoke method (via helper class for generic types)
-                var pinvokeName = GetPInvokeMethodName(symbol);
-                var callArgs = pInvokeSignature.CallArgumentsString();
-
-                if (pinvokeHelperContext != null)
-                {
-                    // For generic types, call through the helper class with metadata arguments
-                    var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
-                    var fullArgs = string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
-                    if (returnType == "void")
-                        csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
-                    else
-                        csWriter.WriteLine($"return {pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
-                }
-                else
-                {
-                    if (returnType == "void")
-                        csWriter.WriteLine($"{pinvokeName}({callArgs});");
-                    else
-                        csWriter.WriteLine($"return {pinvokeName}({callArgs});");
-                }
+                // Emit P/Invoke call and return
+                EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult);
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -274,19 +301,57 @@ namespace BindingsGeneration
                 }
 
                 var operand = parameters[0];
-                var returnType = FixGenericTypeName(wrapperSignature.ReturnType);
-                var operandType = FixGenericTypeName(operand.Type);
+                var returnType = ApplyRemap(FixGenericTypeName(wrapperSignature.ReturnType));
+                var operandType = ApplyRemap(FixGenericTypeName(operand.Type));
 
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({operandType} {operand.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
-                var pinvokeName = GetPInvokeMethodName(symbol);
-                var callArgs = pInvokeSignature.CallArgumentsString();
+                // Emit P/Invoke call and return
+                EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult);
 
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+        }
+
+        /// <summary>
+        /// Emits the P/Invoke call and return statement for an operator.
+        /// Handles both direct returns and indirect result allocation (Bug #1).
+        /// </summary>
+        private void EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult)
+        {
+            var pinvokeName = GetPInvokeMethodName(symbol);
+            var callArgs = pInvokeSignature.CallArgumentsString();
+
+            if (requiresIndirectResult)
+            {
+                // Allocate memory and create SwiftIndirectResult for non-frozen/class return types
+                csWriter.WriteLine($"var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
+                csWriter.WriteLine($"var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);");
+                csWriter.WriteLine($"var swiftIndirectResult = new SwiftIndirectResult(payload);");
+
+                // Call P/Invoke (void return — writes through SwiftIndirectResult)
                 if (pinvokeHelperContext != null)
                 {
-                    // For generic types, call through the helper class with metadata arguments
+                    var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
+                    var fullArgs = string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
+                    csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
+                }
+                else
+                {
+                    csWriter.WriteLine($"{pinvokeName}({callArgs});");
+                }
+
+                // Marshal the result back from the indirect result buffer
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr(swiftIndirectResult.Value));");
+            }
+            else
+            {
+                // Direct call path
+                if (pinvokeHelperContext != null)
+                {
                     var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
                     var fullArgs = string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
                     if (returnType == "void")
@@ -301,10 +366,21 @@ namespace BindingsGeneration
                     else
                         csWriter.WriteLine($"return {pinvokeName}({callArgs});");
                 }
-
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
             }
+        }
+
+        /// <summary>
+        /// Applies generic parameter remapping to a type string using word-boundary matching.
+        /// Used for Bug #10: operator method-own generic params (T1) → type-level params (T0).
+        /// </summary>
+        private static string ApplyGenericRemap(string type, Dictionary<string, string>? remap)
+        {
+            if (remap == null || remap.Count == 0) return type;
+            foreach (var kvp in remap)
+            {
+                type = Regex.Replace(type, $@"\b{kvp.Key}\b", kvp.Value);
+            }
+            return type;
         }
 
         /// <summary>

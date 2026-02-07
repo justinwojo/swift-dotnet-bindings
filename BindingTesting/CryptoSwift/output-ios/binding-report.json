@@ -1,12 +1,12 @@
 {
   "ModuleName": "CryptoSwift",
-  "GeneratedAt": "2026-02-07T17:38:52.944265+00:00",
+  "GeneratedAt": "2026-02-07T18:07:53.690179+00:00",
   "TotalTypes": 103,
   "EmittedTypes": 103,
   "SkippedTypes": 0,
   "TotalMembers": 501,
-  "EmittedMembers": 459,
-  "SkippedMembers": 42,
+  "EmittedMembers": 455,
+  "SkippedMembers": 46,
   "SynthesizedMembers": 199,
   "SkippedItems": [
     {
@@ -186,6 +186,22 @@
       "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
     },
     {
+      "Kind": "Operator",
+      "Name": ">>",
+      "ContainingType": "CryptoSwift.CS.BigUInt",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# operators cannot have generic type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Operator",
+      "Name": "<<",
+      "ContainingType": "CryptoSwift.CS.BigUInt",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# operators cannot have generic type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
       "Kind": "Method",
       "Name": "compare",
       "ContainingType": "CryptoSwift.CS.BigUInt",
@@ -259,11 +275,27 @@
     },
     {
       "Kind": "Operator",
+      "Name": "<<",
+      "ContainingType": "CryptoSwift.CS.BigInt",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# operators cannot have generic type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Operator",
       "Name": "<<=",
       "ContainingType": "CryptoSwift.CS.BigInt",
       "Reason": "UnsupportedType",
       "Details": "Operator '<<=' has no C# equivalent.",
       "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
+    },
+    {
+      "Kind": "Operator",
+      "Name": ">>",
+      "ContainingType": "CryptoSwift.CS.BigInt",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# operators cannot have generic type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Operator",

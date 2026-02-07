@@ -38,23 +38,17 @@ Ordered by runtime-unblocking impact. Each step includes generator files, assert
 
 ---
 
-## Step 3: Operator return ABI (Bugs #1, #4, #10)
+## Step 3: Operator return ABI (Bugs #1, #4, #10) — DONE
 
 **Unblocks**: 14 arithmetic operators on BigUInt/BigInt, plus generic operator edge cases
 
-**Files**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/OperatorHandler.cs`
+**Files** (modified):
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/OperatorHandler.cs` — added SwiftIndirectResult allocation for non-frozen returns (Bug #1), skip generic operand operators (Bug #4), T1→T0 generic remap (Bug #10)
 
-**Assertions**:
-- Non-frozen/class return types allocate + use `SwiftIndirectResult` (Bug #1)
-- Generic shift operators are skipped with skip reason, or concretized to `int` (Bug #4)
-- Generic type parameter uses enclosing type's `T0`, not `T1` (Bug #10)
+**Tests added** (3 tests):
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/OperatorHandlerOutputTests.cs` — 3 tests (indirect result allocation, generic operand skip, T1→T0 remap)
 
-**Tests**:
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/OperatorHandlerOutputTests.cs`
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/OperatorHandlerTests.cs`
-
-**Validation**: Regenerate → BigUInt `operator /` has `SwiftIndirectResult` allocation; shift operators skipped or use `int`
+**Validation**: `verify-fix-order.sh 3` → PASS=3 FAIL=0. Unit tests: 1520 passed. TestFramework: 61/61, 0 degraded.
 
 ---
 
