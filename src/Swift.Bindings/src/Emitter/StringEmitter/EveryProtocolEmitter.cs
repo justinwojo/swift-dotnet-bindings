@@ -566,11 +566,12 @@ public class EveryProtocolEmitter
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? GetSwiftTypeName(returnType!) : "Void";
         var returnTypeNameForMetatype = hasReturn ? GetSwiftTypeNameForMetatype(returnType!) : "Void";
+        var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         var fieldName = GetMethodVtableFieldName(method, index);
 
-        writer.WriteLine($"public func {method.Name}({parametersString}){returnDecl} {{");
+        writer.WriteLine($"public func {method.Name}({parametersString}){throwsDecl}{returnDecl} {{");
         writer.Indent++;
 
         // Build argument copies for passing to vtable function

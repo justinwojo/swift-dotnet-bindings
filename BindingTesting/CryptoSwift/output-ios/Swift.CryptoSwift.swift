@@ -36,7 +36,7 @@ private var _cryptor_vtable = Cryptor_vtable()
 
 // EveryProtocol conformance to Cryptor
 extension EveryProtocol: CryptoSwift.Cryptor {
-    public func seek(to: Swift.Int) {
+    public func seek(to: Swift.Int) throws {
             var selfProto: CryptoSwift.Cryptor = self
             var toCopy = to
                 _cryptor_vtable.func_seek_0!(
@@ -98,7 +98,7 @@ extension EveryProtocol: CryptoSwift.BlockMode {
         }
     }
     
-    public func worker(blockSize: Swift.Int, cipherOperation: (Swift.ArraySlice<Swift.UInt8>) -> (Swift.Array<Swift.UInt8>)?, encryptionOperation: (Swift.ArraySlice<Swift.UInt8>) -> (Swift.Array<Swift.UInt8>)?) -> any CryptoSwift.CipherModeWorker {
+    public func worker(blockSize: Swift.Int, cipherOperation: (Swift.ArraySlice<Swift.UInt8>) -> (Swift.Array<Swift.UInt8>)?, encryptionOperation: (Swift.ArraySlice<Swift.UInt8>) -> (Swift.Array<Swift.UInt8>)?) throws -> any CryptoSwift.CipherModeWorker {
             var selfProto: CryptoSwift.BlockMode = self
             var blockSizeCopy = blockSize
                 var cipherOperationCopy = cipherOperation
@@ -156,7 +156,7 @@ extension EveryProtocol: CryptoSwift.Cipher {
         }
     }
     
-    public func encrypt(_ arg0: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
+    public func encrypt(_ arg0: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Cipher = self
             var arg0Copy = arg0
                 let resultPtr = _cipher_vtable.func_encrypt_0!(
@@ -164,7 +164,7 @@ extension EveryProtocol: CryptoSwift.Cipher {
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func decrypt(_ arg0: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
+    public func decrypt(_ arg0: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Cipher = self
             var arg0Copy = arg0
                 let resultPtr = _cipher_vtable.func_decrypt_2!(
@@ -231,7 +231,7 @@ private var _updatable_vtable = Updatable_vtable()
 
 // EveryProtocol conformance to Updatable
 extension EveryProtocol: CryptoSwift.Updatable {
-    public func update(withBytes: Swift.ArraySlice<Swift.UInt8>, isLast: Swift.Bool) -> Swift.Array<Swift.UInt8> {
+    public func update(withBytes: Swift.ArraySlice<Swift.UInt8>, isLast: Swift.Bool) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Updatable = self
             var withBytesCopy = withBytes
                 var isLastCopy = isLast
@@ -240,7 +240,7 @@ extension EveryProtocol: CryptoSwift.Updatable {
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func update(withBytes: Swift.ArraySlice<Swift.UInt8>, isLast: Swift.Bool, output: (Swift.Array<Swift.UInt8>) -> Void) {
+    public func update(withBytes: Swift.ArraySlice<Swift.UInt8>, isLast: Swift.Bool, output: (Swift.Array<Swift.UInt8>) -> Void) throws {
             var selfProto: CryptoSwift.Updatable = self
             var withBytesCopy = withBytes
                 var isLastCopy = isLast
@@ -249,7 +249,7 @@ extension EveryProtocol: CryptoSwift.Updatable {
                 _updatable_vtable.csVTHandle, &selfProto, &withBytesCopy, &isLastCopy, &outputCopy)
     }
     
-    public func finish(withBytes: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
+    public func finish(withBytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Updatable = self
             var withBytesCopy = withBytes
                 let resultPtr = _updatable_vtable.func_finish_4!(
@@ -257,14 +257,14 @@ extension EveryProtocol: CryptoSwift.Updatable {
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func finish() -> Swift.Array<Swift.UInt8> {
+    public func finish() throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Updatable = self
             let resultPtr = _updatable_vtable.func_finish_6!(
                 _updatable_vtable.csVTHandle, &selfProto)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func finish(withBytes: Swift.ArraySlice<Swift.UInt8>, output: (Swift.Array<Swift.UInt8>) -> Void) {
+    public func finish(withBytes: Swift.ArraySlice<Swift.UInt8>, output: (Swift.Array<Swift.UInt8>) -> Void) throws {
             var selfProto: CryptoSwift.Updatable = self
             var withBytesCopy = withBytes
                 var outputCopy = output
@@ -272,7 +272,7 @@ extension EveryProtocol: CryptoSwift.Updatable {
                 _updatable_vtable.csVTHandle, &selfProto, &withBytesCopy, &outputCopy)
     }
     
-    public func finish(output: (Swift.Array<Swift.UInt8>) -> Void) {
+    public func finish(output: (Swift.Array<Swift.UInt8>) -> Void) throws {
             var selfProto: CryptoSwift.Updatable = self
             var outputCopy = output
                 _updatable_vtable.func_finish_9!(
@@ -315,14 +315,14 @@ private var _cryptors_vtable = Cryptors_vtable()
 
 // EveryProtocol conformance to Cryptors
 extension EveryProtocol: CryptoSwift.Cryptors {
-    public func makeEncryptor() -> Any {
+    public func makeEncryptor() throws -> Any {
             var selfProto: CryptoSwift.Cryptors = self
             let resultPtr = _cryptors_vtable.func_makeEncryptor_0!(
                 _cryptors_vtable.csVTHandle, &selfProto)
             return resultPtr.assumingMemoryBound(to: Any.self).pointee
     }
     
-    public func makeDecryptor() -> Any {
+    public func makeDecryptor() throws -> Any {
             var selfProto: CryptoSwift.Cryptors = self
             let resultPtr = _cryptors_vtable.func_makeDecryptor_1!(
                 _cryptors_vtable.csVTHandle, &selfProto)
@@ -372,7 +372,7 @@ extension EveryProtocol: CryptoSwift.CipherModeWorker {
             var selfProto: CryptoSwift.CipherModeWorker = self
             let resultPtr = _cipherModeWorker_vtable.func_cipherOperation_get!(
                 _cipherModeWorker_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: (Swift.ArraySlice<Swift.UInt8>) -> (Swift.Array<Swift.UInt8>)?.self).pointee
+            return resultPtr.assumingMemoryBound(to: ((Swift.ArraySlice<Swift.UInt8>) -> (Swift.Array<Swift.UInt8>)?).self).pointee
         }
     }
     
@@ -545,7 +545,7 @@ private var _finalizingEncryptModeWorker_vtable = FinalizingEncryptModeWorker_vt
 
 // EveryProtocol conformance to FinalizingEncryptModeWorker
 extension EveryProtocol: CryptoSwift.FinalizingEncryptModeWorker {
-    public func finalize(encrypt: Swift.ArraySlice<Swift.UInt8>) -> Swift.ArraySlice<Swift.UInt8> {
+    public func finalize(encrypt: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
             var selfProto: CryptoSwift.FinalizingEncryptModeWorker = self
             var encryptCopy = encrypt
                 let resultPtr = _finalizingEncryptModeWorker_vtable.func_finalize_0!(
@@ -590,7 +590,7 @@ private var _finalizingDecryptModeWorker_vtable = FinalizingDecryptModeWorker_vt
 
 // EveryProtocol conformance to FinalizingDecryptModeWorker
 extension EveryProtocol: CryptoSwift.FinalizingDecryptModeWorker {
-    public func willDecryptLast(bytes: Swift.ArraySlice<Swift.UInt8>) -> Swift.ArraySlice<Swift.UInt8> {
+    public func willDecryptLast(bytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
             var selfProto: CryptoSwift.FinalizingDecryptModeWorker = self
             var bytesCopy = bytes
                 let resultPtr = _finalizingDecryptModeWorker_vtable.func_willDecryptLast_0!(
@@ -598,7 +598,7 @@ extension EveryProtocol: CryptoSwift.FinalizingDecryptModeWorker {
             return resultPtr.assumingMemoryBound(to: Swift.ArraySlice<Swift.UInt8>.self).pointee
     }
     
-    public func didDecryptLast(bytes: Swift.ArraySlice<Swift.UInt8>) -> Swift.ArraySlice<Swift.UInt8> {
+    public func didDecryptLast(bytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
             var selfProto: CryptoSwift.FinalizingDecryptModeWorker = self
             var bytesCopy = bytes
                 let resultPtr = _finalizingDecryptModeWorker_vtable.func_didDecryptLast_1!(
@@ -606,7 +606,7 @@ extension EveryProtocol: CryptoSwift.FinalizingDecryptModeWorker {
             return resultPtr.assumingMemoryBound(to: Swift.ArraySlice<Swift.UInt8>.self).pointee
     }
     
-    public func finalize(decrypt: Swift.ArraySlice<Swift.UInt8>) -> Swift.ArraySlice<Swift.UInt8> {
+    public func finalize(decrypt: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
             var selfProto: CryptoSwift.FinalizingDecryptModeWorker = self
             var decryptCopy = decrypt
                 let resultPtr = _finalizingDecryptModeWorker_vtable.func_finalize_2!(
@@ -653,7 +653,7 @@ private var _signature_vtable = Signature_vtable()
 
 // EveryProtocol conformance to Signature
 extension EveryProtocol: CryptoSwift.Signature {
-    public func sign(_ arg0: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
+    public func sign(_ arg0: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Signature = self
             var arg0Copy = arg0
                 let resultPtr = _signature_vtable.func_sign_0!(
@@ -661,7 +661,7 @@ extension EveryProtocol: CryptoSwift.Signature {
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func verify(signature: Swift.ArraySlice<Swift.UInt8>, for forValue: Swift.ArraySlice<Swift.UInt8>) -> Swift.Bool {
+    public func verify(signature: Swift.ArraySlice<Swift.UInt8>, for forValue: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Bool {
             var selfProto: CryptoSwift.Signature = self
             var signatureCopy = signature
                 var forValueCopy = forValue
@@ -774,7 +774,7 @@ private var _authenticator_vtable = Authenticator_vtable()
 
 // EveryProtocol conformance to Authenticator
 extension EveryProtocol: CryptoSwift.Authenticator {
-    public func authenticate(_ arg0: Swift.Array<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
+    public func authenticate(_ arg0: Swift.Array<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Authenticator = self
             var arg0Copy = arg0
                 let resultPtr = _authenticator_vtable.func_authenticate_0!(

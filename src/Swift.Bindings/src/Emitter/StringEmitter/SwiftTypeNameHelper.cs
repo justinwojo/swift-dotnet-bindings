@@ -105,6 +105,11 @@ public static class SwiftTypeNameHelper
     public static string GetSwiftTypeNameForMetatype(TypeSpec? typeSpec)
     {
         var typeName = GetSwiftTypeName(typeSpec);
+
+        // Function types need parenthesization: ((A) -> B).self, not (A) -> B.self
+        if (typeSpec is ClosureTypeSpec)
+            return $"({typeName})";
+
         // If the type starts with "any ", it needs to be wrapped in parentheses for .self access
         if (typeName.StartsWith("any ") || typeName.StartsWith("(any "))
         {

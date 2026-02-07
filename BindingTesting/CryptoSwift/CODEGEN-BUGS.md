@@ -232,14 +232,15 @@ The `Batched` method returns `BatchedCollection<AnyType>`, but `BatchedCollectio
 
 The generated Swift wrapper has compilation errors that prevent it from being used. A hand-written subset (`SwiftBindings.swift`) is used instead.
 
-### Bug 13: EveryProtocol conformance — return type mismatch (Cryptors)
+### Bug 13: EveryProtocol conformance — return type mismatch (Cryptors) — PARTIALLY FIXED
+
+**Status**: `throws` specifier fixed in Step 6 of FIX-ORDER.md. Return type `Any` instead of `any Cryptor & Updatable` (protocol composition existential) remains — this is a separate issue outside Step 6 scope.
 
 **Error**: `type 'EveryProtocol' does not conform to protocol 'Cryptors'`
 
-The generated conformance declares `makeEncryptor() -> Any` and `makeDecryptor() -> Any`, but the actual protocol requires `makeEncryptor() throws -> any Cryptor & Updatable`.
+The generated conformance now correctly declares `makeEncryptor() throws -> Any` and `makeDecryptor() throws -> Any`. The `throws` keyword is emitted when `method.Throws == true` in the ABI.
 
-**Issues**:
-- Missing `throws` specifier
+**Remaining issue**:
 - Return type `Any` instead of `any Cryptor & Updatable` (protocol composition existential)
 
 ---
@@ -344,58 +345,50 @@ When `EmitProtocolConformance()` skipped a method due to global signature dedupl
 
 ---
 
-### Bug 22a: EveryProtocol `throws` not emitted
+### Bug 22a: EveryProtocol `throws` not emitted — FIXED
+
+**Status**: Fixed in Step 6 of FIX-ORDER.md
 
 **Component**: `EveryProtocolEmitter.cs`
 **Impact**: All protocol methods with `throws` specifier
-**Severity**: Medium
 
-The `EmitMethodImplementation()` at line 562 emits:
+The `EmitMethodImplementation()` now checks `method.Throws` and inserts the `throws` keyword between the parameter list and return arrow:
 ```swift
-public func {method.Name}({parametersString}){returnDecl} {
+public func {method.Name}({parametersString}) throws{returnDecl} {
 ```
 
-The `throws` keyword is never appended to the method signature, even though `MethodDecl.Throws` is parsed and available (defined at `MethodDecl.cs:41`). The `method.Throws` property is never checked during EveryProtocol emission.
-
-This is a generalized version of Bug #13's `throws` issue — it affects ALL protocol methods that throw, not just `Cryptors.makeEncryptor()`.
-
-**Impact**:
-- Swift protocol conformance check fails: method signature doesn't match protocol requirement
-- C# side has no way to handle Swift errors from these methods
-
-### Bug 22b: `rethrows` not representable in model
+### Bug 22b: `rethrows` not representable in model — WON'T FIX (ABI limitation)
 
 **Component**: `MethodDecl.cs` (model fidelity)
 **Impact**: All protocol methods with `rethrows` specifier
-**Severity**: Medium
+**Severity**: Low
 
 The method model only has `bool Throws` (`MethodDecl.cs:41`), which is a boolean. Swift distinguishes between `throws` and `rethrows` — the latter means the method only throws if one of its closure parameters throws. The current model collapses both to `true`, losing the `rethrows` semantic.
 
-**Fix requires two steps**:
-1. Emission fix (Bug 22a): Check `method.Throws` in `EveryProtocolEmitter.cs:562` and append `throws`
-2. Model fix: Change `bool Throws` to an enum (`None`/`Throws`/`Rethrows`) in `MethodDecl.cs`, update the parser to populate it, and emit `rethrows` where appropriate
+**Investigation result**: The Swift ABI JSON format only provides `"throwing": true` as a boolean field. There is no `rethrows`, `throwing_kind`, or `declAttributes` entry that distinguishes `throws` from `rethrows`. This is a Swift toolchain limitation — the ABI JSON schema does not encode the distinction. CryptoSwift has no `rethrows` methods in its `.swiftinterface`, so this has zero practical impact on the current library.
+
+A `ThrowsKind` enum would only be useful if/when the Swift ABI JSON format is extended to distinguish the two. For now, emitting `throws` (from Bug #22a fix) is correct for all cases — `throws` is a superset of `rethrows` in terms of conformance.
 
 ---
 
-### Bug 23: Function-type metatype rendering invalid in Swift wrappers
+### Bug 23: Function-type metatype rendering invalid in Swift wrappers — FIXED
 
-**Component**: Swift wrapper emitter (return type metatype generation)
+**Status**: Fixed in Step 6 of FIX-ORDER.md
+
+**Component**: `SwiftTypeNameHelper.cs` (`GetSwiftTypeNameForMetatype()`)
 **Impact**: Any wrapper method that returns a closure/function type
-**Severity**: Critical (blocks Swift wrapper compilation)
 
-**Generated (broken)** (Swift.CryptoSwift.swift:375):
+The `GetSwiftTypeNameForMetatype()` method now detects `ClosureTypeSpec` and wraps function types in parentheses before `.self` metatype access:
+
+**Before** (broken):
 ```swift
 return resultPtr.assumingMemoryBound(to: (Swift.ArraySlice<Swift.UInt8>) -> (Swift.Array<Swift.UInt8>)?.self).pointee
 ```
 
-The `.self` metatype accessor is applied directly to a function type literal, which is syntactically invalid in Swift. Function types need parentheses around them before `.self`.
-
-**Expected (correct)**:
+**After** (fixed):
 ```swift
 return resultPtr.assumingMemoryBound(to: ((Swift.ArraySlice<Swift.UInt8>) -> (Swift.Array<Swift.UInt8>)?).self).pointee
 ```
-
-**Root cause**: The `.self` metatype suffix is appended by template code in `EveryProtocolEmitter.cs:589`. The underlying helper `SwiftTypeNameHelper.cs:74` (`GetSwiftTypeNameForMetatype()`) fails to parenthesize function types before metatype use. Function types like `(A) -> B` need wrapping as `((A) -> B).self`, but the helper returns the bare function type string.
 
 ---
 
@@ -438,13 +431,13 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 | `PropertyHandler.cs` | 1 | #9 |
 | `TupleHandler.cs` / pointer types | 1 | #6 (FIXED) |
 | `TypeDatabase` / type projection | 1 | #12 |
-| `EveryProtocolEmitter.cs` / `SwiftTypeNameHelper.cs` | 6 | #13, #14, #15, #21 (FIXED), #22, #23 |
+| `EveryProtocolEmitter.cs` / `SwiftTypeNameHelper.cs` | 6 | #13 (PARTIAL), #14, #15, #21 (FIXED), #22a (FIXED), #22b (WON'T FIX), #23 (FIXED) |
 | Swift wrapper extension emission | 2 | #16, #17 |
 | `PInvokeEmitter.cs` | 1 | #24 (FIXED) |
 | Mono runtime / interop | 2 | #18, #19 |
 | Already fixed | 1 | #5 |
 
-**Total**: 24 bugs cataloged (16 active, 6 fixed, 0 latent, 1 shared Mono/generator, 1 already fixed)
+**Total**: 24 bugs cataloged (13 active, 9 fixed, 1 won't fix, 1 shared Mono/generator, 1 already fixed)
 
 ## Priority for Fixes
 
@@ -453,13 +446,14 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 - Bug #1: Operator indirect result — 14 broken operators
 - ~~Bug #21: EveryProtocol vtable/index desync — all protocol conformances broken~~ **FIXED**
 - ~~Bug #24: Frozen enum P/Invoke — runtime crash on any enum parameter~~ **FIXED**
-- Bug #23: Function-type metatype rendering — blocks Swift wrapper compilation
+- ~~Bug #23: Function-type metatype rendering — blocks Swift wrapper compilation~~ **FIXED**
 
 **Medium priority** (affects specific type patterns):
 - ~~Bug #2: Tuple return marshalling~~ **FIXED**
 - Bug #3, #11: Protocol proxy/interface mismatch (related to #21)
 - Bug #7, #8: Generic type constructor/marshalling
-- Bug #13, #22: EveryProtocol return types and throws specifiers
+- Bug #13: EveryProtocol return type `Any` instead of protocol composition existential (throws portion **FIXED**)
+- ~~Bug #22a: EveryProtocol throws emission~~ **FIXED**
 - Bug #14, #15: EveryProtocol conformance to non-existent/internal types
 
 **Low priority** (edge cases or partially addressed):

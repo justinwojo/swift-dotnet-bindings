@@ -347,6 +347,51 @@ public class EveryProtocolEmitterTests
         Assert.Contains("public var callback: @escaping (Swift.Int) async throws -> Swift.String", output);
     }
 
+    [Fact]
+    public void EmitProtocolExtension_ThrowingMethod_EmitsThrowsKeyword()
+    {
+        var protocolDecl = CreateSimpleProtocol("Throwable");
+        protocolDecl.Methods.Add(CreateMethodDecl("doWork", throws: true));
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.Contains("public func doWork() throws", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_ThrowingMethodWithReturn_EmitsThrowsBeforeArrow()
+    {
+        var protocolDecl = CreateSimpleProtocol("Throwable");
+        var method = CreateMethodDecl("makeItem", throws: true);
+        // Replace return type with a non-void type
+        method.CSSignature[0] = new ArgumentDecl
+        {
+            Name = "",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        protocolDecl.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.Contains("public func makeItem() throws -> Swift.Int", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_NonThrowingMethod_NoThrowsKeyword()
+    {
+        var protocolDecl = CreateProtocolWithMethod("NonThrowing", "doWork");
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.Contains("public func doWork()", output);
+        Assert.DoesNotContain("throws", output);
+    }
+
     #endregion
 
     #region Witness Table Getter Tests
@@ -614,7 +659,7 @@ public class EveryProtocolEmitterTests
         return protocol;
     }
 
-    private static MethodDecl CreateMethodDecl(string name, MethodType methodType = MethodType.Instance, bool isConstructor = false)
+    private static MethodDecl CreateMethodDecl(string name, MethodType methodType = MethodType.Instance, bool isConstructor = false, bool throws = false)
     {
         return new MethodDecl
         {
@@ -638,7 +683,7 @@ public class EveryProtocolEmitterTests
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = null,
             ModuleDecl = null,
-            Throws = false,
+            Throws = throws,
             IsAsync = false,
             Visibility = Visibility.Public
         };

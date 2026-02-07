@@ -82,25 +82,21 @@ Ordered by runtime-unblocking impact. Each step includes generator files, assert
 
 ---
 
-## Step 6: EveryProtocol signature correctness (Bugs #22a, #22b, #23, #13)
+## Step 6: EveryProtocol signature correctness (Bugs #22a, #22b, #23, #13) — DONE
 
 **Unblocks**: Swift wrapper compilation for protocols with throwing methods or function-type returns
 
-**Files**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/EveryProtocolEmitter.cs` (line 562 — throws emission)
-- `src/Swift.Bindings/src/Emitter/StringEmitter/SwiftTypeNameHelper.cs` (line 74 — metatype parenthesization)
-- `src/Swift.Bindings/src/Model/TypeDecl/MethodDecl.cs` (line 41 — `bool Throws` → enum for rethrows)
+**Files** (modified):
+- `src/Swift.Bindings/src/Emitter/StringEmitter/EveryProtocolEmitter.cs` — check `method.Throws` and insert `throws` keyword before return arrow
+- `src/Swift.Bindings/src/Emitter/StringEmitter/SwiftTypeNameHelper.cs` — detect ClosureTypeSpec in `GetSwiftTypeNameForMetatype()` and wrap in parentheses
 
-**Assertions**:
-- Generated methods include `throws` where `method.Throws == true` (Bug #22a)
-- Function types are parenthesized before `.self` metatype suffix (Bug #23)
-- Consider `Throws` → `ThrowsKind` enum (`None`/`Throws`/`Rethrows`) for model fidelity (Bug #22b)
+**Bug #22b (rethrows)**: Investigated and documented as WON'T FIX — the Swift ABI JSON format only provides `"throwing": true` (boolean), with no way to distinguish `throws` from `rethrows`. CryptoSwift has no `rethrows` methods.
 
-**Tests**:
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/EveryProtocolEmitterTests.cs`
-- `src/Swift.Bindings/tests/UnitTests/TypeSpecTests`
+**Tests added** (8 tests):
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/EveryProtocolEmitterTests.cs` — 3 tests (throwing method emits throws, throwing method with return type, non-throwing method no throws)
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/SwiftTypeNameHelperTests.cs` — 5 tests (function type metatype parenthesization, optional return, simple named type, existential type, throwing function type)
 
-**Validation**: Regenerate → `Cryptors.makeEncryptor()` conformance has `throws`; no bare `.self` on function types
+**Validation**: `verify-fix-order.sh 6` → PASS=2 FAIL=0 WARN=1. Unit tests: 1537 passed. TestFramework: 61/61, 0 degraded.
 
 ---
 
