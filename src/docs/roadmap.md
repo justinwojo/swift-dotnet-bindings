@@ -27,7 +27,7 @@ All P1 items from `testing-gaps.md` completed (Gaps 0a, 0b, 1, 2). Unit tests: 1
 
 ## Phase B: Enable Disabled TestFramework Features
 
-**Status**: In Progress — B1, B2 done, next is B3
+**Status**: In Progress — B1, B2, B3 done, next is B5
 **Effort**: Medium (3-5 sessions)
 **Why**: 51 must-pass features sit in `.disabled/` dirs. Enabling them closes the gap from 61 toward 90+. This also builds the regression safety net needed before the sweeping emitter changes in Phase D.
 
@@ -57,11 +57,17 @@ Work one batch at a time. After each batch: run `build-and-test.sh`, check cover
   - Tier 3 deferred: IntContainer (array param not properly marshalled through SwiftIndirectResult ctor path)
 - File: `TestFramework/RuntimeTestsApp/Generics/BasicGenericTests.cs` (class: `BasicGenericTests`)
 
-### B3. Protocols (testing-gaps.md Gap 4) — THIRD
-- Enable protocol Swift sources (may need version guard adjustments)
-- Verify protocol interfaces appear in generated bindings
-- Add runtime tests for witness dispatch (blittable + String property getters/setters, method dispatch)
-- File: `TestFramework/RuntimeTestsApp/Protocols/WitnessDispatchTests.cs`
+### B3. Protocols (testing-gaps.md Gap 4) — DONE
+- Enabled `Composition.swift.disabled` → `Composition.swift`, `NonBlittableProtocols.swift.disabled` → `NonBlittableProtocols.swift`
+- Unguarded `Person` struct in `Conformance.swift` (was guarded because Nameable/Ageable were in disabled file)
+- Coverage: 81/81 passing (up from 79), 0 degraded. 2 new must-pass features: `protocol_composition`, `non_blittable_protocols`
+- Generator: 20 protocols detected, 105/115 types emitted, 439 members, 0 skipped members
+- Unit tests: 1,603 passed, 0 regressions
+- Runtime tests: 23 PASS, 0 FAIL at Tier 2 (10 Tier 3 skipped). Tests exercise **interface projection** (concrete type → interface cast → concrete P/Invoke). Existential witness-dispatch proxy tests deferred — requires wrapper library in runtime bundle.
+  - Tier 1: Conformance checks (SimpleItem, MutableItem, DisplayItem, MultiConformingValue, Person), blittable property get/set through ISwiftHasValue, Int32 methods through ISwiftAddable/Subtractable/Multipliable/Dividable, ISwiftAgeable.Age
+  - Tier 2: String method dispatch through ISwiftDescribable.Describe(), ISwiftDisplayable.Display(), inherited Describe through Displayable, ISwiftStringProcessor.Process()/GetOutput(), ISwiftStatusHandler (GetCurrentStatus/TransitionStatus/HandleStatus with TaskStatus enum), TaskStatus.RawValue (Int32)
+  - Tier 3 deferred: TaskPriority-based tests (String raw value enum needs SwiftBindings wrapper lib not bundled in runtime app), SwiftString property access through interfaces (Mono JIT crash risk)
+- File: `TestFramework/RuntimeTestsApp/Protocols/WitnessDispatchTests.cs` (class: `BasicProtocolDispatchTests`)
 
 ### B5. Complex Compositions (testing-gaps.md Gap 5) — FOURTH
 - Add `TestFramework/Sources/SwiftBindingsTestLib/Patterns/RealWorldCompositions.swift`
@@ -219,6 +225,7 @@ Once B, D, E are complete:
 - Test pipeline catches regressions automatically
 
 Next priorities would be:
+- **API Documentation Generation** — Extract Swift doc comments via `swift-symbolgraph-extract` and emit as C# XML doc comments (`/// <summary>`, `/// <param>`, etc.) on generated bindings. Every `.framework`/`.xcframework` ships `.swiftdoc` files that the tool reads — no source code needed. Join key: `usr` field shared between symbol graph JSON and ABI JSON. Steps: (1) run `swift-symbolgraph-extract` in build pipeline, (2) parse `docComment.lines` from symbol graph JSON, (3) add `Documentation` property to `BaseDecl` model, (4) emit XML doc comments in emitter. Tested coverage: Nuke 87%, BlinkID 50%, StoreKit 54%, SwiftBindingsTestLib 96%.
 - Phase 3 DX work (MSBuild SDK, project templates) from `north-star.md`
 - `@_cdecl` wrapper generation for all methods (bypasses Mono JIT bugs #18, #19 for runtime)
 - Remaining P3/P4 items from `testing-gaps.md` (PInvokeEmitter tests, golden snapshots, CI)

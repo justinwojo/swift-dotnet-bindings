@@ -62,9 +62,7 @@ public struct DisplayItem: Displayable {
     }
 }
 
-#if swift(>=99.0)
 /// A struct conforming to Nameable & Ageable for composition tests.
-/// Guarded because Nameable & Ageable are in Composition.swift.disabled.
 public struct Person: Nameable, Ageable {
     public let name: String
     public let age: Int32
@@ -74,4 +72,3 @@ public struct Person: Nameable, Ageable {
         self.age = age
     }
 }
-#endif
