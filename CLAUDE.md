@@ -390,6 +390,13 @@ cd TestFramework
 ./build-and-test.sh && ./run-runtime-tests.sh --tier 2 --timeout 90
 ```
 
+**After modifying only runtime test C# code (no generator/Swift changes):**
+```bash
+cd TestFramework
+./run-runtime-tests.sh --skip-regen --safe-only --tier 2      # fast, no crash
+./run-runtime-tests.sh --skip-regen --class MyTestClass --tier 2  # single class
+```
+
 **After modifying only the test app:**
 ```bash
 cd BindingTesting/Nuke
@@ -422,7 +429,7 @@ These scripts are for the comprehensive Swift test library that systematically e
 | `./regenerate-bindings.sh` | Generate C# bindings from the xcframework | After generator code changes or xcframework rebuild |
 | `./build-and-test.sh` | Full pipeline: build xcframework + generate bindings + bridge | One-step validation after any changes |
 | `./build-bridge.sh` | Compile generated SwiftUI bridge + test helpers into framework | After regenerating bindings or editing bridge helpers |
-| `./run-runtime-tests.sh` | Build + run runtime tests on iOS Simulator | Runtime validation (Tier 1 default, `--tier 2` for SwiftUI bridge) |
+| `./run-runtime-tests.sh` | Build + run runtime tests on iOS Simulator | Runtime validation (see flags below) |
 | `./generate-coverage-report.sh` | Generate `coverage-matrix.json` from ABI + binding report | After regenerating bindings, to assess coverage |
 
 **Typical workflow:**
@@ -436,7 +443,23 @@ cd TestFramework
 ```bash
 cd TestFramework
 ./run-runtime-tests.sh --tier 2 --timeout 90
+
+# Focused single-class iteration (fast — incremental build, one class):
+./run-runtime-tests.sh --skip-regen --class AsyncMethodTests --tier 2
+
+# All safe tests, no Mono JIT crash (skip [CrashRisk] classes):
+./run-runtime-tests.sh --skip-regen --safe-only --tier 2
+
+# Full gate run (crash-risk classes sort last, safe results captured first):
+./run-runtime-tests.sh --tier 2 --timeout 120
 ```
+
+**`run-runtime-tests.sh` flags:**
+- `--tier N` — Run tests up to tier N (default: 1)
+- `--skip-regen` — Skip binding regeneration; also enables incremental build (no `rm -rf bin obj`)
+- `--timeout N` — Timeout in seconds (default: 60)
+- `--class NAME` — Run only the named test class (exact match, case-insensitive). Overrides `--safe-only`.
+- `--safe-only` — Skip test classes marked with `[CrashRisk]` (e.g., EnumMarshallingTests, ClosureTests that trigger Mono JIT assertion)
 
 **Output files:**
 - `output/Swift.SwiftBindingsTestLib.cs` - Generated C# bindings

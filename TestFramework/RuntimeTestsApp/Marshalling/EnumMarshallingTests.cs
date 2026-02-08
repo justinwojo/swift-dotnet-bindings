@@ -11,6 +11,7 @@ namespace RuntimeTestsApp.Marshalling;
 /// Tests for enum marshalling: case construction, raw value round-trip,
 /// associated values, nested enums, and the Phase 55 string enum regression.
 /// </summary>
+[CrashRisk("Mono JIT assertion on CreateOrder/Shape P/Invoke")]
 public class EnumMarshallingTests : TestBase
 {
     public EnumMarshallingTests(TestResults results) : base(results) { }

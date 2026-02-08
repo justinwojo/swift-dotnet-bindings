@@ -7,11 +7,14 @@
 #
 # Usage:
 #   ./run-runtime-tests.sh [--tier 1|2|3] [--skip-regen] [--timeout SECONDS]
+#                          [--class ClassName] [--safe-only]
 #
 # Options:
-#   --tier N       Run tests up to tier N (default: 1)
-#   --skip-regen   Skip binding regeneration (use existing bindings)
-#   --timeout N    Timeout in seconds (default: 60)
+#   --tier N          Run tests up to tier N (default: 1)
+#   --skip-regen      Skip binding regeneration (use existing bindings)
+#   --timeout N       Timeout in seconds (default: 60)
+#   --class NAME      Run only the named test class (exact match, case-insensitive)
+#   --safe-only       Skip test classes marked with [CrashRisk]
 
 set -e
 
@@ -21,6 +24,8 @@ cd "$(dirname "$0")"
 TIER=1
 SKIP_REGEN=false
 TIMEOUT=60
+CLASS_FILTER=""
+SAFE_ONLY=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -37,6 +42,14 @@ while [[ $# -gt 0 ]]; do
             TIMEOUT="$2"
             shift 2
             ;;
+        --class)
+            CLASS_FILTER="$2"
+            shift 2
+            ;;
+        --safe-only)
+            SAFE_ONLY=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
             exit 1
@@ -51,6 +64,8 @@ echo ""
 echo "Tier: $TIER"
 echo "Skip regeneration: $SKIP_REGEN"
 echo "Timeout: ${TIMEOUT}s"
+[ -n "$CLASS_FILTER" ] && echo "Class filter: $CLASS_FILTER"
+[ "$SAFE_ONLY" = true ] && echo "Safe-only: yes"
 echo ""
 
 # Step 1: Build xcframework and regenerate bindings (unless skipped)
@@ -106,8 +121,10 @@ fi
 echo "--- Step 2: Build RuntimeTestsApp ---"
 cd RuntimeTestsApp
 
-# Clean previous build
-rm -rf bin obj
+# Clean previous build only when bindings may have changed
+if [ "$SKIP_REGEN" = false ]; then
+    rm -rf bin obj
+fi
 
 # Build for iOS Simulator
 echo "Building for iOS Simulator (arm64)..."
@@ -178,6 +195,12 @@ LAUNCH_ARGS="--tier $TIER"
 if [ "$TIER" -ge 3 ]; then
     LAUNCH_ARGS="$LAUNCH_ARGS --flake-detect"
     echo "Flake detection enabled (Tier 3): each test runs 3x"
+fi
+if [ -n "$CLASS_FILTER" ]; then
+    LAUNCH_ARGS="$LAUNCH_ARGS --class $CLASS_FILTER"
+fi
+if [ "$SAFE_ONLY" = true ]; then
+    LAUNCH_ARGS="$LAUNCH_ARGS --safe-only"
 fi
 
 echo "Launching app (timeout: ${TIMEOUT}s)..."

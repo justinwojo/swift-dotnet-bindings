@@ -10,6 +10,7 @@ namespace RuntimeTestsApp.Closures;
 /// Tests for closure marshalling: @convention(c), escaping with primitives/struct,
 /// closure returns, and struct closure methods.
 /// </summary>
+[CrashRisk("Mono JIT assertion on closure P/Invoke")]
 public class ClosureTests : TestBase
 {
     public ClosureTests(TestResults results) : base(results) { }
