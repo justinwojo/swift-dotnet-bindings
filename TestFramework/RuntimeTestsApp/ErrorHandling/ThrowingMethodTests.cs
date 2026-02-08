@@ -1,0 +1,412 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using RuntimeTestsApp.Infrastructure;
+using Swift;
+using Swift.Runtime;
+using Swift.SwiftBindingsTestLib;
+
+namespace RuntimeTestsApp.ErrorHandling;
+
+/// <summary>
+/// Tests for Swift error handling: throwing free functions, struct throwing methods,
+/// typed throws (Swift 6.0), and error propagation across the interop boundary.
+/// All throwing Swift methods surface as SwiftRuntimeException in C#.
+/// Named with "Basic" prefix to sort alphabetically before crash-prone tests
+/// (EnumMarshallingTests.TestOrderContainerCreation triggers Mono JIT crash).
+///
+/// Tier strategy:
+/// - Tier 1: Blittable-only throwing (Int32 params/returns) — works on success AND error paths
+/// - Tier 2: SwiftString-involving success paths + factory-created structs — works on success paths
+/// - Tier 3: Deferred due to Mono/.NET runtime limitations:
+///   (a) SwiftString + error path — Mono JIT crash (CallConvSwift + SwiftString + SwiftError)
+///   (b) Non-blittable types — InvalidProgramException (tuple enum cases, non-frozen struct ctors)
+///   (c) Missing entry points — enum case symbols not exported from dylib
+/// </summary>
+public class BasicThrowingTests : TestBase
+{
+    public BasicThrowingTests(TestResults results) : base(results) { }
+
+    // ===================================================================
+    // Tier 1: Blittable throwing functions (Int32-only, both success and error paths)
+    // ===================================================================
+
+    #region Free Throwing Functions — Blittable
+
+    [TestTier(TestTier.Tier1)]
+    public void TestDivideSuccess()
+    {
+        var result = SwiftBindingsTestLib.Divide(10, 2);
+        AssertEqual(5, result, "10 / 2 = 5");
+        TestLogger.Info($"Divide(10, 2) = {result}");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestDivideNegativeValues()
+    {
+        var result = SwiftBindingsTestLib.Divide(-15, 3);
+        AssertEqual(-5, result, "-15 / 3 = -5");
+
+        var result2 = SwiftBindingsTestLib.Divide(15, -3);
+        AssertEqual(-5, result2, "15 / -3 = -5");
+        TestLogger.Info("Divide with negative values passed");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestDivideByZeroThrows()
+    {
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            SwiftBindingsTestLib.Divide(10, 0);
+        }, "Divide by zero should throw SwiftRuntimeException");
+        TestLogger.Info("Divide by zero correctly threw SwiftRuntimeException");
+    }
+
+    #endregion
+
+    #region ThrowingStruct — Blittable
+
+    [TestTier(TestTier.Tier1)]
+    public void TestThrowingStructConstruction()
+    {
+        var ts = new ThrowingStruct(42);
+        AssertEqual(42, ts.Value, "ThrowingStruct.Value");
+        TestLogger.Info($"ThrowingStruct created with value={ts.Value}");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestThrowingStructDivideBySuccess()
+    {
+        var ts = new ThrowingStruct(100);
+        var result = ts.DivideBy(5);
+        AssertEqual(20, result, "100 / 5 = 20");
+        TestLogger.Info($"ThrowingStruct(100).DivideBy(5) = {result}");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestThrowingStructValidatePositiveSuccess()
+    {
+        var ts = new ThrowingStruct(10);
+        var result = ts.ValidatePositive();
+        AssertEqual(10, result, "Positive value validates");
+        TestLogger.Info($"ThrowingStruct(10).ValidatePositive() = {result}");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestThrowingStructStaticSafeDivideSuccess()
+    {
+        var result = ThrowingStruct.SafeDivide(20, 4);
+        AssertEqual(5, result, "20 / 4 = 5");
+        TestLogger.Info($"ThrowingStruct.SafeDivide(20, 4) = {result}");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestThrowingStructDivideByZeroThrows()
+    {
+        var ts = new ThrowingStruct(100);
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            ts.DivideBy(0);
+        }, "DivideBy(0) should throw");
+        TestLogger.Info("ThrowingStruct.DivideBy(0) correctly threw");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestThrowingStructValidatePositiveNegativeThrows()
+    {
+        var ts = new ThrowingStruct(-5);
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            ts.ValidatePositive();
+        }, "ValidatePositive on negative should throw");
+        TestLogger.Info("ThrowingStruct(-5).ValidatePositive() correctly threw");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestThrowingStructValidatePositiveZeroThrows()
+    {
+        var ts = new ThrowingStruct(0);
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            ts.ValidatePositive();
+        }, "ValidatePositive on zero should throw");
+        TestLogger.Info("ThrowingStruct(0).ValidatePositive() correctly threw");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestThrowingStructStaticSafeDivideByZeroThrows()
+    {
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            ThrowingStruct.SafeDivide(10, 0);
+        }, "SafeDivide by zero should throw");
+        TestLogger.Info("ThrowingStruct.SafeDivide(10, 0) correctly threw");
+    }
+
+    #endregion
+
+    #region Typed Throws — Blittable (ValidateRange: Int32-only)
+
+    [TestTier(TestTier.Tier1)]
+    public void TestValidateRangeSuccess()
+    {
+        var result = SwiftBindingsTestLib.ValidateRange(5, 1, 10);
+        AssertEqual(5, result, "ValidateRange(5, 1, 10)");
+        TestLogger.Info($"ValidateRange(5, 1, 10) = {result}");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestValidateRangeBelowMinThrows()
+    {
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            SwiftBindingsTestLib.ValidateRange(0, 1, 10);
+        }, "ValidateRange below min should throw");
+        TestLogger.Info("ValidateRange(0, 1, 10) correctly threw");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestValidateRangeAboveMaxThrows()
+    {
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            SwiftBindingsTestLib.ValidateRange(11, 1, 10);
+        }, "ValidateRange above max should throw");
+        TestLogger.Info("ValidateRange(11, 1, 10) correctly threw");
+    }
+
+    #endregion
+
+    #region Error Enum Construction (Tier 1 — no P/Invoke, pure C# construction)
+
+    [TestTier(TestTier.Tier1)]
+    public void TestMathErrorCases()
+    {
+        var divByZero = MathError.DivisionByZero;
+        AssertEqual(MathError.CaseTag.DivisionByZero, divByZero.Tag, "DivisionByZero tag");
+
+        var overflow = MathError.Overflow;
+        AssertEqual(MathError.CaseTag.Overflow, overflow.Tag, "Overflow tag");
+
+        var negInput = MathError.NegativeInput;
+        AssertEqual(MathError.CaseTag.NegativeInput, negInput.Tag, "NegativeInput tag");
+
+        TestLogger.Info("MathError case construction passed");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestValidationErrorEmptyCase()
+    {
+        var empty = ValidationError.Empty;
+        AssertEqual(ValidationError.CaseTag.Empty, empty.Tag, "Empty tag");
+        TestLogger.Info("ValidationError.Empty case construction passed");
+    }
+
+    // ValidationError.TooLong(Int32) — EntryPointNotFoundException at runtime
+    // The symbol $s...ValidationErrorO7tooLong... is not exported from the dylib
+    [TestTier(TestTier.Tier3)]
+    public void TestValidationErrorTooLongCase()
+    {
+        var tooLong = ValidationError.TooLong(50);
+        AssertEqual(ValidationError.CaseTag.TooLong, tooLong.Tag, "TooLong tag");
+        TestLogger.Info("ValidationError.TooLong case construction passed");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestParseErrorCases()
+    {
+        var invalid = ParseError.InvalidInput;
+        AssertEqual(ParseError.CaseTag.InvalidInput, invalid.Tag, "InvalidInput tag");
+
+        TestLogger.Info("ParseError case construction passed");
+    }
+
+    // ParseError.Overflow(SwiftString) — SwiftIndirectResult + SwiftString (non-blittable P/Invoke)
+    [TestTier(TestTier.Tier3)]
+    public void TestParseErrorOverflowCase()
+    {
+        using var val = new SwiftString("99999999999");
+        var overflow = ParseError.Overflow(val);
+        AssertEqual(ParseError.CaseTag.Overflow, overflow.Tag, "Overflow tag");
+        TestLogger.Info("ParseError.Overflow case construction passed");
+    }
+
+    // ValidationError.InvalidFormat(SwiftString) — SwiftIndirectResult + SwiftString (non-blittable P/Invoke)
+    [TestTier(TestTier.Tier3)]
+    public void TestValidationErrorInvalidFormatCase()
+    {
+        using var val = new SwiftString("bad format");
+        var invalid = ValidationError.InvalidFormat(val);
+        AssertEqual(ValidationError.CaseTag.InvalidFormat, invalid.Tag, "InvalidFormat tag");
+        TestLogger.Info("ValidationError.InvalidFormat case construction passed");
+    }
+
+    // RangeError.BelowMinimum/AboveMaximum take tuple (Int32, Int32) associated values
+    // InvalidProgramException: non-blittable types with Swift calling convention
+    [TestTier(TestTier.Tier3)]
+    public void TestRangeErrorCases()
+    {
+        var below = RangeError.BelowMinimum((5, 10));
+        AssertEqual(RangeError.CaseTag.BelowMinimum, below.Tag, "BelowMinimum tag");
+
+        var above = RangeError.AboveMaximum((15, 10));
+        AssertEqual(RangeError.CaseTag.AboveMaximum, above.Tag, "AboveMaximum tag");
+
+        TestLogger.Info("RangeError case construction passed");
+    }
+
+    #endregion
+
+    // ===================================================================
+    // Tier 2: SwiftString-involving success paths (no error thrown)
+    // ===================================================================
+
+    #region Typed Throws — SwiftString Success Paths (ParseNumber success)
+
+    [TestTier(TestTier.Tier2)]
+    public void TestParseNumberSuccess()
+    {
+        var result = SwiftBindingsTestLib.ParseNumber("42");
+        AssertEqual(42, result, "ParseNumber(\"42\")");
+        TestLogger.Info($"ParseNumber(\"42\") = {result}");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestParseNumberNegative()
+    {
+        var result = SwiftBindingsTestLib.ParseNumber("-100");
+        AssertEqual(-100, result, "ParseNumber(\"-100\")");
+        TestLogger.Info($"ParseNumber(\"-100\") = {result}");
+    }
+
+    #endregion
+
+    #region TypedThrowingParser — Struct Construction and Success Paths
+
+    [TestTier(TestTier.Tier2)]
+    public void TestTypedThrowingParserCreation()
+    {
+        var strict = SwiftBindingsTestLib.CreateStrictParser();
+        AssertTrue(strict.Strict, "Strict parser .Strict should be true");
+
+        var lenient = SwiftBindingsTestLib.CreateLenientParser();
+        AssertFalse(lenient.Strict, "Lenient parser .Strict should be false");
+        TestLogger.Info("TypedThrowingParser factory methods passed");
+    }
+
+    // TypedThrowingParser is a non-frozen struct — constructor uses SwiftIndirectResult
+    // InvalidProgramException: non-blittable types with Swift calling convention
+    // Factory methods (CreateStrictParser/CreateLenientParser) work because they return via register
+    [TestTier(TestTier.Tier3)]
+    public void TestTypedThrowingParserConstructor()
+    {
+        var parser = new TypedThrowingParser(true);
+        AssertTrue(parser.Strict, "Constructor strict=true");
+
+        var parser2 = new TypedThrowingParser(false);
+        AssertFalse(parser2.Strict, "Constructor strict=false");
+        TestLogger.Info("TypedThrowingParser constructors passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestTypedThrowingParserParseSuccess()
+    {
+        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        var result = parser.Parse("123");
+        AssertEqual(123, result, "Lenient parse \"123\"");
+        TestLogger.Info($"LenientParser.Parse(\"123\") = {result}");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestStrictParserAcceptsCleanInput()
+    {
+        var parser = SwiftBindingsTestLib.CreateStrictParser();
+        var result = parser.Parse("99");
+        AssertEqual(99, result, "Strict parse \"99\"");
+        TestLogger.Info($"StrictParser.Parse(\"99\") = {result}");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestLenientParserAcceptsCleanInput()
+    {
+        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        var result = parser.Parse("42");
+        AssertEqual(42, result, "Lenient parse \"42\"");
+        TestLogger.Info($"LenientParser.Parse(\"42\") = {result}");
+    }
+
+    #endregion
+
+    #region String-Returning Throwing Functions — Success Path
+
+    [TestTier(TestTier.Tier2)]
+    public void TestValidateStringSuccess()
+    {
+        var result = SwiftBindingsTestLib.Validate("hello", 100);
+        AssertEqual("hello", result, "Validate(\"hello\", 100)");
+        TestLogger.Info($"Validate(\"hello\", 100) = \"{result}\"");
+    }
+
+    #endregion
+
+    // ===================================================================
+    // Tier 3: SwiftString + error path (Mono JIT crash: CallConvSwift + SwiftString + SwiftError)
+    // Deferred until Mono JIT bug is fixed — same root cause as closure/SwiftString tests.
+    // ===================================================================
+
+    #region SwiftString Throwing — Error Paths (Tier 3, crash-prone)
+
+    [TestTier(TestTier.Tier3)]
+    public void TestParseNumberThrowsOnInvalidInput()
+    {
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            SwiftBindingsTestLib.ParseNumber("abc");
+        }, "ParseNumber(\"abc\") should throw");
+        TestLogger.Info("ParseNumber(\"abc\") correctly threw");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestTypedThrowingParserParseInvalidThrows()
+    {
+        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            parser.Parse("not_a_number");
+        }, "Parse invalid input should throw");
+        TestLogger.Info("Parser.Parse(\"not_a_number\") correctly threw");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestStrictParserRejectsWhitespace()
+    {
+        var parser = SwiftBindingsTestLib.CreateStrictParser();
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            parser.Parse(" 42 ");
+        }, "Strict parser should reject whitespace");
+        TestLogger.Info("StrictParser.Parse(\" 42 \") correctly threw");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestValidateEmptyStringThrows()
+    {
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            SwiftBindingsTestLib.Validate("", 100);
+        }, "Validate empty string should throw");
+        TestLogger.Info("Validate(\"\", 100) correctly threw");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestValidateTooLongThrows()
+    {
+        AssertThrows<SwiftRuntimeException>(() =>
+        {
+            SwiftBindingsTestLib.Validate("hello world", 5);
+        }, "Validate too long should throw");
+        TestLogger.Info("Validate(\"hello world\", 5) correctly threw");
+    }
+
+    #endregion
+}

@@ -1,8 +1,8 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase 62 + ArraySlice normalization + CryptoSwift validation + all 9 fix steps complete + protocol composition + swiftinterface parsing)
+**Last Updated**: February 2026 (Phase B1 Error Handling + Phase 62 + ArraySlice normalization + CryptoSwift validation + all 9 fix steps complete + protocol composition + swiftinterface parsing)
 **Unit Tests**: 1,603 passed
-**Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
+**Runtime Tests**: 68 passing on iOS Simulator at Tier 2 (incl. 24 error handling + 13 SwiftUI bridge)
 **Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie, CryptoSwift
 
 ---
@@ -36,13 +36,15 @@ Remaining member gaps are primarily unsupported existential type arguments in bo
 
 | Metric | Value |
 |--------|-------|
-| Must-pass features | 116 |
-| Passing | 61 |
+| Must-pass features | 119 |
+| Passing | 64 |
 | Degraded | 0 |
 | Missing | 51 (disabled dirs) |
-| Known-unsupported | 56 |
-| Types emitted | 55/65 |
-| Members emitted | 266/312 |
+| Known-unsupported | 59 |
+| Types emitted | 62/72 |
+| Members emitted | 308/359 |
+
+Phase B1 added 3 must-pass features: `synchronous_throws`, `static_throws`, `custom_error_type`. 3 known-unsupported: `typed_throws`, `typed_throws_on_struct`, `typed_async_throws` (compiled out). 24 runtime tests passing at Tier 2 (10 deferred to Tier 3 — Mono JIT crashes, non-blittable types, missing entry points).
 
 4 ArraySlice features added in Phase 62: `array_slice_parameter`, `array_slice_multiple_params`, `array_slice_class_method`, `array_slice_throwing`.
 

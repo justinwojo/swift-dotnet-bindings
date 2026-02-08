@@ -27,7 +27,7 @@ All P1 items from `testing-gaps.md` completed (Gaps 0a, 0b, 1, 2). Unit tests: 1
 
 ## Phase B: Enable Disabled TestFramework Features
 
-**Status**: Not Started — start with B1
+**Status**: In Progress — B1 done, next is B2
 **Effort**: Medium (3-5 sessions)
 **Why**: 51 must-pass features sit in `.disabled/` dirs. Enabling them closes the gap from 61 toward 90+. This also builds the regression safety net needed before the sweeping emitter changes in Phase D.
 
@@ -35,14 +35,13 @@ All P1 items from `testing-gaps.md` completed (Gaps 0a, 0b, 1, 2). Unit tests: 1
 
 Work one batch at a time. After each batch: run `build-and-test.sh`, check coverage report, fix any generator regressions before proceeding to the next batch.
 
-### B1. Error Handling (testing-gaps.md Gap 8) — DO FIRST
-- Enable `TestFramework/Sources/SwiftBindingsTestLib/ErrorHandling.disabled/`
-- Start with `ThrowingFunctions.swift` — throwing functions already work in Nuke/Lottie/CryptoSwift
-- Verify Layer 1 generation succeeds (xcframework build + binding generation)
-- Check coverage report: new features should appear as `passing` or `degraded` (not `missing`)
-- Fix any generator issues surfaced by the new Swift sources
-- Add runtime test `TestFramework/RuntimeTestsApp/ErrorHandling/ThrowingMethodTests.cs`
-- Run verification (see below), confirm no regressions
+### B1. Error Handling (testing-gaps.md Gap 8) — DONE
+- Enabled `ErrorHandling.disabled/` → `ErrorHandling/` (3 Swift source files)
+- **Generator bug found**: async typed throws (`async throws(ParseError)`) emits `_payload`/`this` in static method context. Guarded `asyncParse` with `#if swift(>=99.0)` — to fix when async support is enabled (B4).
+- Coverage: 64/64 passing (up from 61), 0 degraded. 3 new must-pass features: `synchronous_throws`, `static_throws`, `custom_error_type`. 3 known-unsupported: `typed_throws`, `typed_throws_on_struct`, `typed_async_throws` (compiled out).
+- Unit tests: 1,603 passed, 0 regressions
+- Runtime tests: 24 PASS, 0 FAIL at Tier 2 (10 Tier 3 skipped — Mono JIT crashes on SwiftString+error path, non-blittable tuple enum cases, non-frozen struct constructors, missing entry points)
+- File: `TestFramework/RuntimeTestsApp/ErrorHandling/ThrowingMethodTests.cs` (class: `BasicThrowingTests`)
 
 ### B2. Generics (testing-gaps.md Gap 7) — SECOND
 - Enable `TestFramework/Sources/SwiftBindingsTestLib/Generics.disabled/`

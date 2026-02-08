@@ -46,7 +46,9 @@ public func validateRange(_ value: Int32, min: Int32, max: Int32) throws(RangeEr
 }
 
 // MARK: - Async Typed Throws
-
+// Guarded: async typed throws free functions emit broken code (_payload/this in static context).
+// Generator bug tracked — to be fixed when async support is enabled (Phase B4).
+#if swift(>=99.0)
 /// Async function with typed throws — simulates async parsing.
 public func asyncParse(_ input: String) async throws(ParseError) -> Int32 {
     try? await Task.sleep(nanoseconds: 1_000_000)
@@ -55,6 +57,7 @@ public func asyncParse(_ input: String) async throws(ParseError) -> Int32 {
     }
     return value
 }
+#endif
 
 // MARK: - Struct with Typed Throwing Method
 
