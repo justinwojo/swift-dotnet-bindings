@@ -253,4 +253,72 @@ public class ExistentialHandler
     {
         return $"{GetCSharpExistentialType(protocolList)}?";
     }
+
+    /// <summary>
+    /// Returns the protocol interface name for public API (e.g., "ISwiftDescribable").
+    /// For multi-protocol compositions, returns a combined interface name.
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification.</param>
+    /// <returns>The public-facing interface type name.</returns>
+    public string GetPublicExistentialType(ProtocolListTypeSpec protocolList)
+    {
+        if (protocolList.Protocols.Count == 0)
+            return "object"; // 'any' with no protocols → object
+
+        if (protocolList.Protocols.Count == 1)
+        {
+            var protocolName = protocolList.Protocols.Keys.First().NameWithoutModule;
+            return NameProvider.GetInterfaceName(protocolName);
+        }
+
+        // Multi-protocol: generate combined interface name
+        return GetCompositionInterfaceName(protocolList);
+    }
+
+    /// <summary>
+    /// Returns nullable protocol interface (e.g., "ISwiftDescribable?").
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification from the inner existential.</param>
+    /// <returns>The nullable public-facing interface type name.</returns>
+    public string GetPublicOptionalExistentialType(ProtocolListTypeSpec protocolList)
+    {
+        return $"{GetPublicExistentialType(protocolList)}?";
+    }
+
+    /// <summary>
+    /// Gets the proxy class name for an existential type (used for container→interface wrapping).
+    /// For single protocols: "DescribableProxy". For compositions: "DescribableAndIdentifiableProxy".
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification.</param>
+    /// <returns>The proxy class name.</returns>
+    public string GetProxyClassName(ProtocolListTypeSpec protocolList)
+    {
+        if (protocolList.Protocols.Count == 1)
+        {
+            var protocolName = protocolList.Protocols.Keys.First().NameWithoutModule;
+            return $"{protocolName}Proxy";
+        }
+
+        // Multi-protocol: combined proxy name
+        var names = protocolList.Protocols.Keys
+            .Select(p => p.NameWithoutModule)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
+        return string.Join("And", names) + "Proxy";
+    }
+
+    /// <summary>
+    /// Gets the combined interface name for a multi-protocol composition.
+    /// Protocol names are sorted alphabetically for determinism.
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification.</param>
+    /// <returns>The combined interface name (e.g., "ISwiftDescribableAndTestIdentifiable").</returns>
+    public string GetCompositionInterfaceName(ProtocolListTypeSpec protocolList)
+    {
+        var names = protocolList.Protocols.Keys
+            .Select(p => p.NameWithoutModule)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
+        return "ISwift" + string.Join("And", names);
+    }
 }

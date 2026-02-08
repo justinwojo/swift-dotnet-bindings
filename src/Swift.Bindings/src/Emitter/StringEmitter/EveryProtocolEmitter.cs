@@ -724,12 +724,12 @@ public class EveryProtocolEmitter
     {
         // The parser converts "_" to "argN" for internal C# use
         // For Swift code generation, we need to convert back to "_"
-        if (string.IsNullOrEmpty(param.Name) || param.Name == "_" || IsGeneratedArgName(param.Name))
+        if (string.IsNullOrEmpty(param.Name) || param.Name == "_" || NameProvider.IsGeneratedArgName(param.Name))
         {
             return "_";
         }
         // Strip the underscore prefix added by ExtractUniqueName for C# keywords
-        return StripCSharpKeywordPrefix(param.Name);
+        return NameProvider.StripCSharpKeywordPrefix(param.Name);
     }
 
     /// <summary>
@@ -743,7 +743,7 @@ public class EveryProtocolEmitter
             return param.PrivateName;
         }
         // If name looks like a generated "argN", keep using it as internal name
-        if (IsGeneratedArgName(param.Name))
+        if (NameProvider.IsGeneratedArgName(param.Name))
         {
             return param.Name;
         }
@@ -751,7 +751,7 @@ public class EveryProtocolEmitter
         if (!string.IsNullOrEmpty(param.Name) && param.Name != "_")
         {
             // Strip C# keyword prefix for Swift
-            var swiftName = StripCSharpKeywordPrefix(param.Name);
+            var swiftName = NameProvider.StripCSharpKeywordPrefix(param.Name);
             // If the name is a Swift keyword, use a modified internal name
             // to avoid conflicts (Swift allows keyword names with backticks, but
             // for simplicity we'll use a suffix for the internal name)
@@ -764,46 +764,7 @@ public class EveryProtocolEmitter
         return $"arg{index}";
     }
 
-    /// <summary>
-    /// Checks if a parameter name was auto-generated (arg0, arg1, etc.)
-    /// These are created by the parser when Swift has "_" (no external label).
-    /// </summary>
-    private static bool IsGeneratedArgName(string? name)
-    {
-        if (string.IsNullOrEmpty(name) || !name.StartsWith("arg"))
-            return false;
-        return name.Length > 3 && name.Substring(3).All(char.IsDigit);
-    }
-
-    /// <summary>
-    /// Strips the underscore prefix added by the parser for C# keywords.
-    /// e.g., "_for" -> "for", "_in" -> "in"
-    /// </summary>
-    private static string StripCSharpKeywordPrefix(string name)
-    {
-        if (name.Length > 1 && name[0] == '_')
-        {
-            var possibleKeyword = name.Substring(1);
-            // Common C# keywords that might appear in Swift parameter names
-            var csharpKeywords = new HashSet<string>
-            {
-                "for", "in", "is", "as", "if", "else", "do", "while", "return",
-                "break", "continue", "switch", "case", "default", "try", "catch",
-                "throw", "new", "this", "base", "null", "true", "false", "class",
-                "struct", "enum", "interface", "public", "private", "protected",
-                "internal", "static", "readonly", "const", "override", "virtual",
-                "abstract", "sealed", "async", "await", "var", "object", "string",
-                "int", "long", "float", "double", "bool", "void", "ref", "out",
-                "params", "event", "delegate", "operator", "implicit", "explicit",
-                "where", "get", "set", "value", "partial", "using", "namespace"
-            };
-            if (csharpKeywords.Contains(possibleKeyword))
-            {
-                return possibleKeyword;
-            }
-        }
-        return name;
-    }
+    // IsGeneratedArgName and StripCSharpKeywordPrefix are now shared in NameProvider
 
     /// <summary>
     /// Checks if a name is a Swift keyword that needs backtick escaping.

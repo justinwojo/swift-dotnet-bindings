@@ -147,6 +147,13 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Simple enums: return the underlying integer type, cast back in the wrapper
+            if (returnTypeRecord.Kind == TypeRecordKind.Enum && returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            {
+                SetReturnType(EnumHandler.GetCSharpEnumUnderlyingType(returnTypeRecord.RawValueTypeName));
+                return;
+            }
+
             if (MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord))
                 SetReturnType(returnTypeRecord.CSharpTypeName.FullyQualifiedName + ".Buffer");
             else
@@ -170,17 +177,20 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Handles the arguments of the method.
+        /// Uses GetCSharpParameterName() so P/Invoke call expressions match wrapper body variable names.
         /// </summary>
         public void HandleArguments()
         {
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
             {
+                var csName = NameProvider.GetCSharpParameterName(argument);
+
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
                 {
                     var (csTypeParam, csTypeName) = _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argument) switch
                     {
-                        true => (_env.BoundGenericsHandler.GetBufferType(argument), NameProvider.GetBoundGenericBufferName(argument.Name)),
-                        false => (_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext), argument.Name)
+                        true => (_env.BoundGenericsHandler.GetBufferType(argument), NameProvider.GetBoundGenericBufferName(csName)),
+                        false => (_env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext), csName)
                     };
 
                     AddParameter(csTypeParam, csTypeName);
@@ -202,27 +212,27 @@ namespace BindingsGeneration
                             // Use special type markers that include the parameter name for variable mapping
                             var callbackName = ClosureHandler.GetCallbackFunctionName(
                                 _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
-                            AddParameter($"AsyncThrowingContext:{argument.Name}", argument.Name + "Context");
-                            AddParameter($"AsyncThrowingStartFunc:{callbackName}", argument.Name + "StartFunc");
+                            AddParameter($"AsyncThrowingContext:{csName}", csName + "Context");
+                            AddParameter($"AsyncThrowingStartFunc:{callbackName}", csName + "StartFunc");
                         }
                         else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                         {
                             // Escaping closures are passed as a single SwiftClosureData struct
                             // containing both function pointer and context.
                             // Optional closures use the same struct - nil is represented by zero pointers.
-                            AddParameter("SwiftClosureData", argument.Name);
+                            AddParameter("SwiftClosureData", csName);
                         }
                         else
                         {
                             // @convention(c) closures just need the function pointer
                             var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
-                            AddParameter(funcPtrType, argument.Name);
+                            AddParameter(funcPtrType, csName);
                         }
                     }
                     else
                     {
                         // Unsupported closure - use placeholder
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csName);
                     }
                     continue;
                 }
@@ -233,41 +243,45 @@ namespace BindingsGeneration
                     var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(argument)!;
                     if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
                         _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
-                        AddParameter(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext), argument.Name);
+                        AddParameter(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext), csName);
                     else
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csName);
                     continue;
                 }
 
                 // Handle existential arguments (any Protocol) - pass container by value
+                // Uses Existential:{containerType}:{publicType} prefix so that:
+                // - PInvokeParametersString() emits the container type for DllImport declarations
+                // - CallArgumentsString() generates the ISwiftExistentialConvertible conversion
                 if (_env.ExistentialHandler.IsExistential(argument.SwiftTypeSpec))
                 {
                     var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
                     if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
                     {
-                        var existentialType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
-                        AddParameter(existentialType, argument.Name);
+                        var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
+                        var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                        AddParameter($"Existential:{containerType}:{publicType}", csName);
                     }
                     else
                     {
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csName);
                     }
                     continue;
                 }
 
                 // Handle Optional-wrapped existential arguments like (any DataCaching)?
-                // These are passed as nullable existential containers
+                // These use buffer-based marshalling (same as regular optionals) since the wrapper body
+                // creates SwiftOptional<Container> and passes the buffer to P/Invoke.
                 if (_env.ExistentialHandler.IsOptionalExistential(argument.SwiftTypeSpec))
                 {
                     var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argument.SwiftTypeSpec)!;
                     if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
                     {
-                        var optionalExistentialType = _env.ExistentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
-                        AddParameter(optionalExistentialType, argument.Name);
+                        AddParameter("IntPtr", NameProvider.GetBoundGenericBufferName(csName));
                     }
                     else
                     {
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csName);
                     }
                     continue;
                 }
@@ -280,12 +294,12 @@ namespace BindingsGeneration
                     if (!MarshallingHelpers.IsTypeFrozen(nativeRemapTypeRecord))
                     {
                         // Non-frozen (URL): use NativeRemappedSafeHandle marker
-                        AddParameter("NativeRemappedSafeHandle", argument.Name);
+                        AddParameter("NativeRemappedSafeHandle", csName);
                     }
                     else
                     {
                         // Frozen (Data): use NativeRemapped:{type} marker
-                        AddParameter($"NativeRemapped:{swiftWrapperType}", argument.Name);
+                        AddParameter($"NativeRemapped:{swiftWrapperType}", csName);
                     }
                     continue;
                 }
@@ -295,7 +309,7 @@ namespace BindingsGeneration
 
                 if (argument.IsGeneric)
                 {
-                    var payloadName = NameProvider.GetPayloadName(argument.Name);
+                    var payloadName = NameProvider.GetPayloadName(csName);
                     AddParameter("IntPtr", payloadName, inoutModifier);
                     continue;
                 }
@@ -306,19 +320,24 @@ namespace BindingsGeneration
                 if (MarshallingHelpers.IsObjCBridged(argumentTypeRecord))
                 {
                     // Store the original C# type name for use in wrapper generation
-                    AddParameter($"ObjCBridged:{argumentTypeRecord.CSharpTypeName.FullyQualifiedName}", argument.Name);
+                    AddParameter($"ObjCBridged:{argumentTypeRecord.CSharpTypeName.FullyQualifiedName}", csName);
                     continue;
                 }
 
-                // Enum values are projected as managed wrappers (C# classes with SafeHandle payload),
-                // which are non-blittable for Swift calling convention P/Invoke.
-                // Pass raw payload pointer instead. This applies to both frozen and non-frozen enums.
+                // Enum values: simple enums (C# value types) use their underlying int type,
+                // complex enums use SafeHandle payload pointer.
                 if (argumentTypeRecord.Kind == TypeRecordKind.Enum)
                 {
-                    if (_env.MethodDecl.IsAsync)
-                        AddParameter("IntPtrFromNonFrozen", argument.Name);
+                    if (argumentTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                    {
+                        // Simple enums are C# enum value types — pass as underlying int
+                        var underlyingType = EnumHandler.GetCSharpEnumUnderlyingType(argumentTypeRecord.RawValueTypeName);
+                        AddParameter($"SimpleEnum:{underlyingType}:{argumentTypeRecord.CSharpTypeName.FullyQualifiedName}", csName);
+                    }
+                    else if (_env.MethodDecl.IsAsync)
+                        AddParameter("IntPtrFromNonFrozen", csName);
                     else
-                        AddParameter("EnumSafeHandle", argument.Name);
+                        AddParameter("EnumSafeHandle", csName);
                     continue;
                 }
 
@@ -327,16 +346,16 @@ namespace BindingsGeneration
                     // For async methods, SafeHandle cannot be used with Swift calling convention.
                     // Use IntPtr and manage lifetime manually via DangerousAddRef/DangerousRelease.
                     if (_env.MethodDecl.IsAsync)
-                        AddParameter("IntPtrFromNonFrozen", argument.Name);
+                        AddParameter("IntPtrFromNonFrozen", csName);
                     else
-                        AddParameter("SafeHandle", argument.Name);
+                        AddParameter("SafeHandle", csName);
                     continue;
                 }
 
                 if (MarshallingHelpers.RequiresMemoryManagement(argumentTypeRecord))
-                    AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName + ".Buffer", argument.Name, inoutModifier);
+                    AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName + ".Buffer", csName, inoutModifier);
                 else
-                    AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName, argument.Name, inoutModifier);
+                    AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName, csName, inoutModifier);
             }
         }
 
@@ -524,7 +543,7 @@ namespace BindingsGeneration
                     EntryPoint = NameProvider.GetMangledName(methodDecl),
                     MethodName = pInvokeName,
                     ReturnType = pInvokeSignature.ReturnType,
-                    ParametersString = pInvokeSignature.ParametersString(),
+                    ParametersString = pInvokeSignature.PInvokeParametersString(),
                     IsAsync = methodDecl.IsAsync,
                     MetadataParameters = methodEnv.PInvokeHelperContext.GetMetadataParameterDeclarations()
                 };
@@ -535,7 +554,7 @@ namespace BindingsGeneration
                 // Emit directly (non-generic type)
                 csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
                 csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{NameProvider.GetMangledName(methodDecl)}\")]");
-                csWriter.WriteLine($"private static extern {(methodDecl.IsAsync ? "void" : pInvokeSignature.ReturnType)} {pInvokeName}({pInvokeSignature.ParametersString()});");
+                csWriter.WriteLine($"private static extern {(methodDecl.IsAsync ? "void" : pInvokeSignature.ReturnType)} {pInvokeName}({pInvokeSignature.PInvokeParametersString()});");
             }
         }
     }

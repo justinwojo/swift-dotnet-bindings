@@ -199,7 +199,8 @@ public static partial class SwiftUIBridgeEmitter
                 SwiftAbiType: abiMapping.Value.SwiftType,
                 CSharpPInvokeType: abiMapping.Value.CSharpType,
                 BridgeTypeName: swiftSimpleName,
-                CSharpTypeName: csharpName);
+                CSharpTypeName: csharpName,
+                IsSimpleEnum: record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
         }
 
         if (record.Kind == TypeRecordKind.Class)
@@ -325,4 +326,5 @@ public record BridgeParameter(
     string? CSharpTypeName = null,
     BridgeParameter? InnerParameter = null,
     List<BridgeParameter>? ClosureArguments = null,
-    BridgeParameter? ClosureReturn = null);
+    BridgeParameter? ClosureReturn = null,
+    bool IsSimpleEnum = false);

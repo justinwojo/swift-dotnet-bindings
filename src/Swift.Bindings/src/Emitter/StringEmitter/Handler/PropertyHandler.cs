@@ -161,12 +161,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (isExistential)
         {
             var protocolList = propertyEnv.ExistentialHandler.ToProtocolListTypeSpec(propertyDecl.SwiftTypeSpec)!;
-            csTypeName = propertyEnv.ExistentialHandler.GetCSharpExistentialType(protocolList);
+            csTypeName = propertyEnv.ExistentialHandler.GetPublicExistentialType(protocolList);
         }
         else if (isOptionalExistential)
         {
             var innerProtocolList = propertyEnv.ExistentialHandler.UnwrapOptionalExistential(propertyDecl.SwiftTypeSpec)!;
-            csTypeName = propertyEnv.ExistentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
+            csTypeName = propertyEnv.ExistentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
         }
         else if (isClosure)
         {

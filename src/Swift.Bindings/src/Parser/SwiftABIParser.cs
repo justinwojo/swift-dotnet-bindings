@@ -190,18 +190,27 @@ namespace BindingsGeneration
         /// </summary>
         private readonly HashSet<string>? _internalMemberKeys;
 
+        /// <summary>
+        /// Optional dictionary mapping "TypeName.printedName" keys to lists of internal
+        /// parameter names from swiftinterface parsing. Used to populate PrivateName on
+        /// ArgumentDecl so that generated C# uses meaningful parameter names instead of arg0/arg1.
+        /// </summary>
+        private readonly Dictionary<string, List<string>>? _parameterNames;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
             DemanglingResults demangledTbd,
             ILogger logger,
-            HashSet<string>? internalMemberKeys = null)
+            HashSet<string>? internalMemberKeys = null,
+            Dictionary<string, List<string>>? parameterNames = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
             _demangledTbd = demangledTbd;
             _logger = logger;
             _internalMemberKeys = internalMemberKeys;
+            _parameterNames = parameterNames;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -709,16 +718,39 @@ namespace BindingsGeneration
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
             };
 
+            // Look up internal parameter names from swiftinterface data
+            List<string>? internalParamNames = null;
+            if (_parameterNames != null)
+            {
+                // Try type-scoped key first (e.g., "Dog.speak(_:_:)")
+                var scopedKey = $"{parentDecl.Name}.{node.PrintedName}";
+                if (!_parameterNames.TryGetValue(scopedKey, out internalParamNames))
+                {
+                    // Try module-level key (free functions, e.g., "sumTwo(_:_:)")
+                    _parameterNames.TryGetValue(node.PrintedName, out internalParamNames);
+                }
+            }
+
             for (int i = 0; i < node.Children.Count(); i++)
             {
                 var typeSpec = CreateTypeSpec(node.Children.ElementAt(i));
 
                 var childNode = node.Children.ElementAt(i);
+
+                // Populate PrivateName from swiftinterface data.
+                // i=0 is the return type in paramNames (no corresponding internal name).
+                // i>=1 are actual parameters; internalParamNames index is (i-1).
+                var privateName = string.Empty;
+                if (internalParamNames != null && i >= 1 && (i - 1) < internalParamNames.Count)
+                {
+                    privateName = internalParamNames[i - 1];
+                }
+
                 methodDecl.CSSignature.Add(new ArgumentDecl
                 {
                     SwiftTypeSpec = typeSpec,
                     Name = paramNames[i],
-                    PrivateName = string.Empty,
+                    PrivateName = privateName,
                     IsInOut = childNode.paramValueOwnership == "InOut",
                     IsGeneric = childNode.Name == "GenericTypeParam",
                     HasDefaultArg = childNode.hasDefaultArg == true,

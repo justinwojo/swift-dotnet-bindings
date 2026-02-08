@@ -6,7 +6,7 @@ import Foundation
 // MARK: - Enum Types for Protocol Testing
 
 /// Status enum for protocol testing.
-public enum TaskStatus: Int32 {
+@frozen public enum TaskStatus: Int32 {
     case pending = 0
     case running = 1
     case completed = 2

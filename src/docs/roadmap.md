@@ -131,7 +131,7 @@ cd TestFramework
 
 ## Phase D: Binding API Overhaul
 
-**Status**: In Progress (Waves 1-2 done)
+**Status**: In Progress (Waves 1-3 done)
 **Effort**: Large (10-15 sessions across 4 waves)
 **Why**: The generator produces correct interop code, but the public API surface exposes too many interop implementation details. A .NET developer consuming these bindings faces constant friction from `SwiftString`, `IntPtr`, `Init()` methods, `SwiftOptional<T>`, and `Payload.Dispose()`. This work is a **must-do before opening the project to external developers**.
 **Depends on**: Phase B (need broad test coverage as regression safety net before sweeping emitter changes)
@@ -159,15 +159,16 @@ The binding review identified the generated API as grade C+ — technically impr
 
 **DoD verified**: Zero public `SwiftOptional<T>`, zero non-pointer `IntPtr` (`HashValue` → `nint`), zero Equals/GetHashCode throws, `#nullable enable` present. Unit tests: 1603 pass. Coverage: 93/93 must-pass, 0 degraded.
 
-### Wave 3: API Shape (P2)
+### Wave 3: API Shape (P2) — DONE
+**Completed**: February 2026
 **Goal**: Clean up naming, parameter conventions, and interop type leakage.
 
-1. **Simple enums** — Enums without associated values → real C# `enum` types.
-2. **Parameter names** — Use internal Swift names. Zero `arg0`/`arg1`. Remove `_for`/`_with` prefixes.
-3. **ExistentialContainer removal** — Replace with typed protocol interfaces in public API.
-4. **Default parameters / overloads** — Swift methods with defaults produce C# overloads.
+1. **Parameter names** — `SwiftInterfaceAccessParser.GetParameterNames()` extracts internal Swift parameter names from `.swiftinterface` files. `NameProvider.GetCSharpParameterName()` centralizes C# name resolution. 26 remaining `argN` names are legitimate (operators, `_` labels).
+2. **Simple enums** — Frozen enums without associated values with integral (or no) raw values emit as C# `enum` value types with extension methods. String-raw-value enums stay as classes. Switch-based Swift wrappers for ABI-safe tag conversion.
+3. **ExistentialContainer removal** — Public API uses protocol interfaces (`ISwiftDescribable`) instead of `ExistentialContainer1`. `ISwiftExistentialConvertible<T>` enables proxy→container extraction for P/Invoke calls. Array-of-existential uses `.Select()` element-level conversion. Optional existentials extract container before `SwiftOptional.NewSome()`.
+4. **Default parameter overloads** — Swift wrapper functions omit trailing defaulted parameters (Swift fills defaults). Up to 4 C# overloads per method. Collision detection prevents CS0111 duplicate declarations.
 
-**DoD**: Zero `arg0`/`arg1`, zero `ExistentialContainer*`, simple enums are C# enums.
+**DoD verified**: Zero `ExistentialContainer*` in public API (excluding proxy internals), simple enums as C# enums (Direction, Color, TaskStatus, AlertStyle), 11 default parameter overloads generated. Unit tests: 1636 pass. Integration tests: 699 pass. Coverage: 94/94 must-pass (default_parameter_value promoted from known-unsupported), 0 degraded.
 
 ### Wave 4: Polish (P3)
 **Goal**: Cosmetic and convention alignment.

@@ -334,7 +334,8 @@ namespace BindingsGeneration
 
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
             {
-                var payloadName = NameProvider.GetPayloadName(argument.Name);
+                var csName = NameProvider.GetCSharpParameterName(argument);
+                var payloadName = NameProvider.GetPayloadName(csName);
                 csWriter.WriteLine($"IntPtr {payloadName} = IntPtr.Zero;");
             }
 
@@ -348,7 +349,8 @@ namespace BindingsGeneration
                     _env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
                     !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
                 {
-                    csWriter.WriteLine($"GCHandle {argument.Name}Handle = default;");
+                    var csName = NameProvider.GetCSharpParameterName(argument);
+                    csWriter.WriteLine($"GCHandle {csName}Handle = default;");
                 }
             }
         }

@@ -131,17 +131,24 @@ namespace BindingsGeneration
                 }
             }
 
-            // Handle existential return types (any Protocol) - result is ExistentialContainer, return as-is
+            // Handle existential return types (any Protocol) - wrap container in proxy
             if (_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec))
             {
-                csWriter.WriteLine("return result;");
+                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
+                var proxyClassName = _env.ExistentialHandler.GetProxyClassName(protocolList);
+                csWriter.WriteLine($"return new {proxyClassName}(result);");
                 return;
             }
 
             // Handle Optional-wrapped existential return types
             if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
             {
-                csWriter.WriteLine("return result;");
+                var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
+                var proxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                // Optional existential: check for default (zero) container
+                csWriter.WriteLine($"if (result.Equals(default({containerType}))) return null;");
+                csWriter.WriteLine($"return new {proxyClassName}(result);");
                 return;
             }
 
@@ -155,6 +162,13 @@ namespace BindingsGeneration
             if (!returnArg.IsGeneric)
             {
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnArg.SwiftTypeSpec);
+
+                // Simple enum return: cast underlying integer back to enum type
+                if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                {
+                    csWriter.WriteLine($"return ({_wrapperSignature.ReturnType})result;");
+                    return;
+                }
 
                 // ObjC bridged types: wrap IntPtr result with GetNSObject<T>
                 if (MarshallingHelpers.IsObjCBridged(typeRecord))

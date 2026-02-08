@@ -120,7 +120,8 @@ namespace BindingsGeneration
 
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
                 {
-                    var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
+                    var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                    var bufferName = NameProvider.GetBoundGenericBufferName(csName);
 
                     // Bug #8: Check if the bound generic's root type is a frozen struct projected as class
                     // (has PayloadBuffer). Non-frozen generic types (like BatchedCollectionIndex<T0>)
@@ -129,13 +130,13 @@ namespace BindingsGeneration
                     if (_env.TypeDatabase.TryGetTypeRecord(rootTypeName, out var argTypeRecord) &&
                         MarshallingHelpers.IsFrozenStructProjectedAsClass(argTypeRecord))
                     {
-                        csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
-                        csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                        csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}.PayloadBuffer;");
+                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
                     }
                     else
                     {
                         // Non-frozen type: use handle-based marshalling
-                        csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}.Payload.DangerousGetHandle();");
+                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}.Payload.DangerousGetHandle();");
                     }
                 }
             }
@@ -155,6 +156,7 @@ namespace BindingsGeneration
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     continue;
 
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
                 bool isOptional = _env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec);
 
                 if (_env.ClosureHandler.IsConventionC(closureTypeSpec))
@@ -166,15 +168,15 @@ namespace BindingsGeneration
                     {
                         // Optional @convention(c) closure - handle null case
                         csWriter.WriteLines($"""
-                            var {argumentDecl.Name}FuncPtr = {argumentDecl.Name} != null
-                                ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({argumentDecl.Name})
+                            var {csName}FuncPtr = {csName} != null
+                                ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({csName})
                                 : ({funcPtrType})IntPtr.Zero;
                             """);
                     }
                     else
                     {
                         // Marshal.GetFunctionPointerForDelegate returns IntPtr, cast to the proper function pointer type
-                        csWriter.WriteLine($"var {argumentDecl.Name}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({argumentDecl.Name});");
+                        csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({csName});");
                     }
                 }
                 else if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
@@ -184,7 +186,7 @@ namespace BindingsGeneration
                     ClosureEmitter.EmitAsyncThrowingClosureMarshallingSetup(
                         csWriter,
                         _env.MethodDecl.Name,
-                        argumentDecl.Name,
+                        csName,
                         closureTypeSpec,
                         _env.ClosureHandler,
                         _env.MethodDecl.MangledName);
@@ -197,26 +199,26 @@ namespace BindingsGeneration
                     if (isOptional)
                     {
                         // Optional escaping closure - handle null case with zero-initialized SwiftClosureData
-                        csWriter.WriteLine($"SwiftClosureData {argumentDecl.Name}Closure;");
-                        csWriter.WriteLine($"if ({argumentDecl.Name} != null)");
+                        csWriter.WriteLine($"SwiftClosureData {csName}Closure;");
+                        csWriter.WriteLine($"if ({csName} != null)");
                         csWriter.WriteLine("{");
                         csWriter.Indent++;
-                        csWriter.WriteLine($"{argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});");
-                        csWriter.WriteLine($"{argumentDecl.Name}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({argumentDecl.Name}Handle));");
+                        csWriter.WriteLine($"{csName}Handle = GCHandle.Alloc({csName});");
+                        csWriter.WriteLine($"{csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({csName}Handle));");
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                         csWriter.WriteLine("else");
                         csWriter.WriteLine("{");
                         csWriter.Indent++;
-                        csWriter.WriteLine($"{argumentDecl.Name}Closure = default; // Zero-initialized = nil in Swift");
+                        csWriter.WriteLine($"{csName}Closure = default; // Zero-initialized = nil in Swift");
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                     }
                     else
                     {
                         csWriter.WriteLines($"""
-                            {argumentDecl.Name}Handle = GCHandle.Alloc({argumentDecl.Name});
-                            var {argumentDecl.Name}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({argumentDecl.Name}Handle));
+                            {csName}Handle = GCHandle.Alloc({csName});
+                            var {csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({csName}Handle));
                             """);
                     }
                 }
@@ -236,11 +238,13 @@ namespace BindingsGeneration
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
             {
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+
                 if (_env.TypeConversionHandler.IsSwiftString(argumentDecl.SwiftTypeSpec))
                 {
                     // string -> SwiftString (using pattern for automatic disposal)
-                    csWriter.WriteLine($"using var {argumentDecl.Name}Swift = new SwiftString({argumentDecl.Name});");
-                    csWriter.WriteLine($"using PayloadBuffer<SwiftString.Buffer> {argumentDecl.Name}Disposable = {argumentDecl.Name}Swift.PayloadBuffer;");
+                    csWriter.WriteLine($"using var {csName}Swift = new SwiftString({csName});");
+                    csWriter.WriteLine($"using PayloadBuffer<SwiftString.Buffer> {csName}Disposable = {csName}Swift.PayloadBuffer;");
                 }
                 else if (_env.TypeConversionHandler.IsSwiftArray(argumentDecl.SwiftTypeSpec))
                 {
@@ -248,11 +252,51 @@ namespace BindingsGeneration
                     var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
                         argumentDecl.SwiftTypeSpec,
                         typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                    csWriter.WriteLine($"using var {argumentDecl.Name}Swift = {swiftType}.FromEnumerable({argumentDecl.Name});");
+                    // Check if array element is an existential (public API uses IEnumerable<IProtocol>,
+                    // but SwiftArray needs ExistentialContainer elements)
+                    var elementTypeSpec = (argumentDecl.SwiftTypeSpec as NamedTypeSpec)?.GenericParameters.FirstOrDefault();
+                    if (elementTypeSpec != null && _env.ExistentialHandler.IsExistential(elementTypeSpec))
+                    {
+                        var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(elementTypeSpec);
+                        if (protocolList != null && _env.ExistentialHandler.IsSupportedExistential(protocolList))
+                        {
+                            var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+                            csWriter.WriteLine($"var {csName}Containers = {csName}.Select(i => ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>)i).GetExistentialContainer());");
+                            csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromEnumerable({csName}Containers);");
+                        }
+                        else
+                        {
+                            csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromEnumerable({csName});");
+                        }
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromEnumerable({csName});");
+                    }
                     // Create payload buffer for P/Invoke (same as bound generic handling)
-                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}Swift.PayloadBuffer;");
-                    var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
-                    csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                    var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                    csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                }
+                else if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
+                         !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
+                {
+                    // (any Protocol)? -> SwiftOptional<ExistentialContainer> with container extraction
+                    // Must extract container from interface before NewSome() since SwiftOptional expects the container type
+                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argumentDecl.SwiftTypeSpec);
+                    if (innerProtocolList != null && _env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
+                    {
+                        var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                        var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
+                            argumentDecl.SwiftTypeSpec,
+                            typeSpec => TranslateTypeSpecForConversion(typeSpec));
+                        csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value");
+                        csWriter.WriteLine($"    ? {swiftType}.NewSome(((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}Value).GetExistentialContainer())");
+                        csWriter.WriteLine($"    : {swiftType}.NewNone();");
+                        csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                        var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                    }
                 }
                 else if (_env.TypeConversionHandler.IsSwiftOptional(argumentDecl.SwiftTypeSpec) &&
                          !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
@@ -262,27 +306,27 @@ namespace BindingsGeneration
                     var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
                         argumentDecl.SwiftTypeSpec,
                         typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                    csWriter.WriteLine($"using var {argumentDecl.Name}Swift = {argumentDecl.Name} is {{}} {argumentDecl.Name}Value ? {swiftType}.NewSome({argumentDecl.Name}Value) : {swiftType}.NewNone();");
+                    csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({csName}Value) : {swiftType}.NewNone();");
                     // Create payload buffer for P/Invoke (same as bound generic handling)
-                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {argumentDecl.Name}Disposable = {argumentDecl.Name}Swift.PayloadBuffer;");
-                    var bufferName = NameProvider.GetBoundGenericBufferName(argumentDecl.Name);
-                    csWriter.WriteLine($"IntPtr {bufferName} = {argumentDecl.Name}Disposable.Buffer;");
+                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                    var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                    csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
                 }
                 else if (_env.TypeConversionHandler.HasNativeTypeRemapping(argumentDecl.SwiftTypeSpec))
                 {
                     // Native type remapping: Foundation.NSUrl -> Swift.URL, Foundation.NSData -> Swift.Data
-                    var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(argumentDecl.Name, argumentDecl.SwiftTypeSpec);
+                    var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(csName, argumentDecl.SwiftTypeSpec);
                     if (conversion != null)
                     {
                         if (_env.TypeConversionHandler.IsFoundationURL(argumentDecl.SwiftTypeSpec))
                         {
                             // URL is non-frozen and requires disposal
-                            csWriter.WriteLine($"using var {argumentDecl.Name}Swift = {conversion};");
+                            csWriter.WriteLine($"using var {csName}Swift = {conversion};");
                         }
                         else
                         {
                             // Data is a frozen struct
-                            csWriter.WriteLine($"var {argumentDecl.Name}Swift = {conversion};");
+                            csWriter.WriteLine($"var {csName}Swift = {conversion};");
                         }
                     }
                 }
@@ -411,17 +455,18 @@ namespace BindingsGeneration
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(a => !a.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(a) && !_env.ClosureHandler.IsClosure(a) && !_env.TupleHandler.IsTuple(a) && !_env.ExistentialHandler.IsExistential(a) && (_env.MethodDecl.IsAccessor || !_env.TypeConversionHandler.IsConvertibleType(a.SwiftTypeSpec))))
             {
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
 
                 // ObjC bridged types: extract Handle from .NET iOS binding object
                 if (MarshallingHelpers.IsObjCBridged(typeRecord))
                 {
-                    csWriter.WriteLine($"IntPtr {argumentDecl.Name}Handle = {argumentDecl.Name}?.Handle ?? IntPtr.Zero;");
+                    csWriter.WriteLine($"IntPtr {csName}Handle = {csName}?.Handle ?? IntPtr.Zero;");
                     continue;
                 }
 
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 {
-                    csWriter.WriteLine($"using PayloadBuffer<{typeRecord.CSharpTypeName}.Buffer> {argumentDecl.Name}Disposable = {argumentDecl.Name}.PayloadBuffer;");
+                    csWriter.WriteLine($"using PayloadBuffer<{typeRecord.CSharpTypeName}.Buffer> {csName}Disposable = {csName}.PayloadBuffer;");
                 }
             }
 
@@ -470,11 +515,13 @@ namespace BindingsGeneration
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
             {
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+
                 if (argumentDecl.IsGeneric)
                 {
                     var csTypeParamName = _env.GenericTypeMapping[argumentDecl.SwiftTypeSpec.ToString()].TypeParameter;
                     var metadataName = NameProvider.GetMetadataName(csTypeParamName);
-                    var payloadName = NameProvider.GetPayloadName(argumentDecl.Name);
+                    var payloadName = NameProvider.GetPayloadName(csName);
                     csWriter.WriteLine($"{metadataName}.ValueWitnessTable->Destroy((void *){payloadName}, {metadataName});");
                     continue;
                 }
@@ -488,7 +535,7 @@ namespace BindingsGeneration
                         _env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
                         !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
                     {
-                        csWriter.WriteLine($"if ({argumentDecl.Name}Handle.IsAllocated) {argumentDecl.Name}Handle.Free();");
+                        csWriter.WriteLine($"if ({csName}Handle.IsAllocated) {csName}Handle.Free();");
                     }
                 }
             }
@@ -506,14 +553,15 @@ namespace BindingsGeneration
         {
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
             {
+                var csName = NameProvider.GetCSharpParameterName(argument);
                 var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
                 var metadataName = NameProvider.GetMetadataName(csTypeParamName);
-                var payloadName = NameProvider.GetPayloadName(argument.Name);
+                var payloadName = NameProvider.GetPayloadName(csName);
 
                 var text = $$"""
                 Span<byte> {{payloadName}}Span = stackalloc byte[(int){{metadataName}}.Size];
                 {{payloadName}} = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference({{payloadName}}Span));
-                SwiftMarshal.MarshalToSwift({{argument.Name}}, ref {{payloadName}}Span);
+                SwiftMarshal.MarshalToSwift({{csName}}, ref {{payloadName}}Span);
                 """;
                 csWriter.WriteLines(text);
             }
@@ -528,11 +576,12 @@ namespace BindingsGeneration
         {
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric && a.IsInOut))
             {
+                var csName = NameProvider.GetCSharpParameterName(argument);
                 var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
-                var payloadName = NameProvider.GetPayloadName(argument.Name);
+                var payloadName = NameProvider.GetPayloadName(csName);
 
                 csWriter.WriteLine($"// Write back modified inout generic parameter");
-                csWriter.WriteLine($"{argument.Name} = SwiftMarshal.MarshalFromSwift<{csTypeParamName}>({payloadName});");
+                csWriter.WriteLine($"{csName} = SwiftMarshal.MarshalFromSwift<{csTypeParamName}>({payloadName});");
             }
         }
 

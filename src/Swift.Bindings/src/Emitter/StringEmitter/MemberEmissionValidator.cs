@@ -49,7 +49,7 @@ public static class MemberEmissionValidator
                 skipDetails = "Existential contains unsupported protocol count.";
                 return SkipReason.UnsupportedExistential;
             }
-            projectedTypeName = existentialHandler.GetCSharpExistentialType(protocolList);
+            projectedTypeName = existentialHandler.GetPublicExistentialType(protocolList);
         }
 
         // Check Optional-wrapped existential types like (any DataCaching)?
@@ -62,7 +62,7 @@ public static class MemberEmissionValidator
                 skipDetails = "Optional existential contains unsupported protocol count.";
                 return SkipReason.UnsupportedExistential;
             }
-            projectedTypeName = existentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
+            projectedTypeName = existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
         }
 
         // Check closure properties
@@ -323,7 +323,7 @@ public static class MemberEmissionValidator
                     var protocolList = existentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec);
                     if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
                     {
-                        projectedReturnTypeName = existentialHandler.GetCSharpExistentialType(protocolList);
+                        projectedReturnTypeName = existentialHandler.GetPublicExistentialType(protocolList);
                     }
                     else
                     {
@@ -336,7 +336,7 @@ public static class MemberEmissionValidator
                     var innerProtocolList = existentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec);
                     if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
                     {
-                        projectedReturnTypeName = existentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
+                        projectedReturnTypeName = existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
                     }
                     else
                     {

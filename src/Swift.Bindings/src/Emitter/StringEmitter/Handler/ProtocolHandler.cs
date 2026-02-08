@@ -491,7 +491,7 @@ namespace BindingsGeneration
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
                 if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
                 {
-                    return existentialHandler.GetCSharpExistentialType(protocolList);
+                    return existentialHandler.GetPublicExistentialType(protocolList);
                 }
             }
 

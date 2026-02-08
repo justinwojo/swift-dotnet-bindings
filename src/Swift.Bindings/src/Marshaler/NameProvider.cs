@@ -197,6 +197,97 @@ public static class NameProvider
                 TypeParameter: $"T{x.i}"
             ));
 
+    /// <summary>
+    /// Gets the C# parameter name for an argument declaration.
+    /// Prefers the internal Swift name (PrivateName) from swiftinterface data.
+    /// Falls back to Name-based logic when swiftinterface data is unavailable.
+    ///
+    /// The returned name is safe for use in string interpolation for derived
+    /// variable names (e.g., {name}Handle, {name}Swift). It does NOT use @
+    /// verbatim identifiers because those break concatenation patterns.
+    /// </summary>
+    /// <param name="arg">The argument declaration.</param>
+    /// <returns>A valid C# parameter name.</returns>
+    public static string GetCSharpParameterName(ArgumentDecl arg)
+    {
+        // 1. If PrivateName is populated, prefer it (internal Swift name from swiftinterface)
+        if (!string.IsNullOrEmpty(arg.PrivateName))
+            return SanitizeForCSharp(arg.PrivateName);
+
+        // 2. If Name is a generated name (arg0, arg1), keep it as fallback
+        if (IsGeneratedArgName(arg.Name))
+            return arg.Name;
+
+        // 3. Otherwise use Name as-is (including _keyword forms like _for, _using)
+        // We keep the _ prefix because derived names ({name}Handle, {name}Swift)
+        // must be valid identifiers without @ escaping.
+        return arg.Name;
+    }
+
+    /// <summary>
+    /// Sanitizes a Swift internal parameter name for use as a C# identifier.
+    /// Uses _ prefix (not @ verbatim) because derived names ({name}Handle, {name}Swift)
+    /// must also be valid identifiers.
+    /// </summary>
+    private static string SanitizeForCSharp(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return name;
+
+        // Handle C# keywords with _ prefix (not @ because derived names like {name}Handle break)
+        if (IsCSharpKeyword(name))
+            return $"_{name}";
+
+        // Handle names starting with digits (rare but possible)
+        if (char.IsDigit(name[0]))
+            return $"_{name}";
+
+        return name;
+    }
+
+    /// <summary>
+    /// Checks if a parameter name was auto-generated (arg0, arg1, etc.)
+    /// These are created by the parser when Swift has "_" (no external label).
+    /// </summary>
+    public static bool IsGeneratedArgName(string? name)
+    {
+        if (string.IsNullOrEmpty(name) || !name.StartsWith("arg"))
+            return false;
+        return name.Length > 3 && name.Substring(3).All(char.IsDigit);
+    }
+
+    /// <summary>
+    /// Strips the underscore prefix added by the parser for C# keywords.
+    /// e.g., "_for" -> "for", "_in" -> "in"
+    /// </summary>
+    public static string StripCSharpKeywordPrefix(string name)
+    {
+        if (name.Length > 1 && name[0] == '_' && IsCSharpKeyword(name.Substring(1)))
+            return name.Substring(1);
+        return name;
+    }
+
+    /// <summary>
+    /// Checks if a name is a C# keyword.
+    /// </summary>
+    private static bool IsCSharpKeyword(string name)
+    {
+        return _csharpKeywords.Contains(name);
+    }
+
+    private static readonly HashSet<string> _csharpKeywords = new()
+    {
+        "for", "in", "is", "as", "if", "else", "do", "while", "return",
+        "break", "continue", "switch", "case", "default", "try", "catch",
+        "throw", "new", "this", "base", "null", "true", "false", "class",
+        "struct", "enum", "interface", "public", "private", "protected",
+        "internal", "static", "readonly", "const", "override", "virtual",
+        "abstract", "sealed", "async", "await", "var", "object", "string",
+        "int", "long", "float", "double", "bool", "void", "ref", "out",
+        "params", "event", "delegate", "operator", "implicit", "explicit",
+        "where", "get", "set", "value", "partial", "using", "namespace"
+    };
+
     public static string GetMetadataName(string typeName) => $"{typeName}Metadata";
     public static string GetPayloadName(string argumentName) => $"{argumentName}Payload";
     public static string GetProtocolWitnessTableName(string typeName, string protocolName) => $"{typeName}{protocolName}PWT";

@@ -89,6 +89,14 @@ namespace BindingsGeneration
 
             ReportCollector.RecordTypeEmitted(enumDecl);
 
+            // Simple enums (no associated values, frozen, non-generic, integral or no raw value)
+            // get emitted as C# enum value types instead of unsafe classes.
+            if (enumDecl.IsSimpleEnum)
+            {
+                EmitSimpleEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor);
+                return;
+            }
+
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
 

@@ -405,7 +405,7 @@ namespace BindingsGeneration
                     EntryPoint = methodDecl.MangledName,
                     MethodName = pinvokeName,
                     ReturnType = pInvokeSignature.ReturnType,
-                    ParametersString = pInvokeSignature.ParametersString(),
+                    ParametersString = pInvokeSignature.PInvokeParametersString(),
                     IsAsync = false,
                     MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
                 };
@@ -416,7 +416,7 @@ namespace BindingsGeneration
                 // Emit directly for non-generic types
                 csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
                 csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{methodDecl.MangledName}\")]");
-                csWriter.WriteLine($"private static extern {pInvokeSignature.ReturnType} {pinvokeName}({pInvokeSignature.ParametersString()});");
+                csWriter.WriteLine($"private static extern {pInvokeSignature.ReturnType} {pinvokeName}({pInvokeSignature.PInvokeParametersString()});");
             }
         }
 

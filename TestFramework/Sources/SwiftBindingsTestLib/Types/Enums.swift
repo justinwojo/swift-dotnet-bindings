@@ -6,7 +6,7 @@ import Foundation
 // MARK: - Simple Enum
 
 /// Simple enum with no raw value or associated values.
-public enum Direction {
+@frozen public enum Direction {
     case north
     case south
     case east
@@ -26,7 +26,7 @@ public enum Direction {
 // MARK: - Raw Value Enums
 
 /// Enum with Int32 raw value.
-public enum Color: Int32 {
+@frozen public enum Color: Int32 {
     case red = 0
     case green = 1
     case blue = 2

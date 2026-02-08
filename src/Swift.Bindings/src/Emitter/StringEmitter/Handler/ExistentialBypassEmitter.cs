@@ -121,7 +121,7 @@ public static class ExistentialBypassEmitter
         // (e.g., SafeHandle extraction, idiomatic type conversion, indirect results).
         // CallArgumentsString() may reference locals like {name}Handle, {name}Disposable,
         // {name}Swift that WrapperEmitter normally sets up but the bypass factory doesn't.
-        if (reducedWrapperSig.ParametersString() != reducedPInvokeSig.ParametersString())
+        if (reducedWrapperSig.ParametersString() != reducedPInvokeSig.PInvokeParametersString())
         {
             logger.LogDebug("ExistentialBypassEmitter: wrapper and P/Invoke parameter signatures differ, cannot bypass.");
             return false;
@@ -241,7 +241,7 @@ public static class ExistentialBypassEmitter
         var paramString = reducedWrapperSig.ParametersString();
 
         // P/Invoke extern declarations use the P/Invoke (low-level) signature
-        var pInvokeParams = reducedPInvokeSig.ParametersString();
+        var pInvokeParams = reducedPInvokeSig.PInvokeParametersString();
 
         // Emit P/Invoke declarations
         if (env.PInvokeHelperContext != null)

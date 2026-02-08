@@ -14,6 +14,20 @@ namespace BindingsGeneration
     public record Parameter(string Type, string Name, string modifier = "")
     {
         public string CallString() => $"{Type} {Name}";
+
+        /// <summary>
+        /// Returns the parameter string for P/Invoke declarations.
+        /// Existential types use the container type (not the public interface type).
+        /// </summary>
+        public string PInvokeSignatureString() => Type switch
+        {
+            // Existential types: use container type in P/Invoke declaration
+            // Format: "Existential:{containerType}:{publicType}"
+            var t when t.StartsWith("Existential:") => $"{modifier} {t.Split(':')[1]} {Name}",
+            // All other types delegate to SignatureString
+            _ => SignatureString()
+        };
+
         public string SignatureString() => Type switch
         {
             "AsyncCallback" => $"{modifier} void* {Name}",
@@ -25,6 +39,12 @@ namespace BindingsGeneration
             var t when t.StartsWith("ObjCBridged:") => $"{modifier} IntPtr {Name}",
             // Enum values use IntPtr in Swift calling-convention P/Invoke (SafeHandle is non-blittable there).
             "EnumSafeHandle" => $"{modifier} IntPtr {Name}",
+            // Simple enums (C# value types) use their underlying integer type in P/Invoke.
+            // Format: "SimpleEnum:{underlyingType}:{enumTypeName}"
+            var t when t.StartsWith("SimpleEnum:") => $"{modifier} {t.Split(':')[1]} {Name}",
+            // Existential protocol types: show public interface type in signature.
+            // Format: "Existential:{containerType}:{publicType}"
+            var t when t.StartsWith("Existential:") => $"{modifier} {t.Split(':')[2]} {Name}",
             // Native-remapped types: URL uses SafeHandle, Data uses the actual Swift type
             "NativeRemappedSafeHandle" => $"{modifier} SafeHandle {Name}",
             var t when t.StartsWith("NativeRemapped:") => $"{modifier} {t.Substring("NativeRemapped:".Length)} {Name}",
@@ -49,6 +69,12 @@ namespace BindingsGeneration
         || ReturnType.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
         public string ParametersString() => string.Join(", ", Parameters.Select(p => p.SignatureString()));
 
+        /// <summary>
+        /// Returns the parameters string for P/Invoke declarations, where existential types
+        /// use container types instead of public interface types.
+        /// </summary>
+        public string PInvokeParametersString() => string.Join(", ", Parameters.Select(p => p.PInvokeSignatureString()));
+
         public string CallArgumentsString() => string.Join(", ", Parameters.Select(p => GetCallArgumentString(p)));
 
         public static string GetCallArgumentString(Parameter parameter)
@@ -57,6 +83,12 @@ namespace BindingsGeneration
             {
                 { Type: "SafeHandle" } => $"{parameter.Name}.Payload",
                 { Type: "EnumSafeHandle" } => $"{parameter.Name}.Payload.DangerousGetHandle()",
+                // Simple enums: cast to underlying integer type for P/Invoke
+                { Type: var type } when type.StartsWith("SimpleEnum:") => $"({type.Split(':')[1]}){parameter.Name}",
+                // Existential protocol types: extract container from interface
+                // Format: "Existential:{containerType}:{publicType}"
+                { Type: var type } when type.StartsWith("Existential:") =>
+                    $"((Swift.Runtime.ISwiftExistentialConvertible<{type.Split(':')[1]}>){parameter.Name}).GetExistentialContainer()",
                 { Type: "IntPtrFromNonFrozen" } => $"{parameter.Name}Handle",
                 // Handle .Buffer params: ref modifier uses BufferRef (ref-returning property) for in-place mutation
                 { Type: var type, modifier: "ref" } when type.EndsWith(".Buffer") => $"ref {parameter.Name}Disposable.BufferRef",
@@ -240,8 +272,8 @@ namespace BindingsGeneration
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
                 if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
                 {
-                    var existentialType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
-                    SetReturnType(existentialType);
+                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                    SetReturnType(publicType);
                 }
                 else
                 {
@@ -256,8 +288,8 @@ namespace BindingsGeneration
                 var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argument.SwiftTypeSpec)!;
                 if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
                 {
-                    var optionalExistentialType = _env.ExistentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
-                    SetReturnType(optionalExistentialType);
+                    var publicOptionalType = _env.ExistentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
+                    SetReturnType(publicOptionalType);
                 }
                 else
                 {
@@ -289,11 +321,14 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Handles the arguments of the method.
+        /// Uses GetCSharpParameterName() for public API parameter names.
         /// </summary>
         public void HandleArguments()
         {
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
             {
+                var csParamName = NameProvider.GetCSharpParameterName(argument);
+
                 // Check for automatic .NET type conversion (SwiftString -> string, SwiftArray -> IEnumerable, etc.)
                 if (!_env.MethodDecl.IsAccessor)
                 {
@@ -303,7 +338,7 @@ namespace BindingsGeneration
                         typeSpec => TranslateTypeSpecForConversion(typeSpec));
                     if (idiomaticType != null)
                     {
-                        AddParameter(idiomaticType, argument.Name);
+                        AddParameter(idiomaticType, csParamName);
                         continue;
                     }
                 }
@@ -311,7 +346,7 @@ namespace BindingsGeneration
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
                 {
                     var csTypeParam = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument, _genericContext);
-                    AddParameter(csTypeParam, argument.Name);
+                    AddParameter(csTypeParam, csParamName);
                     continue;
                 }
 
@@ -325,12 +360,12 @@ namespace BindingsGeneration
                         var delegateType = isOptional
                             ? _env.ClosureHandler.GetCSharpOptionalDelegateType(argument.SwiftTypeSpec)
                             : _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
-                        AddParameter(delegateType, argument.Name);
+                        AddParameter(delegateType, csParamName);
                     }
                     else
                     {
                         // Unsupported closure - use placeholder that will cause method to be skipped
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
                     }
                     continue;
                 }
@@ -341,9 +376,9 @@ namespace BindingsGeneration
                     var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(argument)!;
                     if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
                         _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
-                        AddParameter(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext), argument.Name);
+                        AddParameter(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext), csParamName);
                     else
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
                     continue;
                 }
 
@@ -353,12 +388,14 @@ namespace BindingsGeneration
                     var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec)!;
                     if (_env.ExistentialHandler.IsSupportedExistential(protocolList))
                     {
-                        var existentialType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
-                        AddParameter(existentialType, argument.Name);
+                        var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                        var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+                        // Use Existential: prefix so P/Invoke call extracts container from interface
+                        AddParameter($"Existential:{containerType}:{publicType}", csParamName);
                     }
                     else
                     {
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
                     }
                     continue;
                 }
@@ -369,12 +406,12 @@ namespace BindingsGeneration
                     var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(argument.SwiftTypeSpec)!;
                     if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
                     {
-                        var optionalExistentialType = _env.ExistentialHandler.GetCSharpOptionalExistentialType(innerProtocolList);
-                        AddParameter(optionalExistentialType, argument.Name);
+                        var publicOptionalType = _env.ExistentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
+                        AddParameter(publicOptionalType, csParamName);
                     }
                     else
                     {
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
                     }
                     continue;
                 }
@@ -385,7 +422,7 @@ namespace BindingsGeneration
                 if (argument.IsGeneric)
                 {
                     var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
-                    AddParameter(csTypeParamName, argument.Name, inoutModifier);
+                    AddParameter(csTypeParamName, csParamName, inoutModifier);
                 }
                 else
                 {
@@ -396,7 +433,7 @@ namespace BindingsGeneration
                         var nativeType = _env.TypeConversionHandler.GetNativeTypeName(argument.SwiftTypeSpec);
                         if (nativeType != null)
                         {
-                            AddParameter(nativeType, argument.Name, inoutModifier);
+                            AddParameter(nativeType, csParamName, inoutModifier);
                             continue;
                         }
                     }
@@ -405,10 +442,10 @@ namespace BindingsGeneration
                     // Protocol types (interfaces) are not supported as parameters because they don't have Payload property
                     if (typeRecord.Kind == TypeRecordKind.Protocol)
                     {
-                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, argument.Name);
+                        AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csParamName);
                         continue;
                     }
-                    AddParameter(typeRecord.CSharpTypeName.FullyQualifiedName, argument.Name, inoutModifier);
+                    AddParameter(typeRecord.CSharpTypeName.FullyQualifiedName, csParamName, inoutModifier);
                 }
             }
         }
@@ -420,11 +457,12 @@ namespace BindingsGeneration
         private string TranslateTypeSpecForConversion(TypeSpec typeSpec)
         {
             // Handle existential types (ProtocolListTypeSpec and NamedTypeSpec with IsAny)
+            // Use public interface type for wrapper signatures (e.g., ISwiftDescribable instead of ExistentialContainer1)
             if (_env.ExistentialHandler.IsExistential(typeSpec))
             {
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(typeSpec);
                 if (protocolList != null && _env.ExistentialHandler.IsSupportedExistential(protocolList))
-                    return _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+                    return _env.ExistentialHandler.GetPublicExistentialType(protocolList);
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
             }
 

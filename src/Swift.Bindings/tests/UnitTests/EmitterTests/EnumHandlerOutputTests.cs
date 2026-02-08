@@ -13,7 +13,7 @@ namespace BindingsGeneration.Tests;
 public class EnumHandlerOutputTests
 {
     [Fact]
-    public void Emit_SimpleEnum_EmitsDirectCaseConstructorsAndCaseTag()
+    public void Emit_SimpleEnum_EmitsCSharpEnumValueType()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -23,15 +23,17 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public static Direction North", csOutput);
-        Assert.Contains("metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)0, metadata);", csOutput);
-        Assert.Contains("public enum CaseTag : uint", csOutput);
+        // Simple enums emit as C# enum value types
+        Assert.Contains("public enum Direction : int", csOutput);
         Assert.Contains("North = 0,", csOutput);
         Assert.Contains("South = 1,", csOutput);
+        // Should NOT contain class-based emission
+        Assert.DoesNotContain("unsafe class Direction", csOutput);
+        Assert.DoesNotContain("SwiftSafeHandle", csOutput);
     }
 
     [Fact]
-    public void Emit_RawRepresentableEnum_EmitsFromRawValueSupport()
+    public void Emit_RawRepresentableIntEnum_EmitsCSharpEnumValueType()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -43,10 +45,162 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public static Status? FromRawValue(long rawValue)", csOutput);
-        Assert.Contains("private static extern IntPtr PInvoke_InitWithRawValue(long rawValue);", csOutput);
-        Assert.Contains("var result = FromRawValue(0);", csOutput);
-        Assert.Contains("var result = FromRawValue(1);", csOutput);
+        // Int-raw-value enums qualify as simple enums → C# enum value type
+        // Swift "Int" maps to C# "int" for enum underlying types (not nint/long)
+        Assert.Contains("public enum Status : int", csOutput);
+        Assert.Contains("Ok = 0,", csOutput);
+        Assert.Contains("Error = 1,", csOutput);
+        // Should NOT contain class-based emission
+        Assert.DoesNotContain("FromRawValue", csOutput);
+        Assert.DoesNotContain("SwiftSafeHandle", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StringRawRepresentableEnum_EmitsClassNotSimpleEnum()
+    {
+        // String enums should NOT qualify as simple enums
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("LogLevel", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("debug"));
+        enumDecl.Cases.Add(CreateCase("info"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Should be class-based, not C# enum
+        Assert.Contains("public unsafe class LogLevel", csOutput);
+        Assert.Contains("FromRawValue", csOutput);
+        Assert.DoesNotContain("public enum LogLevel", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenEnum_EmitsClassNotSimpleEnum()
+    {
+        // Non-frozen enums must NOT be simple enums (library evolution safety)
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("unsafe class Status", csOutput);
+        Assert.DoesNotContain("public enum Status", csOutput);
+    }
+
+    [Fact]
+    public void Emit_SimpleEnumWithExtensionMethod_EmitsExtensionClassAndSwiftWrapper()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Direction", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("north"));
+        enumDecl.Cases.Add(CreateCase("south"));
+
+        // Add an instance method returning the same enum type
+        var oppositeMethod = new MethodDecl
+        {
+            Name = "opposite",
+            MangledName = "$s10TestModule9DirectionO8oppositeA2CyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Direction"),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        enumDecl.Methods.Add(oppositeMethod);
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // C# should have enum + extensions class with Opposite method
+        Assert.Contains("public enum Direction : int", csOutput);
+        Assert.Contains("public static class DirectionExtensions", csOutput);
+        Assert.Contains("public static Direction Opposite(this Direction self)", csOutput);
+        Assert.Contains("(Direction)PInvoke_Opposite((int)self)", csOutput);
+        Assert.Contains("[DllImport(", csOutput);
+
+        // Swift wrapper should have tag-to-case conversion
+        Assert.Contains("switch tag {", swiftOutput);
+        Assert.Contains("case 0: value = .north", swiftOutput);
+        Assert.Contains("case 1: value = .south", swiftOutput);
+        Assert.Contains("value.opposite()", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_SimpleEnumWithUnsupportedMethod_SkipsMethodNoEmptyExtensions()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Color", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int32";
+        enumDecl.Cases.Add(CreateCase("red"));
+        enumDecl.Cases.Add(CreateCase("blue"));
+
+        // Add a method with unsupported parameter type (Hasher)
+        var hashMethod = new MethodDecl
+        {
+            Name = "hash",
+            MangledName = "$s10TestModule5ColorO4hashySHzF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = new TupleTypeSpec(new List<TypeSpec>()),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Hasher"),
+                    Name = "into",
+                    PrivateName = "hasher",
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        enumDecl.Methods.Add(hashMethod);
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // Should emit C# enum but NOT the empty extensions class
+        Assert.Contains("public enum Color : int", csOutput);
+        Assert.DoesNotContain("ColorExtensions", csOutput);
+        // No Swift wrapper for unsupported method
+        Assert.DoesNotContain("_sbw_Color_hash", swiftOutput);
     }
 
     [Fact]

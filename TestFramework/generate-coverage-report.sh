@@ -523,7 +523,6 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "raw_span_parameter",
     "failable_initializer",
     "inout_parameter",
-    "default_parameter_value",
     "non_frozen_layout_change",
     "unicode_identifiers",
     "reserved_word_handling",

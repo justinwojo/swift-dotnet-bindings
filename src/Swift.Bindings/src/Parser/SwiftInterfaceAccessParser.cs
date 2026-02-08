@@ -194,6 +194,9 @@ public static class SwiftInterfaceAccessParser
         var funcNameIdx = line.IndexOf($" {funcName}(", StringComparison.Ordinal);
         if (funcNameIdx < 0)
             funcNameIdx = line.IndexOf($" {funcName} (", StringComparison.Ordinal);
+        // Handle generic funcs: "func name<T>("
+        if (funcNameIdx < 0)
+            funcNameIdx = line.IndexOf($" {funcName}<", StringComparison.Ordinal);
         if (funcNameIdx < 0)
             return $"{funcName}()";
 
@@ -269,5 +272,245 @@ public static class SwiftInterfaceAccessParser
         }
         result.Add(paramStr.Substring(start));
         return result;
+    }
+
+    // Regex for any func declaration (public, open, or no access modifier in extension scope)
+    // Captures the function name. Handles static, class, final, mutating modifiers.
+    private static readonly Regex AnyFuncRegex = new(
+        @"(?:(?:public|open|internal)\s+)?(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    // Regex for init declarations
+    private static readonly Regex AnyInitRegex = new(
+        @"(?:(?:public|open|internal)\s+)?(?:convenience\s+)?init\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns a dictionary mapping
+    /// "TypeName.printedName" keys to lists of internal parameter names.
+    /// For module-level free functions, the key is just "printedName".
+    ///
+    /// For example, for:
+    ///   public func sumTwo(_ a: Int, _ b: Int) -> Int
+    /// This produces: { "sumTwo(_:_:)": ["a", "b"] }
+    ///
+    /// Multi-line signatures are handled by detecting unmatched parentheses.
+    /// </summary>
+    /// <param name="swiftInterfacePath">Path to the .swiftinterface file.</param>
+    /// <returns>Dictionary of parameter name lists keyed by "TypeName.printedName" or "printedName".</returns>
+    public static Dictionary<string, List<string>> GetParameterNames(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, List<string>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        string? continuationLine = null;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Handle multi-line signature continuation
+            if (continuationLine != null)
+            {
+                continuationLine += " " + trimmed;
+                // Check if parentheses are now balanced
+                if (!HasUnmatchedOpenParen(continuationLine))
+                {
+                    var completeLine = continuationLine;
+                    continuationLine = null;
+                    ProcessFuncLineForParamNames(completeLine, typeStack, result);
+                }
+                // Don't process brace depth for continuation lines within signatures
+                continue;
+            }
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Track type context (same logic as GetInternalMembers)
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                pushedScope = true;
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            // Check for func/init declarations
+            if (IsFuncOrInitLine(trimmed))
+            {
+                // Check for multi-line signature (unmatched open paren)
+                if (HasUnmatchedOpenParen(trimmed))
+                {
+                    continuationLine = trimmed;
+                }
+                else
+                {
+                    ProcessFuncLineForParamNames(trimmed, typeStack, result);
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+            {
+                typeStack.Pop();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Checks if a line contains a func or init declaration.
+    /// </summary>
+    private static bool IsFuncOrInitLine(string trimmed)
+    {
+        return AnyFuncRegex.IsMatch(trimmed) || AnyInitRegex.IsMatch(trimmed);
+    }
+
+    /// <summary>
+    /// Checks if a line has unmatched open parentheses (multi-line signature).
+    /// </summary>
+    private static bool HasUnmatchedOpenParen(string line)
+    {
+        int depth = 0;
+        for (int i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '(') depth++;
+            if (line[i] == ')') depth--;
+        }
+        return depth > 0;
+    }
+
+    /// <summary>
+    /// Processes a complete function/init line to extract parameter names and add to result.
+    /// </summary>
+    private static void ProcessFuncLineForParamNames(
+        string line,
+        Stack<(string Name, int Depth)> typeStack,
+        Dictionary<string, List<string>> result)
+    {
+        // Try func match
+        var funcMatch = AnyFuncRegex.Match(line);
+        if (funcMatch.Success)
+        {
+            var funcName = funcMatch.Groups[1].Value;
+            var (printedName, internalNames) = ExtractParamNamesFromLine(line, funcName);
+
+            if (internalNames.Count > 0)
+            {
+                var key = typeStack.Count > 0
+                    ? $"{typeStack.Peek().Name}.{printedName}"
+                    : printedName;
+                result[key] = internalNames;
+            }
+            return;
+        }
+
+        // Try init match
+        var initMatch = AnyInitRegex.Match(line);
+        if (initMatch.Success)
+        {
+            var (printedName, internalNames) = ExtractParamNamesFromLine(line, "init");
+
+            if (internalNames.Count > 0)
+            {
+                var key = typeStack.Count > 0
+                    ? $"{typeStack.Peek().Name}.{printedName}"
+                    : printedName;
+                result[key] = internalNames;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extracts both the printed name (ABI format) and internal parameter names from a function line.
+    /// For "func sumTwo(_ a: Int, _ b: Int) -> Int", returns:
+    ///   printedName = "sumTwo(_:_:)"
+    ///   internalNames = ["a", "b"]
+    /// </summary>
+    private static (string PrintedName, List<string> InternalNames) ExtractParamNamesFromLine(string line, string funcName)
+    {
+        var printedName = ExtractPrintedName(line, funcName);
+        var internalNames = new List<string>();
+
+        // Find the opening parenthesis after the function name
+        var funcNameIdx = line.IndexOf($" {funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = line.IndexOf($" {funcName} (", StringComparison.Ordinal);
+        // Also handle beginning of line (no space prefix)
+        if (funcNameIdx < 0)
+            funcNameIdx = line.IndexOf($"{funcName}(", StringComparison.Ordinal);
+        // Also handle generic params: "func name<T>("
+        if (funcNameIdx < 0)
+            funcNameIdx = line.IndexOf($" {funcName}<", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            return (printedName, internalNames);
+
+        var parenStart = line.IndexOf('(', funcNameIdx);
+        if (parenStart < 0)
+            return (printedName, internalNames);
+
+        // Find matching close paren
+        int depth = 0;
+        int parenEnd = parenStart;
+        for (int i = parenStart; i < line.Length; i++)
+        {
+            if (line[i] == '(') depth++;
+            if (line[i] == ')')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    parenEnd = i;
+                    break;
+                }
+            }
+        }
+
+        var paramStr = line.Substring(parenStart + 1, parenEnd - parenStart - 1);
+        if (string.IsNullOrWhiteSpace(paramStr))
+            return (printedName, internalNames);
+
+        var parts = SplitParameters(paramStr);
+        foreach (var part in parts)
+        {
+            var trimPart = part.Trim();
+            var colonIdx = trimPart.IndexOf(':');
+            if (colonIdx < 0) continue;
+            var beforeColon = trimPart.Substring(0, colonIdx).Trim();
+            var words = beforeColon.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (words.Length >= 2)
+            {
+                // "externalLabel internalName" -> internal name is second word
+                internalNames.Add(words[1]);
+            }
+            else if (words.Length == 1)
+            {
+                // "name:" -> same name is both external and internal
+                internalNames.Add(words[0]);
+            }
+        }
+
+        return (printedName, internalNames);
     }
 }

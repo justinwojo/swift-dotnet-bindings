@@ -236,7 +236,11 @@ public class TypeConversionHandler
         if (IsSwiftOptional(namedTypeSpec))
         {
             // SwiftOptional<T> -> T? (via implicit operator)
-            return $"(({GetIdiomaticCSharpType(namedTypeSpec, false, typeTranslator)}){resultVar})";
+            // GetIdiomaticCSharpType returns null for types handled elsewhere (e.g., Optional<Closure>)
+            var idiomaticType = GetIdiomaticCSharpType(namedTypeSpec, false, typeTranslator);
+            if (idiomaticType == null)
+                return null;
+            return $"(({idiomaticType}){resultVar})";
         }
 
         return null;

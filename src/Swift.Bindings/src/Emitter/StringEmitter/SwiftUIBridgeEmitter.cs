@@ -1028,8 +1028,16 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == BridgeParameterKind.BoundEnum)
             {
-                // Swift enums are generated as C# classes with .RawValue property
-                args.Add($"{param.Name}.RawValue");
+                if (param.IsSimpleEnum)
+                {
+                    // Simple enums are C# enum value types — cast to underlying int
+                    args.Add($"({param.CSharpPInvokeType}){param.Name}");
+                }
+                else
+                {
+                    // Complex enums are C# classes with .RawValue property
+                    args.Add($"{param.Name}.RawValue");
+                }
             }
             else if (param.Kind == BridgeParameterKind.BoundType)
             {
@@ -1044,9 +1052,18 @@ public static partial class SwiftUIBridgeEmitter
                 var inner = param.InnerParameter!;
                 if (inner.Kind == BridgeParameterKind.BoundEnum)
                 {
-                    // BoundEnum is a reference type (class) — use != null, .RawValue
-                    args.Add($"{param.Name} != null ? 1 : 0");
-                    args.Add($"{param.Name}?.RawValue ?? 0");
+                    if (inner.IsSimpleEnum)
+                    {
+                        // Simple enum is a C# value type — use .HasValue, cast to int
+                        args.Add($"{param.Name}.HasValue ? 1 : 0");
+                        args.Add($"{param.Name}.HasValue ? ({inner.CSharpPInvokeType}){param.Name}.Value : 0");
+                    }
+                    else
+                    {
+                        // Complex enum is a reference type (class) — use != null, .RawValue
+                        args.Add($"{param.Name} != null ? 1 : 0");
+                        args.Add($"{param.Name}?.RawValue ?? 0");
+                    }
                 }
                 else if (inner.CSharpConversion != null) // Bool
                 {

@@ -203,6 +203,10 @@ namespace BindingsGeneration
             }
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
             ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
+
+            // Emit constructor overloads for trailing default parameters
+            DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger);
+
             csWriter.WriteLine();
         }
     }
@@ -373,6 +377,10 @@ namespace BindingsGeneration
             {
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
             }
+
+            // Emit default parameter overloads (additional convenience methods)
+            DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger);
+
             csWriter.WriteLine();
         }
 

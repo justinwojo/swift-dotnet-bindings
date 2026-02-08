@@ -165,16 +165,19 @@ namespace BindingsGeneration
             // Parse the TBD file
             Demangling.DemanglingResults demangledTbdFile = Demangling.DemanglingResults.FromTbd(tbdPath, loggerFactory);
 
-            // Parse swiftinterface for internal member detection (supplementary data)
+            // Parse swiftinterface for internal member detection and parameter names (supplementary data)
             HashSet<string>? internalMemberKeys = null;
+            Dictionary<string, List<string>>? parameterNames = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
                 internalMemberKeys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} internal member keys from swiftinterface", internalMemberKeys.Count);
+                parameterNames = SwiftInterfaceAccessParser.GetParameterNames(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} parameter name entries from swiftinterface", parameterNames.Count);
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);

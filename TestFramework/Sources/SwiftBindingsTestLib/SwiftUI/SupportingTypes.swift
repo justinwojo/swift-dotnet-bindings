@@ -8,7 +8,7 @@
 // MARK: - BoundEnum parameter type
 
 /// Simple enum for BoundEnum parameter testing.
-public enum AlertStyle: Int32 {
+@frozen public enum AlertStyle: Int32 {
     case info = 0
     case warning = 1
     case error = 2

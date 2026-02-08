@@ -42,10 +42,11 @@ fi
 echo "=== Regenerating bindings for $MODULE_NAME ==="
 echo "Framework: $SIM_FW_DIR"
 
-# Find the ABI JSON, dylib, and TBD
+# Find the ABI JSON, dylib, TBD, and swiftinterface
 ABI_JSON=$(find "$SIM_FW_DIR" -name "*.abi.json" | head -1)
 DYLIB="$SIM_FW_DIR/$MODULE_NAME"
 TBD=$(find "$SIM_FW_DIR" -name "*.tbd" | head -1)
+SWIFTINTERFACE=$(find "$XCFW_DIR" -name "*.swiftinterface" | head -1)
 
 if [ -z "$ABI_JSON" ]; then
     echo "Error: ABI JSON not found in $SIM_FW_DIR"
@@ -55,6 +56,7 @@ fi
 echo "ABI JSON: $ABI_JSON"
 echo "Dylib: $DYLIB"
 echo "TBD: $TBD"
+echo "SwiftInterface: $SWIFTINTERFACE"
 
 # Create output directory
 mkdir -p output
@@ -65,12 +67,18 @@ mkdir -p output
 # test library to exercise these code paths. A non-zero exit code from the generator
 # is reported but does not fail this script — check output/ for partial results.
 set +e
+SWIFTINTERFACE_OPT=""
+if [ -n "$SWIFTINTERFACE" ]; then
+    SWIFTINTERFACE_OPT="-s $SWIFTINTERFACE"
+fi
+
 dotnet run --project "$PROJECT_ROOT/src/Swift.Bindings/src" -- \
     -a "$ABI_JSON" \
     -d "$DYLIB" \
     -t "$TBD" \
     -o output \
-    -l "$MODULE_NAME" 2>&1
+    -l "$MODULE_NAME" \
+    $SWIFTINTERFACE_OPT 2>&1
 GENERATOR_EXIT=$?
 set -e
 

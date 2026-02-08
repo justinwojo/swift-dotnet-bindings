@@ -68,6 +68,30 @@ namespace BindingsGeneration
         public bool IsRawRepresentable => !string.IsNullOrEmpty(RawValueTypeName);
 
         /// <summary>
+        /// Whether this enum qualifies for emission as a C# enum value type.
+        /// Requires: no associated values, frozen, non-generic, and either no raw value
+        /// or an integral raw value type.
+        /// </summary>
+        public bool IsSimpleEnum =>
+            !HasAssociatedValueCases &&
+            IsFrozen &&
+            !IsGeneric &&
+            (!IsRawRepresentable || IsIntegralRawValue());
+
+        /// <summary>
+        /// Checks if the raw value type is an integral type suitable for C# enum underlying type.
+        /// </summary>
+        private bool IsIntegralRawValue()
+        {
+            return RawValueTypeName switch
+            {
+                "Int" or "UInt" or "Int8" or "UInt8" or "Int16" or "UInt16" or
+                "Int32" or "UInt32" or "Int64" or "UInt64" => true,
+                _ => false
+            };
+        }
+
+        /// <summary>
         /// Gets the enum cases that have associated values (payload cases).
         /// Swift orders these first in the tag sequence.
         /// </summary>
