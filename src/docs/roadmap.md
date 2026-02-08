@@ -27,46 +27,57 @@ All P1 items from `testing-gaps.md` completed (Gaps 0a, 0b, 1, 2). Unit tests: 1
 
 ## Phase B: Enable Disabled TestFramework Features
 
-**Status**: Not Started
+**Status**: Not Started — start with B1
 **Effort**: Medium (3-5 sessions)
 **Why**: 51 must-pass features sit in `.disabled/` dirs. Enabling them closes the gap from 61 toward 90+. This also builds the regression safety net needed before the sweeping emitter changes in Phase D.
 
-Work in batches, easiest first. After each batch: run `build-and-test.sh`, check coverage report, fix any generator regressions before proceeding.
+**Execution order**: B1 → B2 → B3 → B5 → B4. Rationale: Error handling and generics are the easiest wins (already work in real-world libraries). Protocols need version guard work but no new infrastructure. Compositions are additive (new Swift files, not enabling disabled ones). Async is last because it requires Swift wrapper generation in the test build pipeline and runtime tests are complicated by Mono JIT bugs.
 
-### B1. Error Handling (testing-gaps.md Gap 8)
+Work one batch at a time. After each batch: run `build-and-test.sh`, check coverage report, fix any generator regressions before proceeding to the next batch.
+
+### B1. Error Handling (testing-gaps.md Gap 8) — DO FIRST
 - Enable `TestFramework/Sources/SwiftBindingsTestLib/ErrorHandling.disabled/`
-- Start with `ThrowingFunctions.swift` — throwing functions work in Nuke/Lottie
-- Verify Layer 1 generation succeeds
+- Start with `ThrowingFunctions.swift` — throwing functions already work in Nuke/Lottie/CryptoSwift
+- Verify Layer 1 generation succeeds (xcframework build + binding generation)
+- Check coverage report: new features should appear as `passing` or `degraded` (not `missing`)
+- Fix any generator issues surfaced by the new Swift sources
 - Add runtime test `TestFramework/RuntimeTestsApp/ErrorHandling/ThrowingMethodTests.cs`
+- Run verification (see below), confirm no regressions
 
-### B2. Generics (testing-gaps.md Gap 7)
+### B2. Generics (testing-gaps.md Gap 7) — SECOND
 - Enable `TestFramework/Sources/SwiftBindingsTestLib/Generics.disabled/`
 - Generic structs, classes, bound generic params all work in real-world libraries
 - Add runtime test `TestFramework/RuntimeTestsApp/Generics/GenericTests.cs`
 
-### B3. Protocols (testing-gaps.md Gap 4)
+### B3. Protocols (testing-gaps.md Gap 4) — THIRD
 - Enable protocol Swift sources (may need version guard adjustments)
 - Verify protocol interfaces appear in generated bindings
 - Add runtime tests for witness dispatch (blittable + String property getters/setters, method dispatch)
 - File: `TestFramework/RuntimeTestsApp/Protocols/WitnessDispatchTests.cs`
 
-### B4. Async (testing-gaps.md Gap 3)
-- Enable `TestFramework/Sources/SwiftBindingsTestLib/Async.disabled/` starting with `AsyncMethods.swift`
-- May need Swift wrapper generation step in `build-and-test.sh`
-- Add runtime tests: `AsyncStringTests.cs`, `AsyncComplexTypeTests.cs`
-- Blocked by: async Swift wrapper generation working for test library
-
-### B5. Complex Compositions (testing-gaps.md Gap 5)
+### B5. Complex Compositions (testing-gaps.md Gap 5) — FOURTH
 - Add `TestFramework/Sources/SwiftBindingsTestLib/Patterns/RealWorldCompositions.swift`
 - Class with closure property, struct with optional array, method returning optional class, singleton static property, inheritance + protocol conformance
 - Add runtime test `TestFramework/RuntimeTestsApp/Patterns/CompositionTests.cs`
 
+### B4. Async (testing-gaps.md Gap 3) — LAST (most infrastructure needed)
+- Enable `TestFramework/Sources/SwiftBindingsTestLib/Async.disabled/` starting with `AsyncMethods.swift`
+- May need Swift wrapper generation step in `build-and-test.sh`
+- Add runtime tests: `AsyncStringTests.cs`, `AsyncComplexTypeTests.cs`
+- Blocked by: async Swift wrapper generation working for test library
+- Runtime tests complicated by Mono JIT bugs — may need to defer some to Tier 3
+
 ### Verification after each batch
 ```bash
+# 1. Unit tests still pass
+./run-tests.sh
+
+# 2. TestFramework generation + coverage
 cd TestFramework
 ./build-and-test.sh && ./generate-coverage-report.sh
 # Check: passing count increased, degraded didn't increase
-# Then:
+
+# 3. Runtime tests (if runtime tests were added)
 ./run-runtime-tests.sh --tier 2 --timeout 90
 ```
 
