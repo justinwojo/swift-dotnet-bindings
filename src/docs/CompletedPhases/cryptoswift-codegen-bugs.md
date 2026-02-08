@@ -430,51 +430,27 @@ Enum types like `SHA2.Variant` are projected as C# classes (with SafeHandle payl
 
 ## Summary by Generator Component
 
-| Component | Bugs | IDs |
-|-----------|------|-----|
-| `OperatorHandler.cs` | 3 | #1, #4, #10 |
-| `MethodHandler.cs` / constructors | 3 | #7, #8, #20 (FIXED) |
-| `WrapperEmitter.Return.cs` | 1 | #2 (FIXED) |
-| `ProtocolProxyEmitter.cs` | 2 | #3 (FIXED), #11 (FIXED) |
-| `PropertyHandler.cs` | 1 | #9 |
-| `TupleHandler.cs` / pointer types | 1 | #6 (FIXED) |
-| `TypeDatabase` / type projection | 1 | #12 (FIXED) |
-| `EveryProtocolEmitter.cs` / `SwiftTypeNameHelper.cs` | 6 | #13 (PARTIAL), #14, #15, #21 (FIXED), #22a (FIXED), #22b (WON'T FIX), #23 (FIXED) |
-| Swift wrapper extension emission | 2 | #16, #17 |
-| `PInvokeEmitter.cs` | 1 | #24 (FIXED) |
-| Mono runtime / interop | 2 | #18, #19 |
-| Already fixed | 1 | #5 |
+| Component | Bugs | Status |
+|-----------|------|--------|
+| `OperatorHandler.cs` | #1, #4, #10 | All FIXED (Step 3) |
+| `MethodHandler.cs` / constructors | #7, #8, #20 | All FIXED (Steps 2, 8) |
+| `WrapperEmitter.Return.cs` | #2 | FIXED (Step 4) |
+| `ProtocolProxyEmitter.cs` / `ProtocolHandler.cs` | #3, #11, #12 | All FIXED (Step 7) |
+| `ClassHandler.cs` | #9 | FIXED (Step 8) |
+| `TupleHandler.cs` / pointer types | #6 | FIXED (Step 4) |
+| `EveryProtocolEmitter.cs` / `SwiftTypeNameHelper.cs` | #13, #14, #15, #21, #22a, #22b, #23 | All FIXED (Steps 5, 6, 8, 9); #22b WON'T FIX (ABI limitation) |
+| `SwiftABIParser.cs` / `SwiftInterfaceAccessParser.cs` | #5, #16, #17 | All FIXED (Steps 8, 9) |
+| `PInvokeEmitter.cs` / `EnumHandler.CaseConstruction.cs` | #24 | FIXED (Step 1) |
+| Mono runtime / interop | #18, #19 | **Open** — upstream Mono JIT bugs, not fixable in generator |
 
-**Total**: 24 bugs cataloged (10 active, 12 fixed, 1 won't fix, 1 shared Mono/generator, 1 already fixed)
+**Total**: 24 bugs cataloged. **22 generator bugs FIXED** across 9 fix steps. 1 WON'T FIX (ABI limitation). 2 remain open (Mono runtime bugs #18, #19 — upstream).
 
-## Priority for Fixes
+## Remaining Runtime Blockers
 
-**High priority** (blocks runtime validation for many types):
-- ~~Bug #20: Init as instance method — can't construct ANY non-frozen class type~~ **FIXED**
-- Bug #1: Operator indirect result — 14 broken operators
-- ~~Bug #21: EveryProtocol vtable/index desync — all protocol conformances broken~~ **FIXED**
-- ~~Bug #24: Frozen enum P/Invoke — runtime crash on any enum parameter~~ **FIXED**
-- ~~Bug #23: Function-type metatype rendering — blocks Swift wrapper compilation~~ **FIXED**
+These are **not generator bugs** — the generated code is correct. These are Mono/.NET runtime limitations:
 
-**Medium priority** (affects specific type patterns):
-- ~~Bug #2: Tuple return marshalling~~ **FIXED**
-- ~~Bug #3, #11: Protocol proxy/interface mismatch (related to #21)~~ **FIXED**
-- Bug #7, #8: Generic type constructor/marshalling
-- Bug #13: EveryProtocol return type `Any` instead of protocol composition existential (throws portion **FIXED**)
-- ~~Bug #22a: EveryProtocol throws emission~~ **FIXED**
-- Bug #14, #15: EveryProtocol conformance to non-existent/internal types
-
-**Low priority** (edge cases or partially addressed):
-- Bug #4, #10: Operator edge cases (generic shifts, T1/T0)
-- Bug #5: ~~Overflow operators~~ (already fixed)
-- ~~Bug #6: void* in ValueTuple~~ **FIXED**
-- Bug #9: Duplicate property
-- ~~Bug #12: AnyType constraint satisfaction~~ **FIXED**
-- Bug #16, #17: Wrong argument labels, internal member access
-
-**Runtime/shared** (requires Mono investigation + generator-side marshalling review):
-- Bug #18: Non-blittable types with CallConvSwift
-- Bug #19: SIGSEGV in SafeHandle cleanup (Mono + possible generator ownership issue)
+- **Bug #18**: Non-blittable types with `CallConvSwift` — Mono rejects SafeHandle-wrapped enums through P/Invoke. Affects any method taking non-frozen enum parameters. Workaround: `@_cdecl` Swift wrapper functions (used by SwiftUI bridge tests).
+- **Bug #19**: SIGSEGV in `swift_release_dealloc` — Mono JIT assertion crash (`jit-info.c:918`) during ARC cleanup. Same root cause as TestFramework Tier 3 failures. Workaround: none for direct P/Invoke; `@_cdecl` wrappers avoid the code path.
 
 ---
 

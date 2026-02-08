@@ -82,10 +82,11 @@ cd TestFramework
 - Built xcframework, ran generator: 61.3% member coverage initially
 - **Finding**: 34 of 42 skipped members blocked by `ArraySlice<T>` (no TypeDatabase registration)
 - **Fix**: ArraySlice parameter normalization (Phase 62) — Swift wrapper accepts `Array<T>`, converts to `ArraySlice<T>` at call site
-- **Result**: 65.1% member coverage (427/656), 21 methods recovered, 103/123 types emitted
-- Remaining gaps: `CipherModeWorker` closure params (10 methods), mutating struct methods (2), `inout Array` secondary blockers (3)
-- Added to `BindingTesting/CryptoSwift/` with regenerate-bindings.sh
-- Added 4 ArraySlice features to TestFramework coverage matrix
+- **9 fix steps** addressed 24 generator bugs: P/Invoke enum handling, constructor projection, operator ABI, tuple marshalling, EveryProtocol vtable/index/throws/dedup, protocol proxy alignment, wrapper extension filtering, protocol composition return types, swiftinterface internal detection
+- **Result**: 88.0% member coverage (441/501), 103/103 types emitted, generated Swift typechecks with 0 errors
+- Remaining 60 skipped members: 20 compound assignment operators (no C# equivalent), 14 unsupported closure signatures, 4 AnyType fallbacks, 4 static protocol members, 18 internal methods (correctly excluded)
+- Runtime: 4/10 tests pass (static methods, enum construction). Remaining blocked by Mono JIT bugs (#18, #19) — same upstream issues as TestFramework Tier 3
+- See `CompletedPhases/cryptoswift-codegen-bugs.md` and `CompletedPhases/cryptoswift-fix-order.md` for full details
 
 ### C2. Select and bind a second library
 Candidates (pick 1):
