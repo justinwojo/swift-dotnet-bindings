@@ -152,7 +152,9 @@ namespace BindingsGeneration
                 string swiftTypeIdentifier = typeDeclarationNode?.Attributes?["name"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'name' attribute.");
                 string swiftMangledName = typeDeclarationNode?.Attributes?["mangledName"]?.Value ?? string.Empty;
                 string csharpTypeIdentifier = entityNode?.Attributes?["managedTypeName"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'managedTypeName' attribute.");
-                string @namespace = entityNode?.Attributes?["managedNameSpace"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'managedNameSpace' attribute.");
+                if (entityNode?.Attributes?["managedNameSpace"] is null)
+                    throw new Exception("Invalid XML structure: Missing 'managedNameSpace' attribute.");
+                string @namespace = entityNode!.Attributes!["managedNameSpace"]!.Value;
                 string frozen = typeDeclarationNode?.Attributes?["frozen"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'frozen' attribute.");
                 string requiresMemoryManagement = typeDeclarationNode?.Attributes?["requiresMemoryManagement"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'requiresMemoryManagement' attribute.");
                 string objcBridged = typeDeclarationNode?.Attributes?["objcBridged"]?.Value ?? "false";
@@ -162,7 +164,9 @@ namespace BindingsGeneration
 
 
                 var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{swiftTypeIdentifier}");
-                var csharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, csharpTypeIdentifier);
+                var csharpTypeName = string.IsNullOrEmpty(@namespace)
+                    ? CSharpTypeName.FromKeyword(csharpTypeIdentifier)
+                    : CSharpTypeName.FromNamespaceAndName(@namespace, csharpTypeIdentifier);
 
                 // Parse native type name if specified (e.g., "Foundation.NSUrl" for URL)
                 CSharpTypeName? nativeTypeName = null;

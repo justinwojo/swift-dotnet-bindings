@@ -479,7 +479,11 @@ namespace BindingsGeneration
 
             public override int GetHashCode()
             {
-                throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Hashable protocol, so GetHashCode() is not supported.");
+                // TODO: Implement when Swift Hashable protocol binding is supported.
+                // Returning constant 0 satisfies the Equals/GetHashCode contract
+                // (equal objects must have equal hashes). This is correct but makes
+                // hash-based collections O(n) until Hashable is supported.
+                return 0;
             }
             """;
 
@@ -527,53 +531,8 @@ namespace BindingsGeneration
 
         private void WriteDefaultEquatableImplementation()
         {
-            // Always write Equals and GetHashCode methods
-            // Use simple name for error messages
-            var equalsMethods = $$"""
-            // Swift classes cannot be compared using .NET's default equality semantics,
-            // since Swift's equality is defined by the Equatable protocol.
-            // This type does not implement Swift's Equatable protocol.
-
-            public override bool Equals(object? obj)
-            {
-                throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-
-            public override int GetHashCode()
-            {
-                throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-            }
-            """;
-
-            _writer.WriteLines(equalsMethods);
-            _writer.WriteLine();
-
-            // Only write operator == if no explicit operator is defined
-            // Use typeNameWithGenerics for operator parameters to fix CS0563/CS0305
-            if (!_hasExplicitEqualityOperator)
-            {
-                var equalityOperator = $$"""
-                public static bool operator ==({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
-                {
-                    throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-                }
-                """;
-                _writer.WriteLines(equalityOperator);
-                _writer.WriteLine();
-            }
-
-            // Only write operator != if no explicit operator is defined
-            if (!_hasExplicitInequalityOperator)
-            {
-                var inequalityOperator = $$"""
-                public static bool operator !=({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
-                {
-                    throw new InvalidOperationException("Type {{_classDecl.Name}} does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-                }
-                """;
-                _writer.WriteLines(inequalityOperator);
-                _writer.WriteLine();
-            }
+            // Non-Equatable types: no Equals/GetHashCode/operator overrides.
+            // Classes inherit reference equality from object.
         }
     }
 }

@@ -131,7 +131,7 @@ cd TestFramework
 
 ## Phase D: Binding API Overhaul
 
-**Status**: In Progress (Wave 1 done)
+**Status**: In Progress (Waves 1-2 done)
 **Effort**: Large (10-15 sessions across 4 waves)
 **Why**: The generator produces correct interop code, but the public API surface exposes too many interop implementation details. A .NET developer consuming these bindings faces constant friction from `SwiftString`, `IntPtr`, `Init()` methods, `SwiftOptional<T>`, and `Payload.Dispose()`. This work is a **must-do before opening the project to external developers**.
 **Depends on**: Phase B (need broad test coverage as regression safety net before sweeping emitter changes)
@@ -149,14 +149,15 @@ The binding review identified the generated API as grade C+ — technically impr
 
 **DoD verified**: Zero `Init()` instance methods, zero `SwiftString` properties, zero public `Payload` (all 92 are `internal`), 127 types have `Dispose()`. Unit tests: 1603 pass. Integration tests: 699 pass. Runtime tests: 116 pass. Coverage: 93/93 must-pass, 0 degraded.
 
-### Wave 2: Type Safety (P1)
+### Wave 2: Type Safety (P1) — DONE
+**Completed**: February 2026
 **Goal**: Eliminate remaining non-idiomatic types from the public API.
 
-1. **Nullable mapping** — `SwiftOptional<T>` → `T?` in public signatures.
-2. **Integer types** — Swift `Int` → `nint` or `long`, not `IntPtr`. `IntPtr` reserved for actual pointers.
-3. **Equals/GetHashCode** — Don't throw. Use reference equality (classes) or don't override (structs).
+1. **Nullable mapping** — `#nullable enable` in generated files. `SwiftOptional<T>` → `T?` conversion already handled by TypeConversionHandler (zero public `SwiftOptional` references).
+2. **Integer types** — Swift `Int` → `nint`, Swift `UInt` → `nuint` via SwiftDatabase.xml + `CSharpTypeName.FromKeyword()`. `IntPtr` reserved for actual pointer types (OpaquePointer, UnsafePointer, etc.).
+3. **Equals/GetHashCode** — Non-Equatable types: removed all throwing overrides (inherit reference equality from `object`). Equatable types: `GetHashCode()` returns `0` (contract-safe fallback) instead of throwing. No throwing `==`/`!=` operators for non-Equatable types.
 
-**DoD**: Zero `SwiftOptional<T>`, zero non-pointer `IntPtr`, zero throwing `Equals`/`GetHashCode`. `#nullable enable` in all generated files.
+**DoD verified**: Zero public `SwiftOptional<T>`, zero non-pointer `IntPtr` (`HashValue` → `nint`), zero Equals/GetHashCode throws, `#nullable enable` present. Unit tests: 1603 pass. Coverage: 93/93 must-pass, 0 degraded.
 
 ### Wave 3: API Shape (P2)
 **Goal**: Clean up naming, parameter conventions, and interop type leakage.

@@ -54,9 +54,30 @@ public record CSharpTypeName
     }
 
     /// <summary>
+    /// Creates a new CSharpTypeName from a C# keyword type (no namespace).
+    /// </summary>
+    /// <param name="keyword">The C# keyword type name (e.g., "nint", "nuint").</param>
+    /// <returns>The CSharpTypeName.</returns>
+    public static CSharpTypeName FromKeyword(string keyword)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(keyword, nameof(keyword));
+        return new CSharpTypeName("", keyword, keyword);
+    }
+
+    /// <summary>
     /// C# type name for void.
     /// </summary>
     public static readonly CSharpTypeName VoidType = new CSharpTypeName("", "", "void");
+
+    /// <summary>
+    /// C# type name for nint (Swift.Int).
+    /// </summary>
+    public static readonly CSharpTypeName NIntType = new CSharpTypeName("", "nint", "nint");
+
+    /// <summary>
+    /// C# type name for nuint (Swift.UInt).
+    /// </summary>
+    public static readonly CSharpTypeName NUIntType = new CSharpTypeName("", "nuint", "nuint");
 
     /// <summary>
     /// C# type name for object.

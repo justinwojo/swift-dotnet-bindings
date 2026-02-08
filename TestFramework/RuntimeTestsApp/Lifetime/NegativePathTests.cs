@@ -100,53 +100,47 @@ public class NegativePathTests : TestBase
 
     #endregion
 
-    #region Equality Throws for Non-Equatable Types
+    #region Reference Equality for Non-Equatable Types
 
     [TestTier(TestTier.Tier2)]
-    public void TestAnimalEqualityThrows()
+    public void TestAnimalReferenceEquality()
     {
         var animal1 = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
         var animal2 = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
 
-        AssertThrows<InvalidOperationException>(() =>
-        {
-            _ = animal1.Equals(animal2);
-        }, "Animal.Equals throws InvalidOperationException");
+        // Non-Equatable types inherit reference equality from object
+        AssertTrue(animal1.Equals(animal1), "Animal same-reference Equals returns true");
+        AssertFalse(animal1.Equals(animal2), "Animal different-reference Equals returns false");
 
-        AssertThrows<InvalidOperationException>(() =>
-        {
-            _ = animal1.GetHashCode();
-        }, "Animal.GetHashCode throws InvalidOperationException");
+        // GetHashCode does not throw
+        var hash = animal1.GetHashCode();
+        AssertTrue(hash is int, "Animal.GetHashCode returns an int");
 
-        TestLogger.Info("Non-Equatable Animal equality correctly throws");
+        TestLogger.Info("Non-Equatable Animal uses reference equality");
     }
 
     [TestTier(TestTier.Tier2)]
-    public void TestUniqueResourceEqualityThrows()
+    public void TestUniqueResourceReferenceEquality()
     {
         var r1 = new UniqueResource(1);
         var r2 = new UniqueResource(1);
 
-        AssertThrows<InvalidOperationException>(() =>
-        {
-            _ = r1.Equals(r2);
-        }, "UniqueResource.Equals throws InvalidOperationException");
+        AssertTrue(r1.Equals(r1), "UniqueResource same-reference Equals returns true");
+        AssertFalse(r1.Equals(r2), "UniqueResource different-reference Equals returns false");
 
-        TestLogger.Info("Non-Equatable UniqueResource equality correctly throws");
+        TestLogger.Info("Non-Equatable UniqueResource uses reference equality");
     }
 
     [TestTier(TestTier.Tier2)]
-    public void TestMutablePropsEqualityThrows()
+    public void TestMutablePropsReferenceEquality()
     {
         var p1 = new MutableProps(1, "A");
         var p2 = new MutableProps(1, "A");
 
-        AssertThrows<InvalidOperationException>(() =>
-        {
-            _ = p1.Equals(p2);
-        }, "MutableProps.Equals throws InvalidOperationException");
+        AssertTrue(p1.Equals(p1), "MutableProps same-reference Equals returns true");
+        AssertFalse(p1.Equals(p2), "MutableProps different-reference Equals returns false");
 
-        TestLogger.Info("Non-Equatable MutableProps equality correctly throws");
+        TestLogger.Info("Non-Equatable MutableProps uses reference equality");
     }
 
     #endregion

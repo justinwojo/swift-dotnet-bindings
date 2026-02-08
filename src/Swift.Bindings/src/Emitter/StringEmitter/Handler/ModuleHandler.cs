@@ -81,6 +81,8 @@ namespace BindingsGeneration
 
             var generatedNamespace = _namespacePatternResolver.ResolveNamespace(moduleDecl.Name);
 
+            csWriter.WriteLine("#nullable enable");
+            csWriter.WriteLine();
             csWriter.WriteLine($"using System;");
             csWriter.WriteLine($"using System.Diagnostics;");
             csWriter.WriteLine($"using System.Diagnostics.CodeAnalysis;");
