@@ -358,22 +358,21 @@ public class PropertyHandlerTests
     }
 
     [Fact]
-    public void Emit_PropertyPreflightUsesAccessorSignatureBehavior_WhenCheckingPlaceholders()
+    public void Emit_PropertyWithSwiftStringAccessor_EmitsWithStringConversionBridge()
     {
         var typeDatabase = CreateTypeDatabaseWithInt();
         var moduleDecl = CreateModuleDeclForEmission("TestModule");
         var classDecl = CreateClassDeclForEmission("Loader", moduleDecl);
-        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "name", "Swift.Int", hasGetter: true, hasSetter: false);
-
-        // Simulate an accessor signature that would only be considered unsupported
-        // when accessor rules are applied (no automatic type conversion).
-        var getter = property.Accessors.OfType<GetAccessorDecl>().Single();
-        getter.Method.CSSignature[0].SwiftTypeSpec = new NamedTypeSpec("Swift.String");
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "name", "Swift.String", hasGetter: true, hasSetter: true);
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        // Property type should be idiomatic string
+        Assert.Contains("public string Name", csOutput);
+        // Getter should bridge via .ToString()
+        Assert.Contains("get => Name_Get().ToString();", csOutput);
+        // Setter should bridge via new SwiftString(value)
+        Assert.Contains("set => Name_Set(new SwiftString(value));", csOutput);
     }
 
     #endregion
@@ -612,6 +611,16 @@ public class PropertyHandlerTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(swiftModule);

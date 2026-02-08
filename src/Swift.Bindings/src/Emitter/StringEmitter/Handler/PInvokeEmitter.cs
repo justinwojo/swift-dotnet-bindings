@@ -273,7 +273,6 @@ namespace BindingsGeneration
                 }
 
                 // Handle native type remapping (URL → NSUrl, Data → NSData in public API)
-                // Skip for property accessors to maintain consistency with wrapper signature
                 if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
                 {
                     TypeRecord nativeRemapTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argument.SwiftTypeSpec);

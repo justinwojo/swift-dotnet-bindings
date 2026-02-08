@@ -37,4 +37,6 @@ struct SwiftIntMock : ISwiftObject
     {
         throw new NotImplementedException();
     }
+
+    public void Dispose() { }
 }

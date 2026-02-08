@@ -64,4 +64,7 @@ public struct AnyType : ISwiftObject
         // When used in Optional context, we return null since we can't properly represent the value.
         return null;
     }
+
+    /// <inheritdoc/>
+    public void Dispose() => _payload?.Dispose();
 }

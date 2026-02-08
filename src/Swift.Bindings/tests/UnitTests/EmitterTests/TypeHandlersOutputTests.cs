@@ -37,7 +37,7 @@ public class TypeHandlersOutputTests
 
         Assert.Contains("public unsafe class Loader : ISwiftObject", csOutput);
         Assert.Contains("SwiftSafeHandle<Loader> _payload", csOutput);
-        Assert.Contains("public SwiftSafeHandle<Loader> Payload => _payload;", csOutput);
+        Assert.Contains("internal SwiftSafeHandle<Loader> Payload => _payload;", csOutput);
         Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\", EntryPoint = \"$s10TestModule6LoaderCNMa\")]", csOutput);
     }
 
@@ -201,7 +201,7 @@ public class TypeHandlersOutputTests
 
         Assert.Contains("public unsafe class CacheKey : ISwiftObject", csOutput);
         Assert.Contains("SwiftSafeHandle<CacheKey> _payload", csOutput);
-        Assert.Contains("public SwiftSafeHandle<CacheKey> Payload => _payload;", csOutput);
+        Assert.Contains("internal SwiftSafeHandle<CacheKey> Payload => _payload;", csOutput);
     }
 
     [Fact]

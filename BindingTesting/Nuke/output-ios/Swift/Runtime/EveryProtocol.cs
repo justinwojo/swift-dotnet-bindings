@@ -129,4 +129,7 @@ public sealed class EveryProtocol : ISwiftObject
         throw new NotImplementedException(
             "EveryProtocol conformance descriptors are managed by protocol proxy classes");
     }
+
+    /// <inheritdoc/>
+    public void Dispose() => _handle?.Dispose();
 }

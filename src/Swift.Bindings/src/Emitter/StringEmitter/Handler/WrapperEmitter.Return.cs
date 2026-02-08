@@ -53,14 +53,13 @@ namespace BindingsGeneration
             if (_requiresIndirectResult)
             {
                 // Handle type conversion for indirect result
-                if (_env.TypeConversionHandler.IsConvertibleType(returnArg.SwiftTypeSpec))
+                if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(returnArg.SwiftTypeSpec))
                 {
                     EmitTypeConvertedIndirectReturn(csWriter, returnArg);
                     return;
                 }
 
                 // Handle native type remapping for indirect result
-                // Skip for property accessors to maintain property/accessor type consistency
                 if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
                 {
                     var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(returnArg.SwiftTypeSpec);
@@ -87,8 +86,7 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Handle type conversion for return values FIRST
-            // Skip for property accessors to avoid type mismatch with property declaration
+            // Handle type conversion for return values
             if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(returnArg.SwiftTypeSpec))
             {
                 EmitTypeConvertedReturn(csWriter, returnArg);
@@ -178,7 +176,6 @@ namespace BindingsGeneration
                 }
 
                 // Native type remapping: convert Swift type to native .NET type
-                // Skip for property accessors to maintain property/accessor type consistency
                 if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
                 {
                     var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(returnArg.SwiftTypeSpec);

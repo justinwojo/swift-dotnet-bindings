@@ -232,7 +232,7 @@ public class ClassMarshallingTests : TestBase
         AssertEqual("Ephemeral", name, "Name accessible before dispose");
 
         // Dispose the underlying SafeHandle
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         // Access after dispose should throw ObjectDisposedException
         AssertThrows<ObjectDisposedException>(() =>
@@ -253,7 +253,7 @@ public class ClassMarshallingTests : TestBase
         AssertNotNull(speak, "Speak works before dispose");
 
         // Dispose the underlying SafeHandle
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         // Method call after dispose should throw
         AssertThrows<ObjectDisposedException>(() =>

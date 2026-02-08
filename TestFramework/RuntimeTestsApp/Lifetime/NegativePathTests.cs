@@ -158,7 +158,7 @@ public class NegativePathTests : TestBase
     {
         // Test the second property (Sound) specifically
         var animal = SwiftBindingsTestLib.CreateAnimal("Test", "Moo");
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -172,7 +172,7 @@ public class NegativePathTests : TestBase
     public void TestDisposedAnimalSoundSetAfterDispose()
     {
         var animal = SwiftBindingsTestLib.CreateAnimal("Test", "Moo");
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -186,7 +186,7 @@ public class NegativePathTests : TestBase
     public void TestDisposedMutablePropsNameAfterDispose()
     {
         var props = new MutableProps(1, "Test");
-        props.Payload.Dispose();
+        props.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -200,7 +200,7 @@ public class NegativePathTests : TestBase
     public void TestDisposedMutablePropsNameSetAfterDispose()
     {
         var props = new MutableProps(1, "Test");
-        props.Payload.Dispose();
+        props.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -214,7 +214,7 @@ public class NegativePathTests : TestBase
     public void TestDisposedResourceConsumeAfterDispose()
     {
         var resource = SwiftBindingsTestLib.CreateUniqueResource(10);
-        resource.Payload.Dispose();
+        resource.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -246,7 +246,7 @@ public class NegativePathTests : TestBase
         AssertTrue(!animal.Payload.IsInvalid, "Payload is valid before dispose");
 
         // Dispose makes the handle invalid (equivalent to .Zero behavior)
-        animal.Payload.Dispose();
+        animal.Dispose();
         AssertTrue(animal.Payload.IsClosed, "Payload is closed after dispose");
 
         // All access paths should throw

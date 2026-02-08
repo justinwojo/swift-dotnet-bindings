@@ -117,7 +117,9 @@ namespace BindingsGeneration
                 // Emit payload field and property - enums need this for property accessors
                 csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
                 csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
-                csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+                csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+                csWriter.WriteLine();
+                csWriter.WriteLine("public void Dispose() => _payload.Dispose();");
                 csWriter.WriteLine();
 
             // Emit case constructors for all cases

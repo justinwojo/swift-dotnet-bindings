@@ -43,12 +43,19 @@ namespace BindingsGeneration
         /// Writes the implementation for ISwiftObject methods for frozen structs.
         /// </summary>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
-        public void WriteFrozenStructImplementation(PInvokeHelperContext? pinvokeHelperContext = null)
+        /// <param name="isProjectedAsClass">True if the frozen struct is projected as a class (already has Dispose via _payload).</param>
+        public void WriteFrozenStructImplementation(PInvokeHelperContext? pinvokeHelperContext = null, bool isProjectedAsClass = false)
         {
             WriteGetTypeMetadata(pinvokeHelperContext);
             WriteNewFromPayloadFrozenStruct();
             WriteMarshalToSwiftFrozenStruct();
             WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
+            if (!isProjectedAsClass)
+            {
+                // Frozen value-type structs have no managed resources to dispose
+                _writer.WriteLine("public void Dispose() { }");
+                _writer.WriteLine();
+            }
         }
 
         /// <summary>

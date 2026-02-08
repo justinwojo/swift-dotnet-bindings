@@ -78,6 +78,8 @@ public partial class ProtocolProxyEmitter
                     "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
             }
 
+            public void Dispose() { }
+
             #endregion
 
             #region Marshalling Helpers

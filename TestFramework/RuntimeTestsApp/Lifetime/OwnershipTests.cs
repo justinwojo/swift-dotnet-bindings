@@ -96,10 +96,10 @@ public class OwnershipTests : TestBase
         AssertEqual("DoubleFree", name, "Accessible before dispose");
 
         // First dispose
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         // Second dispose should be safe (SafeHandle tracks disposed state)
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         TestLogger.Info("Double-dispose did not crash");
     }
@@ -110,8 +110,8 @@ public class OwnershipTests : TestBase
         var resource = SwiftBindingsTestLib.CreateUniqueResource(7);
         AssertEqual(7, resource.Id, "Accessible before dispose");
 
-        resource.Payload.Dispose();
-        resource.Payload.Dispose();
+        resource.Dispose();
+        resource.Dispose();
 
         TestLogger.Info("UniqueResource double-dispose safe");
     }
@@ -122,8 +122,8 @@ public class OwnershipTests : TestBase
         var props = new MutableProps(5, "DoubleDispose");
         AssertEqual(5, props.Value, "Accessible before dispose");
 
-        props.Payload.Dispose();
-        props.Payload.Dispose();
+        props.Dispose();
+        props.Dispose();
 
         TestLogger.Info("MutableProps double-dispose safe");
     }
@@ -136,7 +136,7 @@ public class OwnershipTests : TestBase
     public void TestAnimalPropertyGetAfterDispose()
     {
         var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -150,7 +150,7 @@ public class OwnershipTests : TestBase
     public void TestAnimalPropertySetAfterDispose()
     {
         var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -164,7 +164,7 @@ public class OwnershipTests : TestBase
     public void TestAnimalMethodCallAfterDispose()
     {
         var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -178,7 +178,7 @@ public class OwnershipTests : TestBase
     public void TestAnimalDescribeAfterDispose()
     {
         var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -192,7 +192,7 @@ public class OwnershipTests : TestBase
     public void TestUniqueResourceAccessAfterDispose()
     {
         var resource = SwiftBindingsTestLib.CreateUniqueResource(42);
-        resource.Payload.Dispose();
+        resource.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -206,7 +206,7 @@ public class OwnershipTests : TestBase
     public void TestUniqueResourceMethodAfterDispose()
     {
         var resource = SwiftBindingsTestLib.CreateUniqueResource(42);
-        resource.Payload.Dispose();
+        resource.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -220,7 +220,7 @@ public class OwnershipTests : TestBase
     public void TestMutablePropsAccessAfterDispose()
     {
         var props = new MutableProps(10, "Test");
-        props.Payload.Dispose();
+        props.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -234,7 +234,7 @@ public class OwnershipTests : TestBase
     public void TestMutablePropsSetAfterDispose()
     {
         var props = new MutableProps(10, "Test");
-        props.Payload.Dispose();
+        props.Dispose();
 
         AssertThrows<ObjectDisposedException>(() =>
         {
@@ -255,7 +255,7 @@ public class OwnershipTests : TestBase
         var animal1 = SwiftBindingsTestLib.CreateAnimal("First", "Meow");
         var animal2 = SwiftBindingsTestLib.CreateAnimal("Second", "Woof");
 
-        animal1.Payload.Dispose();
+        animal1.Dispose();
 
         // animal2 should still be functional
         var name2 = animal2.Name.ToString();
@@ -273,7 +273,7 @@ public class OwnershipTests : TestBase
         var r1 = SwiftBindingsTestLib.CreateUniqueResource(1);
         var r2 = SwiftBindingsTestLib.CreateUniqueResource(2);
 
-        r1.Payload.Dispose();
+        r1.Dispose();
 
         // r2 should still work
         AssertEqual(2, r2.Id, "Second resource unaffected by first dispose");
@@ -296,7 +296,7 @@ public class OwnershipTests : TestBase
         AssertEqual("Shared", alias.Name.ToString(), "Alias sees same name");
 
         // Dispose via the alias
-        alias.Payload.Dispose();
+        alias.Dispose();
 
         // The original reference is also invalidated (same SafeHandle)
         AssertThrows<ObjectDisposedException>(() =>
@@ -323,7 +323,7 @@ public class OwnershipTests : TestBase
         AssertNotNull(alias.Describe(), "Alias describes before dispose");
 
         // Dispose via original
-        animal.Payload.Dispose();
+        animal.Dispose();
 
         // Method call via alias should also throw
         AssertThrows<ObjectDisposedException>(() =>
@@ -425,7 +425,7 @@ public class OwnershipTests : TestBase
             if (i % 5 == 4 && animals.Count > 0)
             {
                 var toDispose = animals[0];
-                toDispose.Payload.Dispose();
+                toDispose.Dispose();
                 animals.RemoveAt(0);
             }
         }

@@ -5,6 +5,17 @@ import CoreGraphics
 import CoreImage
 import UIKit
 
+@frozen
+public struct SBW_Utf8Slice {
+    public var ptr: UnsafeMutablePointer<UInt8>
+    public var len: Int
+}
+// Static empty buffer for empty string slices (required for @convention(c) compatibility)
+fileprivate var _sbw_emptyBuffer: UInt8 = 0
+@_silgen_name("SBW_Free_Nuke")
+public func SBW_Free(_ ptr: UnsafeMutableRawPointer?) {
+    ptr?.deallocate()
+}
 // EveryProtocol is a Swift class that can conform to any protocol.
 // Protocol method implementations call back to C# via vtable function pointers.
 // This class is used by generated proxy classes to implement Swift protocols from C#.
@@ -58,7 +69,7 @@ extension EveryProtocol: Nuke.ImageProcessing {
             return resultPtr.assumingMemoryBound(to: (UIKit.UIImage)?.self).pointee
     }
     
-    public func process(_ arg0: Nuke.ImageContainer, context: Nuke.ImageProcessingContext) -> Nuke.ImageContainer {
+    public func process(_ arg0: Nuke.ImageContainer, context: Nuke.ImageProcessingContext) throws -> Nuke.ImageContainer {
             var selfProto: Nuke.ImageProcessing = self
             var arg0Copy = arg0
                 var contextCopy = context
@@ -93,11 +104,6 @@ public func getEveryProtocolImageProcessingWitnessTable() -> UnsafeRawPointer {
     }
 }
 // Witness dispatch accessors for ImageProcessing
-@frozen
-public struct SBW_Utf8Slice {
-    public var ptr: UnsafeMutablePointer<UInt8>
-    public var len: Int
-}
 @_silgen_name("SBW_ImageProcessing_get_identifier_0")
 public func SBW_ImageProcessing_get_identifier_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
     let existential = containerPtr.load(as: (any Nuke.ImageProcessing).self)
@@ -670,7 +676,7 @@ extension EveryProtocol: Nuke.ImageDecoding {
         }
     }
     
-    public func decode(_ arg0: Foundation.Data) -> Nuke.ImageContainer {
+    public func decode(_ arg0: Foundation.Data) throws -> Nuke.ImageContainer {
             var selfProto: Nuke.ImageDecoding = self
             var arg0Copy = arg0
                 let resultPtr = _imageDecoding_vtable.func_decode_0!(
@@ -740,7 +746,7 @@ public func SBW_ImageDecoding_free_get_isAsynchronous_0(_ ptr: UnsafeMutableRawP
 }
 
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-public func PInvoke_image_7311D5D9(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_1BCFD061(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -752,7 +758,16 @@ public func PInvoke_image_7311D5D9(callback: @escaping @convention(c) (UIKit.UII
             let resultimage = try await Nuke.ImagePipeline.shared.image(
                 for: _forValue
             )
-            callback(resultimage, task)
+            // Marshal complex type to pointer (C# will free via SBW_Free)
+                        let _resultPtr: OpaquePointer
+                        do {
+                            let _rawPtr = UnsafeMutableRawPointer.allocate(
+                                byteCount: MemoryLayout<UIKit.UIImage>.size,
+                                alignment: MemoryLayout<UIKit.UIImage>.alignment)
+                            _rawPtr.storeBytes(of: resultimage, as: UIKit.UIImage.self)
+                            _resultPtr = OpaquePointer(_rawPtr)
+                        }
+            callback(_resultPtr, task)
         } catch {
             let errorMessage = String(describing: error)
             errorMessage.withCString { errorCallback($0, task) }
@@ -760,7 +775,7 @@ public func PInvoke_image_7311D5D9(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-public func PInvoke_image_2074644F(callback: @escaping @convention(c) (UIKit.UIImage, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_62A1603B(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -772,7 +787,16 @@ public func PInvoke_image_2074644F(callback: @escaping @convention(c) (UIKit.UII
             let resultimage = try await Nuke.ImagePipeline.shared.image(
                 for: _forValue
             )
-            callback(resultimage, task)
+            // Marshal complex type to pointer (C# will free via SBW_Free)
+                        let _resultPtr: OpaquePointer
+                        do {
+                            let _rawPtr = UnsafeMutableRawPointer.allocate(
+                                byteCount: MemoryLayout<UIKit.UIImage>.size,
+                                alignment: MemoryLayout<UIKit.UIImage>.alignment)
+                            _rawPtr.storeBytes(of: resultimage, as: UIKit.UIImage.self)
+                            _resultPtr = OpaquePointer(_rawPtr)
+                        }
+            callback(_resultPtr, task)
         } catch {
             let errorMessage = String(describing: error)
             errorMessage.withCString { errorCallback($0, task) }
@@ -780,7 +804,7 @@ public func PInvoke_image_2074644F(callback: @escaping @convention(c) (UIKit.UII
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAA0B7RequestV_tYaKF_async")
-public func PInvoke_data_1449F394(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_7CEA3D27(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -792,6 +816,7 @@ public func PInvoke_data_1449F394(callback: @escaping @convention(c) (Foundation
             let resultdata = try await Nuke.ImagePipeline.shared.data(
                 for: _forValue
             )
+            
             callback(resultdata.0, resultdata.1, task)
         } catch {
             let errorMessage = String(describing: error)
@@ -800,7 +825,7 @@ public func PInvoke_data_1449F394(callback: @escaping @convention(c) (Foundation
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAF3URLV_tYaKF_async")
-public func PInvoke_data_44625084(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_367142B0(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -812,10 +837,42 @@ public func PInvoke_data_44625084(callback: @escaping @convention(c) (Foundation
             let resultdata = try await Nuke.ImagePipeline.shared.data(
                 for: _forValue
             )
+            
             callback(resultdata.0, resultdata.1, task)
         } catch {
             let errorMessage = String(describing: error)
             errorMessage.withCString { errorCallback($0, task) }
+        }
+    }
+}
+extension Nuke.ImageRequest {
+    @_silgen_name("$s4Nuke12ImageRequestV2id4data10processors8priority7options8userInfoACSS_10Foundation4DataVyYaYbKcSayAA0B10Processing_pGAC8PriorityOAC7OptionsVSDyAC04UserJ3KeyVypGSgtcfC_async")
+    public func PInvoke_init_1C2C66E3(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, id: Swift.String, data: () throws -> Foundation.Data, processors: Swift.Array<any Nuke.ImageProcessing>, priority: UnsafeRawPointer, options: UnsafeRawPointer, userInfo: Swift.Optional<Swift.Dictionary<Nuke.ImageRequest.UserInfoKey, >>){
+        // Read non-frozen parameters via .pointee (bitwise copy)
+        // C# created copies using InitializeWithCopy (owns a proper reference)
+        let priorityValue = priority.assumingMemoryBound(to: Nuke.ImageRequest.Priority.self).pointee
+        let optionsValue = options.assumingMemoryBound(to: Nuke.ImageRequest.Options.self).pointee
+        
+
+        Task {
+            do {
+                let resultinit = try await self.init(
+                    id: id, data: data, processors: processors, priority: priorityValue, options: optionsValue, userInfo: userInfo
+                )
+                // Marshal complex type to pointer (C# will free via SBW_Free)
+                        let _resultPtr: OpaquePointer
+                        do {
+                            let _rawPtr = UnsafeMutableRawPointer.allocate(
+                                byteCount: MemoryLayout<Nuke.ImageRequest>.size,
+                                alignment: MemoryLayout<Nuke.ImageRequest>.alignment)
+                            _rawPtr.storeBytes(of: resultinit, as: Nuke.ImageRequest.self)
+                            _resultPtr = OpaquePointer(_rawPtr)
+                        }
+                callback(_resultPtr, task)
+            } catch {
+                let errorMessage = String(describing: error)
+                errorMessage.withCString { errorCallback($0, task) }
+            }
         }
     }
 }

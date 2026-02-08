@@ -51,6 +51,8 @@ struct SwiftIntMock : ISwiftObject
             }
         }
     }
+
+    public void Dispose() { }
 }
 
 struct AnyTypeMock : ISwiftObject
@@ -74,4 +76,6 @@ struct AnyTypeMock : ISwiftObject
     {
         throw new NotImplementedException();
     }
+
+    public void Dispose() { }
 }

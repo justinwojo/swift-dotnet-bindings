@@ -6,7 +6,7 @@ namespace Swift.Runtime;
 /// <summary>
 /// Represents a type that can be marshaled into Swift
 /// </summary>
-public interface ISwiftObject
+public interface ISwiftObject : IDisposable
 {
     /// <summary>
     /// Returns the TypeMetadata for this object

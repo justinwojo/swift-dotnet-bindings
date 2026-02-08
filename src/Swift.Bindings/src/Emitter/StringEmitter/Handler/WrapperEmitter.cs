@@ -128,15 +128,25 @@ namespace BindingsGeneration
         internal void EmitFailableFactory(CSharpWriter csWriter)
         {
             var typeName = _env.ParentDecl.Name;
-            var structDecl = _env.ParentDecl as StructDecl;
-            if (structDecl == null)
+
+            // Support both struct and class parents
+            bool isFrozenValue = false;
+            TypeRecord typeRecord;
+            if (_env.ParentDecl is StructDecl structDecl)
             {
-                // Failable initializers on classes are not yet supported in the factory pattern
+                typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                isFrozenValue = MarshallingHelpers.IsTypeFrozen(typeRecord) && !MarshallingHelpers.RequiresMemoryManagement(typeRecord);
+            }
+            else if (_env.ParentDecl is ClassDecl classDecl)
+            {
+                typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(classDecl.SwiftTypeName);
+                // Classes are never frozen value types
+                isFrozenValue = false;
+            }
+            else
+            {
                 return;
             }
-
-            TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
-            bool isFrozenValue = MarshallingHelpers.IsTypeFrozen(typeRecord) && !MarshallingHelpers.RequiresMemoryManagement(typeRecord);
 
             // Emit closure callbacks before factory body (like methods do)
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
@@ -145,9 +155,9 @@ namespace BindingsGeneration
                 EmitClosureCallbacks(csWriter);
             }
 
-            // Emit signature: public static unsafe TypeName? TryCreate(params)
+            // Emit signature: public static unsafe bool TryCreate(params, out TypeName result)
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} static unsafe {typeName}? TryCreate({_wrapperSignature.ParametersString()})");
+            csWriter.WriteLine($"{accessModifier} static unsafe bool TryCreate({_wrapperSignature.ParametersString()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} result)");
             EmitBodyStart(csWriter);
 
             // Declare TypeMetadata, payload, and GCHandle variables for generic/closure args
@@ -200,7 +210,8 @@ namespace BindingsGeneration
             csWriter.WriteLine("if (tag == 1) // None");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("return null;");
+            csWriter.WriteLine("result = default;");
+            csWriter.WriteLine("return false;");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
@@ -209,7 +220,8 @@ namespace BindingsGeneration
             if (isFrozenValue)
             {
                 // Frozen struct (C# value type): read value directly from the optional's payload
-                csWriter.WriteLine($"return *({typeName}*)resultBuffer;");
+                csWriter.WriteLine($"result = *({typeName}*)resultBuffer;");
+                csWriter.WriteLine("return true;");
             }
             else
             {
@@ -218,7 +230,8 @@ namespace BindingsGeneration
                 csWriter.WriteLines($$"""
                     IntPtr payloadBuffer = (IntPtr)NativeMemory.Alloc(selfMetadata.Size);
                     selfMetadata.ValueWitnessTable->InitializeWithCopy((void*)payloadBuffer, resultBuffer, selfMetadata);
-                    return new {{typeName}}(payloadBuffer);
+                    result = new {{typeName}}(payloadBuffer);
+                    return true;
                     """);
             }
 
@@ -608,7 +621,11 @@ namespace BindingsGeneration
 
             bool containsBoundGenerics = _env.MethodDecl.CSSignature.Any(_env.BoundGenericsHandler.IsBoundGeneric);
 
-            var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl ? "static " : "";
+            // Async constructors emit as static CreateAsync() factory methods
+            // (C# doesn't support async constructors)
+            bool isAsyncConstructor = _env.MethodDecl.IsConstructor && _env.MethodDecl.IsAsync;
+
+            var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl || isAsyncConstructor ? "static " : "";
             var unsafeKeyword = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || methodOwnParams.Count > 0 || containsBoundGenerics ? "unsafe " : "";
 
             var returnType = _wrapperSignature.ReturnType;
@@ -617,8 +634,13 @@ namespace BindingsGeneration
                 returnType = $"Task{(_env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}";
             }
 
+            // Use CreateAsync for async constructors (with collision detection)
+            var methodName = isAsyncConstructor
+                ? NameProvider.GetMethodName("createAsync", _env.SiblingPropertyNames)
+                : _env.CSharpMethodName;
+
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} {staticKeyword}{unsafeKeyword}{returnType} {_env.CSharpMethodName}{genericParams}({_wrapperSignature.ParametersString()})");
+            csWriter.WriteLine($"{accessModifier} {staticKeyword}{unsafeKeyword}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString()})");
 
             // Emit where clauses for generic constraints
             var whereClause = BuildWhereClause();

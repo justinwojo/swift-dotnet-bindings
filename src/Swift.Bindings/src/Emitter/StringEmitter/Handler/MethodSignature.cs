@@ -172,8 +172,7 @@ namespace BindingsGeneration
         {
             var argument = _env.MethodDecl.CSSignature.First();
 
-            // Check for automatic .NET type conversion FIRST (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
-            // Skip for property accessors to avoid type mismatch with property declaration
+            // Check for automatic .NET type conversion (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
             if (!_env.MethodDecl.IsAccessor)
             {
                 var idiomaticType = _env.TypeConversionHandler.GetIdiomaticCSharpType(
@@ -268,7 +267,6 @@ namespace BindingsGeneration
             }
 
             // Check for native type remapping (URL → NSUrl, Data → NSData)
-            // Skip for property accessors to maintain property/accessor type consistency
             if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
             {
                 var nativeType = _env.TypeConversionHandler.GetNativeTypeName(argument.SwiftTypeSpec);
@@ -296,8 +294,7 @@ namespace BindingsGeneration
         {
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
             {
-                // Check for automatic .NET type conversion FIRST (SwiftString -> string, SwiftArray -> IEnumerable, etc.)
-                // Skip for property accessors to avoid type mismatch with property declaration
+                // Check for automatic .NET type conversion (SwiftString -> string, SwiftArray -> IEnumerable, etc.)
                 if (!_env.MethodDecl.IsAccessor)
                 {
                     var idiomaticType = _env.TypeConversionHandler.GetIdiomaticCSharpType(

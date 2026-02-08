@@ -1,12 +1,12 @@
 {
   "ModuleName": "Nuke",
-  "GeneratedAt": "2026-02-05T04:33:27.056401+00:00",
-  "TotalTypes": 68,
+  "GeneratedAt": "2026-02-08T17:11:00.717858+00:00",
+  "TotalTypes": 60,
   "EmittedTypes": 60,
   "SkippedTypes": 0,
-  "TotalMembers": 490,
-  "EmittedMembers": 323,
-  "SkippedMembers": 19,
+  "TotalMembers": 352,
+  "EmittedMembers": 331,
+  "SkippedMembers": 21,
   "SynthesizedMembers": 248,
   "SkippedItems": [
     {
@@ -59,6 +59,14 @@
     },
     {
       "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Nuke.ImagePipeline",
+      "Reason": "UnsupportedExistential",
+      "Details": "Constructor bound generic contains existential type argument 'any Nuke.ImagePipelineDelegate'.",
+      "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
+    },
+    {
+      "Kind": "Method",
       "Name": "imagePublisher",
       "ContainingType": "Nuke.ImagePipeline",
       "Reason": "UnsupportedSignature",
@@ -70,7 +78,7 @@
       "Name": "init",
       "ContainingType": "Nuke.DataLoader",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type.",
+      "Details": "Constructor signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
@@ -146,6 +154,14 @@
       "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
     },
     {
+      "Kind": "Operator",
+      "Name": "<",
+      "ContainingType": "Nuke.ImageRequest.Priority",
+      "Reason": "UnsupportedType",
+      "Details": "Operator '<' is not supported on enum types.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
+    },
+    {
       "Kind": "Property",
       "Name": "image",
       "ContainingType": "Nuke.ImageTask",
@@ -162,5 +178,6 @@
       "RecommendedWorkaround": "Expose the async property as an async method via a Swift wrapper."
     }
   ],
-  "WrappedItems": []
+  "WrappedItems": [],
+  "BridgedViews": []
 }

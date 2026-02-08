@@ -221,7 +221,9 @@ namespace BindingsGeneration
         /// </summary>
         private static void WriteClassPayload(CSharpWriter csWriter, string typeNameWithGenerics)
         {
-            csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+            csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+            csWriter.WriteLine();
+            csWriter.WriteLine("public void Dispose() => _payload.Dispose();");
             csWriter.WriteLine();
         }
     }

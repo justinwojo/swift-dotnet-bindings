@@ -235,6 +235,28 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
+        // Apply idiomatic type conversion (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
+        // This unifies property types with method return types
+        var idiomaticType = propertyEnv.TypeConversionHandler.GetIdiomaticCSharpType(
+            propertyDecl.SwiftTypeSpec,
+            isParameter: false,
+            typeSpec =>
+            {
+                var rec = propertyEnv.TypeDatabase.GetTypeRecordOrAnyType(typeSpec);
+                return rec.CSharpTypeName.FullyQualifiedName;
+            });
+        if (idiomaticType != null)
+        {
+            csTypeName = idiomaticType;
+        }
+        // Apply native type remapping (URL → NSUrl, Data → NSData)
+        else if (propertyEnv.TypeConversionHandler.HasNativeTypeRemapping(propertyDecl.SwiftTypeSpec))
+        {
+            var nativeType = propertyEnv.TypeConversionHandler.GetNativeTypeName(propertyDecl.SwiftTypeSpec);
+            if (nativeType != null)
+                csTypeName = nativeType;
+        }
+
         // Detect and skip async properties (properties with async getters/setters are not yet supported)
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
         {
@@ -354,13 +376,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
         if (getter != null)
         {
-            EmitGetter(csWriter, getter);
+            EmitGetter(csWriter, getter, propertyEnv, propertyDecl);
         }
 
         var setter = propertyDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
         if (setter != null)
         {
-            EmitSetter(csWriter, setter);
+            EmitSetter(csWriter, setter, propertyEnv, propertyDecl);
         }
 
         csWriter.Indent--;
@@ -402,11 +424,26 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// </summary>
     /// <param name="csWriter">The C# code writer to emit to</param>
     /// <param name="getter">The getter accessor declaration</param>
-    private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter)
+    private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl)
     {
         // Use PascalCase method name to match how MethodHandler emits the accessor method
         var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
-        csWriter.WriteLine($"get => {methodName}();");
+
+        // Apply return type conversion if the property type was converted to an idiomatic type
+        var returnConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec);
+        if (returnConversion != null)
+        {
+            csWriter.WriteLine($"get => {returnConversion};");
+        }
+        else if (propertyEnv.TypeConversionHandler.HasNativeTypeRemapping(propertyDecl.SwiftTypeSpec))
+        {
+            var nativeConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec);
+            csWriter.WriteLine($"get => {nativeConversion ?? $"{methodName}()"};");
+        }
+        else
+        {
+            csWriter.WriteLine($"get => {methodName}();");
+        }
     }
 
     /// <summary>
@@ -414,11 +451,23 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// </summary>
     /// <param name="csWriter">The C# code writer to emit to</param>
     /// <param name="setter">The setter accessor declaration</param>
-    private void EmitSetter(CSharpWriter csWriter, SetAccessorDecl setter)
+    /// <param name="propertyEnv">The property environment</param>
+    /// <param name="propertyDecl">The property declaration</param>
+    private void EmitSetter(CSharpWriter csWriter, SetAccessorDecl setter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl)
     {
         // Use PascalCase method name to match how MethodHandler emits the accessor method
         var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
-        csWriter.WriteLine($"set => {methodName}(value);");
+
+        // Apply parameter type conversion if the property type was converted to an idiomatic type
+        var paramConversion = propertyEnv.TypeConversionHandler.GetParameterConversion("value", propertyDecl.SwiftTypeSpec);
+        if (paramConversion != null)
+        {
+            csWriter.WriteLine($"set => {methodName}({paramConversion});");
+        }
+        else
+        {
+            csWriter.WriteLine($"set => {methodName}(value);");
+        }
     }
 
     /// <summary>

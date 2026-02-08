@@ -92,6 +92,8 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
         {
             return ProtocolConformanceDescriptor.Zero;
         }
+
+        public void Dispose() { }
     }
 
     [Fact]

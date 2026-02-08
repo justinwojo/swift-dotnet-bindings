@@ -137,6 +137,9 @@ public class SwiftSet<Element> : ISwiftObject
             return result;
         }
     }
+
+    /// <inheritdoc/>
+    public void Dispose() => _payload?.Dispose();
 }
 
 internal static class SwiftSetPInvokes

@@ -99,6 +99,8 @@ namespace BindingsGeneration.FunctionalTests
             [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
             [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO5NonceV4dataAEx_tKc10Foundation12DataProtocolRzlufC")]
             public static unsafe extern void PInvoke_init(SwiftIndirectResult result, void* data, TypeMetadata metadata, ProtocolWitnessTable witnessTable, out SwiftError error);
+
+            public void Dispose() => _payload?.Dispose();
         }
 
         /// <summary>
@@ -289,6 +291,8 @@ namespace BindingsGeneration.FunctionalTests
                     throw new CryptographicException();
                 }
             }
+
+            public void Dispose() => _payload?.Dispose();
         }
 
         [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
@@ -406,6 +410,8 @@ namespace BindingsGeneration.FunctionalTests
             [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
             [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO9SealedBoxV3tag10Foundation4DataVvg")]
             public static unsafe extern Data PInvoke_GetTag(SwiftSelf sealedBox);
+
+            public void Dispose() => _payload?.Dispose();
         }
 
         /// <summary>
@@ -542,6 +548,8 @@ namespace BindingsGeneration.FunctionalTests
         [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
         [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit12SymmetricKeyV4dataACx_tc10Foundation15ContiguousBytesRzlufC")]
         public static unsafe extern void PInvoke_init(SwiftIndirectResult result, void* data, TypeMetadata metadata, ProtocolWitnessTable witnessTable);
+
+        public void Dispose() => _payload?.Dispose();
     }
 
     /// <summary>

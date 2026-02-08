@@ -130,7 +130,7 @@ public class BasicGenericTests : TestBase
     public void TestMutableItemDispose()
     {
         var item = new MutableItem(value: 5);
-        item.Payload.Dispose();
+        item.Dispose();
         AssertThrows<ObjectDisposedException>(() => { _ = item.Value; },
             "Disposed MutableItem throws on access");
     }

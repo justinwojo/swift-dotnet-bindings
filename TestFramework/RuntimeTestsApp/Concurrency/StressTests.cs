@@ -274,7 +274,7 @@ public class StressTests : TestBase
         {
             var animal = SwiftBindingsTestLib.CreateAnimal($"Rapid{i}", "Sound");
             _ = animal.Name.ToString();
-            animal.Payload.Dispose();
+            animal.Dispose();
         }
 
         // Verify system is still healthy
@@ -290,7 +290,7 @@ public class StressTests : TestBase
         {
             var resource = new UniqueResource(i);
             _ = resource.Id;
-            resource.Payload.Dispose();
+            resource.Dispose();
         }
 
         var final = new UniqueResource(9999);
@@ -488,7 +488,7 @@ public class StressTests : TestBase
                         // Dispose every other iteration
                         if (j % 2 == 0)
                         {
-                            animal.Payload.Dispose();
+                            animal.Dispose();
                         }
                     }
                 }

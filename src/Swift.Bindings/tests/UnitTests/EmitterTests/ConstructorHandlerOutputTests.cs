@@ -173,9 +173,9 @@ public class ConstructorHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_FailableClassConstructor_Skipped()
+    public void Emit_FailableClassConstructor_EmitsTryCreate()
     {
-        // Failable initializers on classes are not yet supported in TryCreate() pattern.
+        // Failable initializers on classes emit TryCreate() factory pattern.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
@@ -183,7 +183,8 @@ public class ConstructorHandlerOutputTests
 
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
+        Assert.Contains("public static unsafe bool TryCreate(", csOutput);
+        Assert.Contains("out Animal result)", csOutput);
     }
 
     #endregion

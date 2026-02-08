@@ -131,7 +131,7 @@ cd TestFramework
 
 ## Phase D: Binding API Overhaul
 
-**Status**: Not Started
+**Status**: In Progress (Wave 1 done)
 **Effort**: Large (10-15 sessions across 4 waves)
 **Why**: The generator produces correct interop code, but the public API surface exposes too many interop implementation details. A .NET developer consuming these bindings faces constant friction from `SwiftString`, `IntPtr`, `Init()` methods, `SwiftOptional<T>`, and `Payload.Dispose()`. This work is a **must-do before opening the project to external developers**.
 **Depends on**: Phase B (need broad test coverage as regression safety net before sweeping emitter changes)
@@ -139,14 +139,15 @@ cd TestFramework
 
 The binding review identified the generated API as grade C+ — technically impressive but with serious DX rough edges. The fix is structured as 4 sequential waves, each building on the previous.
 
-### Wave 1: Type Foundation (P0)
+### Wave 1: Type Foundation (P0) — DONE
+**Completed**: February 2026
 **Goal**: Fix the most fundamental type-mapping issues. Every subsequent wave builds on these.
 
-1. **Constructors** — Swift `init(...)` → real C# constructor. `init?(...)` → `static bool TryCreate(..., out T result)`. Static factories only when Swift uses factory pattern.
-2. **String unification** — Properties emit `string`, not `SwiftString`. Marshalling internal only.
-3. **IDisposable** — All `ISwiftObject` types implement `IDisposable`. `Payload` becomes `internal`.
+1. **Constructors** — Async constructors → `static CreateAsync()` factories (no more nonsensical `Init()` instance methods requiring an uninitialized object). Failable struct factories → `bool TryCreate(params, out T result)` per TryParse convention. Failable class constructors now emit `TryCreate` instead of being silently skipped.
+2. **String unification** — Properties declare `string` type with conversion bridges (`get => Name_Get().ToString();` / `set => Name_Set(new SwiftString(value));`). P/Invoke layer keeps `SwiftString` for correct marshalling — the `IsAccessor` gates are preserved in the emitter pipeline; only the property declaration and bridge are changed.
+3. **IDisposable** — `ISwiftObject` extends `IDisposable`. All implementers across the repo have `Dispose()` (runtime types, generated types, test mocks, CryptoKit integration types). Generated `Payload` is `internal`. Protocol proxy types emit no-op `Dispose()`.
 
-**DoD**: Zero `Init()` instance methods, zero `SwiftString` properties, zero public `Payload`, all types have `IDisposable`. TestFramework: 0 regressions.
+**DoD verified**: Zero `Init()` instance methods, zero `SwiftString` properties, zero public `Payload` (all 92 are `internal`), 127 types have `Dispose()`. Unit tests: 1603 pass. Integration tests: 699 pass. Runtime tests: 116 pass. Coverage: 93/93 must-pass, 0 degraded.
 
 ### Wave 2: Type Safety (P1)
 **Goal**: Eliminate remaining non-idiomatic types from the public API.

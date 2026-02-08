@@ -130,7 +130,9 @@ namespace BindingsGeneration
                     // Payload used for reference counting
                     csWriter.WriteLine($"private SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
                     csWriter.WriteLine();
-                    csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+                    csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+                    csWriter.WriteLine();
+                    csWriter.WriteLine("public void Dispose() => _payload.Dispose();");
                 }
 
                 if (swiftTypeInfo.HasValue && swiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)
@@ -232,7 +234,7 @@ namespace BindingsGeneration
                 // Add Equatable support if the struct conforms to Equatable
                 var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, hasEquality, hasInequality);
                 SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
-                ISwiftObjectMethodWriter.WriteFrozenStructImplementation(pinvokeHelperContext);
+                ISwiftObjectMethodWriter.WriteFrozenStructImplementation(pinvokeHelperContext, isProjectedAsClass);
 
                 // Collect property names for method/property collision detection
                 // Include nested type names and containing type name for consistent naming with PropertyHandler
