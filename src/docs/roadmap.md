@@ -69,10 +69,19 @@ Work one batch at a time. After each batch: run `build-and-test.sh`, check cover
   - Tier 3 deferred: TaskPriority-based tests (String raw value enum needs SwiftBindings wrapper lib not bundled in runtime app), SwiftString property access through interfaces (Mono JIT crash risk)
 - File: `TestFramework/RuntimeTestsApp/Protocols/WitnessDispatchTests.cs` (class: `BasicProtocolDispatchTests`)
 
-### B5. Complex Compositions (testing-gaps.md Gap 5) — FOURTH
-- Add `TestFramework/Sources/SwiftBindingsTestLib/Patterns/RealWorldCompositions.swift`
-- Class with closure property, struct with optional array, method returning optional class, singleton static property, inheritance + protocol conformance
-- Add runtime test `TestFramework/RuntimeTestsApp/Patterns/CompositionTests.cs`
+### B5. Complex Compositions (testing-gaps.md Gap 5) — DONE (coverage added, runtime issues deferred)
+- Added `TestFramework/Sources/SwiftBindingsTestLib/Patterns/RealWorldCompositions.swift` with 5 composition types: BatchConfig (frozen struct + optional array), ValueAnimal (inheritance + protocol), Registry (singleton + optional class return), EventHandler (optional closure property), Transformer (closure return)
+- Added `TestFramework/RuntimeTestsApp/Patterns/CompositionTests.cs` with 22 tests (4 Tier 1, 18 Tier 3)
+- Coverage: 86/86 passing (up from 81), 0 degraded. 5 new must-pass features: `struct_with_optional_array`, `inheritance_plus_protocol`, `singleton_with_optional_return`, `class_with_closure_property`, `closure_return_composition`
+- Generator: 110/120 types emitted, 466/500 members, 0 skipped members — all 5 types emit correctly
+- Unit tests: 1,603 passed, 0 regressions
+- Runtime tests: 4 PASS at Tier 1, 18 Tier 3 deferred. Runtime exposed deterministic composition defects (not just Mono flakiness):
+  - **Interop defect**: SafeHandle arg through CallConvSwift → "Passing non-blittable types" error (Registry.Register/Clear/ProcessRegistry)
+  - **Interop defect**: class inheritance + protocol conformance → EntryPointNotFoundException, symbols not exported from dylib (ValueAnimal.Value/GetValue/SetValue)
+  - **Mono JIT crash**: frozen struct SwiftString return through CallConvSwift → jit-info.c:918 assertion (BatchConfig.EffectiveName/DescribeConfig)
+  - **Layout mismatch**: optional array on frozen struct → "Not enough bits to represent the passed value" (BatchConfig.TagCount)
+  - **Mono JIT crash**: closure P/Invoke → jit-info.c:918 assertion (EventHandler, Transformer — known)
+- File: `TestFramework/RuntimeTestsApp/Patterns/CompositionTests.cs` (class: `BasicCompositionTests`)
 
 ### B4. Async (testing-gaps.md Gap 3) — LAST (most infrastructure needed)
 - Enable `TestFramework/Sources/SwiftBindingsTestLib/Async.disabled/` starting with `AsyncMethods.swift`

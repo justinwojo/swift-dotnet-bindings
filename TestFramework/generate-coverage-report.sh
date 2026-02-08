@@ -487,6 +487,16 @@ FEATURE_MAP = {
         "name": "swiftui_async_views",
         "features": ["swiftui_async_service_view", "swiftui_deep_chain_view", "swiftui_mixed_async_view"]
     },
+    "Patterns/RealWorldCompositions.swift": {
+        "name": "composition_patterns",
+        "features": [
+            "struct_with_optional_array",
+            "inheritance_plus_protocol",
+            "singleton_with_optional_return",
+            "class_with_closure_property",
+            "closure_return_composition",
+        ]
+    },
 }
 
 # Features that are known unsupported (generator can't handle them yet).
@@ -732,6 +742,13 @@ FEATURE_DECLARATIONS = {
     "swiftui_async_service_view": {"AsyncServiceView"},
     "swiftui_deep_chain_view": {"DeepChainView"},
     "swiftui_mixed_async_view": {"MixedAsyncView"},
+
+    # Patterns/RealWorldCompositions.swift — composition patterns
+    "struct_with_optional_array": {"BatchConfig", "describeConfig"},
+    "inheritance_plus_protocol": {"ValueAnimal"},
+    "singleton_with_optional_return": {"Registry", "processRegistry"},
+    "class_with_closure_property": {"EventHandler"},
+    "closure_return_composition": {"Transformer"},
 }
 
 
