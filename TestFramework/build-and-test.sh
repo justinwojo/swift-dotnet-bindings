@@ -38,11 +38,19 @@ echo ""
 echo "--- Step 2: Regenerate bindings ---"
 ./regenerate-bindings.sh $REGEN_ARGS
 
-# Step 3: Build SwiftUI bridge (if generated)
+# Step 3: Build async Swift wrappers (if generated)
+ASYNC_SWIFT=$(find output -maxdepth 1 -name "*.swift" ! -name "*.SwiftUIBridge.swift" -type f 2>/dev/null | head -1)
+if [ -n "$ASYNC_SWIFT" ]; then
+    echo ""
+    echo "--- Step 3: Build async Swift wrappers ---"
+    ./build-async-wrapper.sh
+fi
+
+# Step 4: Build SwiftUI bridge (if generated)
 BRIDGE_SWIFT="output/Swift.SwiftBindingsTestLib.SwiftUIBridge.swift"
 if [ -f "$BRIDGE_SWIFT" ]; then
     echo ""
-    echo "--- Step 3: Build SwiftUI bridge ---"
+    echo "--- Step 4: Build SwiftUI bridge ---"
     ./build-bridge.sh
 fi
 

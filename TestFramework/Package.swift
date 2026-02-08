@@ -23,9 +23,7 @@ let package = Package(
             path: "Sources/SwiftBindingsTestLib",
             exclude: [
                 // Temporarily disabled directories (generator bugs)
-                "Async.disabled",
                 "EdgeCases.disabled",
-                "ErrorHandling.disabled",
                 "Initializers.disabled",
                 "Lifetime.disabled",
                 "MemoryManagement.disabled",

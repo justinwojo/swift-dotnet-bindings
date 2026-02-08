@@ -27,9 +27,10 @@ All P1 items from `testing-gaps.md` completed (Gaps 0a, 0b, 1, 2). Unit tests: 1
 
 ## Phase B: Enable Disabled TestFramework Features
 
-**Status**: In Progress — B1, B2, B3 done, next is B5
-**Effort**: Medium (3-5 sessions)
-**Why**: 51 must-pass features sit in `.disabled/` dirs. Enabling them closes the gap from 61 toward 90+. This also builds the regression safety net needed before the sweeping emitter changes in Phase D.
+**Status**: Done
+**Completed**: February 2026
+**Effort**: Medium (5 sessions)
+**Why**: 51 must-pass features sat in `.disabled/` dirs. Enabling them closed the gap from 61 to 93. This built the regression safety net needed before the sweeping emitter changes in Phase D.
 
 **Execution order**: B1 → B2 → B3 → B5 → B4. Rationale: Error handling and generics are the easiest wins (already work in real-world libraries). Protocols need version guard work but no new infrastructure. Compositions are additive (new Swift files, not enabling disabled ones). Async is last because it requires Swift wrapper generation in the test build pipeline and runtime tests are complicated by Mono JIT bugs.
 
@@ -83,12 +84,16 @@ Work one batch at a time. After each batch: run `build-and-test.sh`, check cover
   - **Mono JIT crash**: closure P/Invoke → jit-info.c:918 assertion (EventHandler, Transformer — known)
 - File: `TestFramework/RuntimeTestsApp/Patterns/CompositionTests.cs` (class: `BasicCompositionTests`)
 
-### B4. Async (testing-gaps.md Gap 3) — LAST (most infrastructure needed)
-- Enable `TestFramework/Sources/SwiftBindingsTestLib/Async.disabled/` starting with `AsyncMethods.swift`
-- May need Swift wrapper generation step in `build-and-test.sh`
-- Add runtime tests: `AsyncStringTests.cs`, `AsyncComplexTypeTests.cs`
-- Blocked by: async Swift wrapper generation working for test library
-- Runtime tests complicated by Mono JIT bugs — may need to defer some to Tier 3
+### B4. Async (testing-gaps.md Gap 3) — DONE
+- Enabled `Async.disabled/` → `Async/` (9 Swift source files: Methods, AsyncThrowing, AsyncComplexTypes, AsyncClosures, AsyncProperties, Actors, MainActor, IsolationControl, Sendable)
+- Added `build-async-wrapper.sh` to build pipeline — generates Swift async wrappers, post-processes broken patterns (EveryProtocol, static `self.`, non-escaping closures in Task, mutating on let existential), compiles into SwiftBindings.xcframework
+- **Guard**: `AsyncClosures.swift` produces broken C# (Task<T>→T return mismatch, `_payload`/`this` in static free function context) — guarded with `#if swift(>=99.0)`
+- Coverage: 93/93 passing (up from 86), 0 degraded. 7 new must-pass features: `async_method`, `async_static_method`, `async_throwing_method`, `async_string_return`, `async_array_return`, `async_complex_return`, `sendable_type`. 11 known-unsupported: `main_actor_class`, `main_actor_method`, `sendable_closure`, `actor_type`, `actor_isolated_method`, `actor_nonisolated_method`, `async_closure_parameter`, `async_closure_with_param` (both compiled out), `async_computed_property`, `async_property_on_class`, `nonisolated_unsafe`
+- Unit tests: 1,603 passed, 0 regressions
+- Runtime tests: 32 tests written, all Tier 3 — two infrastructure blockers:
+  1. **EntryPointNotFoundException** (26 tests): `DllImport("SwiftBindingsTestLib")` targets wrong library — async `_async` entry points are defined via `@_silgen_name` in the SwiftBindings wrapper library
+  2. **InvalidProgramException** (6 tests): throwing async methods pass non-blittable function pointers through CallConvSwift (Mono limitation)
+- Files: `TestFramework/RuntimeTestsApp/Async/AsyncMethodTests.cs` (13 tests), `AsyncStringTests.cs` (11 tests), `AsyncComplexTypeTests.cs` (8 tests)
 
 ### Verification after each batch
 ```bash
@@ -225,8 +230,8 @@ Candidates (pick 1):
 
 ## After All Phases
 
-Once B, D, E are complete:
-- Must-pass features should be 90+ passing (up from 79)
+Once D, E are complete:
+- Must-pass features should be 93+ passing (currently 93, up from 61 pre-Phase B)
 - Runtime test coverage covers most of the contract matrix
 - Generated API is idiomatic C# — no interop types in public surface
 - 5-6 real-world libraries validated with clean API

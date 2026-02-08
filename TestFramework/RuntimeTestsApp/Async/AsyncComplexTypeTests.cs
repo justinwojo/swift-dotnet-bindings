@@ -2,51 +2,121 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
+using Swift.SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Async;
 
 /// <summary>
-/// Tests for async enum/struct/class returns (Phase 60 regression).
+/// Tests for AsyncComplexWorker — async methods returning frozen structs, enums, classes, and optionals.
+/// Validates complex type marshalling through async callbacks.
 ///
-/// STATUS: DEFERRED — No async methods exist in the current generated bindings.
-/// The async Swift test files are in TestFramework/Sources/SwiftBindingsTestLib/Async.disabled/
-/// and are compiled out of the test library.
-///
-/// When async Swift sources are re-enabled and bindings regenerated, implement:
-/// - TestAsyncEnumReturn: async method returning an enum, verify case tag
-/// - TestAsyncStructReturn: async method returning a struct, verify field values
-/// - TestAsyncClassReturn: async method returning a class, verify properties
-/// - TestAsyncOptionalReturn: async method returning nil/some optional
-/// - TestAsyncComplexTypeLifetime: verify async result survives past completion
-///
-/// These tests should use Tier 2 and WithTimeout(DefaultAsyncTimeout).
+/// Tier 2: Constructors take string params (SwiftString through CallConvSwift).
+/// Async callbacks use Cdecl (not CallConvSwift), avoiding the Mono JIT assertion.
 /// </summary>
-[TestTier(TestTier.Tier2)]
+/// Tier 3: Async P/Invoke entry points are in the SwiftBindings wrapper library but
+/// DllImport targets "SwiftBindingsTestLib" → EntryPointNotFoundException at runtime.
+/// Tests are ready for when the generator routes async DllImports to the wrapper library.
+[TestTier(TestTier.Tier3)]
 public class AsyncComplexTypeTests : TestBase
 {
     public AsyncComplexTypeTests(TestResults results) : base(results) { }
 
-    // TODO: Implement when async Swift sources are re-enabled in the test library.
-    // The Async.disabled/ directory contains: AsyncComplexTypes.swift
-    // Once re-enabled, regenerate bindings and add tests for:
-    //
-    // [TestTier(TestTier.Tier2)]
-    // public async Task TestAsyncEnumReturn()
-    // {
-    //     var result = await WithTimeout(
-    //         SomeAsyncType.AsyncEnumMethod(),
-    //         DefaultAsyncTimeout);
-    //     AssertNotNull(result, "Async enum return not null");
-    //     AssertEqual(ExpectedEnum.CaseTag.SomeCase, result.Tag, "Async enum case");
-    // }
-    //
-    // [TestTier(TestTier.Tier2)]
-    // public async Task TestAsyncClassReturn()
-    // {
-    //     var result = await WithTimeout(
-    //         SomeAsyncType.AsyncClassMethod(),
-    //         DefaultAsyncTimeout);
-    //     AssertNotNull(result, "Async class return not null");
-    //     // Verify properties are accessible after async completion
-    // }
+    #region AsyncResult (Frozen Struct) Tests
+
+    public async Task TestAsyncGetResult()
+    {
+        var worker = new AsyncComplexWorker("worker-1");
+        var result = await WithTimeout(worker.AsyncGetResult(), DefaultAsyncTimeout);
+        AssertNotNull(result, "AsyncGetResult not null");
+        AssertEqual(42, result.Id, "AsyncResult.Id");
+        AssertEqual("Completed by worker-1", result.Message.ToString(), "AsyncResult.Message");
+        AssertEqual(true, result.Success, "AsyncResult.Success");
+        TestLogger.Info($"AsyncComplexWorker.AsyncGetResult() = id={result.Id}, success={result.Success}");
+    }
+
+    public async Task TestAsyncStaticResult()
+    {
+        var result = await WithTimeout(AsyncComplexWorker.AsyncStaticResult(), DefaultAsyncTimeout);
+        AssertNotNull(result, "AsyncStaticResult not null");
+        AssertEqual(0, result.Id, "Static AsyncResult.Id");
+        AssertEqual("Static result", result.Message.ToString(), "Static AsyncResult.Message");
+        AssertEqual(true, result.Success, "Static AsyncResult.Success");
+        TestLogger.Info($"AsyncComplexWorker.AsyncStaticResult() = id={result.Id}");
+    }
+
+    #endregion
+
+    #region AsyncStatus (Enum) Tests
+
+    public async Task TestAsyncGetStatus()
+    {
+        var worker = new AsyncComplexWorker("status-worker");
+        var status = await WithTimeout(worker.AsyncGetStatus(), DefaultAsyncTimeout);
+        AssertNotNull(status, "AsyncGetStatus not null");
+        // Swift returns .completed(message: "Task finished")
+        AssertEqual(AsyncStatus.CaseTag.Completed, status.Tag, "AsyncStatus.Tag == Completed");
+        AssertTrue(status.TryGetCompleted(out var message), "TryGetCompleted should succeed");
+        AssertEqual("Task finished", message!.ToString(), "Completed message");
+        TestLogger.Info($"AsyncComplexWorker.AsyncGetStatus() = Completed(\"{message}\")");
+    }
+
+    public async Task TestAsyncGetPendingStatus()
+    {
+        var worker = new AsyncComplexWorker("pending-worker");
+        var status = await WithTimeout(worker.AsyncGetPendingStatus(), DefaultAsyncTimeout);
+        AssertNotNull(status, "AsyncGetPendingStatus not null");
+        AssertEqual(AsyncStatus.CaseTag.Pending, status.Tag, "AsyncStatus.Tag == Pending");
+        TestLogger.Info("AsyncComplexWorker.AsyncGetPendingStatus() = Pending");
+    }
+
+    #endregion
+
+    #region AsyncTask (Class) Tests
+
+    public async Task TestAsyncGetTask()
+    {
+        var worker = new AsyncComplexWorker("task-worker");
+        var task = await WithTimeout(worker.AsyncGetTask(), DefaultAsyncTimeout);
+        AssertNotNull(task, "AsyncGetTask not null");
+        // Swift: AsyncTask(taskId: workerId, status: "completed async")
+        AssertEqual("task-worker", task.TaskId.ToString(), "AsyncTask.TaskId");
+        AssertEqual("completed async", task.StatusProperty.ToString(), "AsyncTask.Status");
+        TestLogger.Info($"AsyncComplexWorker.AsyncGetTask() = Task[{task.TaskId}]: {task.StatusProperty}");
+    }
+
+    public async Task TestAsyncStaticTask()
+    {
+        var task = await WithTimeout(AsyncComplexWorker.AsyncStaticTask(), DefaultAsyncTimeout);
+        AssertNotNull(task, "AsyncStaticTask not null");
+        AssertEqual("static-task", task.TaskId.ToString(), "Static AsyncTask.TaskId");
+        AssertEqual("created", task.StatusProperty.ToString(), "Static AsyncTask.Status");
+        TestLogger.Info($"AsyncComplexWorker.AsyncStaticTask() = Task[{task.TaskId}]: {task.StatusProperty}");
+    }
+
+    #endregion
+
+    #region Optional Return Tests
+
+    public async Task TestAsyncGetOptionalResultSome()
+    {
+        var worker = new AsyncComplexWorker("optional-worker");
+        var result = await WithTimeout(worker.AsyncGetOptionalResult(), DefaultAsyncTimeout);
+        // Swift returns AsyncResult(id: 100, message: "Optional result", success: true)
+        AssertNotNull(result, "AsyncGetOptionalResult should return Some");
+        AssertEqual(100, result!.Id, "Optional AsyncResult.Id");
+        AssertEqual("Optional result", result.Message.ToString(), "Optional AsyncResult.Message");
+        AssertEqual(true, result.Success, "Optional AsyncResult.Success");
+        TestLogger.Info($"AsyncComplexWorker.AsyncGetOptionalResult() = Some(id={result.Id})");
+    }
+
+    public async Task TestAsyncGetNilResult()
+    {
+        var worker = new AsyncComplexWorker("nil-worker");
+        var result = await WithTimeout(worker.AsyncGetNilResult(), DefaultAsyncTimeout);
+        // Swift returns nil
+        AssertNull(result, "AsyncGetNilResult should return null");
+        TestLogger.Info("AsyncComplexWorker.AsyncGetNilResult() = null");
+    }
+
+    #endregion
 }

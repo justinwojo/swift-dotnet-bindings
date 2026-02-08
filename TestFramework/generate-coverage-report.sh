@@ -238,6 +238,10 @@ FEATURE_MAP = {
         "name": "async_throwing",
         "features": ["async_throwing_method"]
     },
+    "Async/AsyncComplexTypes.swift": {
+        "name": "async_complex_types",
+        "features": ["async_string_return", "async_array_return", "async_complex_return"]
+    },
     "Properties/Getters.swift": {
         "name": "property_getters",
         "features": ["stored_property_getter", "computed_property_getter"]
@@ -553,6 +557,11 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "responds_to_selector",
     "async_computed_property",
     "async_property_on_class",
+    "actor_type",  # Actors not yet supported by the generator
+    "actor_isolated_method",
+    "actor_nonisolated_method",
+    "async_closure_parameter",  # Async closures not yet supported
+    "async_closure_with_param",
     "circular_strong_reference",
     "weak_cycle_breaking",
     "unowned_cycle_breaking",
@@ -742,6 +751,15 @@ FEATURE_DECLARATIONS = {
     "swiftui_async_service_view": {"AsyncServiceView"},
     "swiftui_deep_chain_view": {"DeepChainView"},
     "swiftui_mixed_async_view": {"MixedAsyncView"},
+
+    # Async/AsyncComplexTypes.swift — 3 features share one file
+    "async_string_return": {"AsyncStringWorker"},
+    "async_array_return": {"AsyncArrayWorker"},
+    "async_complex_return": {"AsyncComplexWorker", "AsyncResult", "AsyncStatus", "AsyncTask"},
+
+    # Async/Sendable.swift — sendable types vs sendable closures
+    "sendable_type": {"SendablePoint", "SendableConfig", "createSendablePoint", "createSendableConfig"},
+    "sendable_closure": {"performWithSendable", "storeAndExecuteSendable"},
 
     # Patterns/RealWorldCompositions.swift — composition patterns
     "struct_with_optional_array": {"BatchConfig", "describeConfig"},
