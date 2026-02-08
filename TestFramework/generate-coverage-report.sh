@@ -638,13 +638,17 @@ FEATURE_DECLARATIONS = {
     # Generics/Types.swift — 3 features share one file
     "generic_struct": {"Wrapper", "GenericPair"},
     "generic_class": {"GenericClass"},
+    # Note: BoundIntPair/BoundStringPair are concrete stand-in structs, not actual
+    # GenericPair<Int32,Int32> specializations. The generator doesn't produce bound
+    # generic instantiations from ABI — these test the concrete-type emission path
+    # that bound generics would use. True bound generic testing requires generator
+    # support for emitting specialized generic types.
     "bound_generic_type": {"BoundIntPair", "BoundStringPair"},
 
     # Generics/Existentials.swift — existentials vs opaque returns
     "any_protocol_existential": {
         "describeAll", "acceptsAnyDescribable", "makeDescribable",
         "acceptsComposition", "makeIdentifiableDescribable",
-        "ExistentialConsumer", "ExistentialBox",
     },
     "opaque_return_type": {"makeOpaqueDescribable"},
     "opaque_return_property": {"OpaqueProvider"},

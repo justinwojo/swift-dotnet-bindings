@@ -33,9 +33,7 @@ mkdir -p "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule"
 # This matches the exclusions in Package.swift
 SWIFT_FILES=$(find Sources/SwiftBindingsTestLib \
     -type d -name '*.disabled' -prune -o \
-    -type d -name 'Generics' -prune -o \
     -type d -name 'Foundation' -prune -o \
-    -type d -name 'Protocols' -prune -o \
     -name '*.swift' -type f -print \
     | grep -v 'Closures/Autoclosures\.swift$' \
     | grep -v 'UnsafeTypes/Span\.swift$' \

@@ -27,7 +27,7 @@ All P1 items from `testing-gaps.md` completed (Gaps 0a, 0b, 1, 2). Unit tests: 1
 
 ## Phase B: Enable Disabled TestFramework Features
 
-**Status**: In Progress — B1 done, next is B2
+**Status**: In Progress — B1, B2 done, next is B3
 **Effort**: Medium (3-5 sessions)
 **Why**: 51 must-pass features sit in `.disabled/` dirs. Enabling them closes the gap from 61 toward 90+. This also builds the regression safety net needed before the sweeping emitter changes in Phase D.
 
@@ -43,10 +43,19 @@ Work one batch at a time. After each batch: run `build-and-test.sh`, check cover
 - Runtime tests: 24 PASS, 0 FAIL at Tier 2 (10 Tier 3 skipped — Mono JIT crashes on SwiftString+error path, non-blittable tuple enum cases, non-frozen struct constructors, missing entry points)
 - File: `TestFramework/RuntimeTestsApp/ErrorHandling/ThrowingMethodTests.cs` (class: `BasicThrowingTests`)
 
-### B2. Generics (testing-gaps.md Gap 7) — SECOND
-- Enable `TestFramework/Sources/SwiftBindingsTestLib/Generics.disabled/`
-- Generic structs, classes, bound generic params all work in real-world libraries
-- Add runtime test `TestFramework/RuntimeTestsApp/Generics/GenericTests.cs`
+### B2. Generics + Protocol Conformance (testing-gaps.md Gap 7) — DONE
+- Enabled `Generics/` (4 files: Types, Functions, Constraints, Existentials) and `Protocols/Conformance.swift`
+- Removed directory-level exclusions from `Package.swift` and `build-xcframework.sh`; remaining `.disabled` files auto-excluded by SPM/find
+- Added `BoundIntPair` (frozen) and `BoundStringPair` (non-frozen) concrete structs for bound generic coverage
+- **Guard**: `GenericPair.swapped()` generates CS8500 (pointer to managed generic type with swapped type params) — guarded with `#if swift(>=99.0)`
+- **Guard**: `Person` struct in Conformance.swift depends on `Nameable`/`Ageable` from disabled Composition.swift — guarded
+- Coverage: 79/79 passing (up from 64), 0 degraded. 15 new must-pass features from generics, constraints, existentials, protocol conformance
+- Unit tests: 1,603 passed, 0 regressions
+- Runtime tests: 83 PASS (17 new BasicGenericTests), 0 new FAIL at Tier 2
+  - Tier 1: BoundIntPair (frozen struct), SummableInt32 (frozen + protocol), MutableItem (non-frozen, property get/set/dispose)
+  - Tier 2: BoundStringPair (string ctor + Joined method), SimpleItem (string ctor + Describe), DisplayItem (Describe + Display)
+  - Tier 3 deferred: IntContainer (array param not properly marshalled through SwiftIndirectResult ctor path)
+- File: `TestFramework/RuntimeTestsApp/Generics/BasicGenericTests.cs` (class: `BasicGenericTests`)
 
 ### B3. Protocols (testing-gaps.md Gap 4) — THIRD
 - Enable protocol Swift sources (may need version guard adjustments)
@@ -202,7 +211,7 @@ Candidates (pick 1):
 ## After All Phases
 
 Once B, D, E are complete:
-- Must-pass features should be 80+ passing (up from 61)
+- Must-pass features should be 90+ passing (up from 79)
 - Runtime test coverage covers most of the contract matrix
 - Generated API is idiomatic C# — no interop types in public surface
 - 5-6 real-world libraries validated with clean API

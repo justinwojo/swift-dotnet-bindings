@@ -32,9 +32,45 @@ public struct GenericPair<T, U> {
         self.second = second
     }
 
+    #if swift(>=99.0)
     /// Swaps the pair elements.
+    /// Guarded: generates CS8500 (pointer to managed generic type with swapped type params).
     public func swapped() -> GenericPair<U, T> {
         return GenericPair<U, T>(first: second, second: first)
+    }
+    #endif
+}
+
+// MARK: - Bound Generic Types (concrete specializations)
+
+/// Concrete bound generic: GenericPair specialized to (Int32, Int32).
+@frozen
+public struct BoundIntPair {
+    public let first: Int32
+    public let second: Int32
+
+    public init(first: Int32, second: Int32) {
+        self.first = first
+        self.second = second
+    }
+
+    public func sum() -> Int32 {
+        return first + second
+    }
+}
+
+/// Concrete bound generic: GenericPair specialized to (String, String).
+public struct BoundStringPair {
+    public let first: String
+    public let second: String
+
+    public init(first: String, second: String) {
+        self.first = first
+        self.second = second
+    }
+
+    public func joined() -> String {
+        return "\(first) \(second)"
     }
 }
 

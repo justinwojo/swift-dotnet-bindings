@@ -657,6 +657,26 @@ var result = await SomeSwiftType.asyncMethod();
 var conforms = obj.GetProtocolConformanceDescriptor(typeof(ISomeProtocol));
 ```
 
+## Working Guidelines
+
+### Bug Fixes and Pattern Changes
+When fixing a bug pattern, always grep the entire codebase for ALL instances of the same pattern before committing. Never assume the first occurrence is the only one.
+
+### Code Generation Changes
+After implementing any code generation changes, verify generated output compiles by running the build — do not assume generated code is correct based on generator logic alone. Check for: duplicate struct/symbol emissions, unqualified nested type references, and naming collisions.
+
+### Planning
+When creating implementation plans, use exact file paths verified by reading the filesystem. Do not guess paths. Always verify API signatures by reading actual source before referencing them in plans.
+
+### Code Review Fixes
+When fixing issues from code review findings, address ALL findings in a single pass. After applying fixes, re-read the review findings list to confirm nothing was missed before reporting completion.
+
+### Refactoring
+Do not apply arbitrary numeric thresholds (e.g., LOC limits) for refactoring decisions. Always use logical/semantic cohesion as the primary organizing principle unless the user explicitly specifies a numeric target.
+
+### Memory Management Code
+When modifying memory management code (Arc.Release, pointer operations, fixed blocks), double-check that the target of the operation is the correct pointer/object — not an intermediate buffer or container pointer.
+
 ## Contributing Guidelines
 
 1. Read `docs/binding-overview.md` first for philosophy

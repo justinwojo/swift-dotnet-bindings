@@ -26,7 +26,6 @@ let package = Package(
                 "Async.disabled",
                 "EdgeCases.disabled",
                 "ErrorHandling.disabled",
-                "Generics",  // Has unbound generic issues
                 "Initializers.disabled",
                 "Lifetime.disabled",
                 "MemoryManagement.disabled",
@@ -34,7 +33,6 @@ let package = Package(
                 "Parameters.disabled",
                 "PropertyWrappers.disabled",
                 "Foundation",  // Foundation types not fully supported
-                "Protocols",  // Protocol issues
                 // Individual unsupported files within enabled directories
                 "Closures/Autoclosures.swift",  // @autoclosure not supported
                 "UnsafeTypes/Span.swift",  // Span<T> not supported
