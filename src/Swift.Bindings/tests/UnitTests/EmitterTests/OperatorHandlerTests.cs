@@ -50,6 +50,13 @@ public class OperatorHandlerTests
     [InlineData("...")]
     [InlineData("..<")]
     [InlineData("~=")]
+    [InlineData("&+")]
+    [InlineData("&-")]
+    [InlineData("&*")]
+    [InlineData("&<<")]
+    [InlineData("&>>")]
+    [InlineData("&<<=")]
+    [InlineData("&>>=")]
     public void IsSupportedOperator_WithUnsupportedOperator_ReturnsFalse(string symbol)
     {
         Assert.False(OperatorHandler.IsSupportedOperator(symbol));

@@ -674,12 +674,12 @@ public class ArraySliceNormalizationEmitterTests
     #region Bug #17: Internal Method Skip Tests
 
     [Fact]
-    public void TryEmit_InternalMethod_SkipsNormalization()
+    public void TryEmit_ModuleInternalMethod_SkipsNormalization()
     {
-        // Bug #17: Methods marked as internal shouldn't get Swift wrappers
+        // Bug #17: Methods marked as @usableFromInline internal shouldn't get Swift wrappers
         // because the wrapper would try to call an inaccessible method.
         var (method, typeDatabase, _) = CreateMethodWithArraySlice("process64");
-        method.Visibility = Visibility.Internal;
+        method.IsModuleInternal = true;
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
@@ -692,25 +692,12 @@ public class ArraySliceNormalizationEmitterTests
     {
         // Public methods should still be normalized.
         var (method, typeDatabase, _) = CreateMethodWithArraySlice("encrypt");
-        method.Visibility = Visibility.Public;
+        method.IsModuleInternal = false;
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
         Assert.NotEmpty(csOutput);
         Assert.NotEmpty(swiftOutput);
-    }
-
-    [Fact]
-    public void TryEmit_PrivateMethod_SkipsNormalization()
-    {
-        // Private methods shouldn't get wrappers either.
-        var (method, typeDatabase, _) = CreateMethodWithArraySlice("helperMethod");
-        method.Visibility = Visibility.Private;
-
-        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
-
-        Assert.Empty(csOutput);
-        Assert.Empty(swiftOutput);
     }
 
     #endregion

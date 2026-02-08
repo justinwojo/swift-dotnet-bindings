@@ -390,10 +390,12 @@ namespace BindingsGeneration
                            p.Subscripts.Any())
                 // Bug #14: Filter out protocols not actually defined in this module.
                 // When a module extends stdlib protocols (e.g., CryptoSwift extends Collection),
-                // the parser may create ProtocolDecl entries with the module's name (CryptoSwift.Collection).
-                // These types don't exist in the module namespace and would fail Swift compilation.
-                // Only emit conformance for protocols that have a TypeRecord in the TypeDatabase.
-                .Where(p => typeDatabase.TryGetTypeRecord(p.SwiftTypeName, out _))
+                // the parser creates ProtocolDecl entries with the module's name (CryptoSwift.Collection),
+                // but these are stdlib protocols re-exported by the module — not defined in it.
+                // Check the mangled name: module-defined protocols encode the module name as
+                // $s{length}{moduleName}... (e.g., $s11CryptoSwift...), while stdlib protocols
+                // use abbreviated forms ($sSl, $sSB, $ss17...).
+                .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name))
                 .ToList();
 
             if (!suitableProtocols.Any())
@@ -455,6 +457,21 @@ namespace BindingsGeneration
             // Only override signatures that appear in BOTH sets (i.e., a real conflict exists)
             nonThrowingSignatures.IntersectWith(throwingSignatures);
             return nonThrowingSignatures;
+        }
+
+        /// <summary>
+        /// Checks if a Swift mangled name belongs to the given module.
+        /// Swift encodes module names in mangled symbols as $s{length}{moduleName}...
+        /// (e.g., $s11CryptoSwift...). Stdlib protocols use abbreviated forms ($sSl, $sSB, $ss...).
+        /// </summary>
+        internal static bool IsMangledNameFromModule(string mangledName, string moduleName)
+        {
+            if (string.IsNullOrEmpty(mangledName) || string.IsNullOrEmpty(moduleName))
+                return false;
+
+            // The expected mangled prefix is "$s" + length + moduleName
+            var expectedPrefix = $"$s{moduleName.Length}{moduleName}";
+            return mangledName.StartsWith(expectedPrefix, StringComparison.Ordinal);
         }
     }
 }

@@ -135,10 +135,10 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
-    #region IsInternal Visibility Tests (Bug #17)
+    #region IsModuleInternal Tests (Bug #17)
 
     [Fact]
-    public void ParseModule_FuncWithIsInternalTrue_SetsVisibilityInternal()
+    public void ParseModule_FuncWithIsInternalTrue_SetsIsModuleInternalTrue()
     {
         var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
         returnTypeNode.PrintedName = "()";
@@ -154,11 +154,12 @@ public class SwiftABIParserRuntimeTests
         var result = fixture.Parser.ParseModule();
 
         var method = Assert.Single(result.ModuleDecl.Methods);
-        Assert.Equal(Visibility.Internal, method.Visibility);
+        Assert.True(method.IsModuleInternal);
+        Assert.Equal(Visibility.Public, method.Visibility); // C# access stays public
     }
 
     [Fact]
-    public void ParseModule_FuncWithIsInternalFalse_SetsVisibilityPublic()
+    public void ParseModule_FuncWithIsInternalFalse_SetsIsModuleInternalFalse()
     {
         var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
         returnTypeNode.PrintedName = "()";
@@ -174,11 +175,11 @@ public class SwiftABIParserRuntimeTests
         var result = fixture.Parser.ParseModule();
 
         var method = Assert.Single(result.ModuleDecl.Methods);
-        Assert.Equal(Visibility.Public, method.Visibility);
+        Assert.False(method.IsModuleInternal);
     }
 
     [Fact]
-    public void ParseModule_FuncWithIsInternalNull_SetsVisibilityPublic()
+    public void ParseModule_FuncWithIsInternalNull_SetsIsModuleInternalFalse()
     {
         var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
         returnTypeNode.PrintedName = "()";
@@ -194,11 +195,11 @@ public class SwiftABIParserRuntimeTests
         var result = fixture.Parser.ParseModule();
 
         var method = Assert.Single(result.ModuleDecl.Methods);
-        Assert.Equal(Visibility.Public, method.Visibility);
+        Assert.False(method.IsModuleInternal);
     }
 
     [Fact]
-    public void ParseModule_FuncWithUsableFromInlineWithoutAccessControl_SetsVisibilityInternal()
+    public void ParseModule_FuncWithUsableFromInlineWithoutAccessControl_SetsIsModuleInternalTrue()
     {
         // @usableFromInline internal methods have "UsableFromInline" but NOT "AccessControl"
         var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
@@ -216,13 +217,15 @@ public class SwiftABIParserRuntimeTests
         var result = fixture.Parser.ParseModule();
 
         var method = Assert.Single(result.ModuleDecl.Methods);
-        Assert.Equal(Visibility.Internal, method.Visibility);
+        Assert.True(method.IsModuleInternal);
+        Assert.Equal(Visibility.Public, method.Visibility); // C# access stays public
     }
 
     [Fact]
-    public void ParseModule_FuncWithAccessControlAndUsableFromInline_SetsVisibilityPublic()
+    public void ParseModule_FuncWithAccessControlAndUsableFromInline_SetsIsModuleInternalTrue()
     {
-        // Public inlinable methods have both "AccessControl" and "UsableFromInline"
+        // @usableFromInline is exclusively used on internal declarations, even when
+        // AccessControl is also present (explicit 'internal' keyword).
         var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
         returnTypeNode.PrintedName = "()";
 
@@ -238,7 +241,109 @@ public class SwiftABIParserRuntimeTests
         var result = fixture.Parser.ParseModule();
 
         var method = Assert.Single(result.ModuleDecl.Methods);
-        Assert.Equal(Visibility.Public, method.Visibility);
+        Assert.True(method.IsModuleInternal);
+        Assert.Equal(Visibility.Public, method.Visibility); // C# access stays public
+    }
+
+    [Fact]
+    public void ParseModule_FuncWithInlinableWithoutAccessControl_SetsIsModuleInternalTrue()
+    {
+        // @inlinable internal methods without explicit access control have
+        // "Inlinable" but NOT "AccessControl" in declAttributes
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "xor",
+            printedName: "xor()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.IsInternal = null;
+        funcNode.DeclAttributes = new[] { "Final", "Inlinable" };
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.True(method.IsModuleInternal);
+    }
+
+    [Fact]
+    public void ParseModule_FuncWithInlinableAndAccessControl_SetsIsModuleInternalFalseWithoutSwiftInterface()
+    {
+        // @inlinable public methods have both "Inlinable" and "AccessControl" —
+        // indistinguishable from @inlinable internal without swiftinterface data
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "encrypt",
+            printedName: "encrypt()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.IsInternal = null;
+        funcNode.DeclAttributes = new[] { "Final", "AccessControl", "Inlinable" };
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        // Without swiftinterface, we can't tell if it's public or internal
+        Assert.False(method.IsModuleInternal);
+    }
+
+    [Fact]
+    public void ParseModule_ProtocolComposition_ParsesFromPrintedName()
+    {
+        // ProtocolComposition nodes in ABI JSON have no children — protocols are in printedName
+        var compositionNode = CreateNode(
+            kind: "TypeNominal",
+            name: "ProtocolComposition",
+            mangledName: "$s");
+        compositionNode.PrintedName = "any TestModule.Cryptor & TestModule.Updatable";
+
+        var funcNode = CreateFunctionNode(
+            name: "makeEncryptor",
+            printedName: "makeEncryptor()",
+            funcSelfKind: null,
+            children: new[] { compositionNode });
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        Assert.NotNull(returnType);
+        Assert.IsType<ProtocolListTypeSpec>(returnType);
+        var protocolList = (ProtocolListTypeSpec)returnType;
+        Assert.Equal(2, protocolList.Protocols.Count);
+    }
+
+    [Fact]
+    public void ParseModule_ProtocolCompositionAny_ReturnsEmptyProtocolList()
+    {
+        // "Any" printed name should produce empty protocol list
+        var compositionNode = CreateNode(
+            kind: "TypeNominal",
+            name: "ProtocolComposition",
+            mangledName: "$s");
+        compositionNode.PrintedName = "Any";
+
+        var funcNode = CreateFunctionNode(
+            name: "getValue",
+            printedName: "getValue()",
+            funcSelfKind: null,
+            children: new[] { compositionNode });
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        Assert.NotNull(returnType);
+        Assert.IsType<ProtocolListTypeSpec>(returnType);
+        var protocolList = (ProtocolListTypeSpec)returnType;
+        Assert.Empty(protocolList.Protocols);
     }
 
     #endregion

@@ -243,11 +243,11 @@ public static class ArraySliceNormalizationEmitter
             return false;
         }
 
-        // Bug #17: Skip methods that aren't public — the generated Swift wrapper
+        // Bug #17: Skip @usableFromInline internal methods — the generated Swift wrapper
         // would call an inaccessible member from an extension in a different module.
-        if (methodDecl.Visibility != Visibility.Public)
+        if (methodDecl.IsModuleInternal)
         {
-            logger.LogDebug("ArraySliceNormalization: skipping {Name} — method is not public ({Visibility})", methodDecl.Name, methodDecl.Visibility);
+            logger.LogDebug("ArraySliceNormalization: skipping {Name} — method is module-internal", methodDecl.Name);
             return false;
         }
 

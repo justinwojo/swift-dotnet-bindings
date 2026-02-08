@@ -315,18 +315,18 @@ private var _cryptors_vtable = Cryptors_vtable()
 
 // EveryProtocol conformance to Cryptors
 extension EveryProtocol: CryptoSwift.Cryptors {
-    public func makeEncryptor() throws -> Any {
+    public func makeEncryptor() throws -> any CryptoSwift.Cryptor & CryptoSwift.Updatable {
             var selfProto: CryptoSwift.Cryptors = self
             let resultPtr = _cryptors_vtable.func_makeEncryptor_0!(
                 _cryptors_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Any.self).pointee
+            return resultPtr.assumingMemoryBound(to: (any CryptoSwift.Cryptor & CryptoSwift.Updatable).self).pointee
     }
     
-    public func makeDecryptor() throws -> Any {
+    public func makeDecryptor() throws -> any CryptoSwift.Cryptor & CryptoSwift.Updatable {
             var selfProto: CryptoSwift.Cryptors = self
             let resultPtr = _cryptors_vtable.func_makeDecryptor_1!(
                 _cryptors_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Any.self).pointee
+            return resultPtr.assumingMemoryBound(to: (any CryptoSwift.Cryptor & CryptoSwift.Updatable).self).pointee
     }
     
 }
@@ -807,108 +807,6 @@ public func getEveryProtocolAuthenticatorWitnessTable() -> UnsafeRawPointer {
         }
     }
 }
-// Vtable for Collection protocol - stores function pointers to C# implementations
-fileprivate struct Collection_vtable {
-    var csVTHandle: OpaquePointer? = nil
-    var func_toUInt32Array_0: (@convention(c)(OpaquePointer?, UnsafeRawPointer) -> UnsafeRawPointer)?
-    var func_toUInt64Array_1: (@convention(c)(OpaquePointer?, UnsafeRawPointer) -> UnsafeRawPointer)?
-    var func_batched_2: (@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer)?
-}
-
-private var _collection_vtable = Collection_vtable()
-
-// EveryProtocol conformance to Collection
-extension EveryProtocol: CryptoSwift.Collection {
-    public func toUInt32Array() -> Swift.Array<Swift.UInt32> {
-            var selfProto: CryptoSwift.Collection = self
-            let resultPtr = _collection_vtable.func_toUInt32Array_0!(
-                _collection_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt32>.self).pointee
-    }
-    
-    public func toUInt64Array() -> Swift.Array<Swift.UInt64> {
-            var selfProto: CryptoSwift.Collection = self
-            let resultPtr = _collection_vtable.func_toUInt64Array_1!(
-                _collection_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt64>.self).pointee
-    }
-    
-    public func batched(by: Swift.Int) -> CryptoSwift.BatchedCollection<Any> {
-            var selfProto: CryptoSwift.Collection = self
-            var byCopy = by
-                let resultPtr = _collection_vtable.func_batched_2!(
-                _collection_vtable.csVTHandle, &selfProto, &byCopy)
-            return resultPtr.assumingMemoryBound(to: CryptoSwift.BatchedCollection<Any>.self).pointee
-    }
-    
-}
-
-// Called by C# to register the protocol vtable
-@_silgen_name("SetCollection_vtable")
-public func setCollection_vtable(uvt: UnsafeRawPointer) {
-    let vt: UnsafePointer<Collection_vtable> = uvt.assumingMemoryBound(to: Collection_vtable.self)
-    _collection_vtable = vt.pointee
-}
-// Returns the protocol witness table pointer for EveryProtocol conforming to Collection.
-// C# calls this via P/Invoke to obtain the witness table for existential container construction.
-@_silgen_name("Get_EveryProtocol_Collection_WitnessTable")
-public func getEveryProtocolCollectionWitnessTable() -> UnsafeRawPointer {
-    let instance = EveryProtocol()
-    return withExtendedLifetime(instance) {
-        var proto: any CryptoSwift.Collection = instance
-        return withUnsafeBytes(of: &proto) { buffer in
-            // Existential layout for class-bound protocols:
-            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
-            // For a single-protocol existential, witness table is at offset 4 * pointer size
-            let witnessTableOffset = 4 * MemoryLayout<Int>.size
-            return buffer.baseAddress!.advanced(by: witnessTableOffset)
-                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
-        }
-    }
-}
-// Vtable for FixedWidthInteger protocol - stores function pointers to C# implementations
-fileprivate struct FixedWidthInteger_vtable {
-    var csVTHandle: OpaquePointer? = nil
-    var func_bytes_0: (@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer)?
-}
-
-private var _fixedWidthInteger_vtable = FixedWidthInteger_vtable()
-
-// EveryProtocol conformance to FixedWidthInteger
-extension EveryProtocol: CryptoSwift.FixedWidthInteger {
-    public func bytes(totalBytes: Swift.Int) -> Swift.Array<Swift.UInt8> {
-            var selfProto: CryptoSwift.FixedWidthInteger = self
-            var totalBytesCopy = totalBytes
-                let resultPtr = _fixedWidthInteger_vtable.func_bytes_0!(
-                _fixedWidthInteger_vtable.csVTHandle, &selfProto, &totalBytesCopy)
-            return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
-    }
-    
-}
-
-// Called by C# to register the protocol vtable
-@_silgen_name("SetFixedWidthInteger_vtable")
-public func setFixedWidthInteger_vtable(uvt: UnsafeRawPointer) {
-    let vt: UnsafePointer<FixedWidthInteger_vtable> = uvt.assumingMemoryBound(to: FixedWidthInteger_vtable.self)
-    _fixedWidthInteger_vtable = vt.pointee
-}
-// Returns the protocol witness table pointer for EveryProtocol conforming to FixedWidthInteger.
-// C# calls this via P/Invoke to obtain the witness table for existential container construction.
-@_silgen_name("Get_EveryProtocol_FixedWidthInteger_WitnessTable")
-public func getEveryProtocolFixedWidthIntegerWitnessTable() -> UnsafeRawPointer {
-    let instance = EveryProtocol()
-    return withExtendedLifetime(instance) {
-        var proto: any CryptoSwift.FixedWidthInteger = instance
-        return withUnsafeBytes(of: &proto) { buffer in
-            // Existential layout for class-bound protocols:
-            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
-            // For a single-protocol existential, witness table is at offset 4 * pointer size
-            let witnessTableOffset = 4 * MemoryLayout<Int>.size
-            return buffer.baseAddress!.advanced(by: witnessTableOffset)
-                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
-        }
-    }
-}
 
 extension CryptoSwift.RSA {
     @_silgen_name("SBW_RSA_sign_239FB4FB")
@@ -956,20 +854,6 @@ extension CryptoSwift.MD5 {
     @_silgen_name("SBW_MD5_update_1E4EF80A")
     public func _sbw_update_1E4EF80A(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
         return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
-    }
-}
-
-extension CryptoSwift.AES {
-    @_silgen_name("SBW_AES_encrypt_AEC9CA63")
-    public func _sbw_encrypt_AEC9CA63(_ block: Array<UInt8>) -> Optional<Array<UInt8>> {
-        return self.encrypt(block: Swift.ArraySlice(block))
-    }
-}
-
-extension CryptoSwift.AES {
-    @_silgen_name("SBW_AES_decrypt_F50B23AB")
-    public func _sbw_decrypt_F50B23AB(_ block: Array<UInt8>) -> Optional<Array<UInt8>> {
-        return self.decrypt(block: Swift.ArraySlice(block))
     }
 }
 

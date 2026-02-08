@@ -73,6 +73,13 @@ namespace BindingsGeneration
         public bool IsMutating { get; set; } = false;
 
         /// <summary>
+        /// Indicates the method is @usableFromInline internal — visible in the ABI but not
+        /// callable from external modules. Used by ArraySlice normalization to skip generating
+        /// wrapper extensions for inaccessible methods.
+        /// </summary>
+        public bool IsModuleInternal { get; set; } = false;
+
+        /// <summary>
         /// When true, PInvokeEmitter uses the wrapper library (AsyncLibraryName) instead of the module library.
         /// Set by normalization emitters that generate Swift wrapper functions.
         /// </summary>

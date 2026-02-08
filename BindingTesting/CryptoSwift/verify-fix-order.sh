@@ -232,8 +232,12 @@ run_step_7() {
 run_step_8() {
     echo
     echo "== Step 8: Wrapper extension filtering + cleanup (Bugs #14-17, #7, #8, #9) =="
-    check_absent "8" "$SWIFT_OUT" "^extension CryptoSwift\\.(Collection|FixedWidthInteger|BatchedCollection|BlockEncryptor|StreamEncryptor|StreamDecryptor)\\b" \
-        "No wrapper extensions on non-module/internal types"
+    check_absent "8" "$SWIFT_OUT" "EveryProtocol: CryptoSwift\\.(Collection|FixedWidthInteger|BinaryFloatingPoint)\\b" \
+        "No EveryProtocol conformances to non-module (stdlib) protocols"
+    check_absent "8" "$SWIFT_OUT" "^extension CryptoSwift\\.(BlockEncryptor|StreamEncryptor|StreamDecryptor)\\b" \
+        "No wrapper extensions on module-internal types"
+    check_absent "8" "$CS_OUT" "(operator &(<<|>>|\\+|\\-|\\*)|PInvoke_&(<<|>>|\\+|\\-|\\*))" \
+        "No overflow operator emission in C# output"
     check_absent "8" "$SWIFT_OUT" "\\bSHA2\\.process(32|64)\\(" \
         "No internal SHA2 process* calls in generated Swift wrappers"
     check_absent "8" "$SWIFT_OUT" "\\bSHA3\\.process\\(" \

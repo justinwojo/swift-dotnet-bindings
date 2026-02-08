@@ -88,6 +88,8 @@ namespace BindingsGeneration
             "&&", "||", "!",
             // Bitwise
             "&", "|", "^", "~", "<<", ">>",
+            // Overflow (Swift-specific wrapping operators)
+            "&+", "&-", "&*", "&<<", "&>>", "&<<=", "&>>=",
             // Assignment
             "=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=",
             // Other
@@ -133,8 +135,13 @@ namespace BindingsGeneration
         /// <summary>
         /// Determines if a declaration node represents a module-internal declaration
         /// that is ABI-visible but not accessible from external Swift code.
-        /// This is indicated by having "UsableFromInline" without "AccessControl" in declAttributes,
-        /// or by having node.IsInternal == true.
+        /// Detection layers:
+        /// 1. node.IsInternal == true (explicit ABI JSON flag)
+        /// 2. "UsableFromInline" in declAttributes (always means internal — @usableFromInline is only
+        ///    used on internal declarations, regardless of whether AccessControl is also present)
+        /// 3. "Inlinable" WITHOUT "AccessControl" (means @inlinable internal with implicit access)
+        /// 4. Supplementary swiftinterface data for @inlinable internal WITH AccessControl
+        ///    (handled separately via _internalMemberKeys)
         /// </summary>
         private static bool IsNodeModuleInternal(Node node)
         {
@@ -145,21 +152,56 @@ namespace BindingsGeneration
                 return false;
 
             bool hasUsableFromInline = Array.IndexOf(node.DeclAttributes, "UsableFromInline") != -1;
+
+            // @usableFromInline is exclusively used on internal declarations.
+            // It means "this internal member has ABI stability requirements for inlining."
+            if (hasUsableFromInline)
+                return true;
+
+            bool hasInlinable = Array.IndexOf(node.DeclAttributes, "Inlinable") != -1;
             bool hasAccessControl = Array.IndexOf(node.DeclAttributes, "AccessControl") != -1;
 
-            return hasUsableFromInline && !hasAccessControl;
+            // @inlinable without explicit access control means implicit internal access
+            if (hasInlinable && !hasAccessControl)
+                return true;
+
+            return false;
         }
+
+        /// <summary>
+        /// Checks if a member is marked as internal in the supplementary swiftinterface data.
+        /// This catches @inlinable internal members with AccessControl in declAttributes,
+        /// which are indistinguishable from @inlinable public in ABI JSON alone.
+        /// </summary>
+        private bool IsInternalFromSwiftInterface(string parentTypeName, string printedName)
+        {
+            if (_internalMemberKeys == null || _internalMemberKeys.Count == 0)
+                return false;
+
+            var key = $"{parentTypeName}.{printedName}";
+            return _internalMemberKeys.Contains(key);
+        }
+
+        /// <summary>
+        /// Optional set of internal member keys from swiftinterface parsing.
+        /// Keys are formatted as "TypeName.printedName" (e.g., "AES.encrypt(block:)").
+        /// Used to detect @inlinable internal members that can't be distinguished
+        /// from @inlinable public in the ABI JSON alone.
+        /// </summary>
+        private readonly HashSet<string>? _internalMemberKeys;
 
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
             DemanglingResults demangledTbd,
-            ILogger logger)
+            ILogger logger,
+            HashSet<string>? internalMemberKeys = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
             _demangledTbd = demangledTbd;
             _logger = logger;
+            _internalMemberKeys = internalMemberKeys;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -661,8 +703,10 @@ namespace BindingsGeneration
                 // for the "Ya" (async) marker when the demangler doesn't produce a FunctionReduction.
                 IsAsync = functionReduction?.Function?.IsAsync
                     ?? DetectAsyncFromMangledName(mangledName),
-                Visibility = IsNodeModuleInternal(node) ? Visibility.Internal : Visibility.Public,
+                Visibility = Visibility.Public,
                 IsMutating = node.funcSelfKind == "Mutating",
+                IsModuleInternal = IsNodeModuleInternal(node) ||
+                    IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
             };
 
             for (int i = 0; i < node.Children.Count(); i++)
@@ -1181,7 +1225,9 @@ namespace BindingsGeneration
         /// <summary>
         /// Creates a ProtocolListTypeSpec from a ProtocolComposition node.
         /// The node's children represent the protocols in the composition.
-        /// An empty composition (no children) represents 'Any'.
+        /// An empty composition (no children with printedName "Any") represents 'Any'.
+        /// In practice, ABI JSON ProtocolComposition nodes have no children —
+        /// the protocol list is encoded in the printedName (e.g., "any CryptoSwift.Cryptor &amp; CryptoSwift.Updatable").
         /// </summary>
         private TypeSpec CreateProtocolCompositionTypeSpec(Node node)
         {
@@ -1198,6 +1244,29 @@ namespace BindingsGeneration
                     }
                 }
             }
+
+            // ABI JSON ProtocolComposition nodes typically have no children.
+            // The protocol list is encoded in printedName: "any P1 & P2" or just "Any".
+            if (protocols.Count == 0 && !string.IsNullOrEmpty(node.PrintedName))
+            {
+                var printedName = node.PrintedName;
+                if (printedName.StartsWith("any "))
+                    printedName = printedName.Substring(4);
+
+                if (printedName != "Any")
+                {
+                    var parts = printedName.Split(new[] { " & " }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var part in parts)
+                    {
+                        var spec = TypeSpecParser.Parse(part.Trim()) as NamedTypeSpec;
+                        if (spec != null)
+                        {
+                            protocols.Add(spec);
+                        }
+                    }
+                }
+            }
+
             return new ProtocolListTypeSpec(protocols);
         }
 

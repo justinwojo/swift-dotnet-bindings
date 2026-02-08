@@ -330,4 +330,23 @@ public class ModuleHandlerTests
     }
 
     #endregion
+
+    #region IsMangledNameFromModule Tests
+
+    [Theory]
+    [InlineData("$s11CryptoSwift3AESCfd", "CryptoSwift", true)]
+    [InlineData("$s11CryptoSwift6SHA256V", "CryptoSwift", true)]
+    [InlineData("$sSl", "CryptoSwift", false)]
+    [InlineData("$ss17FixedWidthIntegerP", "CryptoSwift", false)]
+    [InlineData("$sSB", "CryptoSwift", false)]
+    [InlineData("$s4Nuke11ImageLoaderCN", "Nuke", true)]
+    [InlineData("$s4Nuke11ImageLoaderCN", "CryptoSwift", false)]
+    [InlineData("", "CryptoSwift", false)]
+    [InlineData("$s11CryptoSwift3AESCfd", "", false)]
+    public void IsMangledNameFromModule_CorrectlyIdentifiesModuleOrigin(string mangledName, string moduleName, bool expected)
+    {
+        Assert.Equal(expected, ModuleHandler.IsMangledNameFromModule(mangledName, moduleName));
+    }
+
+    #endregion
 }

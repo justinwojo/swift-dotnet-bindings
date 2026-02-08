@@ -124,15 +124,15 @@ public static BigUInt operator >>(BigUInt arg0, T0 arg1) // T0 undefined
 
 ### Bug 5: Swift overflow operators emitted with `&` in C# identifier
 
-> **Status: ALREADY FIXED** — `OperatorHandler.cs:123` now filters unsupported operators via `IsSupportedOperator()`. The `_csharpOperators` dictionary omits overflow operators (`&+`, `&-`, `&*`, `&<<`, `&>>`), and the check at line 129 correctly skips them. This bug was observed in an earlier generator run; the current codebase handles it.
+> **Status: FIXED** — Two-layer fix: (1) Parser's `_operators` set now includes `&+`, `&-`, `&*`, `&<<`, `&>>`, `&<<=`, `&>>=` so they route to `CreateOperatorDecl` instead of `CreateMethodDecl`. (2) `OperatorHandler.IsSupportedOperator()` correctly rejects them since they have no C# equivalent. The original "ALREADY FIXED" status was incorrect — the parser's `_operators` set was missing these symbols, causing them to bypass the operator pipeline entirely and be emitted as method names containing `&`.
 
-**Component**: `OperatorHandler.cs`
+**Component**: `SwiftABIParser.cs` (`_operators` set) + `OperatorHandler.cs` (filter)
 **Impact**: 4 operators on BigUInt (`&<<`, `&>>`, `&<<=`, `&>>=`)
-**Error**: `&` is not valid in a C# identifier/operator name
+**Error**: `&` is not valid in a C# identifier/operator name — P0 compile error
 
 Swift has overflow shift operators (`&<<`, `&>>`) and their compound forms. These have no C# equivalent and should be filtered out, like `&&` and `||` already are.
 
-**Root cause**: ~~The operator filter list in `OperatorHandler` doesn't include Swift overflow operators.~~ Now fixed — operators not in `_csharpOperators` are skipped.
+**Root cause**: Parser's `_operators` set didn't include overflow operators, so `IsOperator()` returned false and they routed to `CreateMethodDecl`. Fixed by adding overflow operators to the set.
 
 ---
 
@@ -230,22 +230,19 @@ The `Batched` method returns `BatchedCollection<AnyType>`, but `BatchedCollectio
 
 The generated Swift wrapper has compilation errors that prevent it from being used. A hand-written subset (`SwiftBindings.swift`) is used instead.
 
-### Bug 13: EveryProtocol conformance — return type mismatch (Cryptors) — PARTIALLY FIXED
+### Bug 13: EveryProtocol conformance — return type mismatch (Cryptors) — FIXED
 
-**Status**: `throws` specifier fixed in Step 6 of FIX-ORDER.md. Return type `Any` instead of `any Cryptor & Updatable` (protocol composition existential) remains — this is a separate issue outside Step 6 scope.
+**Status**: Fully fixed. `throws` specifier fixed in Step 6 of FIX-ORDER.md. Protocol composition return type fixed by parsing `printedName` in `CreateProtocolCompositionTypeSpec()` — ABI JSON `ProtocolComposition` nodes have no children, so the protocol list must be extracted from `printedName` (e.g., `"any CryptoSwift.Cryptor & CryptoSwift.Updatable"`). Now emits correct `-> any CryptoSwift.Cryptor & CryptoSwift.Updatable` return type.
 
 **Error**: `type 'EveryProtocol' does not conform to protocol 'Cryptors'`
 
-The generated conformance now correctly declares `makeEncryptor() throws -> Any` and `makeDecryptor() throws -> Any`. The `throws` keyword is emitted when `method.Throws == true` in the ABI.
-
-**Remaining issue**:
-- Return type `Any` instead of `any Cryptor & Updatable` (protocol composition existential)
+**Root cause**: `CreateProtocolCompositionTypeSpec()` in `SwiftABIParser.cs` iterated over `node.Children` which was always empty for `ProtocolComposition` nodes. The resulting empty `ProtocolListTypeSpec` was rendered as `"Any"` by `SwiftTypeNameHelper`. Fix: when children are empty, parse the `printedName` field by stripping the `"any "` prefix and splitting on `" & "`.
 
 ---
 
 ### Bug 14: EveryProtocol conformance to non-existent module types — FIXED
 
-**Status**: Fixed in Step 8 of FIX-ORDER.md. `EmitEveryProtocolConformances` in ModuleHandler now filters protocols by TypeDatabase presence — protocols not registered as types in the target module (e.g., stdlib protocols CryptoSwift extends) are excluded.
+**Status**: Fixed in Step 8 of FIX-ORDER.md. `EmitEveryProtocolConformances` in ModuleHandler now filters protocols by mangled name prefix — only protocols whose mangled name encodes the current module name (e.g., `$s11CryptoSwift...`) get EveryProtocol conformances. Stdlib protocols (`$sSl`, `$sSB`, `$ss17...`) are excluded. The original TypeDatabase filter was insufficient because stdlib protocols can still have TypeRecords from being referenced.
 
 **Errors**: `no type named 'Collection' in module 'CryptoSwift'`, `no type named 'FixedWidthInteger'`, `no type named 'BatchedCollection'`
 
@@ -263,17 +260,22 @@ The generated Swift wrapper emits `extension CryptoSwift.BlockEncryptor { ... }`
 
 ---
 
-### Bug 16: Wrong argument labels on method wrappers — NOT AN ISSUE
+### Bug 16: Wrong argument labels on method wrappers — FIXED
 
-**Status**: Verified as non-issue. All examined argument labels in generated output are correct. Closing without code change.
+**Status**: Fixed. `AES.encrypt(block:)` and `AES.decrypt(block:)` are `@inlinable internal` methods that were incorrectly bound. The generated ArraySlice wrapper called `self.encrypt(block: ...)` but the internal method was invisible, causing Swift to resolve to the public `encrypt(_:)` overload — producing "extraneous argument label 'block:'" errors.
 
-The generated wrappers use incorrect argument labels. Example: `AES.encrypt(block:)` where the actual Swift method uses a different label or no label.
+**Root cause**: The ABI JSON's `declAttributes` for `@inlinable internal` members with explicit `internal` keyword contain both `AccessControl` and `Inlinable` — identical to `@inlinable public`. The original `IsNodeModuleInternal()` heuristic only caught `UsableFromInline` without `AccessControl`.
+
+**Fix**: Three-layer internal detection:
+1. `UsableFromInline` present → always internal (regardless of `AccessControl`)
+2. `Inlinable` without `AccessControl` → internal (implicit access)
+3. `SwiftInterfaceAccessParser` — new parser reads `.swiftinterface` file to detect `@inlinable internal` members with `AccessControl` (the ambiguous case)
 
 ---
 
 ### Bug 17: Accessing internal members — FIXED
 
-**Status**: Fixed in Step 8 of FIX-ORDER.md. Two-layer detection: (1) parser detects `@usableFromInline` without `AccessControl` in DeclAttributes → sets `Visibility.Internal` on MethodDecl; (2) ArraySlice normalization skips methods with `Visibility != Public`. Also added `Visibility.Internal` to the Visibility enum and `IsNodeModuleInternal()` helper to the parser.
+**Status**: Fixed in Step 8 of FIX-ORDER.md, expanded in Step 9. Three-layer detection: (1) `UsableFromInline` present → always internal; (2) `Inlinable` without `AccessControl` → internal; (3) swiftinterface parsing for ambiguous `Inlinable + AccessControl` cases. ArraySlice normalization skips methods with `IsModuleInternal == true`. C# access modifier stays `public` to avoid breaking interface contracts (CS0737).
 
 The generated wrappers call `SHA2.process64(...)`, `SHA2.process32(...)`, `SHA3.process(...)` etc., which are `internal` methods (`@usableFromInline`), not `public`.
 

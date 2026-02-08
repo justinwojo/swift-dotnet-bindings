@@ -162,14 +162,14 @@ Output: NuGet package with C# bindings
 ## Current Capabilities
 
 **Status** (February 2026 - Phase 62 + SwiftUI Bridge v2 Phase 3 + ArraySlice normalization + CryptoSwift fixes):
-- **Unit Tests**: 1571 passed
+- **Unit Tests**: 1603 passed
 - **Runtime Tests**: 13/13 SwiftUI bridge tests passing on iOS Simulator (Tier 2)
 - **Nuke**: 0 errors ✅ (runtime validated)
 - **BlinkID**: 0 errors ✅ (runtime validated, 18/18 tests)
 - **BlinkIDUX**: 0 errors ✅ (SwiftUI bridge validated, 16/16 tests)
 - **BridgeParamTest**: 0 errors ✅ (v2 param types validated, 35/35 tests)
 - **Lottie**: 0 errors ✅ (runtime + SwiftUI bridge validated, 15/15 tests)
-- **CryptoSwift**: 89.2% binding coverage (103/103 types, 447/501 members) — all 8 fix steps complete
+- **CryptoSwift**: 88.0% binding coverage (103/103 types, 441/501 members) — all 9 fix steps complete, generated Swift typechecks clean
 
 **Working**:
 - Classes, structs (frozen and non-frozen), enums (with associated values, runtime case construction)
@@ -631,6 +631,8 @@ The codebase is ~5,000+ lines of well-structured C# with clear separation of con
 **CLI Usage**:
 ```bash
 SwiftBindings -a path/to/abi.json -d path/to/lib.dylib -t path/to/lib.tbd -o output/
+# With swiftinterface for internal member detection:
+SwiftBindings -a abi.json -d lib.dylib -t lib.tbd -s lib.swiftinterface -o output/
 # With bridge hints for SwiftUI view customization:
 SwiftBindings -a abi.json -d lib.dylib -t lib.tbd -o output/ --bridge-hints bridge-hints.json
 ```

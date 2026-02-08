@@ -125,29 +125,51 @@ Ordered by runtime-unblocking impact. Each step includes generator files, assert
 
 ---
 
-## Step 8: Wrapper extension filtering + cleanup (Bugs #14-17, #7, #8, #9) — DONE
+## Step 8: Wrapper extension filtering + cleanup (Bugs #5, #14-17, #7, #8, #9) — DONE
 
 **Unblocks**: Swift wrapper compilation (EveryProtocol + extensions), plus generic type edge cases
 
 **Files** (modified):
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs` — Bug #14: TypeDatabase filter on EveryProtocol conformance
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ArraySliceNormalizationEmitter.cs` — Bugs #15, #17: skip internal types/methods
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` — Bug #5: added overflow operators (`&+`, `&-`, `&*`, `&<<`, `&>>`, `&<<=`, `&>>=`) to `_operators` set so they route to `CreateOperatorDecl` instead of `CreateMethodDecl`; Bugs #15, #17: `IsNodeModuleInternal()` from DeclAttributes → sets `MethodDecl.IsModuleInternal` and `TypeDecl.IsModuleInternal`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ModuleHandler.cs` — Bug #14: replaced TypeDatabase filter with mangled name module check (`IsMangledNameFromModule`) to correctly exclude stdlib protocols (Collection, FixedWidthInteger) from EveryProtocol conformance
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ArraySliceNormalizationEmitter.cs` — Bugs #15, #17: skip internal types/methods via `IsModuleInternal` flag (not Visibility, to avoid breaking interface contracts)
 - `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.cs` — Bug #7: generic type params in SwiftSafeHandle<>
 - `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/WrapperEmitter.Marshalling.cs` — Bug #8: non-frozen bound generic → DangerousGetHandle
 - `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ClassHandler.cs` — Bug #9: property name dedup (static/instance collision)
-- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` — Bugs #15, #17: IsNodeModuleInternal() from DeclAttributes
 - `src/Swift.Bindings/src/Model/TypeDecl/Visibility.cs` — added `Internal` value
 - `src/Swift.Bindings/src/Model/TypeDecl/TypeDecl.cs` — added `IsModuleInternal` flag
+- `src/Swift.Bindings/src/Model/TypeDecl/MethodDecl.cs` — added `IsModuleInternal` flag
 - `src/Swift.Bindings/src/Marshaler/NameProvider.cs` — map Internal → "internal"
 
-**Tests added** (13 tests):
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ArraySliceNormalizationEmitterTests.cs` — 6 tests (internal method/type skip, public passthrough, IsModuleInternal)
+**Tests added** (21 tests):
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ArraySliceNormalizationEmitterTests.cs` — 5 tests (internal method/type skip, public passthrough, IsModuleInternal)
 - `src/Swift.Bindings/tests/UnitTests/EmitterTests/ClassHandlerTests.cs` — 2 tests (duplicate property detection)
-- `src/Swift.Bindings/tests/UnitTests/ParserTests/SwiftABIParserRuntimeTests.cs` — 5 tests (IsInternal flag + DeclAttributes visibility)
+- `src/Swift.Bindings/tests/UnitTests/ParserTests/SwiftABIParserRuntimeTests.cs` — 5 tests (IsModuleInternal flag + DeclAttributes)
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ModuleHandlerTests.cs` — 9 tests (IsMangledNameFromModule Theory)
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/OperatorHandlerTests.cs` — 7 overflow operator InlineData cases added to IsSupportedOperator Theory
 
 **Bug #16 (argument labels)**: Verified not an issue in current output — all generated wrappers use correct labels.
 
-**Validation**: `./verify-fix-order.sh all` — 23 PASS, 0 FAIL. Unit tests: 1571 passing. TestFramework: 61/61, 0 degraded.
+**Validation**: `./verify-fix-order.sh all` — 25 PASS, 0 FAIL, 1 WARN. Unit tests: 1586 passing. TestFramework: 61/61, 0 degraded. Swift wrapper compiles. C# build has 0 new errors (18 pre-existing known bugs).
+
+---
+
+## Step 9: Protocol composition return types + swiftinterface internal detection (Bugs #13, #16) — DONE
+
+**Unblocks**: Generated Swift.CryptoSwift.swift compiles without errors (0 typecheck errors)
+
+**Files** (new):
+- `src/Swift.Bindings/src/Parser/SwiftInterfaceAccessParser.cs` — parses `.swiftinterface` to extract internal member keys (detects `@inlinable internal` members with `AccessControl` that are ambiguous in ABI JSON)
+
+**Files** (modified):
+- `src/Swift.Bindings/src/Parser/SwiftABIParser.cs` — Bug #13: `CreateProtocolCompositionTypeSpec()` now parses protocol names from `printedName` when no children present; Bug #16: expanded `IsNodeModuleInternal()` for `UsableFromInline` regardless of `AccessControl`, and `Inlinable` without `AccessControl`; added `IsInternalFromSwiftInterface()` cross-reference; constructor accepts optional `internalMemberKeys` set
+- `src/Swift.Bindings/src/Program.cs` — added `-s`/`--swiftinterface` CLI option; parses swiftinterface and passes internal member keys to parser
+
+**Tests added** (17 tests):
+- `src/Swift.Bindings/tests/UnitTests/ParserTests/SwiftInterfaceAccessParserTests.cs` — 13 tests (func/var/let/init detection, nested types, multi-param labels, underscore labels, public exclusion, nonexistent file, extension with internal func, extension with conformance, unqualified extension)
+- `src/Swift.Bindings/tests/UnitTests/ParserTests/SwiftABIParserRuntimeTests.cs` — 4 tests (Inlinable without AccessControl, Inlinable with AccessControl, ProtocolComposition from printedName, ProtocolComposition "Any")
+
+**Validation**: `./verify-fix-order.sh all` — 25 PASS, 0 FAIL, 1 WARN. Unit tests: 1603 passing. TestFramework: 61/61, 0 degraded. Generated Swift typechecks: 0 errors. C# build: 0 new errors (18 pre-existing known bugs).
 
 ---
 
@@ -163,11 +185,15 @@ cd TestFramework && ./build-and-test.sh && ./generate-coverage-report.sh
 # 3. CryptoSwift bindings regenerate clean
 cd BindingTesting/CryptoSwift && ./regenerate-bindings.sh
 
-# 4. C# compiles without stubs
-./build-testapp.sh  # should be 0 errors without NotImplementedException stubs
+# 4. Generated Swift typechecks (0 errors)
+xcrun swiftc -typecheck \
+  -sdk $(xcrun --sdk iphonesimulator --show-sdk-path) \
+  -target arm64-apple-ios17.0-simulator \
+  -F CryptoSwift.xcframework/ios-arm64_x86_64-simulator/ \
+  output-ios/Swift.CryptoSwift.swift
 
-# 5. Swift wrapper compiles
-./build-swift-wrapper.sh  # should succeed with generated Swift.CryptoSwift.swift
+# 5. C# compiles (0 new errors, 18 pre-existing known bugs)
+./build-testapp.sh
 
 # 6. Runtime tests pass
 ./validate-sim.sh 30
