@@ -29,7 +29,7 @@ All P1 items from `testing-gaps.md` completed (Gaps 0a, 0b, 1, 2). Unit tests: 1
 
 **Status**: Not Started
 **Effort**: Medium (3-5 sessions)
-**Why**: 51 must-pass features sit in `.disabled/` dirs. Enabling them closes the gap from 57/112 toward 90+.
+**Why**: 51 must-pass features sit in `.disabled/` dirs. Enabling them closes the gap from 61 toward 90+. This also builds the regression safety net needed before the sweeping emitter changes in Phase D.
 
 Work in batches, easiest first. After each batch: run `build-and-test.sh`, check coverage report, fix any generator regressions before proceeding.
 
@@ -72,13 +72,13 @@ cd TestFramework
 
 ---
 
-## Phase C: New Library Validation
+## Phase C: CryptoSwift Validation
 
-**Status**: In Progress (CryptoSwift done)
-**Effort**: Medium (2-3 sessions)
-**Why**: 3 libraries validated so far (Nuke, BlinkID, Lottie). Trying 1-2 more confirms the generator generalizes beyond tested patterns.
+**Status**: Done
+**Completed**: February 2026
+**Effort**: Large (6 sessions — ArraySlice normalization + 9 fix steps)
 
-### C1. CryptoSwift (Done)
+### C1. CryptoSwift
 - Built xcframework, ran generator: 61.3% member coverage initially
 - **Finding**: 34 of 42 skipped members blocked by `ArraySlice<T>` (no TypeDatabase registration)
 - **Fix**: ArraySlice parameter normalization (Phase 62) — Swift wrapper accepts `Array<T>`, converts to `ArraySlice<T>` at call site
@@ -88,22 +88,102 @@ cd TestFramework
 - Runtime: 4/10 tests pass (static methods, enum construction). Remaining blocked by Mono JIT bugs (#18, #19) — same upstream issues as TestFramework Tier 3
 - See `CompletedPhases/cryptoswift-codegen-bugs.md` and `CompletedPhases/cryptoswift-fix-order.md` for full details
 
-### C2. Select and bind a second library
+---
+
+## Phase D: Binding API Overhaul
+
+**Status**: Not Started
+**Effort**: Large (10-15 sessions across 4 waves)
+**Why**: The generator produces correct interop code, but the public API surface exposes too many interop implementation details. A .NET developer consuming these bindings faces constant friction from `SwiftString`, `IntPtr`, `Init()` methods, `SwiftOptional<T>`, and `Payload.Dispose()`. This work is a **must-do before opening the project to external developers**.
+**Depends on**: Phase B (need broad test coverage as regression safety net before sweeping emitter changes)
+**Design doc**: `binding-review.md` — full API review with 12 issues, priority recommendations, DX criteria, quality scorecard, and implementation waves
+
+The binding review identified the generated API as grade C+ — technically impressive but with serious DX rough edges. The fix is structured as 4 sequential waves, each building on the previous.
+
+### Wave 1: Type Foundation (P0)
+**Goal**: Fix the most fundamental type-mapping issues. Every subsequent wave builds on these.
+
+1. **Constructors** — Swift `init(...)` → real C# constructor. `init?(...)` → `static bool TryCreate(..., out T result)`. Static factories only when Swift uses factory pattern.
+2. **String unification** — Properties emit `string`, not `SwiftString`. Marshalling internal only.
+3. **IDisposable** — All `ISwiftObject` types implement `IDisposable`. `Payload` becomes `internal`.
+
+**DoD**: Zero `Init()` instance methods, zero `SwiftString` properties, zero public `Payload`, all types have `IDisposable`. TestFramework: 0 regressions.
+
+### Wave 2: Type Safety (P1)
+**Goal**: Eliminate remaining non-idiomatic types from the public API.
+
+1. **Nullable mapping** — `SwiftOptional<T>` → `T?` in public signatures.
+2. **Integer types** — Swift `Int` → `nint` or `long`, not `IntPtr`. `IntPtr` reserved for actual pointers.
+3. **Equals/GetHashCode** — Don't throw. Use reference equality (classes) or don't override (structs).
+
+**DoD**: Zero `SwiftOptional<T>`, zero non-pointer `IntPtr`, zero throwing `Equals`/`GetHashCode`. `#nullable enable` in all generated files.
+
+### Wave 3: API Shape (P2)
+**Goal**: Clean up naming, parameter conventions, and interop type leakage.
+
+1. **Simple enums** — Enums without associated values → real C# `enum` types.
+2. **Parameter names** — Use internal Swift names. Zero `arg0`/`arg1`. Remove `_for`/`_with` prefixes.
+3. **ExistentialContainer removal** — Replace with typed protocol interfaces in public API.
+4. **Default parameters / overloads** — Swift methods with defaults produce C# overloads.
+
+**DoD**: Zero `arg0`/`arg1`, zero `ExistentialContainer*`, simple enums are C# enums.
+
+### Wave 4: Polish (P3)
+**Goal**: Cosmetic and convention alignment.
+
+1. **Property name suffixes** — Remove `Value` suffix (`ConfigurationValue` → `Configuration`).
+2. **Interface naming** — `ISwiftImageProcessing` → `IImageProcessing`.
+3. **AnyType fallback** — Add `[OriginalSwiftType("CoreText.CTFont")]` attribute.
+4. **Collection interfaces** — `SwiftArray<T>` implements `IReadOnlyList<T>` and `IList<T>`.
+5. **Async naming** — Async methods in public API end with `Async`.
+
+**DoD**: All scorecard metrics at gate values. Golden scenarios (Nuke, Lottie, BlinkID) compile without interop types.
+
+### Cross-Cutting (All Waves)
+- **Exception mapping** — Typed `SwiftException<TError>` for Swift `throws`. Improve incrementally.
+- **CancellationToken** — Add to async methods as they're modified.
+- **Ownership/lifetime docs** — Update XML doc comments as types are modified.
+- **Versioning strategy** — Establish before shipping to external consumers.
+
+### Quality Scorecard (Target: All Zero)
+
+| Metric | Gate |
+|--------|------|
+| Public `IntPtr` for non-pointer semantics | 0 |
+| Public `SwiftOptional<T>` | 0 |
+| Public `SwiftString` properties | 0 |
+| Public `ExistentialContainer*` | 0 |
+| `Init()` instance methods (should be ctors) | 0 |
+| `arg0`/`arg1` parameter names | 0 |
+| Types missing `IDisposable` | 0 |
+| `Equals`/`GetHashCode` that throw | 0 |
+| Public `Payload` property | 0 |
+| Golden scenarios compile without interop types | 3/3 |
+
+---
+
+## Phase E: Additional Library Validation
+
+**Status**: Not Started
+**Effort**: Medium (2-3 sessions)
+**Why**: Validates that the post-overhaul generator produces clean, idiomatic bindings for new libraries. Should be done after Phase D so the new library gets the polished API from day one.
+**Depends on**: Phase D (validate with new API shape, not old)
+
+### E1. Select and bind a library
 Candidates (pick 1):
 - **Alamofire** — networking, heavy closure/async patterns
 - **Kingfisher** — image loading, different patterns from Nuke
 - **SwiftProtobuf** — value types, generics, enums heavy
 
-### C3. Process (for remaining library)
+### E2. Process
 1. Build xcframework for the library
 2. Run generator, check binding report
 3. Compare member coverage to existing libraries (target: 90%+)
-4. Fix any new generator bugs found
-5. Add to `BindingTesting/` with build/validate scripts
-6. If bugs are found, add targeted TestFramework features for the patterns that failed
+4. Verify golden scenario compiles without interop types (Phase D quality gate)
+5. Fix any new generator bugs found
+6. Add to `BindingTesting/` with build/validate scripts
 
-### C4. Document findings
-- Update this roadmap if new architectural gaps found
+### E3. Document findings
 - Update `CURRENT-STATUS.md` with new library stats
 - Add any new skip reasons to `testing-gaps.md`
 
@@ -111,13 +191,16 @@ Candidates (pick 1):
 
 ## After All Phases
 
-Once A, B, C are complete:
+Once B, D, E are complete:
 - Must-pass features should be 80+ passing (up from 61)
-- Runtime test coverage should cover most of the contract matrix
-- 5-6 real-world libraries validated
+- Runtime test coverage covers most of the contract matrix
+- Generated API is idiomatic C# — no interop types in public surface
+- 5-6 real-world libraries validated with clean API
+- Quality scorecard metrics all at gate values
 - Test pipeline catches regressions automatically
 
 Next priorities would be:
 - Phase 3 DX work (MSBuild SDK, project templates) from `north-star.md`
+- `@_cdecl` wrapper generation for all methods (bypasses Mono JIT bugs #18, #19 for runtime)
 - Remaining P3/P4 items from `testing-gaps.md` (PInvokeEmitter tests, golden snapshots, CI)
 - Deferred work in `Future/` (NativeAOT validation, Roslyn analyzer, existential analysis)
