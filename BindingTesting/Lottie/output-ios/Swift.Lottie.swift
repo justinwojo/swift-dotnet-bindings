@@ -670,7 +670,7 @@ extension Lottie.LottieAnimation {
 }
 extension Lottie.LottieAnimation {
     @_silgen_name("$s6Lottie0A9AnimationC10loadedFrom3url7session14animationCacheACSg10Foundation3URLV_AA0A10URLSession_pAA0bH8Provider_pSgtYaFZ_async")
-    public static func PInvoke_loadedFrom_6491EA70(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, animationCache: Swift.Optional<any Lottie.AnimationCacheProvider>){
+    public static func PInvoke_loadedFrom_744B260C(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, animationCache: Swift.Optional<any Lottie.AnimationCacheProvider>){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -708,7 +708,7 @@ extension Lottie.LottieAnimation {
 }
 extension Lottie.LottieAnimation {
     @_silgen_name("DBW_LottieAnimation_loadedFrom_4F9CA3D1_2_async")
-    public static func PInvoke_loadedFrom_203F7548(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_46FC101F(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -745,7 +745,7 @@ extension Lottie.LottieAnimation {
 }
 extension Lottie.LottieAnimation {
     @_silgen_name("DBW_LottieAnimation_loadedFrom_4F9CA3D1_1_async")
-    public static func PInvoke_loadedFrom_2B978A2D(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_28E71530(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -851,16 +851,9 @@ extension Lottie.GradientValueProvider {
         return Lottie.GradientValueProvider(arg0)
     }
 }
-
-extension Lottie.DotLottieFile.SynchronouslyBlockingCurrentThread {
-    @_silgen_name("DBW_SynchronouslyBlockingCurrentThread_loadedFrom_B39E8CDA_1")
-    public static func _dbw_loadedFrom_B39E8CDA_1(_ filepath: String) -> Result<DotLottieFile, Error> {
-        return Self.loadedFrom(filepath: filepath)
-    }
-}
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom8filepath03dotA5CacheACSS_AA0baH8Provider_pSgtYaKFZ_async")
-    public static func PInvoke_loadedFrom_0567B7C4(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
+    public static func PInvoke_loadedFrom_72EB3158(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
         
         Task {
             do {
@@ -895,7 +888,7 @@ extension Lottie.DotLottieFile {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("DBW_DotLottieFile_loadedFrom_2E70B627_1_async")
-    public static func PInvoke_loadedFrom_124B50AF(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String){
+    public static func PInvoke_loadedFrom_23603DEF(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String){
         
         Task {
             do {
@@ -923,7 +916,7 @@ extension Lottie.DotLottieFile {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom3url7session03dotA5CacheAC10Foundation3URLV_AA0A10URLSession_pAA0baI8Provider_pSgtYaKFZ_async")
-    public static func PInvoke_loadedFrom_0D480BAE(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
+    public static func PInvoke_loadedFrom_1BC9C689(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -963,7 +956,7 @@ extension Lottie.DotLottieFile {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("DBW_DotLottieFile_loadedFrom_420C0542_2_async")
-    public static func PInvoke_loadedFrom_65E63277(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_3D9E4130(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -995,7 +988,7 @@ extension Lottie.DotLottieFile {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom4data8filename13dispatchQueueAC10Foundation4DataV_SSSo03OS_H6_queueCtYaKFZ_async")
-    public static func PInvoke_loadedFrom_0681241F(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_3ECEC45D(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let dispatchQueueValue = dispatchQueue.assumingMemoryBound(to: Dispatch.DispatchQueue.self).pointee

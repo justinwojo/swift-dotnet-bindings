@@ -4,7 +4,6 @@
 using System;
 using System.Diagnostics;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using Foundation;
@@ -156,12 +155,6 @@ public class MainViewController : UIViewController
         }
     }
 
-    // CryptoSwift Init() methods are instance methods that don't use 'self' —
-    // they're Swift initializers projected as instance methods. We need a blank
-    // instance just to call Init() on. The returned value is properly constructed.
-    static T Uninit<T>() where T : class =>
-        (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
-
     static string ToHex(IReadOnlyList<byte> bytes)
     {
         var sb = new StringBuilder(bytes.Count * 2);
@@ -245,7 +238,7 @@ public class MainViewController : UIViewController
         TestLogger.Info("Test: SHA2 instance Calculate...");
         try
         {
-            var sha2 = Uninit<SHA2>().Init(SHA2.Variant.Sha256);
+            var sha2 = new SHA2(SHA2.VariantInfo.Sha256);
             var input = Encoding.UTF8.GetBytes("hello");
             var hash = sha2.Calculate(input);
             var hex = ToHex(hash);
@@ -268,7 +261,7 @@ public class MainViewController : UIViewController
         TestLogger.Info("Test: MD5 instance Calculate...");
         try
         {
-            var md5 = Uninit<MD5>().Init();
+            var md5 = new MD5();
             var input = Encoding.UTF8.GetBytes("hello");
             var hash = md5.Calculate(input);
             var hex = ToHex(hash);
@@ -292,7 +285,7 @@ public class MainViewController : UIViewController
         try
         {
             var key = Encoding.UTF8.GetBytes("secret-key");
-            var hmac = Uninit<HMAC>().Init(key, HMAC.Variant.Sha256);
+            var hmac = new HMAC(key, HMAC.Variant.Sha256);
             var message = Encoding.UTF8.GetBytes("hello");
             var mac = hmac.Authenticate(message);
             var hex = ToHex(mac);
@@ -322,13 +315,13 @@ public class MainViewController : UIViewController
             for (int i = 0; i < key.Length; i++) key[i] = (byte)(i + 1);
             for (int i = 0; i < iv.Length; i++) iv[i] = (byte)(i + 0x10);
 
-            var chacha = Uninit<ChaCha20>().Init(key, iv);
+            var chacha = new ChaCha20(key, iv);
             var plaintext = Encoding.UTF8.GetBytes("CryptoSwift binding test!");
             var ciphertext = chacha.Encrypt(plaintext);
             TestLogger.Info($"  Encrypted {plaintext.Length} bytes -> {ciphertext.Count} bytes");
 
             // Decrypt with a fresh instance (ChaCha20 is stateful)
-            var chacha2 = Uninit<ChaCha20>().Init(key, iv);
+            var chacha2 = new ChaCha20(key, iv);
             var decrypted = chacha2.Decrypt(ciphertext.ToArray());
             var decryptedText = Encoding.UTF8.GetString(decrypted.ToArray());
             TestLogger.Info($"  Decrypted: '{decryptedText}'");
@@ -351,7 +344,7 @@ public class MainViewController : UIViewController
         try
         {
             // Generate a 1024-bit key (small for speed in tests)
-            var rsa = Uninit<RSA>().Init((IntPtr)1024);
+            var rsa = new RSA((nint)1024);
             TestLogger.Info($"  RSA key generated, keySize={rsa.KeySize}");
 
             var plaintext = Encoding.UTF8.GetBytes("test");
@@ -380,10 +373,10 @@ public class MainViewController : UIViewController
         try
         {
             // SHA2 variants
-            var sha256 = SHA2.Variant.Sha256;
-            var sha512 = SHA2.Variant.Sha512;
-            TestLogger.Info($"  SHA2.Variant.Sha256 created: {sha256 != null}");
-            TestLogger.Info($"  SHA2.Variant.Sha512 created: {sha512 != null}");
+            var sha256 = SHA2.VariantInfo.Sha256;
+            var sha512 = SHA2.VariantInfo.Sha512;
+            TestLogger.Info($"  SHA2.VariantInfo.Sha256 = {sha256}");
+            TestLogger.Info($"  SHA2.VariantInfo.Sha512 = {sha512}");
 
             // HMAC variants
             var hmacSha256 = HMAC.Variant.Sha256;
@@ -395,8 +388,8 @@ public class MainViewController : UIViewController
             TestLogger.Info($"  Padding.NoPadding created: {noPadding != null}");
             TestLogger.Info($"  Padding.Pkcs7 created: {pkcs7 != null}");
 
-            if (sha256 != null && sha512 != null && hmacSha256 != null &&
-                noPadding != null && pkcs7 != null)
+            if (sha256 == SHA2.VariantInfo.Sha256 && sha512 == SHA2.VariantInfo.Sha512 &&
+                hmacSha256 != null && noPadding != null && pkcs7 != null)
                 _results.Pass("Enum type access");
             else
                 _results.Fail("Enum type access", "Some enum values were null");
@@ -418,7 +411,7 @@ public class MainViewController : UIViewController
             TestLogger.Info($"  AES.BlockSize = {blockSize}");
 
             // SHA2 instance properties
-            var sha2 = Uninit<SHA2>().Init(SHA2.Variant.Sha256);
+            var sha2 = new SHA2(SHA2.VariantInfo.Sha256);
             var digestLength = sha2.DigestLength;
             var shaBlockSize = sha2.BlockSize;
             TestLogger.Info($"  SHA2-256 DigestLength = {digestLength}");

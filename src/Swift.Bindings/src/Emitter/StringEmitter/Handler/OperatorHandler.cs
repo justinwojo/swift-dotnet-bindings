@@ -179,6 +179,27 @@ namespace BindingsGeneration
                 return false;
             }
 
+            // Check if the P/Invoke signature references marshalling variables (e.g., arg0Buffer, T0Metadata)
+            // that the operator wrapper scope doesn't declare. This happens for generic-type operators
+            // where the P/Invoke builder renames operands for buffer marshalling we don't emit.
+            if (pinvokeHelperContext != null)
+            {
+                var pInvokeSig = signatureHandler.GetPInvokeSignature();
+                var wrapperSig = signatureHandler.GetWrapperSignature();
+                bool requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
+                var availableNames = new HashSet<string>(wrapperSig.Parameters.Select(p => p.Name));
+                if (requiresIndirectResult)
+                    availableNames.Add("swiftIndirectResult");
+                bool hasUndeclaredRefs = pInvokeSig.Parameters.Any(p => !availableNames.Contains(p.Name));
+                if (hasUndeclaredRefs)
+                {
+                    _logger.LogWarning($"Operator '{symbol}' on generic type requires buffer marshalling preamble — skipping.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl,
+                        SkipReason.UnsupportedSignature, "Operator on generic type requires buffer marshalling.");
+                    return false;
+                }
+            }
+
             // Get type name with generics for proper operator parameter types (fixes CS0563, CS0305)
             // Use resolved name from TypeDatabase to account for nested type renames
             var resolvedSimpleName = parentDecl.Name;

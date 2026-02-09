@@ -327,14 +327,10 @@ public class BoundGenericsHandler
     private string TranslateTypeSpecToCSharp(TypeSpec typeSpec, GenericContext genericContext)
     {
         // Handle existential types (including bare 'Any' with 0 protocols and 'any Protocol' syntax)
+        // Always return AnyType for existential type arguments — ExistentialContainer{N} doesn't
+        // implement ISwiftObject constraint required by generic type parameters.
         if (_existentialHandler.IsExistential(typeSpec))
         {
-            var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
-            if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
-            {
-                return _existentialHandler.GetCSharpExistentialType(protocolList);
-            }
-            // Unsupported existentials (9+ protocols) still fall back to AnyType
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 
@@ -396,7 +392,8 @@ public class BoundGenericsHandler
             return bufferType;
 
         // Fallback when no mapping is available.
-        return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName; // TODO: Consider throwing an exception instead
+        // Use IntPtr (safe opaque pointer) instead of AnyType (managed type → CS8500 warnings)
+        return "IntPtr";
     }
 
     private bool TryGetFirstUnsatisfiedConstraint(TypeSpec typeSpec, ModuleDecl moduleDecl, out string details)

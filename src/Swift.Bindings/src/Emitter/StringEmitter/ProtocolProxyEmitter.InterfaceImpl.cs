@@ -55,7 +55,7 @@ public partial class ProtocolProxyEmitter
             if (method.IsConstructor || method.MethodType == MethodType.Static)
                 continue;
 
-            var methodKey = GetMethodKey(method);
+            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
             if (!methodIndices.ContainsKey(methodKey))
             {
                 var idx = methodIndex++;

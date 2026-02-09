@@ -244,6 +244,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
+        // Build generic context for resolving generic type parameters (τ_0_0 → T0) in property types
+        var propertyGenericContext = propertyDecl.ParentDecl is TypeDecl parentType && parentType.IsGeneric
+            ? GenericContext.FromType(parentType)
+            : null;
+
         // Apply idiomatic type conversion (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
         // This unifies property types with method return types.
         // Skip for existential/optional-existential properties — their types are already
@@ -253,7 +258,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             var idiomaticType = propertyEnv.TypeConversionHandler.GetIdiomaticCSharpType(
                 propertyDecl.SwiftTypeSpec,
                 isParameter: false,
-                typeSpec => TranslateTypeSpecWithGenerics(typeSpec, propertyEnv.TypeDatabase));
+                typeSpec => TranslateTypeSpecWithGenerics(typeSpec, propertyEnv.TypeDatabase, propertyGenericContext));
             if (idiomaticType != null)
             {
                 csTypeName = idiomaticType;
@@ -378,13 +383,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
         if (getter != null)
         {
-            EmitGetter(csWriter, getter, propertyEnv, propertyDecl);
+            EmitGetter(csWriter, getter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext);
         }
 
         var setter = propertyDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
         if (setter != null)
         {
-            EmitSetter(csWriter, setter, propertyEnv, propertyDecl);
+            EmitSetter(csWriter, setter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext);
         }
 
         csWriter.Indent--;
@@ -426,13 +431,22 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// </summary>
     /// <param name="csWriter">The C# code writer to emit to</param>
     /// <param name="getter">The getter accessor declaration</param>
-    private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl)
+    private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl,
+        bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null)
     {
         // Use PascalCase method name to match how MethodHandler emits the accessor method
         var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
 
+        // Existential/optional-existential properties: accessor methods already handle
+        // proxy wrapping/unwrapping via WrapperEmitter.Return — just delegate directly
+        if (isExistential || isOptionalExistential)
+        {
+            csWriter.WriteLine($"get => {methodName}();");
+            return;
+        }
+
         // Apply return type conversion if the property type was converted to an idiomatic type
-        Func<TypeSpec, string> typeTranslator = ts => TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase);
+        Func<TypeSpec, string> typeTranslator = ts => TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase, genericContext);
         var returnConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec, typeTranslator);
         if (returnConversion != null)
         {
@@ -456,13 +470,22 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// <param name="setter">The setter accessor declaration</param>
     /// <param name="propertyEnv">The property environment</param>
     /// <param name="propertyDecl">The property declaration</param>
-    private void EmitSetter(CSharpWriter csWriter, SetAccessorDecl setter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl)
+    private void EmitSetter(CSharpWriter csWriter, SetAccessorDecl setter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl,
+        bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null)
     {
         // Use PascalCase method name to match how MethodHandler emits the accessor method
         var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
 
+        // Existential/optional-existential properties: accessor methods already handle
+        // proxy wrapping/unwrapping — just delegate directly
+        if (isExistential || isOptionalExistential)
+        {
+            csWriter.WriteLine($"set => {methodName}(value);");
+            return;
+        }
+
         // Apply parameter type conversion if the property type was converted to an idiomatic type
-        Func<TypeSpec, string> typeTranslator = ts => TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase);
+        Func<TypeSpec, string> typeTranslator = ts => TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase, genericContext);
         var paramConversion = propertyEnv.TypeConversionHandler.GetParameterConversion("value", propertyDecl.SwiftTypeSpec, typeTranslator);
         if (paramConversion != null)
         {
@@ -528,8 +551,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// This matches the logic in WrapperSignatureBuilder.TranslateTypeSpecForConversion
     /// to ensure generic types like SwiftArray&lt;T&gt; are fully qualified.
     /// </summary>
-    private static string TranslateTypeSpecWithGenerics(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    private static string TranslateTypeSpecWithGenerics(TypeSpec typeSpec, ITypeDatabase typeDatabase, GenericContext? genericContext = null)
     {
+        // Resolve generic type parameters (τ_0_0 → T0) using GenericContext
+        if (genericContext != null && typeSpec is NamedTypeSpec genSpec &&
+            TypeSpecHelpers.IsGenericTypeParameter(genSpec.Name) &&
+            genericContext.TryResolve(genSpec.Name, out var csName))
+        {
+            return csName;
+        }
+
         if (typeSpec is NamedTypeSpec namedTypeSpec)
         {
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
@@ -545,7 +576,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             if (namedTypeSpec.GenericParameters.Count > 0)
             {
                 var translatedParams = namedTypeSpec.GenericParameters
-                    .Select(p => TranslateTypeSpecWithGenerics(p, typeDatabase))
+                    .Select(p => TranslateTypeSpecWithGenerics(p, typeDatabase, genericContext))
                     .ToList();
                 return $"{typeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>";
             }

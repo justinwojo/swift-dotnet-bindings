@@ -978,7 +978,7 @@ extension BlinkID.BlinkIDSdkSettings {
     }
 }
 @_silgen_name("$s7BlinkID0A5IDSdkC21createScanningSession15sessionSettingsAA0A9IDSessionCAA0aiH0V_tYaKF_async")
-public func PInvoke_createScanningSession_02CE22F1(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, sessionSettings: UnsafeRawPointer, _self: OpaquePointer){
+public func PInvoke_createScanningSession_469C4C77(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, sessionSettings: UnsafeRawPointer, _self: OpaquePointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let sessionSettingsValue = sessionSettings.assumingMemoryBound(to: BlinkID.BlinkIDSessionSettings.self).pointee
@@ -1016,7 +1016,7 @@ extension BlinkID.BlinkIDSdk {
     }
 }
 @_silgen_name("DBW_BlinkIDSdk_createScanningSession_F9556ADF_1_async")
-public func PInvoke_createScanningSession_78556908(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _self: OpaquePointer){
+public func PInvoke_createScanningSession_22126E1B(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _self: OpaquePointer){
     let __self = unsafeBitCast(_self, to: BlinkID.BlinkIDSdk.self)
     // selfInstance is safe - C# called Arc.Retain before invoking this method
     Task {
@@ -1044,7 +1044,7 @@ public func PInvoke_createScanningSession_78556908(callback: @escaping @conventi
 }
 extension BlinkID.BlinkIDSdk {
     @_silgen_name("$s7BlinkID0A5IDSdkC06createaC012withSettingsAcA0acF0V_tYaKFZ_async")
-    public static func PInvoke_createBlinkIDSdk_3702A9AC(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, withSettings: UnsafeRawPointer){
+    public static func PInvoke_createBlinkIDSdk_048A86FD(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, withSettings: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let withSettingsValue = withSettings.assumingMemoryBound(to: BlinkID.BlinkIDSdkSettings.self).pointee
@@ -1076,7 +1076,7 @@ extension BlinkID.BlinkIDSdk {
 }
 extension BlinkID.BlinkIDSdk {
     @_silgen_name("$s7BlinkID0A5IDSdkC19refreshLicenseLeaseyyYaKFZ_async")
-    public static func PInvoke_refreshLicenseLease_3BE6C44C(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
+    public static func PInvoke_refreshLicenseLease_6442C4A7(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
         
         Task {
             do {
@@ -1108,7 +1108,7 @@ public func SBW_BlinkID_RecognitionMode_InitWithRawValue(_ resultPtr: UnsafeMuta
     resultPtr.storeBytes(of: result, as: BlinkID.RecognitionMode?.self)
 }
 @_silgen_name("$s7BlinkID11PingManagerC10addPinglet7pinglet13sessionNumberyx_SitYaAA0F0RzlF_async")
-public func PInvoke_addPinglet_43E13841<P>(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, pinglet: P, sessionNumber: Swift.Int) where P : Pinglet{
+public func PInvoke_addPinglet_493ADB2E<P>(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, pinglet: P, sessionNumber: Swift.Int) where P : Pinglet{
     
     // selfInstance is safe - C# called Arc.Retain before invoking this method
     Task {
@@ -1125,7 +1125,7 @@ public func PInvoke_addPinglet_43E13841<P>(callback: @escaping @convention(c) (I
     }
 }
 @_silgen_name("$s7BlinkID11PingManagerC12sendPingletsAA0C6StatusOyYaF_async")
-public func PInvoke_sendPinglets_11227FCC(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
+public func PInvoke_sendPinglets_40202963(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
     
     // selfInstance is safe - C# called Arc.Retain before invoking this method
     Task {

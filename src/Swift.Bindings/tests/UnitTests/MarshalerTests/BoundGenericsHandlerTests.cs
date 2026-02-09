@@ -37,7 +37,7 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftDictionary", result);
-        Assert.Contains("ExistentialContainer0", result);
+        Assert.Contains("AnyType", result);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftArray", result);
-        Assert.Contains("ExistentialContainer0", result);
+        Assert.Contains("AnyType", result);
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftOptional", result);
-        Assert.Contains("ExistentialContainer0", result);
+        Assert.Contains("AnyType", result);
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftArray", result);
-        Assert.Contains("ExistentialContainer1", result);
+        Assert.Contains("AnyType", result);
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftArray", result);
-        Assert.Contains("ExistentialContainer2", result);
+        Assert.Contains("AnyType", result);
     }
 
     #endregion
@@ -126,7 +126,7 @@ public class BoundGenericsHandlerTests
 
         Assert.Contains("SwiftArray", result);
         Assert.Contains("SwiftDictionary", result);
-        Assert.Contains("ExistentialContainer0", result);
+        Assert.Contains("AnyType", result);
     }
 
     #endregion
@@ -334,7 +334,7 @@ public class BoundGenericsHandlerTests
 
         Assert.Contains("SwiftDictionary", result);
         Assert.Contains("Int64", result); // Int maps to Int64
-        Assert.Contains("ExistentialContainer0", result);
+        Assert.Contains("AnyType", result);
     }
 
     #endregion
@@ -353,7 +353,7 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(propertyDecl);
 
         Assert.Contains("SwiftArray", result);
-        Assert.Contains("ExistentialContainer0", result);
+        Assert.Contains("AnyType", result);
     }
 
     [Fact]

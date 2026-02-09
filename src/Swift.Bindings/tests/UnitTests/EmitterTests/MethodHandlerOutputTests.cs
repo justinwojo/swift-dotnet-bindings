@@ -420,9 +420,10 @@ public class MethodHandlerOutputTests
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Supported existentials (1 protocol) should now emit with ExistentialContainer1
-        Assert.NotEqual(string.Empty, csOutput);
-        Assert.Contains("ExistentialContainer1", csOutput);
+        // Existentials now resolve to AnyType, causing bound generics with existential
+        // args to be skipped (AnyType as generic arg is not supported)
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
     }
 
     [Fact]

@@ -370,13 +370,13 @@ public class OperatorHandlerOutputTests
         var writer = new StringWriter();
         var csWriter = new CSharpWriter(writer);
         var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
-        handler.EmitOperator(csWriter, op, typeDatabase, pinvokeHelperContext);
+        var result = handler.EmitOperator(csWriter, op, typeDatabase, pinvokeHelperContext);
 
         var output = writer.ToString();
 
-        // Parameter types should use T0 (from the type), not T1 (from the method)
-        Assert.Contains("Container<T0>", output);
-        Assert.DoesNotContain("Container<T1>", output);
+        // G4 fix: operators on generic types requiring buffer marshalling are now skipped
+        Assert.False(result);
+        Assert.Equal(string.Empty, output);
     }
 
     [Fact]

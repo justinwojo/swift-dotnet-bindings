@@ -1,13 +1,13 @@
 {
   "ModuleName": "Lottie",
-  "GeneratedAt": "2026-02-09T06:56:00.990238+00:00",
+  "GeneratedAt": "2026-02-09T18:02:09.359472+00:00",
   "TotalTypes": 80,
   "EmittedTypes": 77,
   "SkippedTypes": 3,
   "TotalMembers": 475,
-  "EmittedMembers": 387,
-  "SkippedMembers": 47,
-  "SynthesizedMembers": 270,
+  "EmittedMembers": 382,
+  "SkippedMembers": 52,
+  "SynthesizedMembers": 266,
   "SkippedItems": [
     {
       "Kind": "Property",
@@ -82,6 +82,14 @@
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
+      "Kind": "Property",
+      "Name": "shared",
+      "ContainingType": "Lottie.LottieAnimationCache",
+      "Reason": "UnsupportedSignature",
+      "Details": "Accessor 'shared_Get' has unsupported signature.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Lottie.FilepathImageProvider",
@@ -128,6 +136,14 @@
       "Reason": "SwiftUIView",
       "Details": "Type conforms to SwiftUI.View. Bridge generation available.",
       "RecommendedWorkaround": "SwiftUI View type detected. Auto-generated bridge files are available in the output directory."
+    },
+    {
+      "Kind": "Method",
+      "Name": "lottieDataTask",
+      "ContainingType": "Lottie.LottieURLSession",
+      "Reason": "AnyTypeFallback",
+      "Details": "Method return type or parameter contains AnyType as a generic type argument, which violates generic constraints.",
+      "RecommendedWorkaround": "Use concrete bound generic types instead of Any where possible."
     },
     {
       "Kind": "Property",
@@ -322,6 +338,14 @@
       "RecommendedWorkaround": "Use a Swift wrapper that constructs the generic type internally."
     },
     {
+      "Kind": "Property",
+      "Name": "imageProvider",
+      "ContainingType": "Lottie.DotLottieConfiguration",
+      "Reason": "UnsupportedSignature",
+      "Details": "Accessor 'imageProvider_Get' has unsupported signature.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Lottie.BundleImageProvider",
@@ -344,6 +368,14 @@
       "Reason": "UnsupportedType",
       "Details": "Type resolution failed for property type 'UIKit.UIView.ContentMode'.",
       "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
+    },
+    {
+      "Kind": "Method",
+      "Name": "loadedFrom",
+      "ContainingType": "Lottie.DotLottieFile.SynchronouslyBlockingCurrentThread",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
       "Kind": "Method",
@@ -408,6 +440,14 @@
       "Reason": "UnsatisfiedGenericConstraint",
       "Details": "Type argument 'Lottie.LottieVector3D' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'.",
       "RecommendedWorkaround": "Use a Swift wrapper that constructs the generic type internally."
+    },
+    {
+      "Kind": "Operator",
+      "Name": "==",
+      "ContainingType": "Lottie.Keyframe",
+      "Reason": "UnsupportedSignature",
+      "Details": "Operator on generic type requires buffer marshalling.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     }
   ],
   "WrappedItems": [],

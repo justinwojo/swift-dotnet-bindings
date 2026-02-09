@@ -136,6 +136,15 @@ namespace BindingsGeneration
             if (_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec))
             {
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
+
+                // Any (zero-protocol existential) → no proxy class; return container directly
+                // ExistentialContainer0 boxes to 'object' matching the public return type
+                if (protocolList.Protocols.Count == 0)
+                {
+                    csWriter.WriteLine("return result;");
+                    return;
+                }
+
                 var proxyClassName = _env.ExistentialHandler.GetProxyClassName(protocolList);
                 csWriter.WriteLine($"return new {proxyClassName}(result);");
                 return;

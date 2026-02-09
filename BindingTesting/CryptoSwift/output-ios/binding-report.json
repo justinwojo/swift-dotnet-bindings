@@ -1,13 +1,13 @@
 {
   "ModuleName": "CryptoSwift",
-  "GeneratedAt": "2026-02-09T06:56:00.422234+00:00",
+  "GeneratedAt": "2026-02-09T18:01:39.716739+00:00",
   "TotalTypes": 103,
   "EmittedTypes": 103,
   "SkippedTypes": 0,
   "TotalMembers": 501,
-  "EmittedMembers": 431,
-  "SkippedMembers": 70,
-  "SynthesizedMembers": 193,
+  "EmittedMembers": 429,
+  "SkippedMembers": 72,
+  "SynthesizedMembers": 191,
   "SkippedItems": [
     {
       "Kind": "Method",
@@ -231,6 +231,22 @@
       "ContainingType": "CryptoSwift.AES",
       "Reason": "UnsupportedSignature",
       "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Operator",
+      "Name": "==",
+      "ContainingType": "CryptoSwift.BatchedCollectionIndex",
+      "Reason": "UnsupportedSignature",
+      "Details": "Operator on generic type requires buffer marshalling.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Operator",
+      "Name": "<",
+      "ContainingType": "CryptoSwift.BatchedCollectionIndex",
+      "Reason": "UnsupportedSignature",
+      "Details": "Operator on generic type requires buffer marshalling.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {

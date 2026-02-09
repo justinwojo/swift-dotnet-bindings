@@ -191,6 +191,12 @@ namespace BindingsGeneration
                     csWriter.WriteLine("{");
                     csWriter.WriteLine("}");
                 }
+
+                // Emit wrap-only proxy classes for each composition interface
+                foreach (var (compositionName, parentInterfaces) in conductor.CompositionInterfaces)
+                {
+                    EmitCompositionProxy(csWriter, compositionName, parentInterfaces, moduleDecl, env.TypeDatabase);
+                }
             }
             finally
             {
@@ -501,6 +507,318 @@ namespace BindingsGeneration
             // The expected mangled prefix is "$s" + length + moduleName
             var expectedPrefix = $"$s{moduleName.Length}{moduleName}";
             return mangledName.StartsWith(expectedPrefix, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Emits a wrap-only proxy class for a composition interface.
+        /// The proxy wraps a Swift existential container; member access throws NotSupportedException.
+        /// </summary>
+        private void EmitCompositionProxy(CSharpWriter csWriter, string compositionName, List<string> parentInterfaces,
+            ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            var proxyClassName = compositionName.Substring(1) + "Proxy"; // Strip leading "I", add "Proxy"
+            var protocolCount = parentInterfaces.Count;
+            var containerType = $"Swift.Runtime.ExistentialContainer{protocolCount}";
+
+            csWriter.WriteLine();
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Wrap-only proxy for the {compositionName} composition existential.");
+            csWriter.WriteLine($"/// Wraps a Swift existential container; member access is not supported.");
+            csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine($"public unsafe class {proxyClassName} : {compositionName}, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<{containerType}>");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Field
+            csWriter.WriteLine($"private readonly {containerType} _swiftContainer;");
+            csWriter.WriteLine();
+
+            // Constructor from container
+            csWriter.WriteLine($"public {proxyClassName}({containerType} container)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("_swiftContainer = container;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // ISwiftExistentialConvertible
+            csWriter.WriteLine($"public {containerType} GetExistentialContainer() => _swiftContainer;");
+            csWriter.WriteLine();
+
+            // ISwiftObject implementation
+            csWriter.WriteLines($$"""
+                public static TypeMetadata GetTypeMetadata()
+                {
+                    throw new NotSupportedException("Composition proxy has no single EveryProtocol metadata.");
+                }
+
+                public static ISwiftObject NewFromPayload(IntPtr payload)
+                {
+                    return new {{proxyClassName}}(*({{containerType}}*)payload);
+                }
+
+                public int MarshalToSwift(ref Span<byte> swiftDestSpan)
+                {
+                    var size = _swiftContainer.SizeOf;
+                    if (swiftDestSpan.Length < size)
+                        throw new ArgumentException("Destination span too small", nameof(swiftDestSpan));
+                    fixed ({{containerType}}* containerPtr = &_swiftContainer)
+                    {
+                        new Span<byte>(containerPtr, size).CopyTo(swiftDestSpan);
+                    }
+                    return size;
+                }
+
+                public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+                {
+                    throw new NotSupportedException("Composition proxy does not support protocol conformance descriptors.");
+                }
+
+                public void Dispose() { }
+                """);
+            csWriter.WriteLine();
+
+            // Emit stub implementations for all interface members
+            EmitCompositionMemberStubs(csWriter, parentInterfaces, moduleDecl, typeDatabase);
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
+        /// <summary>
+        /// Emits NotSupportedException stub implementations for all inherited interface members.
+        /// </summary>
+        private void EmitCompositionMemberStubs(CSharpWriter csWriter, List<string> parentInterfaces,
+            ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            var emittedProperties = new HashSet<string>();
+            var emittedMethods = new HashSet<string>();
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+
+            foreach (var interfaceName in parentInterfaces)
+            {
+                // Resolve interface name (e.g., "ICryptor") → protocol name (e.g., "Cryptor")
+                var protocolName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
+                var protocolDecl = moduleDecl.Protocols?.FirstOrDefault(p => p.Name == protocolName);
+                if (protocolDecl == null)
+                    continue;
+
+                // Properties
+                foreach (var property in protocolDecl.Properties)
+                {
+                    if (property.IsStatic)
+                        continue;
+                    if (!emittedProperties.Add(property.Name))
+                        continue;
+
+                    var csharpType = ResolvePropertyType(property, typeDatabase, typeConversionHandler, boundGenericsHandler, existentialHandler);
+                    var propertyName = NameProvider.GetPropertyName(property.Name);
+                    var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+                    var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+
+                    csWriter.WriteLine($"public {csharpType} {propertyName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    if (hasGetter)
+                        csWriter.WriteLine($"get => throw new NotSupportedException(\"Cannot access member on Swift-backed composition existential.\");");
+                    if (hasSetter)
+                        csWriter.WriteLine($"set => throw new NotSupportedException(\"Cannot access member on Swift-backed composition existential.\");");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.WriteLine();
+                }
+
+                // Methods
+                foreach (var method in protocolDecl.Methods)
+                {
+                    if (method.IsConstructor || method.MethodType == MethodType.Static)
+                        continue;
+
+                    var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, typeDatabase, protocolDecl);
+                    if (!emittedMethods.Add(methodKey))
+                        continue;
+
+                    var returnType = ResolveMethodReturnType(method, typeDatabase, typeConversionHandler, boundGenericsHandler, existentialHandler);
+                    var parameters = ResolveMethodParameters(method, typeDatabase, typeConversionHandler, boundGenericsHandler, existentialHandler);
+                    var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync);
+
+                    if (method.IsAsync)
+                    {
+                        returnType = returnType == "void" ? "Task" : $"Task<{returnType}>";
+                    }
+
+                    csWriter.WriteLine($"public {returnType} {methodName}({string.Join(", ", parameters)})");
+                    csWriter.Indent++;
+                    csWriter.WriteLine($"=> throw new NotSupportedException(\"Cannot call method on Swift-backed composition existential.\");");
+                    csWriter.Indent--;
+                    csWriter.WriteLine();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Resolves a property's C# type using the same chain as ProtocolHandler.EmitInterfaceProperty.
+        /// </summary>
+        private static string ResolvePropertyType(PropertyDecl property, ITypeDatabase typeDatabase,
+            TypeConversionHandler typeConversionHandler, BoundGenericsHandler boundGenericsHandler,
+            ExistentialHandler existentialHandler)
+        {
+            string rawType;
+            if (boundGenericsHandler.IsBoundGeneric(property))
+                rawType = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
+            else if (existentialHandler.IsExistential(property.SwiftTypeSpec))
+            {
+                var pl = existentialHandler.ToProtocolListTypeSpec(property.SwiftTypeSpec);
+                rawType = pl != null && existentialHandler.IsSupportedExistential(pl)
+                    ? existentialHandler.GetPublicExistentialType(pl)
+                    : typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+            }
+            else
+                rawType = typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
+                property.SwiftTypeSpec,
+                isParameter: false,
+                ts => typeDatabase.GetTypeRecordOrAnyType(ts).CSharpTypeName.FullyQualifiedName);
+            if (idiomaticType != null) return idiomaticType;
+            if (typeConversionHandler.HasNativeTypeRemapping(property.SwiftTypeSpec))
+            {
+                var native = typeConversionHandler.GetNativeTypeName(property.SwiftTypeSpec);
+                if (native != null) return native;
+            }
+            return rawType;
+        }
+
+        /// <summary>
+        /// Resolves a method's return type using the same chain as ProtocolHandler.EmitInterfaceMethod.
+        /// </summary>
+        private static string ResolveMethodReturnType(MethodDecl method, ITypeDatabase typeDatabase,
+            TypeConversionHandler typeConversionHandler, BoundGenericsHandler boundGenericsHandler,
+            ExistentialHandler existentialHandler)
+        {
+            if (method.CSSignature.Count == 0) return "void";
+            var returnArg = method.CSSignature[0];
+            if (returnArg.SwiftTypeSpec is TupleTypeSpec tuple && tuple.IsEmptyTuple) return "void";
+
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(returnArg.SwiftTypeSpec, isParameter: false);
+            if (idiomaticType != null) return idiomaticType;
+            if (typeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
+            {
+                var native = typeConversionHandler.GetNativeTypeName(returnArg.SwiftTypeSpec);
+                if (native != null) return native;
+            }
+            return ResolveCSharpTypeName(returnArg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, existentialHandler);
+        }
+
+        /// <summary>
+        /// Resolves method parameters to C# parameter declarations.
+        /// </summary>
+        private static List<string> ResolveMethodParameters(MethodDecl method, ITypeDatabase typeDatabase,
+            TypeConversionHandler typeConversionHandler, BoundGenericsHandler boundGenericsHandler,
+            ExistentialHandler existentialHandler)
+        {
+            var parameters = new List<string>();
+            for (int i = 1; i < method.CSSignature.Count; i++)
+            {
+                var arg = method.CSSignature[i];
+                var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(arg.SwiftTypeSpec, isParameter: true);
+                string paramTypeName;
+                if (idiomaticParamType != null)
+                    paramTypeName = idiomaticParamType;
+                else if (typeConversionHandler.HasNativeTypeRemapping(arg.SwiftTypeSpec))
+                    paramTypeName = typeConversionHandler.GetNativeTypeName(arg.SwiftTypeSpec)
+                        ?? ResolveCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, existentialHandler);
+                else
+                    paramTypeName = ResolveCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, existentialHandler);
+
+                var paramName = string.IsNullOrEmpty(arg.Name) ? $"arg{i}" : arg.Name;
+                parameters.Add($"{paramTypeName} {paramName}");
+            }
+            return parameters;
+        }
+
+        /// <summary>
+        /// Resolves a TypeSpec to its C# type name, handling closures, tuples, existentials, bound generics,
+        /// and standard types. Mirrors ProtocolHandler.GetCSharpTypeName() for composition proxy stubs.
+        /// </summary>
+        private static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase,
+            BoundGenericsHandler boundGenericsHandler, ExistentialHandler existentialHandler)
+        {
+            // Handle existential types (any Protocol, protocol compositions)
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var pl = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (pl != null && existentialHandler.IsSupportedExistential(pl))
+                    return existentialHandler.GetPublicExistentialType(pl);
+            }
+
+            // Handle closures — translate to Action<T>/Func<T,R> delegate types
+            if (typeSpec is ClosureTypeSpec closureTypeSpec)
+            {
+                return ResolveClosureCSharpType(closureTypeSpec, typeDatabase, boundGenericsHandler, existentialHandler);
+            }
+
+            // Handle tuples — translate to ValueTuple types
+            if (typeSpec is TupleTypeSpec tupleTypeSpec && !tupleTypeSpec.IsEmptyTuple)
+            {
+                var elements = tupleTypeSpec.Elements
+                    .Select(e => ResolveCSharpTypeName(e, typeDatabase, boundGenericsHandler, existentialHandler))
+                    .ToList();
+                return $"({string.Join(", ", elements)})";
+            }
+
+            // Handle bound generics (e.g., Optional<T>, Array<T>)
+            if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            {
+                var tempProperty = new PropertyDecl
+                {
+                    Name = "_temp",
+                    SwiftTypeSpec = typeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                };
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+            }
+
+            // Standard type lookup
+            return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
+        }
+
+        /// <summary>
+        /// Translates a ClosureTypeSpec to Action/Func delegate type.
+        /// Mirrors ProtocolHandler.GetClosureCSharpType().
+        /// </summary>
+        private static string ResolveClosureCSharpType(ClosureTypeSpec closureTypeSpec, ITypeDatabase typeDatabase,
+            BoundGenericsHandler boundGenericsHandler, ExistentialHandler existentialHandler)
+        {
+            var paramTypes = new List<string>();
+            foreach (var arg in closureTypeSpec.EachArgument())
+            {
+                paramTypes.Add(ResolveCSharpTypeName(arg, typeDatabase, boundGenericsHandler, existentialHandler));
+            }
+
+            var returnType = closureTypeSpec.ReturnType;
+            bool hasReturn = !returnType.IsEmptyTuple;
+
+            if (!hasReturn)
+            {
+                if (paramTypes.Count == 0)
+                    return "Action";
+                return $"Action<{string.Join(", ", paramTypes)}>";
+            }
+            else
+            {
+                var returnTypeName = ResolveCSharpTypeName(returnType, typeDatabase, boundGenericsHandler, existentialHandler);
+                if (paramTypes.Count == 0)
+                    return $"Func<{returnTypeName}>";
+                return $"Func<{string.Join(", ", paramTypes)}, {returnTypeName}>";
+            }
         }
     }
 }
