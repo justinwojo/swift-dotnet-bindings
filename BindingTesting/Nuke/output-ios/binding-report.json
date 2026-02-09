@@ -1,6 +1,6 @@
 {
   "ModuleName": "Nuke",
-  "GeneratedAt": "2026-02-09T04:49:54.81574+00:00",
+  "GeneratedAt": "2026-02-09T05:45:20.689673+00:00",
   "TotalTypes": 60,
   "EmittedTypes": 60,
   "SkippedTypes": 0,
@@ -102,7 +102,7 @@
       "Name": "userInfo",
       "ContainingType": "Nuke.ImageContainer",
       "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument ''.",
+      "Details": "Bound generic contains existential type argument 'Any'.",
       "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
     },
     {
@@ -110,7 +110,7 @@
       "Name": "init",
       "ContainingType": "Nuke.ImageContainer",
       "Reason": "UnsupportedExistential",
-      "Details": "Constructor bound generic contains existential type argument ''.",
+      "Details": "Constructor bound generic contains existential type argument 'Any'.",
       "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
     },
     {
@@ -134,7 +134,7 @@
       "Name": "init",
       "ContainingType": "Nuke.ImageProcessors.CoreImageFilter",
       "Reason": "UnsupportedExistential",
-      "Details": "Constructor bound generic contains existential type argument ''.",
+      "Details": "Constructor bound generic contains existential type argument 'Any'.",
       "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
     },
     {
@@ -150,7 +150,7 @@
       "Name": "userInfo",
       "ContainingType": "Nuke.ImageRequest",
       "Reason": "UnsupportedExistential",
-      "Details": "Bound generic contains existential type argument ''.",
+      "Details": "Bound generic contains existential type argument 'Any'.",
       "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
     },
     {

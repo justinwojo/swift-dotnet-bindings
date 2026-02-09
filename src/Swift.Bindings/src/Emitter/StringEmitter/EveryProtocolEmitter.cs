@@ -368,6 +368,26 @@ public class EveryProtocolEmitter
             return;
         }
 
+        // Skip protocols with Self-typed members (generic type parameters like τ_0_0 in return/params/properties).
+        // The parser's HasSelfRequirement check looks for "Self" in GenericSig, but ABI JSON uses τ_0_0.
+        // SwiftTypeNameHelper converts generic type params to "Any", so Self-returning methods emit
+        // "-> Any" instead of "-> Self", which Swift rejects.
+        bool hasSelfTypedMembers = protocolDecl.Methods
+            .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
+            .Any(m => HasGenericTypeParamInSignature(m));
+        bool hasSelfTypedProperties = protocolDecl.Properties
+            .Where(p => !p.IsStatic)
+            .Any(p => ContainsGenericTypeParam(p.SwiftTypeSpec));
+        bool hasSelfTypedSubscripts = protocolDecl.Subscripts
+            .Where(s => !s.IsStatic)
+            .Any(s => ContainsGenericTypeParam(s.ReturnTypeSpec) ||
+                      s.IndexParameters.Any(ip => ContainsGenericTypeParam(ip.SwiftTypeSpec)));
+        if (hasSelfTypedMembers || hasSelfTypedProperties || hasSelfTypedSubscripts)
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self-typed members (generic type params in signature)");
+            return;
+        }
+
         // Skip protocols with no implementable instance members
         // Static members are not part of the witness table, so we only count non-static members
         var hasImplementableMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
@@ -635,6 +655,75 @@ public class EveryProtocolEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Checks if a method has generic type parameters (e.g., τ_0_0 representing Self)
+    /// in its return type or non-self parameters. Uses recursive TypeSpec traversal.
+    /// </summary>
+    private static bool HasGenericTypeParamInSignature(MethodDecl method)
+    {
+        // Check return type (CSSignature[0])
+        if (method.CSSignature.Count > 0 && ContainsGenericTypeParam(method.CSSignature[0].SwiftTypeSpec))
+            return true;
+
+        // Check non-self parameters (skip return type at index 0)
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            if (ContainsGenericTypeParam(method.CSSignature[i].SwiftTypeSpec))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Recursively checks if a TypeSpec contains a generic type parameter.
+    /// Walks through NamedTypeSpec, TupleTypeSpec, ClosureTypeSpec, and ProtocolListTypeSpec.
+    /// </summary>
+    private static bool ContainsGenericTypeParam(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return false;
+
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedType:
+                if (TypeSpecHelpers.IsGenericTypeParameter(namedType.Name))
+                    return true;
+                foreach (var genericParam in namedType.GenericParameters)
+                {
+                    if (ContainsGenericTypeParam(genericParam))
+                        return true;
+                }
+                return false;
+
+            case TupleTypeSpec tupleType:
+                foreach (var element in tupleType.Elements)
+                {
+                    if (ContainsGenericTypeParam(element))
+                        return true;
+                }
+                return false;
+
+            case ClosureTypeSpec closureType:
+                if (ContainsGenericTypeParam(closureType.Arguments))
+                    return true;
+                if (ContainsGenericTypeParam(closureType.ReturnType))
+                    return true;
+                return false;
+
+            case ProtocolListTypeSpec protocolListType:
+                foreach (var protocol in protocolListType.Protocols.Keys)
+                {
+                    if (ContainsGenericTypeParam(protocol))
+                        return true;
+                }
+                return false;
+
+            default:
+                return false;
+        }
     }
 
     private string GetSwiftTypeName(TypeSpec? typeSpec) =>

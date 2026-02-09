@@ -94,6 +94,8 @@ public class ProtocolListTypeSpec : TypeSpec
 
     protected override string LLToString(bool useFullName)
     {
+        if (Protocols.Count == 0)
+            return "Any";
         return string.Join(" & ", Protocols.Keys);
     }
 

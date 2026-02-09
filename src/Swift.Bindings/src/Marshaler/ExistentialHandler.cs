@@ -268,6 +268,27 @@ public class ExistentialHandler
         if (protocolList.Protocols.Count == 1)
         {
             var firstProtocol = protocolList.Protocols.Keys.First();
+
+            // Validate that the protocol has a TypeRecord in the database with Kind=Protocol.
+            // This handles multiple cases:
+            //   - Metatype expressions (e.g., "Any.Type") misclassified as protocols → no TypeRecord → object
+            //   - Stdlib protocols (e.g., Swift.Error) without emitted interfaces → no TypeRecord → object
+            //   - Real protocols with emitted interfaces → TypeRecord with Kind=Protocol → I{Name}
+            try
+            {
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(firstProtocol);
+                if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) ||
+                    typeRecord.Kind != TypeRecordKind.Protocol)
+                {
+                    return "object";
+                }
+            }
+            catch
+            {
+                // FromTypeSpec/FromModuleQualifiedName may throw for malformed names
+                return "object";
+            }
+
             return NameProvider.GetInterfaceName(firstProtocol.NameWithoutModule, moduleName: firstProtocol.Module);
         }
 

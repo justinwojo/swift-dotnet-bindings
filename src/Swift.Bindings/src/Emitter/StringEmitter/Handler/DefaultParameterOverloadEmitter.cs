@@ -45,6 +45,12 @@ public static class DefaultParameterOverloadEmitter
              !env.TypeDatabase.TryGetTypeRecord(parentTypeDecl.SwiftTypeName, out _)))
             return;
 
+        // Skip methods on generic parent types — Swift extension syntax can't express
+        // the generic parameters (e.g., `extension Keyframe` instead of `extension Keyframe<T>`),
+        // and generic type params (τ_0_0) in parameter types aren't valid Swift identifiers.
+        if (methodDecl.ParentDecl is TypeDecl parentType && parentType.IsGeneric)
+            return;
+
         var trailingDefaultCount = CountTrailingDefaults(methodDecl);
         if (trailingDefaultCount == 0)
             return;

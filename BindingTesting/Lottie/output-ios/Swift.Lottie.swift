@@ -633,145 +633,6 @@ public func SBW_AnimationImageProvider_free_get_cacheEligible_0(_ ptr: UnsafeMut
     ptr.deallocate()
 }
 
-// Vtable for Interpolatable protocol - stores function pointers to C# implementations
-fileprivate struct Interpolatable_vtable {
-    var csVTHandle: OpaquePointer? = nil
-    var func_interpolate_0: (@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer)?
-    var func__interpolate_1: (@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer)?
-}
-
-private var _interpolatable_vtable = Interpolatable_vtable()
-
-// EveryProtocol conformance to Interpolatable
-extension EveryProtocol: Lottie.Interpolatable {
-    public func interpolate(to: Any, amount: CoreGraphics.CGFloat) -> Any {
-            var selfProto: Lottie.Interpolatable = self
-            var toCopy = to
-                var amountCopy = amount
-                let resultPtr = _interpolatable_vtable.func_interpolate_0!(
-                _interpolatable_vtable.csVTHandle, &selfProto, &toCopy, &amountCopy)
-            return resultPtr.assumingMemoryBound(to: Any.self).pointee
-    }
-    
-    public func _interpolate(to: Any, amount: CoreGraphics.CGFloat, spatialOutTangent: (CoreFoundation.CGPoint)?, spatialInTangent: (CoreFoundation.CGPoint)?) -> Any {
-            var selfProto: Lottie.Interpolatable = self
-            var toCopy = to
-                var amountCopy = amount
-                var spatialOutTangentCopy = spatialOutTangent
-                var spatialInTangentCopy = spatialInTangent
-                let resultPtr = _interpolatable_vtable.func__interpolate_1!(
-                _interpolatable_vtable.csVTHandle, &selfProto, &toCopy, &amountCopy, &spatialOutTangentCopy, &spatialInTangentCopy)
-            return resultPtr.assumingMemoryBound(to: Any.self).pointee
-    }
-    
-}
-
-// Called by C# to register the protocol vtable
-@_silgen_name("SetInterpolatable_vtable")
-public func setInterpolatable_vtable(uvt: UnsafeRawPointer) {
-    let vt: UnsafePointer<Interpolatable_vtable> = uvt.assumingMemoryBound(to: Interpolatable_vtable.self)
-    _interpolatable_vtable = vt.pointee
-}
-// Returns the protocol witness table pointer for EveryProtocol conforming to Interpolatable.
-// C# calls this via P/Invoke to obtain the witness table for existential container construction.
-@_silgen_name("Get_EveryProtocol_Interpolatable_WitnessTable")
-public func getEveryProtocolInterpolatableWitnessTable() -> UnsafeRawPointer {
-    let instance = EveryProtocol()
-    return withExtendedLifetime(instance) {
-        var proto: any Lottie.Interpolatable = instance
-        return withUnsafeBytes(of: &proto) { buffer in
-            // Existential layout for class-bound protocols:
-            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
-            // For a single-protocol existential, witness table is at offset 4 * pointer size
-            let witnessTableOffset = 4 * MemoryLayout<Int>.size
-            return buffer.baseAddress!.advanced(by: witnessTableOffset)
-                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
-        }
-    }
-}
-// Vtable for SpatialInterpolatable protocol - stores function pointers to C# implementations
-fileprivate struct SpatialInterpolatable_vtable {
-    var csVTHandle: OpaquePointer? = nil
-    var func_interpolate_0: (@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer)?
-    var func_interpolate_1: (@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer)?
-    var func__interpolate_2: (@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer)?
-}
-
-private var _spatialInterpolatable_vtable = SpatialInterpolatable_vtable()
-
-// EveryProtocol conformance to SpatialInterpolatable
-extension EveryProtocol: Lottie.SpatialInterpolatable {
-    public func interpolate(to: Any, amount: CoreGraphics.CGFloat, spatialOutTangent: (CoreFoundation.CGPoint)?, spatialInTangent: (CoreFoundation.CGPoint)?) -> Any {
-            var selfProto: Lottie.SpatialInterpolatable = self
-            var toCopy = to
-                var amountCopy = amount
-                var spatialOutTangentCopy = spatialOutTangent
-                var spatialInTangentCopy = spatialInTangent
-                let resultPtr = _spatialInterpolatable_vtable.func_interpolate_0!(
-                _spatialInterpolatable_vtable.csVTHandle, &selfProto, &toCopy, &amountCopy, &spatialOutTangentCopy, &spatialInTangentCopy)
-            return resultPtr.assumingMemoryBound(to: Any.self).pointee
-    }
-    
-}
-
-// Called by C# to register the protocol vtable
-@_silgen_name("SetSpatialInterpolatable_vtable")
-public func setSpatialInterpolatable_vtable(uvt: UnsafeRawPointer) {
-    let vt: UnsafePointer<SpatialInterpolatable_vtable> = uvt.assumingMemoryBound(to: SpatialInterpolatable_vtable.self)
-    _spatialInterpolatable_vtable = vt.pointee
-}
-// Returns the protocol witness table pointer for EveryProtocol conforming to SpatialInterpolatable.
-// C# calls this via P/Invoke to obtain the witness table for existential container construction.
-@_silgen_name("Get_EveryProtocol_SpatialInterpolatable_WitnessTable")
-public func getEveryProtocolSpatialInterpolatableWitnessTable() -> UnsafeRawPointer {
-    let instance = EveryProtocol()
-    return withExtendedLifetime(instance) {
-        var proto: any Lottie.SpatialInterpolatable = instance
-        return withUnsafeBytes(of: &proto) { buffer in
-            // Existential layout for class-bound protocols:
-            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
-            // For a single-protocol existential, witness table is at offset 4 * pointer size
-            let witnessTableOffset = 4 * MemoryLayout<Int>.size
-            return buffer.baseAddress!.advanced(by: witnessTableOffset)
-                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
-        }
-    }
-}
-// Vtable for AnyInterpolatable protocol - stores function pointers to C# implementations
-fileprivate struct AnyInterpolatable_vtable {
-    var csVTHandle: OpaquePointer? = nil
-    var func__interpolate_0: (@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer)?
-}
-
-private var _anyInterpolatable_vtable = AnyInterpolatable_vtable()
-
-// EveryProtocol conformance to AnyInterpolatable
-extension EveryProtocol: Lottie.AnyInterpolatable {
-}
-
-// Called by C# to register the protocol vtable
-@_silgen_name("SetAnyInterpolatable_vtable")
-public func setAnyInterpolatable_vtable(uvt: UnsafeRawPointer) {
-    let vt: UnsafePointer<AnyInterpolatable_vtable> = uvt.assumingMemoryBound(to: AnyInterpolatable_vtable.self)
-    _anyInterpolatable_vtable = vt.pointee
-}
-// Returns the protocol witness table pointer for EveryProtocol conforming to AnyInterpolatable.
-// C# calls this via P/Invoke to obtain the witness table for existential container construction.
-@_silgen_name("Get_EveryProtocol_AnyInterpolatable_WitnessTable")
-public func getEveryProtocolAnyInterpolatableWitnessTable() -> UnsafeRawPointer {
-    let instance = EveryProtocol()
-    return withExtendedLifetime(instance) {
-        var proto: any Lottie.AnyInterpolatable = instance
-        return withUnsafeBytes(of: &proto) { buffer in
-            // Existential layout for class-bound protocols:
-            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
-            // For a single-protocol existential, witness table is at offset 4 * pointer size
-            let witnessTableOffset = 4 * MemoryLayout<Int>.size
-            return buffer.baseAddress!.advanced(by: witnessTableOffset)
-                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
-        }
-    }
-}
 
 extension Lottie.LottieAnimationLayer {
     @_silgen_name("DBW_LottieAnimationLayer_init_B0F42190_1")
@@ -809,7 +670,7 @@ extension Lottie.LottieAnimation {
 }
 extension Lottie.LottieAnimation {
     @_silgen_name("$s6Lottie0A9AnimationC10loadedFrom3url7session14animationCacheACSg10Foundation3URLV_AA0A10URLSession_pAA0bH8Provider_pSgtYaFZ_async")
-    public static func PInvoke_loadedFrom_331F8199(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, animationCache: Swift.Optional<any Lottie.AnimationCacheProvider>){
+    public static func PInvoke_loadedFrom_04BA4BF7(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, animationCache: Swift.Optional<any Lottie.AnimationCacheProvider>){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -847,7 +708,7 @@ extension Lottie.LottieAnimation {
 }
 extension Lottie.LottieAnimation {
     @_silgen_name("DBW_LottieAnimation_loadedFrom_4F9CA3D1_2_async")
-    public static func PInvoke_loadedFrom_128F970B(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_216946BA(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -884,7 +745,7 @@ extension Lottie.LottieAnimation {
 }
 extension Lottie.LottieAnimation {
     @_silgen_name("DBW_LottieAnimation_loadedFrom_4F9CA3D1_1_async")
-    public static func PInvoke_loadedFrom_61D8AEE7(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_1A9E9A84(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -999,7 +860,7 @@ extension Lottie.DotLottieFile.SynchronouslyBlockingCurrentThread {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom8filepath03dotA5CacheACSS_AA0baH8Provider_pSgtYaKFZ_async")
-    public static func PInvoke_loadedFrom_5B09AA68(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
+    public static func PInvoke_loadedFrom_37F9806A(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
         
         Task {
             do {
@@ -1034,7 +895,7 @@ extension Lottie.DotLottieFile {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("DBW_DotLottieFile_loadedFrom_2E70B627_1_async")
-    public static func PInvoke_loadedFrom_1F2E4368(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String){
+    public static func PInvoke_loadedFrom_5F5AEE22(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String){
         
         Task {
             do {
@@ -1062,7 +923,7 @@ extension Lottie.DotLottieFile {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom3url7session03dotA5CacheAC10Foundation3URLV_AA0A10URLSession_pAA0baI8Provider_pSgtYaKFZ_async")
-    public static func PInvoke_loadedFrom_09E3C0BE(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
+    public static func PInvoke_loadedFrom_7C8115BF(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -1102,7 +963,7 @@ extension Lottie.DotLottieFile {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("DBW_DotLottieFile_loadedFrom_420C0542_2_async")
-    public static func PInvoke_loadedFrom_4851576E(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_2E6BE161(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -1134,7 +995,7 @@ extension Lottie.DotLottieFile {
 }
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom4data8filename13dispatchQueueAC10Foundation4DataV_SSSo03OS_H6_queueCtYaKFZ_async")
-    public static func PInvoke_loadedFrom_13E8B883(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_020E11A0(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let dispatchQueueValue = dispatchQueue.assumingMemoryBound(to: Dispatch.DispatchQueue.self).pointee
@@ -1169,40 +1030,5 @@ extension Lottie.LottieLogger {
     @_silgen_name("DBW_LottieLogger_info_EE85B5E7_1")
     public func _dbw_info_EE85B5E7_1() -> () {
         return self.info()
-    }
-}
-
-extension Lottie.Keyframe {
-    @_silgen_name("DBW_Keyframe_init_C270DA2D_2")
-    public static func _dbw_init_C270DA2D_2(_ arg0: τ_0_0) -> Lottie.Keyframe {
-        return Lottie.Keyframe(arg0)
-    }
-}
-
-extension Lottie.Keyframe {
-    @_silgen_name("DBW_Keyframe_init_C270DA2D_1")
-    public static func _dbw_init_C270DA2D_1(_ arg0: τ_0_0, _ spatialInTangent: Optional<LottieVector3D>) -> Lottie.Keyframe {
-        return Lottie.Keyframe(arg0, spatialInTangent: spatialInTangent)
-    }
-}
-
-extension Lottie.Keyframe {
-    @_silgen_name("DBW_Keyframe_init_4218F6E2_3")
-    public static func _dbw_init_4218F6E2_3(_ value: τ_0_0, _ time: CGFloat, _ isHold: Bool, _ inTangent: Optional<LottieVector2D>) -> Lottie.Keyframe {
-        return Lottie.Keyframe(value: value, time: time, isHold: isHold, inTangent: inTangent)
-    }
-}
-
-extension Lottie.Keyframe {
-    @_silgen_name("DBW_Keyframe_init_4218F6E2_2")
-    public static func _dbw_init_4218F6E2_2(_ value: τ_0_0, _ time: CGFloat, _ isHold: Bool, _ inTangent: Optional<LottieVector2D>, _ outTangent: Optional<LottieVector2D>) -> Lottie.Keyframe {
-        return Lottie.Keyframe(value: value, time: time, isHold: isHold, inTangent: inTangent, outTangent: outTangent)
-    }
-}
-
-extension Lottie.Keyframe {
-    @_silgen_name("DBW_Keyframe_init_4218F6E2_1")
-    public static func _dbw_init_4218F6E2_1(_ value: τ_0_0, _ time: CGFloat, _ isHold: Bool, _ inTangent: Optional<LottieVector2D>, _ outTangent: Optional<LottieVector2D>, _ spatialInTangent: Optional<LottieVector3D>) -> Lottie.Keyframe {
-        return Lottie.Keyframe(value: value, time: time, isHold: isHold, inTangent: inTangent, outTangent: outTangent, spatialInTangent: spatialInTangent)
     }
 }

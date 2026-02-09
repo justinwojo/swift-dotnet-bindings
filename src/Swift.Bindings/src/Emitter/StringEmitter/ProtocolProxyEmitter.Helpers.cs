@@ -86,12 +86,9 @@ public partial class ProtocolProxyEmitter
     private string GetInterfaceCompatiblePropertyTypeName(PropertyDecl property)
     {
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
-        if (boundGenericsHandler.IsBoundGeneric(property))
-        {
-            return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
-        }
-
-        var rawType = _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+        var rawType = boundGenericsHandler.IsBoundGeneric(property)
+            ? boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property)
+            : _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
 
         // Apply idiomatic type conversion to match interface declaration (SwiftString → string, etc.)
         var typeConversionHandler = new TypeConversionHandler(_typeDatabase);

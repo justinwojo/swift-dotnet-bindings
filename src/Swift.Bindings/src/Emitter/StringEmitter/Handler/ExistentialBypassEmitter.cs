@@ -415,6 +415,8 @@ public static class ExistentialBypassEmitter
                 return $"{prefix}{argsRendered}{asyncKeyword}{throwsKeyword} -> {ret}";
 
             case ProtocolListTypeSpec protocolListTypeSpec:
+                if (protocolListTypeSpec.Protocols.Count == 0)
+                    return "Any";
                 var protocols = string.Join(" & ", protocolListTypeSpec.Protocols.Keys.Select(p => RenderSwiftTypeSpec(p)));
                 return $"any {protocols}";
 

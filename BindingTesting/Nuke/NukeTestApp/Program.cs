@@ -1335,7 +1335,7 @@ public class MainViewController : UIViewController
     {
         TestLogger.Info("Testing protocol implementations...");
 
-        // Test 1: ISwiftCancellable implementation
+        // Test 1: ICancellable implementation
         try
         {
             var cancellable = new MyCancellable();
@@ -1344,16 +1344,16 @@ public class MainViewController : UIViewController
             if (cancellable.CancelCount == 1 && cancellable.IsCancelled)
             {
                 TestLogger.Info("MyCancellable.cancel() works directly");
-                results.Pass("ISwiftCancellable direct implementation");
+                results.Pass("ICancellable direct implementation");
             }
             else
             {
-                results.Fail("ISwiftCancellable direct implementation", "Cancel state incorrect");
+                results.Fail("ICancellable direct implementation", "Cancel state incorrect");
             }
         }
         catch (Exception ex)
         {
-            results.Fail("ISwiftCancellable direct implementation", ex.Message);
+            results.Fail("ICancellable direct implementation", ex.Message);
         }
 
         // Test 2: CancellableProxy creation
@@ -1394,7 +1394,7 @@ public class MainViewController : UIViewController
             results.Fail("SwiftObjectRegistry round-trip", ex.Message);
         }
 
-        // Test 4: ISwiftImageProcessing implementation
+        // Test 4: IImageProcessing implementation
         try
         {
             var processor = new MyImageProcessor();
@@ -1403,16 +1403,16 @@ public class MainViewController : UIViewController
             if (processor.IdentifierCallCount == 1)
             {
                 TestLogger.Info("MyImageProcessor.Identifier works directly");
-                results.Pass("ISwiftImageProcessing direct implementation");
+                results.Pass("IImageProcessing direct implementation");
             }
             else
             {
-                results.Fail("ISwiftImageProcessing direct implementation", "Call count incorrect");
+                results.Fail("IImageProcessing direct implementation", "Call count incorrect");
             }
         }
         catch (Exception ex)
         {
-            results.Fail("ISwiftImageProcessing direct implementation", ex.Message);
+            results.Fail("IImageProcessing direct implementation", ex.Message);
         }
 
         // Test 5: ImageProcessingProxy creation
@@ -1617,7 +1617,7 @@ public class MainViewController : UIViewController
 /// <summary>
 /// C# implementation of the Swift Cancellable protocol.
 /// </summary>
-public class MyCancellable : ISwiftCancellable
+public class MyCancellable : ICancellable
 {
     public int CancelCount { get; set; }
     public bool IsCancelled { get; private set; }
@@ -1633,18 +1633,18 @@ public class MyCancellable : ISwiftCancellable
 /// <summary>
 /// C# implementation of the Swift ImageProcessing protocol.
 /// </summary>
-public class MyImageProcessor : ISwiftImageProcessing
+public class MyImageProcessor : IImageProcessing
 {
     public int IdentifierCallCount { get; set; }
     public int ProcessCallCount { get; private set; }
 
-    public SwiftString Identifier
+    public string Identifier
     {
         get
         {
             IdentifierCallCount++;
             TestLogger.Info($"MyImageProcessor.Identifier accessed (count: {IdentifierCallCount})");
-            return new SwiftString("my-test-processor");
+            return "my-test-processor";
         }
     }
 
