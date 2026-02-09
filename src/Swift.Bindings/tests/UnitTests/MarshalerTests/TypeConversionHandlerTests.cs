@@ -338,6 +338,87 @@ public class TypeConversionHandlerTests
 
     #endregion
 
+    #region TypeTranslator Regression Tests (Property Getter/Setter Conversion)
+
+    [Fact]
+    public void GetParameterConversion_SwiftArray_WithTranslator_UsesTranslatedElementType()
+    {
+        // Regression test: PropertyHandler.EmitSetter must pass a typeTranslator to
+        // GetParameterConversion so that element types are correctly resolved.
+        // Without the translator, unregistered element types fall back to AnyType.
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
+
+        // With translator: element type resolves to "System.Byte"
+        var result = _handler.GetParameterConversion("value", typeSpec, _ => "System.Byte");
+        Assert.Equal("SwiftArray<System.Byte>.FromEnumerable(value)", result);
+    }
+
+    [Fact]
+    public void GetParameterConversion_SwiftArray_WithoutTranslator_FallsBackToDbLookup()
+    {
+        // Without a translator, the element type is looked up in the TypeDatabase.
+        // For unregistered types (Swift.UInt8 is not in the mock), this falls back to AnyType.
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
+
+        var result = _handler.GetParameterConversion("value", typeSpec);
+        // AnyType fallback produces a different (incorrect) element type
+        Assert.NotNull(result);
+        Assert.DoesNotContain("System.Byte", result);
+    }
+
+    [Fact]
+    public void GetSwiftWrapperType_SwiftArray_WithTranslator_UsesTranslatedElementType()
+    {
+        // Regression test: PropertyHandler property type declaration must pass a typeTranslator
+        // so that SwiftArray<T> gets the correct element type.
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
+
+        var result = _handler.GetSwiftWrapperType(typeSpec, _ => "System.Byte");
+        Assert.Equal("SwiftArray<System.Byte>", result);
+    }
+
+    [Fact]
+    public void GetSwiftWrapperType_SwiftArray_WithoutTranslator_FallsBackToDbLookup()
+    {
+        // Without translator, unregistered element types produce incorrect wrapper types.
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
+
+        var result = _handler.GetSwiftWrapperType(typeSpec);
+        Assert.NotNull(result);
+        Assert.DoesNotContain("System.Byte", result);
+    }
+
+    [Fact]
+    public void GetIdiomaticCSharpType_SwiftArray_WithTranslator_ProducesCorrectGenericType()
+    {
+        // Regression test: Property type declaration uses GetIdiomaticCSharpType with translator.
+        // The translator ensures the correct element type appears in IReadOnlyList<T>.
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
+
+        var result = _handler.GetIdiomaticCSharpType(typeSpec, isParameter: false, _ => "System.Byte");
+        Assert.Equal("IReadOnlyList<System.Byte>", result);
+    }
+
+    [Fact]
+    public void GetParameterConversion_SwiftArray_TranslatorOverridesDbLookup()
+    {
+        // Even when the element type IS registered in the DB, the translator takes precedence.
+        // This ensures consistency between property type declarations and getter/setter conversions.
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        // DB has Swift.Int → System.Int64, but translator returns "nint" (hypothetical override)
+        var result = _handler.GetParameterConversion("items", typeSpec, _ => "nint");
+        Assert.Equal("SwiftArray<nint>.FromEnumerable(items)", result);
+    }
+
+    #endregion
+
     #region MockTypeDatabase
 
     private class MockTypeDatabase : ITypeDatabase

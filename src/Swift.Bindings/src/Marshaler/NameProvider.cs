@@ -378,6 +378,95 @@ public static class NameProvider
     }
 
     /// <summary>
+    /// Computes nested type renames for a type declaration and updates the TypeDatabase
+    /// with the renamed C# type names. Returns the rename dictionary for local use.
+    /// </summary>
+    /// <param name="typeDecl">The type declaration containing properties and nested types.</param>
+    /// <param name="typeDatabase">The type database to update.</param>
+    /// <returns>A dictionary mapping original nested type name → renamed name.</returns>
+    public static Dictionary<string, string> ComputeAndApplyNestedTypeRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+    {
+        var propertyNames = typeDecl.Properties.Select(p => GetPropertyName(p.Name, typeDecl.Name));
+        var nestedTypeNames = typeDecl.Types.Select(t => t.Name);
+        var renames = ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+
+        foreach (var (originalName, renamedName) in renames)
+        {
+            var nestedType = typeDecl.Types.FirstOrDefault(t => t.Name == originalName);
+            if (nestedType != null && typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var record))
+            {
+                // Preserve parent type path: "Outer.Inner" → "Outer.InnerInfo"
+                var existingName = record.CSharpTypeName.Name;
+                var lastDot = existingName.LastIndexOf('.');
+                var qualifiedRenamedName = lastDot >= 0
+                    ? existingName.Substring(0, lastDot + 1) + renamedName
+                    : renamedName;
+
+                var updatedRecord = record with
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
+                        record.CSharpTypeName.Namespace ?? string.Empty, qualifiedRenamedName)
+                };
+                typeDatabase.UpdateTypeRecord(nestedType.SwiftTypeName, updatedRecord);
+
+                // Also update all descendant types whose C# names include the old parent segment.
+                // e.g., "ImagePipeline.Cache.Entry" → "ImagePipeline.CacheInfo.Entry"
+                UpdateDescendantTypeNames(nestedType, existingName, qualifiedRenamedName, typeDatabase);
+            }
+        }
+
+        return renames;
+    }
+
+    /// <summary>
+    /// Recursively updates C# type names for all descendant types of a renamed parent.
+    /// When "Outer.Cache" is renamed to "Outer.CacheInfo", descendants like
+    /// "Outer.Cache.Entry" must become "Outer.CacheInfo.Entry".
+    /// </summary>
+    private static void UpdateDescendantTypeNames(TypeDecl parentType, string oldPrefix, string newPrefix, ITypeDatabase typeDatabase)
+    {
+        foreach (var childType in parentType.Types)
+        {
+            if (typeDatabase.TryGetTypeRecord(childType.SwiftTypeName, out var childRecord))
+            {
+                var childName = childRecord.CSharpTypeName.Name;
+                if (childName.StartsWith(oldPrefix + "."))
+                {
+                    var updatedChildName = newPrefix + childName.Substring(oldPrefix.Length);
+                    var updatedChildRecord = childRecord with
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
+                            childRecord.CSharpTypeName.Namespace ?? string.Empty, updatedChildName)
+                    };
+                    typeDatabase.UpdateTypeRecord(childType.SwiftTypeName, updatedChildRecord);
+                }
+            }
+            // Recurse into deeper levels
+            UpdateDescendantTypeNames(childType, oldPrefix, newPrefix, typeDatabase);
+        }
+    }
+
+    /// <summary>
+    /// Recursively pre-computes and applies nested type renames for all types in a module.
+    /// This must be called before any types are emitted so that cross-type references
+    /// to renamed nested types resolve correctly regardless of emission order.
+    /// </summary>
+    /// <param name="types">The top-level types to process.</param>
+    /// <param name="typeDatabase">The type database to update.</param>
+    public static void PrecomputeAllNestedTypeRenames(IEnumerable<TypeDecl> types, ITypeDatabase typeDatabase)
+    {
+        foreach (var typeDecl in types)
+        {
+            ComputeAndApplyNestedTypeRenames(typeDecl, typeDatabase);
+            // Recurse into nested types
+            if (typeDecl.Types.Any())
+            {
+                PrecomputeAllNestedTypeRenames(typeDecl.Types, typeDatabase);
+            }
+        }
+    }
+
+    /// <summary>
     /// Sanitizes property wrapper projected value names.
     /// Swift uses $ prefix for projected values (e.g., $volume), but $ is not valid in C# identifiers.
     /// This converts them to a valid C# name (e.g., $volume -> projectedVolume).

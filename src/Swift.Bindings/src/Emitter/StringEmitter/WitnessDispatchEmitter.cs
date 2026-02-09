@@ -113,9 +113,12 @@ public class WitnessDispatchEmitter
         bool anyEmitted = false;
 
         // Property getters (skip static properties - not part of witness table)
+        var emittedPropertyNames = new HashSet<string>();
         foreach (var property in protocolDecl.Properties)
         {
             if (property.IsStatic)
+                continue;
+            if (!emittedPropertyNames.Add(property.Name + "_get"))
                 continue;
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
             if (hasGetter && IsPropertyGetterDispatchable(property))
@@ -137,6 +140,8 @@ public class WitnessDispatchEmitter
         foreach (var property in protocolDecl.Properties)
         {
             if (property.IsStatic)
+                continue;
+            if (!emittedPropertyNames.Add(property.Name + "_set"))
                 continue;
             var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
             if (hasSetter && IsPropertySetterDispatchable(property))

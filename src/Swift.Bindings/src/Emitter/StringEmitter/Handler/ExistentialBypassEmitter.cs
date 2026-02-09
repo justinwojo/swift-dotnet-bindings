@@ -173,6 +173,22 @@ public static class ExistentialBypassEmitter
         foreach (var arg in passthroughArgs)
         {
             var swiftType = RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+            // Wrapper functions always need @escaping on closure parameters because
+            // the closure is passed to the original method which may require it.
+            if (arg.SwiftTypeSpec is ClosureTypeSpec closureSpec)
+            {
+                if (!swiftType.StartsWith("@escaping"))
+                {
+                    if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                        swiftType = $"@escaping @Sendable {swiftType}";
+                    else
+                        swiftType = $"@escaping {swiftType}";
+                }
+                else if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                {
+                    swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
+                }
+            }
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
             swiftParams.Add($"_ {label}: {swiftType}");
         }
@@ -370,9 +386,33 @@ public static class ExistentialBypassEmitter
                 return $"({elements})";
 
             case ClosureTypeSpec closureTypeSpec:
-                var args = RenderSwiftTypeSpec(closureTypeSpec.Arguments);
+                // Render closure arguments without double-wrapping tuples.
+                // Closure args: () for no args, (Arg) for single, (A, B) for multiple.
+                string argsRendered;
+                if (!closureTypeSpec.HasArguments())
+                {
+                    argsRendered = "()";
+                }
+                else if (closureTypeSpec.Arguments is TupleTypeSpec argsTuple)
+                {
+                    var elems = string.Join(", ", argsTuple.Elements.Select(RenderSwiftTypeSpec));
+                    argsRendered = $"({elems})";
+                }
+                else
+                {
+                    argsRendered = $"({RenderSwiftTypeSpec(closureTypeSpec.Arguments)})";
+                }
                 var ret = RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
-                return $"({args}) -> {ret}";
+                var throwsKeyword = closureTypeSpec.Throws ? " throws" : "";
+                var asyncKeyword = closureTypeSpec.IsAsync ? " async" : "";
+                // @escaping and @Sendable from parsed attributes
+                var prefix = "";
+                if (closureTypeSpec.IsEscaping)
+                    prefix += "@escaping ";
+                if (closureTypeSpec.HasAttributes && closureTypeSpec.Attributes.Exists(attr =>
+                    attr.Name == "Sendable" || attr.Name == "Swift.Sendable" || attr.Name == "_Concurrency.Sendable"))
+                    prefix += "@Sendable ";
+                return $"{prefix}{argsRendered}{asyncKeyword}{throwsKeyword} -> {ret}";
 
             case ProtocolListTypeSpec protocolListTypeSpec:
                 var protocols = string.Join(" & ", protocolListTypeSpec.Protocols.Keys.Select(p => RenderSwiftTypeSpec(p)));

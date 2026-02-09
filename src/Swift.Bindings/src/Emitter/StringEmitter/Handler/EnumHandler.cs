@@ -106,7 +106,9 @@ namespace BindingsGeneration
             conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
 
             // Compute nested type renames to resolve property/nested-type name collisions
-            var nestedTypeRenames = ComputeAndApplyNestedTypeRenames(enumDecl, env.TypeDatabase);
+            // Note: TypeDatabase is already updated by the pre-pass in ModuleHandler; this call
+            // is idempotent and returns the local rename dictionary needed for conductor.NestedTypeRenames.
+            var nestedTypeRenames = NameProvider.ComputeAndApplyNestedTypeRenames(enumDecl, env.TypeDatabase);
             var previousRenames = conductor.NestedTypeRenames;
             conductor.NestedTypeRenames = nestedTypeRenames;
 
@@ -255,39 +257,7 @@ namespace BindingsGeneration
             }
         }
 
-        /// <summary>
-        /// Computes nested type renames to resolve property/nested-type collisions,
-        /// and updates the TypeDatabase with the renamed C# type names.
-        /// </summary>
-        private static Dictionary<string, string> ComputeAndApplyNestedTypeRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
-        {
-            var propertyNames = typeDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name, typeDecl.Name));
-            var nestedTypeNames = typeDecl.Types.Select(t => t.Name);
-            var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
-
-            foreach (var (originalName, renamedName) in renames)
-            {
-                var nestedType = typeDecl.Types.FirstOrDefault(t => t.Name == originalName);
-                if (nestedType != null && typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var record))
-                {
-                    // Preserve parent type path: "Outer.Inner" → "Outer.InnerInfo"
-                    var existingName = record.CSharpTypeName.Name;
-                    var lastDot = existingName.LastIndexOf('.');
-                    var qualifiedRenamedName = lastDot >= 0
-                        ? existingName.Substring(0, lastDot + 1) + renamedName
-                        : renamedName;
-
-                    var updatedRecord = record with
-                    {
-                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
-                            record.CSharpTypeName.Namespace ?? string.Empty, qualifiedRenamedName)
-                    };
-                    typeDatabase.UpdateTypeRecord(nestedType.SwiftTypeName, updatedRecord);
-                }
-            }
-
-            return renames;
-        }
+        // ComputeAndApplyNestedTypeRenames is now centralized in NameProvider.
 
         /// <summary>
         /// Emits a static property for a simple enum case (no associated values).

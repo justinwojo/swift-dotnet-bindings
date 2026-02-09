@@ -168,6 +168,12 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
+            // Pre-compute all nested type renames before emitting any types.
+            // This ensures cross-type references to renamed nested types resolve correctly
+            // regardless of emission order (e.g., type B referencing A.Cache which was
+            // renamed to A.CacheInfo won't fail if B is emitted before A).
+            NameProvider.PrecomputeAllNestedTypeRenames(moduleDecl.Types, env.TypeDatabase);
+
             // Emit top-level types with scoped composition interface collection
             conductor.SetActiveCompositionCollector();
             try

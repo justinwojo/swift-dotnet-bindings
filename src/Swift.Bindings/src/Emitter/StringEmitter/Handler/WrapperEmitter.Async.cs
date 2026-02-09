@@ -311,7 +311,28 @@ namespace BindingsGeneration
                     {
                         return $"{p.Name}: UnsafeRawPointer";
                     }
-                    return $"{p.Name}: {(p.IsGeneric ? _env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName : p.SwiftTypeSpec)}";
+                    if (p.IsGeneric)
+                    {
+                        return $"{p.Name}: {_env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName}";
+                    }
+                    // For closure parameters in async wrappers, closures are captured by Task {}
+                    // which requires @escaping (outlives function) and @Sendable (concurrency safety).
+                    if (p.SwiftTypeSpec is ClosureTypeSpec)
+                    {
+                        var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(p.SwiftTypeSpec);
+                        if (!swiftType.StartsWith("@escaping"))
+                        {
+                            swiftType = !swiftType.Contains("@Sendable")
+                                ? $"@escaping @Sendable {swiftType}"
+                                : $"@escaping {swiftType}";
+                        }
+                        else if (!swiftType.Contains("@Sendable"))
+                        {
+                            swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
+                        }
+                        return $"{p.Name}: {swiftType}";
+                    }
+                    return $"{p.Name}: {p.SwiftTypeSpec}";
                 });
 
             // For async instance methods on non-singleton classes, add _self: OpaquePointer as explicit parameter
@@ -415,7 +436,7 @@ namespace BindingsGeneration
             // - Regular instance methods: self.method()
             string selfConversion;
             string methodCallPrefix;
-            if (_env.MethodDecl.MethodType == MethodType.Static)
+            if (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor)
             {
                 selfConversion = "";
                 methodCallPrefix = parentTypeName != null ? $"{parentTypeName.ModuleQualifiedName}." : "";
@@ -505,8 +526,8 @@ namespace BindingsGeneration
             }
             else if (parentTypeName != null)
             {
-                // Extension method for static methods and non-async methods on types
-                var staticModifier = _env.MethodDecl.MethodType == MethodType.Static ? "static " : "";
+                // Extension method for static methods, async constructors, and non-async methods on types
+                var staticModifier = (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
                 if (nonFrozenParams.Count > 0)
                 {
                     swiftWriter.WriteLine($$"""

@@ -240,11 +240,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var idiomaticType = propertyEnv.TypeConversionHandler.GetIdiomaticCSharpType(
             propertyDecl.SwiftTypeSpec,
             isParameter: false,
-            typeSpec =>
-            {
-                var rec = propertyEnv.TypeDatabase.GetTypeRecordOrAnyType(typeSpec);
-                return rec.CSharpTypeName.FullyQualifiedName;
-            });
+            typeSpec => TranslateTypeSpecWithGenerics(typeSpec, propertyEnv.TypeDatabase));
         if (idiomaticType != null)
         {
             csTypeName = idiomaticType;
@@ -421,14 +417,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
 
         // Apply return type conversion if the property type was converted to an idiomatic type
-        var returnConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec);
+        Func<TypeSpec, string> typeTranslator = ts => TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase);
+        var returnConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec, typeTranslator);
         if (returnConversion != null)
         {
             csWriter.WriteLine($"get => {returnConversion};");
         }
         else if (propertyEnv.TypeConversionHandler.HasNativeTypeRemapping(propertyDecl.SwiftTypeSpec))
         {
-            var nativeConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec);
+            var nativeConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec, typeTranslator);
             csWriter.WriteLine($"get => {nativeConversion ?? $"{methodName}()"};");
         }
         else
@@ -450,7 +447,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
 
         // Apply parameter type conversion if the property type was converted to an idiomatic type
-        var paramConversion = propertyEnv.TypeConversionHandler.GetParameterConversion("value", propertyDecl.SwiftTypeSpec);
+        Func<TypeSpec, string> typeTranslator = ts => TranslateTypeSpecWithGenerics(ts, propertyEnv.TypeDatabase);
+        var paramConversion = propertyEnv.TypeConversionHandler.GetParameterConversion("value", propertyDecl.SwiftTypeSpec, typeTranslator);
         if (paramConversion != null)
         {
             csWriter.WriteLine($"set => {methodName}({paramConversion});");
@@ -508,5 +506,38 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         // Emit Swift wrapper
         AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, parentTypeName);
+    }
+
+    /// <summary>
+    /// Translates a TypeSpec to its C# type name, including generic type arguments.
+    /// This matches the logic in WrapperSignatureBuilder.TranslateTypeSpecForConversion
+    /// to ensure generic types like SwiftArray&lt;T&gt; are fully qualified.
+    /// </summary>
+    private static string TranslateTypeSpecWithGenerics(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec is NamedTypeSpec namedTypeSpec)
+        {
+            var typeRecord = typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
+
+            // If the type falls back to AnyType or IntPtr, don't append generic parameters
+            if (typeRecord == TypeDatabaseExtensions.AnyType ||
+                typeRecord == TypeDatabaseExtensions.IntPtrType)
+            {
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+            }
+
+            // Recursively translate generic parameters
+            if (namedTypeSpec.GenericParameters.Count > 0)
+            {
+                var translatedParams = namedTypeSpec.GenericParameters
+                    .Select(p => TranslateTypeSpecWithGenerics(p, typeDatabase))
+                    .ToList();
+                return $"{typeRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>";
+            }
+
+            return typeRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
+        return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
     }
 }

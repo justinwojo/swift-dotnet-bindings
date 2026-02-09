@@ -214,6 +214,23 @@ public static class DefaultParameterOverloadEmitter
         {
             var arg = keptArgs[i];
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+            // Wrapper functions always need @escaping on closure parameters because
+            // the closure is passed to the original method which may require it.
+            // Also add @Sendable for async closures (required in Swift 5.5+ concurrency).
+            if (arg.SwiftTypeSpec is ClosureTypeSpec closureSpec)
+            {
+                if (!swiftType.StartsWith("@escaping"))
+                {
+                    if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                        swiftType = $"@escaping @Sendable {swiftType}";
+                    else
+                        swiftType = $"@escaping {swiftType}";
+                }
+                else if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                {
+                    swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
+                }
+            }
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
             swiftParams.Add($"_ {label}: {swiftType}");
         }
