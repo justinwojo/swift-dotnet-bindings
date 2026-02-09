@@ -354,9 +354,7 @@ public static class ExistentialBypassEmitter
         switch (typeSpec)
         {
             case NamedTypeSpec namedTypeSpec:
-                var name = namedTypeSpec.Name;
-                if (name.Contains('.'))
-                    name = name.Substring(name.LastIndexOf('.') + 1);
+                var name = namedTypeSpec.NameWithoutModule;
 
                 if (namedTypeSpec.GenericParameters.Count > 0)
                 {

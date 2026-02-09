@@ -359,7 +359,13 @@ namespace BindingsGeneration
             // C# will call Destroy on the copy buffer after callback completes.
             var readCode = nonFrozenParams.Count > 0
                 ? string.Join("\n        ", nonFrozenParams.Select(p =>
-                    $"let {p.Name}Value = {p.Name}.assumingMemoryBound(to: {p.SwiftTypeSpec}.self).pointee"))
+                {
+                    var swiftTypeName = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(p.SwiftTypeSpec);
+                    var isExistential = _env.ExistentialHandler.IsExistential(p.SwiftTypeSpec);
+                    return isExistential
+                        ? $"let {p.Name}Value = {p.Name}.load(as: {swiftTypeName}.self)"
+                        : $"let {p.Name}Value = {p.Name}.assumingMemoryBound(to: {swiftTypeName}.self).pointee";
+                }))
                 : "";
 
             // Generate argument list for the actual Swift method call

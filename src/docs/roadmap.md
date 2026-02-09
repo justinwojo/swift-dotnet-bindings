@@ -182,6 +182,27 @@ The binding review identified the generated API as grade C+ — technically impr
 
 **DoD verified**: Zero `ISwift{Name}` generated interfaces (all use `I{Name}`), async methods end with `Async`, AnyType fallbacks carry `[UnsupportedSwiftType]` with SwiftType, `SwiftArray<T>` implements `IList<T>`, nested type collisions resolved by renaming types. Unit tests: 1636 pass. Integration tests: 699 pass. Runtime tests: 116 pass.
 
+### Phase D Validation — Real-World Library Rebuild
+**Status**: Done
+**Libraries tested**: Nuke, BlinkID, BlinkIDUX, Lottie, CryptoSwift
+
+After regenerating all real-world library bindings with Phase D changes:
+- **BlinkIDUX**: Clean build (0 errors)
+- **Nuke, BlinkID, Lottie, CryptoSwift**: Build failures from 6 Phase D regressions (nested type stripping, async default overloads, simple enum rename, proxy existential mismatch, cross-module protocol interfaces, existential assumingMemoryBound). All 6 fixed.
+- **CryptoSwift**: 4 residual CS0305 errors (pre-existing `SwiftArray` without type argument — not a Phase D regression)
+
+**DX observations from validation (not bugs, inform future work):**
+
+1. **Non-frozen enums are all classes** — Every enum in BlinkID (33), Lottie (22), and Nuke is non-frozen with payload cases → class representation is architecturally correct per Swift ABI. Only CryptoSwift has 2 true C# enums (`RSAEncryptionVariant`, `SHA2.Variant`). .NET developers may expect more enum types; consider documenting this in consumer-facing docs.
+
+2. **Optional string properties** — `Swift.Optional<Swift.String>` not yet wired through `TypeConversionHandler` → properties like `middleName` emit as `SwiftOptional<SwiftString>` instead of `string?`. Wave 1 string unification handles non-optional case only. Future work: extend `TypeConversionHandler` to unwrap optional strings.
+
+3. **Cross-module protocol interface coverage** — `Encoder`/`Decoder` added to `_runtimeProtocols`, but other Swift stdlib protocols used as existentials in real-world APIs (e.g., `Comparable`, `Sendable`, `CodingKey`) will need the same treatment as they surface. The pattern is established; additions are mechanical.
+
+4. **Remaining `argN` parameter names** — ~26 per library. These are legitimate: Swift operators and `_`-labeled parameters have no meaningful name. The swiftinterface extraction covers all named parameters.
+
+5. **Binding report quality** — All libraries regenerate with 0 generator crashes, high type/member coverage (BlinkID: 116/116 types, 612/619 members). Skipped members are explainable (actor `unownedExecutor`, placeholder constructors, static protocol members).
+
 ### Cross-Cutting (All Waves)
 - **Exception mapping** — Typed `SwiftException<TError>` for Swift `throws`. Improve incrementally.
 - **CancellationToken** — Deferred to post-Phase D. Adding CancellationToken requires new parameter plumbing, wrapper generation changes, and runtime testing beyond cosmetic naming changes.
@@ -204,6 +225,30 @@ The binding review identified the generated API as grade C+ — technically impr
 | Golden scenarios compile without interop types | 3/3 |
 
 ---
+
+## Phase D.5: Post-Validation Fixes
+
+**Status**: Not Started
+**Effort**: Small-Medium (1-2 sessions)
+**Why**: Remaining build-breaking issues found during Phase D validation. Not Phase D regressions, but surfaced by real-world library rebuilds.
+
+### 1. Cross-reference rename propagation
+When a nested type is renamed to resolve a property collision (e.g., `SHA2.Variant` → `SHA2.VariantInfo`), references from _other_ types still use the old name. Produces CS0426 errors.
+- **Affected**: Nuke (`ImagePipeline.Cache`, `ImageTask.Progress`), CryptoSwift (`SHA2.Variant`)
+- **Root cause**: `ComputeAndApplyNestedTypeRenames` updates TypeDatabase but the emitter resolves cross-type references via `SwiftTypeName` → C# name mapping, which doesn't consult renames outside the declaring type's scope
+- **Fix area**: TypeDatabase rename entries or emitter cross-reference resolution
+
+### 2. Closure `@escaping`/`@Sendable` in default parameter overloads
+`RenderSwiftTypeSpec` doesn't emit `@escaping` or `@Sendable` attributes on closure parameters. Default overload Swift wrappers fail when the original method expects escaping closures.
+- **Affected**: Nuke (`ImageRequest.init` data closure), Lottie (`GradientValueProvider.init` block closure)
+- **Root cause**: `ClosureTypeSpec` doesn't carry `IsEscaping`/`IsSendable` through to `RenderSwiftTypeSpec`
+- **Fix area**: `ExistentialBypassEmitter.RenderSwiftTypeSpec` + `ClosureTypeSpec` model
+
+### 3. Non-generic `SwiftArray` without type argument (pre-existing)
+`Swift.Array` without concrete element type projects to bare `SwiftArray` (no type arg) → CS0305.
+- **Affected**: CryptoSwift (4 instances), BlinkID (4 instances)
+- **Root cause**: `UnsafePointer<T>` / opaque generic projection falls back to `AnyType`
+- **Fix area**: TypeDatabaseExtensions generic projection
 
 ## Phase E: Additional Library Validation
 

@@ -284,6 +284,9 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject
                 _payload.DangerousRelease();
         }
     }
+
+    /// <inheritdoc/>
+    public void Dispose() => _payload?.Dispose();
 }
 
 internal static class SwiftDictionaryPInvokes

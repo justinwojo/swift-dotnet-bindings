@@ -55,7 +55,9 @@ namespace BindingsGeneration
         private void EmitSimpleEnum(CSharpWriter csWriter, SwiftWriter swiftWriter,
             EnumDecl enumDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, Conductor conductor)
         {
-            var enumName = enumDecl.Name;
+            var enumName = conductor.NestedTypeRenames != null &&
+                conductor.NestedTypeRenames.TryGetValue(enumDecl.Name, out var renamedName)
+                ? renamedName : enumDecl.Name;
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
 
             // Emit the C# enum declaration
@@ -107,7 +109,7 @@ namespace BindingsGeneration
 
             if (instanceMethods.Count > 0 || staticMethods.Count > 0 || instanceProperties.Count > 0)
             {
-                EmitSimpleEnumExtensions(csWriter, swiftWriter, enumDecl, instanceMethods,
+                EmitSimpleEnumExtensions(csWriter, swiftWriter, enumDecl, enumName, instanceMethods,
                     staticMethods, instanceProperties, moduleDecl, typeDatabase, conductor);
             }
 
@@ -120,11 +122,10 @@ namespace BindingsGeneration
         /// Instance methods become static extension methods, static methods stay static.
         /// </summary>
         private void EmitSimpleEnumExtensions(CSharpWriter csWriter, SwiftWriter swiftWriter,
-            EnumDecl enumDecl, List<MethodDecl> instanceMethods, List<MethodDecl> staticMethods,
+            EnumDecl enumDecl, string enumName, List<MethodDecl> instanceMethods, List<MethodDecl> staticMethods,
             List<PropertyDecl> instanceProperties, ModuleDecl moduleDecl,
             ITypeDatabase typeDatabase, Conductor conductor)
         {
-            var enumName = enumDecl.Name;
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
             var swiftScalarType = GetSwiftScalarType(csUnderlyingType);
 
@@ -136,7 +137,7 @@ namespace BindingsGeneration
             // Emit instance methods as extension methods with Swift wrapper
             foreach (var methodDecl in instanceMethods)
             {
-                EmitSimpleEnumExtensionMethod(bufferWriter, swiftWriter, enumDecl, methodDecl,
+                EmitSimpleEnumExtensionMethod(bufferWriter, swiftWriter, enumDecl, enumName, methodDecl,
                     moduleDecl, typeDatabase, csUnderlyingType, swiftScalarType);
             }
 
@@ -169,10 +170,9 @@ namespace BindingsGeneration
         /// Emits a single instance method as a static extension method with Swift wrapper.
         /// </summary>
         private void EmitSimpleEnumExtensionMethod(CSharpWriter csWriter, SwiftWriter swiftWriter,
-            EnumDecl enumDecl, MethodDecl methodDecl, ModuleDecl moduleDecl,
+            EnumDecl enumDecl, string enumName, MethodDecl methodDecl, ModuleDecl moduleDecl,
             ITypeDatabase typeDatabase, string csUnderlyingType, string swiftScalarType)
         {
-            var enumName = enumDecl.Name;
             var moduleName = moduleDecl.Name;
             var methodPascalName = NameProvider.ToPascalCase(methodDecl.Name);
             var libPath = typeDatabase.GetLibraryPath(moduleName);

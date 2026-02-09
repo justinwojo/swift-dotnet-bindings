@@ -246,6 +246,8 @@ public static class DefaultParameterOverloadEmitter
         bool throws = originalMethodDecl.Throws;
 
         var originalMethodName = originalMethodDecl.Name;
+        var asyncKeyword = originalMethodDecl.IsAsync ? " async" : "";
+        var awaitPrefix = originalMethodDecl.IsAsync ? "await " : "";
         var throwsClause = throws ? " throws" : "";
         var returnClause = isVoid ? "" : $" -> {returnType}";
         var tryPrefix = throws ? "try " : "";
@@ -261,10 +263,10 @@ public static class DefaultParameterOverloadEmitter
             var callPrefix = !string.IsNullOrEmpty(moduleName) ? $"{moduleName}." : "";
 
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
+            swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
 
-            var callExpr = $"{tryPrefix}{callPrefix}{originalMethodName}({callArgString})";
+            var callExpr = $"{tryPrefix}{awaitPrefix}{callPrefix}{originalMethodName}({callArgString})";
             swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
 
             swiftWriter.Indent--;
@@ -285,10 +287,10 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.Indent++;
 
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public static func {swiftFuncName}({swiftParamString}){throwsClause}{ctorReturnClause} {{");
+            swiftWriter.WriteLine($"public static func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause} {{");
             swiftWriter.Indent++;
 
-            var callExpr = $"{tryPrefix}{swiftModuleQualifiedName}({callArgString})";
+            var callExpr = $"{tryPrefix}{awaitPrefix}{swiftModuleQualifiedName}({callArgString})";
             swiftWriter.WriteLine($"return {callExpr}");
 
             swiftWriter.Indent--;
@@ -308,10 +310,10 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.Indent++;
 
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
+            swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
 
-            var callExpr = $"{tryPrefix}{selfPrefix}.{originalMethodName}({callArgString})";
+            var callExpr = $"{tryPrefix}{awaitPrefix}{selfPrefix}.{originalMethodName}({callArgString})";
             swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
 
             swiftWriter.Indent--;

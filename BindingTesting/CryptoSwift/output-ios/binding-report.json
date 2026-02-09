@@ -1,13 +1,13 @@
 {
   "ModuleName": "CryptoSwift",
-  "GeneratedAt": "2026-02-08T04:04:09.525233+00:00",
+  "GeneratedAt": "2026-02-09T03:43:31.522378+00:00",
   "TotalTypes": 103,
   "EmittedTypes": 103,
   "SkippedTypes": 0,
   "TotalMembers": 501,
-  "EmittedMembers": 441,
-  "SkippedMembers": 60,
-  "SynthesizedMembers": 199,
+  "EmittedMembers": 431,
+  "SkippedMembers": 70,
+  "SynthesizedMembers": 193,
   "SkippedItems": [
     {
       "Kind": "Method",
@@ -16,6 +16,46 @@
       "Reason": "UnsupportedSignature",
       "Details": "Method signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "prepare",
+      "ContainingType": "CryptoSwift.RSA.RSAEncryptionVariant",
+      "Reason": "UnsupportedSignature",
+      "Details": "Return type is unsupported for simple enum extension method.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "formatEncryptedBytes",
+      "ContainingType": "CryptoSwift.RSA.RSAEncryptionVariant",
+      "Reason": "UnsupportedSignature",
+      "Details": "Return type is unsupported for simple enum extension method.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "removePadding",
+      "ContainingType": "CryptoSwift.RSA.RSAEncryptionVariant",
+      "Reason": "UnsupportedSignature",
+      "Details": "Return type is unsupported for simple enum extension method.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "hash",
+      "ContainingType": "CryptoSwift.RSA.RSAEncryptionVariant",
+      "Reason": "UnsupportedSignature",
+      "Details": "Parameter 'into' has unsupported type for simple enum extension method.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Property",
+      "Name": "hashValue",
+      "ContainingType": "CryptoSwift.RSA.RSAEncryptionVariant",
+      "Reason": "UnsupportedType",
+      "Details": "Instance properties on simple enums are not yet supported as extension methods.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
     },
     {
       "Kind": "Method",
@@ -56,6 +96,46 @@
       "Reason": "UnsupportedSignature",
       "Details": "Method signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Property",
+      "Name": "digestLength",
+      "ContainingType": "CryptoSwift.SHA2.Variant",
+      "Reason": "UnsupportedType",
+      "Details": "Instance properties on simple enums are not yet supported as extension methods.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
+    },
+    {
+      "Kind": "Property",
+      "Name": "blockSize",
+      "ContainingType": "CryptoSwift.SHA2.Variant",
+      "Reason": "UnsupportedType",
+      "Details": "Instance properties on simple enums are not yet supported as extension methods.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
+    },
+    {
+      "Kind": "Property",
+      "Name": "rawValue",
+      "ContainingType": "CryptoSwift.SHA2.Variant",
+      "Reason": "UnsupportedType",
+      "Details": "Instance properties on simple enums are not yet supported as extension methods.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
+    },
+    {
+      "Kind": "Property",
+      "Name": "h",
+      "ContainingType": "CryptoSwift.SHA2.Variant",
+      "Reason": "UnsupportedType",
+      "Details": "Instance properties on simple enums are not yet supported as extension methods.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
+    },
+    {
+      "Kind": "Property",
+      "Name": "finalLength",
+      "ContainingType": "CryptoSwift.SHA2.Variant",
+      "Reason": "UnsupportedType",
+      "Details": "Instance properties on simple enums are not yet supported as extension methods.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
     },
     {
       "Kind": "Method",

@@ -470,6 +470,13 @@ public func SBW_BlinkID_DetectionStatus_InitWithRawValue(_ resultPtr: UnsafeMuta
     let result: BlinkID.DetectionStatus? = BlinkID.DetectionStatus(rawValue: str)
     resultPtr.storeBytes(of: result, as: BlinkID.DetectionStatus?.self)
 }
+
+extension BlinkID.CameraHardwareInfoPinglet.AvailableCamerasItem {
+    @_silgen_name("DBW_AvailableCamerasItem_init_F1EC9967_1")
+    public static func _dbw_init_F1EC9967_1(_ cameraFacing: CameraHardwareInfoPinglet.CameraFacing, _ focus: Optional<CameraHardwareInfoPinglet.Focus>) -> BlinkID.CameraHardwareInfoPinglet.AvailableCamerasItem {
+        return BlinkID.CameraHardwareInfoPinglet.AvailableCamerasItem(cameraFacing: cameraFacing, focus: focus)
+    }
+}
 @_silgen_name("SBW_BlinkID_CameraHardwareInfoPinglet_CameraFacing_InitWithRawValue")
 public func SBW_BlinkID_CameraHardwareInfoPinglet_CameraFacing_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
     let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -529,6 +536,13 @@ public func SBW_BlinkID_ScanningConditionsPinglet_DeviceOrientation_InitWithRawV
     }
     let result: BlinkID.ScanningConditionsPinglet.DeviceOrientation? = BlinkID.ScanningConditionsPinglet.DeviceOrientation(rawValue: str)
     resultPtr.storeBytes(of: result, as: BlinkID.ScanningConditionsPinglet.DeviceOrientation?.self)
+}
+
+extension BlinkID.ScanningConditionsPinglet {
+    @_silgen_name("DBW_ScanningConditionsPinglet_init_48FEBF58_1")
+    public static func _dbw_init_48FEBF58_1(_ updateType: ScanningConditionsPinglet.UpdateType, _ deviceOrientation: Optional<ScanningConditionsPinglet.DeviceOrientation>) -> BlinkID.ScanningConditionsPinglet {
+        return BlinkID.ScanningConditionsPinglet(updateType: updateType, deviceOrientation: deviceOrientation)
+    }
 }
 @_silgen_name("SBW_BlinkID_WrapperProductInfoPinglet_WrapperProduct_InitWithRawValue")
 public func SBW_BlinkID_WrapperProductInfoPinglet_WrapperProduct_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
@@ -605,6 +619,20 @@ public func SBW_BlinkID_UxEventPinglet_HelpCloseType_InitWithRawValue(_ resultPt
     let result: BlinkID.UxEventPinglet.HelpCloseType? = BlinkID.UxEventPinglet.HelpCloseType(rawValue: str)
     resultPtr.storeBytes(of: result, as: BlinkID.UxEventPinglet.HelpCloseType?.self)
 }
+
+extension BlinkID.UxEventPinglet {
+    @_silgen_name("DBW_UxEventPinglet_init_5F05CCED_2")
+    public static func _dbw_init_5F05CCED_2(_ eventType: UxEventPinglet.EventType, _ errorMessageType: Optional<UxEventPinglet.ErrorMessageType>) -> BlinkID.UxEventPinglet {
+        return BlinkID.UxEventPinglet(eventType: eventType, errorMessageType: errorMessageType)
+    }
+}
+
+extension BlinkID.UxEventPinglet {
+    @_silgen_name("DBW_UxEventPinglet_init_5F05CCED_1")
+    public static func _dbw_init_5F05CCED_1(_ eventType: UxEventPinglet.EventType, _ errorMessageType: Optional<UxEventPinglet.ErrorMessageType>, _ alertType: Optional<UxEventPinglet.AlertType>) -> BlinkID.UxEventPinglet {
+        return BlinkID.UxEventPinglet(eventType: eventType, errorMessageType: errorMessageType, alertType: alertType)
+    }
+}
 @_silgen_name("SBW_BlinkID_LogPinglet_LogLevel_InitWithRawValue")
 public func SBW_BlinkID_LogPinglet_LogLevel_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
     let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -680,6 +708,13 @@ public func SBW_BlinkID_ErrorPinglet_ErrorType_InitWithRawValue(_ resultPtr: Uns
     let result: BlinkID.ErrorPinglet.ErrorType? = BlinkID.ErrorPinglet.ErrorType(rawValue: str)
     resultPtr.storeBytes(of: result, as: BlinkID.ErrorPinglet.ErrorType?.self)
 }
+
+extension BlinkID.ErrorPinglet {
+    @_silgen_name("DBW_ErrorPinglet_init_DF08FB67_1")
+    public static func _dbw_init_DF08FB67_1(_ errorType: ErrorPinglet.ErrorType, _ errorMessage: String) -> BlinkID.ErrorPinglet {
+        return BlinkID.ErrorPinglet(errorType: errorType, errorMessage: errorMessage)
+    }
+}
 @_silgen_name("SBW_BlinkID_CameraInputInfoPinglet_CameraFacing_InitWithRawValue")
 public func SBW_BlinkID_CameraInputInfoPinglet_CameraFacing_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
     let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -694,6 +729,13 @@ public func SBW_BlinkID_CameraInputInfoPinglet_CameraFacing_InitWithRawValue(_ r
     }
     let result: BlinkID.CameraInputInfoPinglet.CameraFacing? = BlinkID.CameraInputInfoPinglet.CameraFacing(rawValue: str)
     resultPtr.storeBytes(of: result, as: BlinkID.CameraInputInfoPinglet.CameraFacing?.self)
+}
+
+extension BlinkID.CrashMonitor {
+    @_silgen_name("DBW_CrashMonitor_startMonitoring_9604ED08_1")
+    public func _dbw_startMonitoring_9604ED08_1() -> () {
+        return self.startMonitoring()
+    }
 }
 @_silgen_name("SBW_BlinkID_AnonymizationMode_InitWithRawValue")
 public func SBW_BlinkID_AnonymizationMode_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
@@ -725,8 +767,218 @@ public func SBW_BlinkID_ProcessingStatus_InitWithRawValue(_ resultPtr: UnsafeMut
     let result: BlinkID.ProcessingStatus? = BlinkID.ProcessingStatus(rawValue: str)
     resultPtr.storeBytes(of: result, as: BlinkID.ProcessingStatus?.self)
 }
+
+extension BlinkID.CroppedImageSettings {
+    @_silgen_name("DBW_CroppedImageSettings_init_D719810C_4")
+    public static func _dbw_init_D719810C_4(_ dotsPerInch: Int) -> BlinkID.CroppedImageSettings {
+        return BlinkID.CroppedImageSettings(dotsPerInch: dotsPerInch)
+    }
+}
+
+extension BlinkID.CroppedImageSettings {
+    @_silgen_name("DBW_CroppedImageSettings_init_D719810C_3")
+    public static func _dbw_init_D719810C_3(_ dotsPerInch: Int, _ extensionFactor: Float) -> BlinkID.CroppedImageSettings {
+        return BlinkID.CroppedImageSettings(dotsPerInch: dotsPerInch, extensionFactor: extensionFactor)
+    }
+}
+
+extension BlinkID.CroppedImageSettings {
+    @_silgen_name("DBW_CroppedImageSettings_init_D719810C_2")
+    public static func _dbw_init_D719810C_2(_ dotsPerInch: Int, _ extensionFactor: Float, _ returnDocumentImage: Bool) -> BlinkID.CroppedImageSettings {
+        return BlinkID.CroppedImageSettings(dotsPerInch: dotsPerInch, extensionFactor: extensionFactor, returnDocumentImage: returnDocumentImage)
+    }
+}
+
+extension BlinkID.CroppedImageSettings {
+    @_silgen_name("DBW_CroppedImageSettings_init_D719810C_1")
+    public static func _dbw_init_D719810C_1(_ dotsPerInch: Int, _ extensionFactor: Float, _ returnDocumentImage: Bool, _ returnFaceImage: Bool) -> BlinkID.CroppedImageSettings {
+        return BlinkID.CroppedImageSettings(dotsPerInch: dotsPerInch, extensionFactor: extensionFactor, returnDocumentImage: returnDocumentImage, returnFaceImage: returnFaceImage)
+    }
+}
+
+extension BlinkID.DocumentFilter {
+    @_silgen_name("DBW_DocumentFilter_init_DF45DA38_3")
+    public static func _dbw_init_DF45DA38_3() -> BlinkID.DocumentFilter {
+        return BlinkID.DocumentFilter()
+    }
+}
+
+extension BlinkID.DocumentFilter {
+    @_silgen_name("DBW_DocumentFilter_init_DF45DA38_2")
+    public static func _dbw_init_DF45DA38_2(_ country: Optional<Country>) -> BlinkID.DocumentFilter {
+        return BlinkID.DocumentFilter(country: country)
+    }
+}
+
+extension BlinkID.DocumentFilter {
+    @_silgen_name("DBW_DocumentFilter_init_DF45DA38_1")
+    public static func _dbw_init_DF45DA38_1(_ country: Optional<Country>, _ region: Optional<Region>) -> BlinkID.DocumentFilter {
+        return BlinkID.DocumentFilter(country: country, region: region)
+    }
+}
+
+extension BlinkID.DocumentNumberAnonymizationSettings {
+    @_silgen_name("DBW_DocumentNumberAnonymizationSettings_init_9ED2457E_2")
+    public static func _dbw_init_9ED2457E_2() -> BlinkID.DocumentNumberAnonymizationSettings {
+        return BlinkID.DocumentNumberAnonymizationSettings()
+    }
+}
+
+extension BlinkID.DocumentNumberAnonymizationSettings {
+    @_silgen_name("DBW_DocumentNumberAnonymizationSettings_init_9ED2457E_1")
+    public static func _dbw_init_9ED2457E_1(_ prefixDigitsVisible: Int) -> BlinkID.DocumentNumberAnonymizationSettings {
+        return BlinkID.DocumentNumberAnonymizationSettings(prefixDigitsVisible: prefixDigitsVisible)
+    }
+}
+
+extension BlinkID.DocumentAnonymizationSettings {
+    @_silgen_name("DBW_DocumentAnonymizationSettings_init_852BC557_1")
+    public static func _dbw_init_852BC557_1(_ documentFilter: DocumentFilter, _ fields: Array<FieldType>) -> BlinkID.DocumentAnonymizationSettings {
+        return BlinkID.DocumentAnonymizationSettings(documentFilter: documentFilter, fields: fields)
+    }
+}
+
+extension BlinkID.RecognitionModeFilter {
+    @_silgen_name("DBW_RecognitionModeFilter_init_4B33C3DB_4")
+    public static func _dbw_init_4B33C3DB_4(_ enableMrzId: Bool, _ enableMrzVisa: Bool) -> BlinkID.RecognitionModeFilter {
+        return BlinkID.RecognitionModeFilter(enableMrzId: enableMrzId, enableMrzVisa: enableMrzVisa)
+    }
+}
+
+extension BlinkID.RecognitionModeFilter {
+    @_silgen_name("DBW_RecognitionModeFilter_init_4B33C3DB_3")
+    public static func _dbw_init_4B33C3DB_3(_ enableMrzId: Bool, _ enableMrzVisa: Bool, _ enableMrzPassport: Bool) -> BlinkID.RecognitionModeFilter {
+        return BlinkID.RecognitionModeFilter(enableMrzId: enableMrzId, enableMrzVisa: enableMrzVisa, enableMrzPassport: enableMrzPassport)
+    }
+}
+
+extension BlinkID.RecognitionModeFilter {
+    @_silgen_name("DBW_RecognitionModeFilter_init_4B33C3DB_2")
+    public static func _dbw_init_4B33C3DB_2(_ enableMrzId: Bool, _ enableMrzVisa: Bool, _ enableMrzPassport: Bool, _ enablePhotoId: Bool) -> BlinkID.RecognitionModeFilter {
+        return BlinkID.RecognitionModeFilter(enableMrzId: enableMrzId, enableMrzVisa: enableMrzVisa, enableMrzPassport: enableMrzPassport, enablePhotoId: enablePhotoId)
+    }
+}
+
+extension BlinkID.RecognitionModeFilter {
+    @_silgen_name("DBW_RecognitionModeFilter_init_4B33C3DB_1")
+    public static func _dbw_init_4B33C3DB_1(_ enableMrzId: Bool, _ enableMrzVisa: Bool, _ enableMrzPassport: Bool, _ enablePhotoId: Bool, _ enableBarcodeId: Bool) -> BlinkID.RecognitionModeFilter {
+        return BlinkID.RecognitionModeFilter(enableMrzId: enableMrzId, enableMrzVisa: enableMrzVisa, enableMrzPassport: enableMrzPassport, enablePhotoId: enablePhotoId, enableBarcodeId: enableBarcodeId)
+    }
+}
+
+extension BlinkID.ScanningSettings {
+    @_silgen_name("DBW_ScanningSettings_init_00CBF83A_4")
+    public static func _dbw_init_00CBF83A_4(_ blurDetectionLevel: DetectionLevel, _ skipImagesWithBlur: Bool, _ glareDetectionLevel: DetectionLevel, _ skipImagesWithGlare: Bool, _ tiltDetectionLevel: DetectionLevel, _ skipImagesWithInadequateLightingConditions: Bool, _ skipImagesOccludedByHand: Bool, _ combineResultsFromMultipleInputImages: Bool, _ enableBarcodeScanOnly: Bool, _ customDocumentRules: Optional<Array<DocumentRules>>, _ anonymizationMode: AnonymizationMode, _ customDocumentAnonymizationSettings: Optional<Array<DocumentAnonymizationSettings>>, _ returnInputImages: Bool, _ scanCroppedDocumentImage: Bool, _ enableCharacterValidation: Bool, _ recognitionModeFilter: RecognitionModeFilter, _ inputImageMargin: Float, _ scanUnsupportedBack: Bool) -> BlinkID.ScanningSettings {
+        return BlinkID.ScanningSettings(blurDetectionLevel: blurDetectionLevel, skipImagesWithBlur: skipImagesWithBlur, glareDetectionLevel: glareDetectionLevel, skipImagesWithGlare: skipImagesWithGlare, tiltDetectionLevel: tiltDetectionLevel, skipImagesWithInadequateLightingConditions: skipImagesWithInadequateLightingConditions, skipImagesOccludedByHand: skipImagesOccludedByHand, combineResultsFromMultipleInputImages: combineResultsFromMultipleInputImages, enableBarcodeScanOnly: enableBarcodeScanOnly, customDocumentRules: customDocumentRules, anonymizationMode: anonymizationMode, customDocumentAnonymizationSettings: customDocumentAnonymizationSettings, returnInputImages: returnInputImages, scanCroppedDocumentImage: scanCroppedDocumentImage, enableCharacterValidation: enableCharacterValidation, recognitionModeFilter: recognitionModeFilter, inputImageMargin: inputImageMargin, scanUnsupportedBack: scanUnsupportedBack)
+    }
+}
+
+extension BlinkID.ScanningSettings {
+    @_silgen_name("DBW_ScanningSettings_init_00CBF83A_3")
+    public static func _dbw_init_00CBF83A_3(_ blurDetectionLevel: DetectionLevel, _ skipImagesWithBlur: Bool, _ glareDetectionLevel: DetectionLevel, _ skipImagesWithGlare: Bool, _ tiltDetectionLevel: DetectionLevel, _ skipImagesWithInadequateLightingConditions: Bool, _ skipImagesOccludedByHand: Bool, _ combineResultsFromMultipleInputImages: Bool, _ enableBarcodeScanOnly: Bool, _ customDocumentRules: Optional<Array<DocumentRules>>, _ anonymizationMode: AnonymizationMode, _ customDocumentAnonymizationSettings: Optional<Array<DocumentAnonymizationSettings>>, _ returnInputImages: Bool, _ scanCroppedDocumentImage: Bool, _ enableCharacterValidation: Bool, _ recognitionModeFilter: RecognitionModeFilter, _ inputImageMargin: Float, _ scanUnsupportedBack: Bool, _ allowUncertainFrontSideScan: Bool) -> BlinkID.ScanningSettings {
+        return BlinkID.ScanningSettings(blurDetectionLevel: blurDetectionLevel, skipImagesWithBlur: skipImagesWithBlur, glareDetectionLevel: glareDetectionLevel, skipImagesWithGlare: skipImagesWithGlare, tiltDetectionLevel: tiltDetectionLevel, skipImagesWithInadequateLightingConditions: skipImagesWithInadequateLightingConditions, skipImagesOccludedByHand: skipImagesOccludedByHand, combineResultsFromMultipleInputImages: combineResultsFromMultipleInputImages, enableBarcodeScanOnly: enableBarcodeScanOnly, customDocumentRules: customDocumentRules, anonymizationMode: anonymizationMode, customDocumentAnonymizationSettings: customDocumentAnonymizationSettings, returnInputImages: returnInputImages, scanCroppedDocumentImage: scanCroppedDocumentImage, enableCharacterValidation: enableCharacterValidation, recognitionModeFilter: recognitionModeFilter, inputImageMargin: inputImageMargin, scanUnsupportedBack: scanUnsupportedBack, allowUncertainFrontSideScan: allowUncertainFrontSideScan)
+    }
+}
+
+extension BlinkID.ScanningSettings {
+    @_silgen_name("DBW_ScanningSettings_init_00CBF83A_2")
+    public static func _dbw_init_00CBF83A_2(_ blurDetectionLevel: DetectionLevel, _ skipImagesWithBlur: Bool, _ glareDetectionLevel: DetectionLevel, _ skipImagesWithGlare: Bool, _ tiltDetectionLevel: DetectionLevel, _ skipImagesWithInadequateLightingConditions: Bool, _ skipImagesOccludedByHand: Bool, _ combineResultsFromMultipleInputImages: Bool, _ enableBarcodeScanOnly: Bool, _ customDocumentRules: Optional<Array<DocumentRules>>, _ anonymizationMode: AnonymizationMode, _ customDocumentAnonymizationSettings: Optional<Array<DocumentAnonymizationSettings>>, _ returnInputImages: Bool, _ scanCroppedDocumentImage: Bool, _ enableCharacterValidation: Bool, _ recognitionModeFilter: RecognitionModeFilter, _ inputImageMargin: Float, _ scanUnsupportedBack: Bool, _ allowUncertainFrontSideScan: Bool, _ maxAllowedMismatchesPerField: Int) -> BlinkID.ScanningSettings {
+        return BlinkID.ScanningSettings(blurDetectionLevel: blurDetectionLevel, skipImagesWithBlur: skipImagesWithBlur, glareDetectionLevel: glareDetectionLevel, skipImagesWithGlare: skipImagesWithGlare, tiltDetectionLevel: tiltDetectionLevel, skipImagesWithInadequateLightingConditions: skipImagesWithInadequateLightingConditions, skipImagesOccludedByHand: skipImagesOccludedByHand, combineResultsFromMultipleInputImages: combineResultsFromMultipleInputImages, enableBarcodeScanOnly: enableBarcodeScanOnly, customDocumentRules: customDocumentRules, anonymizationMode: anonymizationMode, customDocumentAnonymizationSettings: customDocumentAnonymizationSettings, returnInputImages: returnInputImages, scanCroppedDocumentImage: scanCroppedDocumentImage, enableCharacterValidation: enableCharacterValidation, recognitionModeFilter: recognitionModeFilter, inputImageMargin: inputImageMargin, scanUnsupportedBack: scanUnsupportedBack, allowUncertainFrontSideScan: allowUncertainFrontSideScan, maxAllowedMismatchesPerField: maxAllowedMismatchesPerField)
+    }
+}
+
+extension BlinkID.ScanningSettings {
+    @_silgen_name("DBW_ScanningSettings_init_00CBF83A_1")
+    public static func _dbw_init_00CBF83A_1(_ blurDetectionLevel: DetectionLevel, _ skipImagesWithBlur: Bool, _ glareDetectionLevel: DetectionLevel, _ skipImagesWithGlare: Bool, _ tiltDetectionLevel: DetectionLevel, _ skipImagesWithInadequateLightingConditions: Bool, _ skipImagesOccludedByHand: Bool, _ combineResultsFromMultipleInputImages: Bool, _ enableBarcodeScanOnly: Bool, _ customDocumentRules: Optional<Array<DocumentRules>>, _ anonymizationMode: AnonymizationMode, _ customDocumentAnonymizationSettings: Optional<Array<DocumentAnonymizationSettings>>, _ returnInputImages: Bool, _ scanCroppedDocumentImage: Bool, _ enableCharacterValidation: Bool, _ recognitionModeFilter: RecognitionModeFilter, _ inputImageMargin: Float, _ scanUnsupportedBack: Bool, _ allowUncertainFrontSideScan: Bool, _ maxAllowedMismatchesPerField: Int, _ scanPassportDataPageOnly: Bool) -> BlinkID.ScanningSettings {
+        return BlinkID.ScanningSettings(blurDetectionLevel: blurDetectionLevel, skipImagesWithBlur: skipImagesWithBlur, glareDetectionLevel: glareDetectionLevel, skipImagesWithGlare: skipImagesWithGlare, tiltDetectionLevel: tiltDetectionLevel, skipImagesWithInadequateLightingConditions: skipImagesWithInadequateLightingConditions, skipImagesOccludedByHand: skipImagesOccludedByHand, combineResultsFromMultipleInputImages: combineResultsFromMultipleInputImages, enableBarcodeScanOnly: enableBarcodeScanOnly, customDocumentRules: customDocumentRules, anonymizationMode: anonymizationMode, customDocumentAnonymizationSettings: customDocumentAnonymizationSettings, returnInputImages: returnInputImages, scanCroppedDocumentImage: scanCroppedDocumentImage, enableCharacterValidation: enableCharacterValidation, recognitionModeFilter: recognitionModeFilter, inputImageMargin: inputImageMargin, scanUnsupportedBack: scanUnsupportedBack, allowUncertainFrontSideScan: allowUncertainFrontSideScan, maxAllowedMismatchesPerField: maxAllowedMismatchesPerField, scanPassportDataPageOnly: scanPassportDataPageOnly)
+    }
+}
+
+extension BlinkID.BlinkIDSessionSettings {
+    @_silgen_name("DBW_BlinkIDSessionSettings_init_AA542B09_4")
+    public static func _dbw_init_AA542B09_4() -> BlinkID.BlinkIDSessionSettings {
+        return BlinkID.BlinkIDSessionSettings()
+    }
+}
+
+extension BlinkID.BlinkIDSessionSettings {
+    @_silgen_name("DBW_BlinkIDSessionSettings_init_AA542B09_3")
+    public static func _dbw_init_AA542B09_3(_ inputImageSource: InputImageSource) -> BlinkID.BlinkIDSessionSettings {
+        return BlinkID.BlinkIDSessionSettings(inputImageSource: inputImageSource)
+    }
+}
+
+extension BlinkID.BlinkIDSessionSettings {
+    @_silgen_name("DBW_BlinkIDSessionSettings_init_AA542B09_2")
+    public static func _dbw_init_AA542B09_2(_ inputImageSource: InputImageSource, _ scanningMode: ScanningMode) -> BlinkID.BlinkIDSessionSettings {
+        return BlinkID.BlinkIDSessionSettings(inputImageSource: inputImageSource, scanningMode: scanningMode)
+    }
+}
+
+extension BlinkID.BlinkIDSessionSettings {
+    @_silgen_name("DBW_BlinkIDSessionSettings_init_AA542B09_1")
+    public static func _dbw_init_AA542B09_1(_ inputImageSource: InputImageSource, _ scanningMode: ScanningMode, _ scanningSettings: ScanningSettings) -> BlinkID.BlinkIDSessionSettings {
+        return BlinkID.BlinkIDSessionSettings(inputImageSource: inputImageSource, scanningMode: scanningMode, scanningSettings: scanningSettings)
+    }
+}
+
+extension BlinkID.RegionOfInterest {
+    @_silgen_name("DBW_RegionOfInterest_init_580B52E9_4")
+    public static func _dbw_init_580B52E9_4() -> BlinkID.RegionOfInterest {
+        return BlinkID.RegionOfInterest()
+    }
+}
+
+extension BlinkID.RegionOfInterest {
+    @_silgen_name("DBW_RegionOfInterest_init_580B52E9_3")
+    public static func _dbw_init_580B52E9_3(_ x: Float) -> BlinkID.RegionOfInterest {
+        return BlinkID.RegionOfInterest(x: x)
+    }
+}
+
+extension BlinkID.RegionOfInterest {
+    @_silgen_name("DBW_RegionOfInterest_init_580B52E9_2")
+    public static func _dbw_init_580B52E9_2(_ x: Float, _ y: Float) -> BlinkID.RegionOfInterest {
+        return BlinkID.RegionOfInterest(x: x, y: y)
+    }
+}
+
+extension BlinkID.RegionOfInterest {
+    @_silgen_name("DBW_RegionOfInterest_init_580B52E9_1")
+    public static func _dbw_init_580B52E9_1(_ x: Float, _ y: Float, _ width: Float) -> BlinkID.RegionOfInterest {
+        return BlinkID.RegionOfInterest(x: x, y: y, width: width)
+    }
+}
+
+extension BlinkID.BlinkIDSdkSettings {
+    @_silgen_name("DBW_BlinkIDSdkSettings_init_0338FA82_4")
+    public static func _dbw_init_0338FA82_4(_ licenseKey: String, _ licensee: Optional<String>, _ helloLogEnabled: Bool, _ downloadResources: Bool, _ resourceDownloadUrl: String) -> BlinkID.BlinkIDSdkSettings {
+        return BlinkID.BlinkIDSdkSettings(licenseKey: licenseKey, licensee: licensee, helloLogEnabled: helloLogEnabled, downloadResources: downloadResources, resourceDownloadUrl: resourceDownloadUrl)
+    }
+}
+
+extension BlinkID.BlinkIDSdkSettings {
+    @_silgen_name("DBW_BlinkIDSdkSettings_init_0338FA82_3")
+    public static func _dbw_init_0338FA82_3(_ licenseKey: String, _ licensee: Optional<String>, _ helloLogEnabled: Bool, _ downloadResources: Bool, _ resourceDownloadUrl: String, _ resourceLocalFolder: String) -> BlinkID.BlinkIDSdkSettings {
+        return BlinkID.BlinkIDSdkSettings(licenseKey: licenseKey, licensee: licensee, helloLogEnabled: helloLogEnabled, downloadResources: downloadResources, resourceDownloadUrl: resourceDownloadUrl, resourceLocalFolder: resourceLocalFolder)
+    }
+}
+
+extension BlinkID.BlinkIDSdkSettings {
+    @_silgen_name("DBW_BlinkIDSdkSettings_init_0338FA82_2")
+    public static func _dbw_init_0338FA82_2(_ licenseKey: String, _ licensee: Optional<String>, _ helloLogEnabled: Bool, _ downloadResources: Bool, _ resourceDownloadUrl: String, _ resourceLocalFolder: String, _ bundleURL: Optional<URL>) -> BlinkID.BlinkIDSdkSettings {
+        return BlinkID.BlinkIDSdkSettings(licenseKey: licenseKey, licensee: licensee, helloLogEnabled: helloLogEnabled, downloadResources: downloadResources, resourceDownloadUrl: resourceDownloadUrl, resourceLocalFolder: resourceLocalFolder, bundleURL: bundleURL)
+    }
+}
+
+extension BlinkID.BlinkIDSdkSettings {
+    @_silgen_name("DBW_BlinkIDSdkSettings_init_0338FA82_1")
+    public static func _dbw_init_0338FA82_1(_ licenseKey: String, _ licensee: Optional<String>, _ helloLogEnabled: Bool, _ downloadResources: Bool, _ resourceDownloadUrl: String, _ resourceLocalFolder: String, _ bundleURL: Optional<URL>, _ resourceRequestTimeout: RequestTimeout) -> BlinkID.BlinkIDSdkSettings {
+        return BlinkID.BlinkIDSdkSettings(licenseKey: licenseKey, licensee: licensee, helloLogEnabled: helloLogEnabled, downloadResources: downloadResources, resourceDownloadUrl: resourceDownloadUrl, resourceLocalFolder: resourceLocalFolder, bundleURL: bundleURL, resourceRequestTimeout: resourceRequestTimeout)
+    }
+}
 @_silgen_name("$s7BlinkID0A5IDSdkC21createScanningSession15sessionSettingsAA0A9IDSessionCAA0aiH0V_tYaKF_async")
-public func PInvoke_createScanningSession_4203E5DD(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, sessionSettings: UnsafeRawPointer, _self: OpaquePointer){
+public func PInvoke_createScanningSession_4A2C6661(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, sessionSettings: UnsafeRawPointer, _self: OpaquePointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let sessionSettingsValue = sessionSettings.assumingMemoryBound(to: BlinkID.BlinkIDSessionSettings.self).pointee
@@ -756,9 +1008,43 @@ public func PInvoke_createScanningSession_4203E5DD(callback: @escaping @conventi
         }
     }
 }
+
+extension BlinkID.BlinkIDSdk {
+    @_silgen_name("DBW_BlinkIDSdk_createScanningSession_F9556ADF_1")
+    public func _dbw_createScanningSession_F9556ADF_1() async throws -> BlinkIDSession {
+        return try await self.createScanningSession()
+    }
+}
+@_silgen_name("DBW_BlinkIDSdk_createScanningSession_F9556ADF_1_async")
+public func PInvoke_createScanningSession_4E2CC76E(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _self: OpaquePointer){
+    let __self = unsafeBitCast(_self, to: BlinkID.BlinkIDSdk.self)
+    // selfInstance is safe - C# called Arc.Retain before invoking this method
+    Task {
+        do {
+            let resultcreateScanningSession = try await __self.createScanningSession(
+                
+            )
+            // Marshal complex type to pointer (C# will free via SBW_Free)
+                        let _resultPtr: OpaquePointer
+                        do {
+                            let _rawPtr = UnsafeMutableRawPointer.allocate(
+                                byteCount: MemoryLayout<BlinkID.BlinkIDSession>.size,
+                                alignment: MemoryLayout<BlinkID.BlinkIDSession>.alignment)
+                            _rawPtr.storeBytes(of: resultcreateScanningSession, as: BlinkID.BlinkIDSession.self)
+                            // Retain class to prevent ARC deallocation before C# processes it
+                            _ = Unmanaged.passRetained(resultcreateScanningSession as AnyObject)
+                            _resultPtr = OpaquePointer(_rawPtr)
+                        }
+            callback(_resultPtr, task)
+        } catch {
+            let errorMessage = String(describing: error)
+            errorMessage.withCString { errorCallback($0, task) }
+        }
+    }
+}
 extension BlinkID.BlinkIDSdk {
     @_silgen_name("$s7BlinkID0A5IDSdkC06createaC012withSettingsAcA0acF0V_tYaKFZ_async")
-    public static func PInvoke_createBlinkIDSdk_3EF1C001(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, withSettings: UnsafeRawPointer){
+    public static func PInvoke_createBlinkIDSdk_720D32F2(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, withSettings: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let withSettingsValue = withSettings.assumingMemoryBound(to: BlinkID.BlinkIDSdkSettings.self).pointee
@@ -790,7 +1076,7 @@ extension BlinkID.BlinkIDSdk {
 }
 extension BlinkID.BlinkIDSdk {
     @_silgen_name("$s7BlinkID0A5IDSdkC19refreshLicenseLeaseyyYaKFZ_async")
-    public static func PInvoke_refreshLicenseLease_31E4C4FB(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
+    public static func PInvoke_refreshLicenseLease_4DFEF128(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
         
         Task {
             do {
@@ -822,7 +1108,7 @@ public func SBW_BlinkID_RecognitionMode_InitWithRawValue(_ resultPtr: UnsafeMuta
     resultPtr.storeBytes(of: result, as: BlinkID.RecognitionMode?.self)
 }
 @_silgen_name("$s7BlinkID11PingManagerC10addPinglet7pinglet13sessionNumberyx_SitYaAA0F0RzlF_async")
-public func PInvoke_addPinglet_1BC72B9E<P>(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, pinglet: P, sessionNumber: Swift.Int) where P : Pinglet{
+public func PInvoke_addPinglet_494FD30E<P>(callback: @escaping @convention(c) (Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, pinglet: P, sessionNumber: Swift.Int) where P : Pinglet{
     
     // selfInstance is safe - C# called Arc.Retain before invoking this method
     Task {
@@ -839,7 +1125,7 @@ public func PInvoke_addPinglet_1BC72B9E<P>(callback: @escaping @convention(c) (I
     }
 }
 @_silgen_name("$s7BlinkID11PingManagerC12sendPingletsAA0C6StatusOyYaF_async")
-public func PInvoke_sendPinglets_3B2A271C(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
+public func PInvoke_sendPinglets_11A7ADF3(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64){
     
     // selfInstance is safe - C# called Arc.Retain before invoking this method
     Task {

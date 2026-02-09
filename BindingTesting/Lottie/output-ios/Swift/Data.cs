@@ -187,4 +187,7 @@ public struct Data : ISwiftObject
     /// <param name="data">The Swift.Data to convert.</param>
     public static implicit operator Foundation.NSData(Data data) => data.ToNSData();
 #endif
+
+    /// <inheritdoc/>
+    public void Dispose() { }
 }

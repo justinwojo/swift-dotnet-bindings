@@ -1,14 +1,22 @@
 {
   "ModuleName": "BlinkID",
-  "GeneratedAt": "2026-02-05T07:39:42.410024+00:00",
-  "TotalTypes": 119,
+  "GeneratedAt": "2026-02-09T03:41:54.422735+00:00",
+  "TotalTypes": 116,
   "EmittedTypes": 116,
   "SkippedTypes": 0,
-  "TotalMembers": 655,
-  "EmittedMembers": 567,
-  "SkippedMembers": 5,
+  "TotalMembers": 619,
+  "EmittedMembers": 612,
+  "SkippedMembers": 7,
   "SynthesizedMembers": 546,
   "SkippedItems": [
+    {
+      "Kind": "Property",
+      "Name": "unownedExecutor",
+      "ContainingType": "BlinkID.ProcessingActor",
+      "Reason": "UnsupportedType",
+      "Details": "Actor runtime property 'unownedExecutor' is not user-facing.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
+    },
     {
       "Kind": "Property",
       "Name": "buffer",
@@ -24,6 +32,14 @@
       "Reason": "UnsupportedSignature",
       "Details": "Constructor signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Property",
+      "Name": "unownedExecutor",
+      "ContainingType": "BlinkID.PingManager",
+      "Reason": "UnsupportedType",
+      "Details": "Actor runtime property 'unownedExecutor' is not user-facing.",
+      "RecommendedWorkaround": "Ensure the type is exported in the module's public ABI."
     },
     {
       "Kind": "Method",
@@ -50,5 +66,6 @@
       "RecommendedWorkaround": null
     }
   ],
-  "WrappedItems": []
+  "WrappedItems": [],
+  "BridgedViews": []
 }

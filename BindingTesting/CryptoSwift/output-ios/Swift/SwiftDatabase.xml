@@ -31,10 +31,10 @@
         <entity managedNameSpace="System" managedTypeName="Double">
             <typedeclaration kind="struct" name="Double" module="Swift" mangledName="$sSd" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
+        <entity managedNameSpace="" managedTypeName="nint">
             <typedeclaration kind="struct" name="Int" module="Swift" mangledName="$sSi" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="UIntPtr">
+        <entity managedNameSpace="" managedTypeName="nuint">
             <typedeclaration kind="struct" name="UInt" module="Swift" mangledName="$sSu" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <entity managedNameSpace="System" managedTypeName="Boolean">

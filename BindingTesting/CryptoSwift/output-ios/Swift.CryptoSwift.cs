@@ -1,6 +1,9 @@
+#nullable enable
+
 using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Swift;
@@ -48,13 +51,13 @@ namespace Swift.CryptoSwift
     public unsafe class CryptoSwift
     {
         
-        public static System.IntPtr StrideCount( System.IntPtr from,  System.IntPtr to,  System.IntPtr by)
+        public static nint StrideCount( nint from,  nint to,  nint by)
         {
             try
             {
                 
                 
-                var result = PInvoke_strideCount_440A620A(from, to, by);
+                var result = PInvoke_strideCount_099EB80B(from, to, by);
                 
                 return result;
             }
@@ -67,45 +70,45 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift11strideCount4from2to2byS2i_S2itF")]
-        private static extern System.IntPtr PInvoke_strideCount_440A620A( System.IntPtr from,  System.IntPtr to,  System.IntPtr by);
+        private static extern nint PInvoke_strideCount_099EB80B( nint from,  nint to,  nint by);
         
         
-        public static unsafe IReadOnlyList<System.Byte> ArrayOfBytes<T0>( T0 value,  System.IntPtr length)
+        public static unsafe IReadOnlyList<System.Byte> ArrayOfBytes<T0>( T0 _value,  nint totalBytes)
             where T0 : ISwiftObject
         {
             TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-            IntPtr valuePayload = IntPtr.Zero;
+            IntPtr _valuePayload = IntPtr.Zero;
             try
             {
-                Span<byte> valuePayloadSpan = stackalloc byte[(int)T0Metadata.Size];
-                valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valuePayloadSpan));
-                SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);
+                Span<byte> _valuePayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                _valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(_valuePayloadSpan));
+                SwiftMarshal.MarshalToSwift(_value, ref _valuePayloadSpan);
                 
                 
-                var result = PInvoke_arrayOfBytes_7F40D80C(valuePayload, length, T0Metadata);
+                var result = PInvoke_arrayOfBytes_352B61B9(_valuePayload, totalBytes, T0Metadata);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
             
             finally
             {
-                T0Metadata.ValueWitnessTable->Destroy((void *)valuePayload, T0Metadata);
+                T0Metadata.ValueWitnessTable->Destroy((void *)_valuePayload, T0Metadata);
             }
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift12arrayOfBytes5value6lengthSays5UInt8VGx_Sits17FixedWidthIntegerRzlF")]
-        private static extern IntPtr PInvoke_arrayOfBytes_7F40D80C( IntPtr valuePayload,  System.IntPtr length,  TypeMetadata T0Metadata);
+        private static extern IntPtr PInvoke_arrayOfBytes_352B61B9( IntPtr _valuePayload,  nint totalBytes,  TypeMetadata T0Metadata);
         
         
-        public static System.Byte RotateLeft( System.Byte arg0,  System.Byte by)
+        public static System.Byte RotateLeft( System.Byte _value,  System.Byte by)
         {
             try
             {
                 
                 
-                var result = PInvoke_rotateLeft_4048E335(arg0, by);
+                var result = PInvoke_rotateLeft_28AA8CE0(_value, by);
                 
                 return result;
             }
@@ -118,16 +121,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift10rotateLeft_2bys5UInt8VAE_AEtF")]
-        private static extern System.Byte PInvoke_rotateLeft_4048E335( System.Byte arg0,  System.Byte by);
+        private static extern System.Byte PInvoke_rotateLeft_28AA8CE0( System.Byte _value,  System.Byte by);
         
         
-        public static System.UInt16 RotateLeft( System.UInt16 arg0,  System.UInt16 by)
+        public static System.UInt16 RotateLeft( System.UInt16 _value,  System.UInt16 by)
         {
             try
             {
                 
                 
-                var result = PInvoke_rotateLeft_3F599166(arg0, by);
+                var result = PInvoke_rotateLeft_5658EB55(_value, by);
                 
                 return result;
             }
@@ -140,16 +143,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift10rotateLeft_2bys6UInt16VAE_AEtF")]
-        private static extern System.UInt16 PInvoke_rotateLeft_3F599166( System.UInt16 arg0,  System.UInt16 by);
+        private static extern System.UInt16 PInvoke_rotateLeft_5658EB55( System.UInt16 _value,  System.UInt16 by);
         
         
-        public static System.UInt32 RotateLeft( System.UInt32 arg0,  System.UInt32 by)
+        public static System.UInt32 RotateLeft( System.UInt32 _value,  System.UInt32 by)
         {
             try
             {
                 
                 
-                var result = PInvoke_rotateLeft_01CE395E(arg0, by);
+                var result = PInvoke_rotateLeft_2B356599(_value, by);
                 
                 return result;
             }
@@ -162,16 +165,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift10rotateLeft_2bys6UInt32VAE_AEtF")]
-        private static extern System.UInt32 PInvoke_rotateLeft_01CE395E( System.UInt32 arg0,  System.UInt32 by);
+        private static extern System.UInt32 PInvoke_rotateLeft_2B356599( System.UInt32 _value,  System.UInt32 by);
         
         
-        public static System.UInt64 RotateLeft( System.UInt64 arg0,  System.UInt64 by)
+        public static System.UInt64 RotateLeft( System.UInt64 _value,  System.UInt64 by)
         {
             try
             {
                 
                 
-                var result = PInvoke_rotateLeft_61F8BBED(arg0, by);
+                var result = PInvoke_rotateLeft_3321FFA4(_value, by);
                 
                 return result;
             }
@@ -184,16 +187,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift10rotateLeft_2bys6UInt64VAE_AEtF")]
-        private static extern System.UInt64 PInvoke_rotateLeft_61F8BBED( System.UInt64 arg0,  System.UInt64 by);
+        private static extern System.UInt64 PInvoke_rotateLeft_3321FFA4( System.UInt64 _value,  System.UInt64 by);
         
         
-        public static System.UInt16 RotateRight( System.UInt16 arg0,  System.UInt16 by)
+        public static System.UInt16 RotateRight( System.UInt16 _value,  System.UInt16 by)
         {
             try
             {
                 
                 
-                var result = PInvoke_rotateRight_0BE94412(arg0, by);
+                var result = PInvoke_rotateRight_4392662E(_value, by);
                 
                 return result;
             }
@@ -206,16 +209,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift11rotateRight_2bys6UInt16VAE_AEtF")]
-        private static extern System.UInt16 PInvoke_rotateRight_0BE94412( System.UInt16 arg0,  System.UInt16 by);
+        private static extern System.UInt16 PInvoke_rotateRight_4392662E( System.UInt16 _value,  System.UInt16 by);
         
         
-        public static System.UInt32 RotateRight( System.UInt32 arg0,  System.UInt32 by)
+        public static System.UInt32 RotateRight( System.UInt32 _value,  System.UInt32 by)
         {
             try
             {
                 
                 
-                var result = PInvoke_rotateRight_554BE281(arg0, by);
+                var result = PInvoke_rotateRight_7553D034(_value, by);
                 
                 return result;
             }
@@ -228,16 +231,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift11rotateRight_2bys6UInt32VAE_AEtF")]
-        private static extern System.UInt32 PInvoke_rotateRight_554BE281( System.UInt32 arg0,  System.UInt32 by);
+        private static extern System.UInt32 PInvoke_rotateRight_7553D034( System.UInt32 _value,  System.UInt32 by);
         
         
-        public static System.UInt64 RotateRight( System.UInt64 arg0,  System.UInt64 by)
+        public static System.UInt64 RotateRight( System.UInt64 _value,  System.UInt64 by)
         {
             try
             {
                 
                 
-                var result = PInvoke_rotateRight_7319F7B3(arg0, by);
+                var result = PInvoke_rotateRight_223E501B(_value, by);
                 
                 return result;
             }
@@ -250,16 +253,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift11rotateRight_2bys6UInt64VAE_AEtF")]
-        private static extern System.UInt64 PInvoke_rotateRight_7319F7B3( System.UInt64 arg0,  System.UInt64 by);
+        private static extern System.UInt64 PInvoke_rotateRight_223E501B( System.UInt64 _value,  System.UInt64 by);
         
         
-        public static System.Byte Reversed( System.Byte arg0)
+        public static System.Byte Reversed( System.Byte uint32)
         {
             try
             {
                 
                 
-                var result = PInvoke_reversed_3EE56E56(arg0);
+                var result = PInvoke_reversed_66C94F2F(uint32);
                 
                 return result;
             }
@@ -272,16 +275,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8reversedys5UInt8VADF")]
-        private static extern System.Byte PInvoke_reversed_3EE56E56( System.Byte arg0);
+        private static extern System.Byte PInvoke_reversed_66C94F2F( System.Byte uint32);
         
         
-        public static System.UInt32 Reversed( System.UInt32 arg0)
+        public static System.UInt32 Reversed( System.UInt32 uint32)
         {
             try
             {
                 
                 
-                var result = PInvoke_reversed_59E7F418(arg0);
+                var result = PInvoke_reversed_4D301B7B(uint32);
                 
                 return result;
             }
@@ -294,56 +297,56 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8reversedys6UInt32VADF")]
-        private static extern System.UInt32 PInvoke_reversed_59E7F418( System.UInt32 arg0);
+        private static extern System.UInt32 PInvoke_reversed_4D301B7B( System.UInt32 uint32);
         
         
         
-        public static unsafe IReadOnlyList<System.Byte> Xor<T0, T1>( T0 arg0,  T1 arg1)
+        public static unsafe IReadOnlyList<System.Byte> Xor<T0, T1>( T0 left,  T1 right)
             where T0 : ISwiftObject
             where T1 : ISwiftObject
         {
             TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
             TypeMetadata T1Metadata = TypeMetadata.GetTypeMetadataOrThrow<T1>();
-            IntPtr arg0Payload = IntPtr.Zero;
-            IntPtr arg1Payload = IntPtr.Zero;
+            IntPtr leftPayload = IntPtr.Zero;
+            IntPtr rightPayload = IntPtr.Zero;
             try
             {
-                Span<byte> arg0PayloadSpan = stackalloc byte[(int)T0Metadata.Size];
-                arg0Payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(arg0PayloadSpan));
-                SwiftMarshal.MarshalToSwift(arg0, ref arg0PayloadSpan);
-                Span<byte> arg1PayloadSpan = stackalloc byte[(int)T1Metadata.Size];
-                arg1Payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(arg1PayloadSpan));
-                SwiftMarshal.MarshalToSwift(arg1, ref arg1PayloadSpan);
+                Span<byte> leftPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                leftPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(leftPayloadSpan));
+                SwiftMarshal.MarshalToSwift(left, ref leftPayloadSpan);
+                Span<byte> rightPayloadSpan = stackalloc byte[(int)T1Metadata.Size];
+                rightPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(rightPayloadSpan));
+                SwiftMarshal.MarshalToSwift(right, ref rightPayloadSpan);
                 
                 
-                var result = PInvoke_xor_27600721(arg0Payload, arg1Payload, T0Metadata, T1Metadata);
+                var result = PInvoke_xor_295BAB86(leftPayload, rightPayload, T0Metadata, T1Metadata);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
             
             finally
             {
-                T0Metadata.ValueWitnessTable->Destroy((void *)arg0Payload, T0Metadata);
-                T1Metadata.ValueWitnessTable->Destroy((void *)arg1Payload, T1Metadata);
+                T0Metadata.ValueWitnessTable->Destroy((void *)leftPayload, T0Metadata);
+                T1Metadata.ValueWitnessTable->Destroy((void *)rightPayload, T1Metadata);
             }
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3xorySays5UInt8VGx_q_tSkRzSkR_AD7ElementRtzSi5IndexRtzAdFRt_SiAHRt_r0_lF")]
-        private static extern IntPtr PInvoke_xor_27600721( IntPtr arg0Payload,  IntPtr arg1Payload,  TypeMetadata T0Metadata,  TypeMetadata T1Metadata);
+        private static extern IntPtr PInvoke_xor_295BAB86( IntPtr leftPayload,  IntPtr rightPayload,  TypeMetadata T0Metadata,  TypeMetadata T1Metadata);
         
         
-        public static unsafe void BitPadding( IEnumerable<System.Byte> to,  System.IntPtr blockSize,  System.IntPtr allowance)
+        public static unsafe void BitPadding( IEnumerable<System.Byte> data,  nint blockSize,  nint allowance)
         {
             try
             {
                 
-                using var toSwift = SwiftArray<System.Byte>.FromEnumerable(to);
-                using PayloadBuffer<IntPtr> toDisposable = toSwift.PayloadBuffer;
-                IntPtr toBuffer = toDisposable.Buffer;
+                using var dataSwift = SwiftArray<System.Byte>.FromEnumerable(data);
+                using PayloadBuffer<IntPtr> dataDisposable = dataSwift.PayloadBuffer;
+                IntPtr dataBuffer = dataDisposable.Buffer;
                 
-                PInvoke_bitPadding_79EB9742(toBuffer, blockSize, allowance);
+                PInvoke_bitPadding_678AC345(dataBuffer, blockSize, allowance);
                 
                 return;
             }
@@ -356,7 +359,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift10bitPadding2to9blockSize9allowanceySays5UInt8VGz_S2itF")]
-        private static extern void PInvoke_bitPadding_79EB9742( IntPtr toBuffer,  System.IntPtr blockSize,  System.IntPtr allowance);
+        private static extern void PInvoke_bitPadding_678AC345( IntPtr dataBuffer,  nint blockSize,  nint allowance);
         
         
     }
@@ -377,7 +380,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_n_Get_2513A386(swiftIndirectResult, self);
+                PInvoke_n_Get_3CE647F5(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -392,7 +395,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC1nAA2CSO7BigUIntVvg")]
-        private static extern void PInvoke_n_Get_2513A386( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_n_Get_3CE647F5( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.CS.BigUInt N
         {
@@ -413,7 +416,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_e_Get_21492CC6(swiftIndirectResult, self);
+                PInvoke_e_Get_22B2BA81(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -428,7 +431,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC1eAA2CSO7BigUIntVvg")]
-        private static extern void PInvoke_e_Get_21492CC6( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_e_Get_22B2BA81( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.CS.BigUInt E
         {
@@ -445,7 +448,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_d_Get_1667D0E2(self);
+                var result = PInvoke_d_Get_6C0574DA(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.CryptoSwift.CS.BigUInt>>(new IntPtr(&result));
             }
@@ -460,14 +463,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC1dAA2CSO7BigUIntVSgvg")]
-        private static extern IntPtr PInvoke_d_Get_1667D0E2( SwiftSelf self);
+        private static extern IntPtr PInvoke_d_Get_6C0574DA( SwiftSelf self);
         
-        public Swift.SwiftOptional<Swift.CryptoSwift.CS.BigUInt> D
+        public Swift.CryptoSwift.CS.BigUInt? D
         {
-            get => D_Get();
+            get => ((Swift.CryptoSwift.CS.BigUInt?)D_Get());
         }
         
-        private unsafe System.IntPtr KeySize_Get()
+        private unsafe nint KeySize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -477,7 +480,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_keySize_Get_7FA2FEFE(self);
+                var result = PInvoke_keySize_Get_38B06458(self);
                 
                 return result;
             }
@@ -492,14 +495,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC7keySizeSivg")]
-        private static extern System.IntPtr PInvoke_keySize_Get_7FA2FEFE( SwiftSelf self);
+        private static extern nint PInvoke_keySize_Get_38B06458( SwiftSelf self);
         
-        public System.IntPtr KeySize
+        public nint KeySize
         {
             get => KeySize_Get();
         }
         
-        private unsafe System.IntPtr KeySizeBytes_Get()
+        private unsafe nint KeySizeBytes_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -509,7 +512,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_keySizeBytes_Get_0109DA27(self);
+                var result = PInvoke_keySizeBytes_Get_1BEEE624(self);
                 
                 return result;
             }
@@ -524,9 +527,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC12keySizeBytesSivg")]
-        private static extern System.IntPtr PInvoke_keySizeBytes_Get_0109DA27( SwiftSelf self);
+        private static extern nint PInvoke_keySizeBytes_Get_1BEEE624( SwiftSelf self);
         
-        public System.IntPtr KeySizeBytes
+        public nint KeySizeBytes
         {
             get => KeySizeBytes_Get();
         }
@@ -541,7 +544,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_primes_Get_60C4DD63(self);
+                var result = PInvoke_primes_Get_2E2065C9(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<(Swift.CryptoSwift.CS.BigUInt p, Swift.CryptoSwift.CS.BigUInt q)>>(new IntPtr(&result));
             }
@@ -556,9 +559,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC6primesAA2CSO7BigUIntV1p_AH1qtSgvg")]
-        private static extern IntPtr PInvoke_primes_Get_60C4DD63( SwiftSelf self);
+        private static extern IntPtr PInvoke_primes_Get_2E2065C9( SwiftSelf self);
         
-        public Swift.SwiftOptional<(Swift.CryptoSwift.CS.BigUInt p, Swift.CryptoSwift.CS.BigUInt q)> Primes
+        public Swift.AnyType? Primes
         {
             get => Primes_Get();
         }
@@ -573,7 +576,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_description_Get_70EC227E(self);
+                var result = PInvoke_description_Get_3C5F6721(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -590,39 +593,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC11descriptionSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_70EC227E( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_3C5F6721( SwiftSelf self);
         
-        public Swift.SwiftString Description
+        public string Description
         {
-            get => Description_Get();
+            get => Description_Get().ToString();
         }
         
         static nuint _payloadSize = SwiftObjectHelper<RSA>.GetTypeMetadata().Size;
         SwiftSafeHandle<RSA> _payload = SwiftSafeHandle<RSA>.Zero;
         
-        public SwiftSafeHandle<RSA> Payload => _payload;
+        internal SwiftSafeHandle<RSA> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type RSA does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type RSA does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(RSA left, RSA right)
-        {
-            throw new InvalidOperationException("Type RSA does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(RSA left, RSA right)
-        {
-            throw new InvalidOperationException("Type RSA does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -670,8 +653,8 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftSignature), "$s11CryptoSwift3RSACAA9SignatureAAMc"},
-        {typeof(ISwiftCipher), "$s11CryptoSwift3RSACAA6CipherAAMc"}
+                {typeof(ISignature), "$s11CryptoSwift3RSACAA9SignatureAAMc"},
+        {typeof(ICipher), "$s11CryptoSwift3RSACAA6CipherAAMc"}
             };
         }
         
@@ -689,7 +672,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'noPrivateKey' case of Error.
@@ -893,7 +878,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -901,7 +886,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_21E90A87(self);
+                    var result = PInvoke_hashValue_Get_79E05445(self);
                     
                     return result;
                 }
@@ -914,9 +899,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_21E90A87( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_79E05445( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -985,7 +970,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -993,7 +978,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_41691776(into.Payload, self);
+                    PInvoke_hash_5C40B5F1(hasher.Payload, self);
                     
                     return;
                 }
@@ -1006,7 +991,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_41691776( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_5C40B5F1( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -1016,7 +1001,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<SignatureVariant>.GetTypeMetadata().Size;
             SwiftSafeHandle<SignatureVariant> _payload = SwiftSafeHandle<SignatureVariant>.Zero;
-            public SwiftSafeHandle<SignatureVariant> Payload => _payload;
+            internal SwiftSafeHandle<SignatureVariant> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'raw' case of SignatureVariant.
@@ -1458,7 +1445,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -1466,7 +1453,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_2F0A1782(self);
+                    var result = PInvoke_hashValue_Get_158EE5E5(self);
                     
                     return result;
                 }
@@ -1479,9 +1466,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC16SignatureVariantO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_2F0A1782( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_158EE5E5( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -1550,7 +1537,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -1558,7 +1545,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_03179126(into.Payload, self);
+                    PInvoke_hash_78A4B121(hasher.Payload, self);
                     
                     return;
                 }
@@ -1571,303 +1558,17 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC16SignatureVariantO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_03179126( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_78A4B121( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe class RSAEncryptionVariant : ISwiftObject
+        public enum RSAEncryptionVariant : int
         {
-            static nuint _payloadSize = SwiftObjectHelper<RSAEncryptionVariant>.GetTypeMetadata().Size;
-            SwiftSafeHandle<RSAEncryptionVariant> _payload = SwiftSafeHandle<RSAEncryptionVariant>.Zero;
-            public SwiftSafeHandle<RSAEncryptionVariant> Payload => _payload;
-            
-            /// <summary>
-            /// Gets the 'unsafe' case of RSAEncryptionVariant.
-            /// </summary>
-            public static RSAEncryptionVariant Unsafe
-            {
-                get
-                {
-                    var result = new RSAEncryptionVariant();
-                    var metadata = SwiftObjectHelper<RSAEncryptionVariant>.GetTypeMetadata();
-                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)0, metadata);
-                    result._payload = new SwiftSafeHandle<RSAEncryptionVariant>(buffer);
-                    return result;
-                }
-            }
-            
-            /// <summary>
-            /// Gets the 'raw' case of RSAEncryptionVariant.
-            /// </summary>
-            public static RSAEncryptionVariant Raw
-            {
-                get
-                {
-                    var result = new RSAEncryptionVariant();
-                    var metadata = SwiftObjectHelper<RSAEncryptionVariant>.GetTypeMetadata();
-                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)1, metadata);
-                    result._payload = new SwiftSafeHandle<RSAEncryptionVariant>(buffer);
-                    return result;
-                }
-            }
-            
-            /// <summary>
-            /// Gets the 'pksc1v15' case of RSAEncryptionVariant.
-            /// </summary>
-            public static RSAEncryptionVariant Pksc1v15
-            {
-                get
-                {
-                    var result = new RSAEncryptionVariant();
-                    var metadata = SwiftObjectHelper<RSAEncryptionVariant>.GetTypeMetadata();
-                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)2, metadata);
-                    result._payload = new SwiftSafeHandle<RSAEncryptionVariant>(buffer);
-                    return result;
-                }
-            }
-            
-            /// <summary>
-            /// Enum representing the possible cases of RSAEncryptionVariant.
-            /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-            /// </summary>
-            public enum CaseTag : uint
-            {
-                Unsafe = 0,
-                Raw = 1,
-                Pksc1v15 = 2,
-            }
-            
-            /// <summary>
-            /// Gets the current case of this enum instance.
-            /// </summary>
-            public unsafe CaseTag Tag
-            {
-                get
-                {
-                    bool success = false;
-                    _payload.DangerousAddRef(ref success);
-                    try
-                    {
-                        var metadata = SwiftObjectHelper<RSAEncryptionVariant>.GetTypeMetadata();
-                        byte* payload = (byte*)_payload.DangerousGetHandle();
-                        return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                    }
-                    finally
-                    {
-                        if (success)
-                            _payload.DangerousRelease();
-                    }
-                }
-            }
-            
-            
-            private unsafe System.IntPtr HashValue_Get()
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_hashValue_Get_3E522D12(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC20RSAEncryptionVariantO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_3E522D12( SwiftSelf self);
-            
-            public System.IntPtr HashValue
-            {
-                get => HashValue_Get();
-            }
-            
-            static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC20RSAEncryptionVariantOMa")]
-            internal static extern TypeMetadata PInvoke_getMetadata();
-            
-            static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-            {
-                return new RSAEncryptionVariant(handle);
-            }
-            
-            RSAEncryptionVariant()
-            {
-            }
-            
-            RSAEncryptionVariant(SwiftHandle handle)
-            {
-                _payload = new SwiftSafeHandle<RSAEncryptionVariant>(handle);
-            }
-            
-            unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-            {
-                var metadata = SwiftObjectHelper<RSAEncryptionVariant>.GetTypeMetadata();
-                if ((int)metadata.Size > swiftDestSpan.Length)
-                {
-                    throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-                }
-                fixed (void* swiftDest = swiftDestSpan)
-                {
-                    // Ensure that the instance is valid before making copy
-                    bool success = false;
-                    _payload.DangerousAddRef(ref success);
-                    try
-                    {
-                        metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                        return (int)metadata.Size;
-                    }
-                    finally
-                    {
-                        if (success)
-                            _payload.DangerousRelease();
-                    }
-                }
-            }
-            
-            private static Dictionary<Type, string> _protocolConformanceSymbols;
-            static RSAEncryptionVariant()
-            {
-                _protocolConformanceSymbols = new Dictionary<Type, string>
-                {
-                    {typeof(IEquatable<RSAEncryptionVariant>), "$s11CryptoSwift3RSAC20RSAEncryptionVariantOSQAAMc"}
-                };
-            }
-            
-            static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-                where TProtocol : class
-            {
-                if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-                {
-                    throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type RSAEncryptionVariant and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-                }
-                return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
-            }
-            
-            public unsafe IReadOnlyList<System.Byte> Prepare( IEnumerable<System.Byte> arg0,  System.IntPtr blockSize)
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                    using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                    IntPtr arg0Buffer = arg0Disposable.Buffer;
-                    
-                    var result = PInvoke_prepare_77FA613C(arg0Buffer, blockSize, self, out var error);
-                    
-                    if (error.Value != null)
-                    {
-                        throw new SwiftRuntimeException("Call to Swift method prepare failed.");
-                    }
-                    
-                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC20RSAEncryptionVariantO7prepare_9blockSizeSays5UInt8VGAJ_SitKF")]
-            private static extern IntPtr PInvoke_prepare_77FA613C( IntPtr arg0Buffer,  System.IntPtr blockSize,  SwiftSelf self, out SwiftError error);
-            
-            
-            public unsafe IReadOnlyList<System.Byte> FormatEncryptedBytes( IEnumerable<System.Byte> arg0,  System.IntPtr blockSize)
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                    using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                    IntPtr arg0Buffer = arg0Disposable.Buffer;
-                    
-                    var result = PInvoke_formatEncryptedBytes_4302C2BE(arg0Buffer, blockSize, self);
-                    
-                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC20RSAEncryptionVariantO20formatEncryptedBytes_9blockSizeSays5UInt8VGAJ_SitF")]
-            private static extern IntPtr PInvoke_formatEncryptedBytes_4302C2BE( IntPtr arg0Buffer,  System.IntPtr blockSize,  SwiftSelf self);
-            
-            
-            public unsafe IReadOnlyList<System.Byte> RemovePadding( IEnumerable<System.Byte> arg0,  System.IntPtr blockSize)
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                    using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                    IntPtr arg0Buffer = arg0Disposable.Buffer;
-                    
-                    var result = PInvoke_removePadding_78141C55(arg0Buffer, blockSize, self);
-                    
-                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC20RSAEncryptionVariantO13removePadding_9blockSizeSays5UInt8VGAJ_SitF")]
-            private static extern IntPtr PInvoke_removePadding_78141C55( IntPtr arg0Buffer,  System.IntPtr blockSize,  SwiftSelf self);
-            
-            
-            public unsafe void Hash(ref Swift.Hasher into)
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    PInvoke_hash_201EFCA8(into.Payload, self);
-                    
-                    return;
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC20RSAEncryptionVariantO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_201EFCA8( SafeHandle into,  SwiftSelf self);
-            
-            
+            Unsafe = 0,
+            Raw = 1,
+            Pksc1v15 = 2,
         }
         
         
@@ -1879,13 +1580,25 @@ namespace Swift.CryptoSwift
             using var dSwift = d is {} dValue ? SwiftOptional<Swift.CryptoSwift.CS.BigUInt>.NewSome(dValue) : SwiftOptional<Swift.CryptoSwift.CS.BigUInt>.NewNone();
             using PayloadBuffer<IntPtr> dDisposable = dSwift.PayloadBuffer;
             IntPtr dBuffer = dDisposable.Buffer;
-            PInvoke_init_07E00002(swiftIndirectResult, n.Payload, e.Payload, dBuffer);
+            PInvoke_init_43782436(swiftIndirectResult, n.Payload, e.Payload, dBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC1n1e1dAcA2CSO7BigUIntV_A2JSgtcfC")]
-        private static extern void PInvoke_init_07E00002( SwiftIndirectResult swiftIndirectResult,  SafeHandle n,  SafeHandle e,  IntPtr dBuffer);
+        private static extern void PInvoke_init_43782436( SwiftIndirectResult swiftIndirectResult,  SafeHandle n,  SafeHandle e,  IntPtr dBuffer);
+        public unsafe RSA( Swift.CryptoSwift.CS.BigUInt n,  Swift.CryptoSwift.CS.BigUInt e)
+        {
+            _payload = new SwiftSafeHandle<RSA>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            PInvoke_init_55622BFD(swiftIndirectResult, n.Payload, e.Payload);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_RSA_init_38C93253_1")]
+        private static extern void PInvoke_init_55622BFD( SwiftIndirectResult swiftIndirectResult,  SafeHandle n,  SafeHandle e);
         
         
         public unsafe RSA( IEnumerable<System.Byte> n,  IEnumerable<System.Byte> e,  Swift.SwiftArray<System.Byte>? d)
@@ -1902,21 +1615,39 @@ namespace Swift.CryptoSwift
             using var dSwift = d is {} dValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(dValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
             using PayloadBuffer<IntPtr> dDisposable = dSwift.PayloadBuffer;
             IntPtr dBuffer = dDisposable.Buffer;
-            PInvoke_init_64846CA9(swiftIndirectResult, nBuffer, eBuffer, dBuffer);
+            PInvoke_init_328A2A5B(swiftIndirectResult, nBuffer, eBuffer, dBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC1n1e1dACSays5UInt8VG_A2ISgtcfC")]
-        private static extern void PInvoke_init_64846CA9( SwiftIndirectResult swiftIndirectResult,  IntPtr nBuffer,  IntPtr eBuffer,  IntPtr dBuffer);
-        
-        
-        public unsafe RSA( System.IntPtr keySize)
+        private static extern void PInvoke_init_328A2A5B( SwiftIndirectResult swiftIndirectResult,  IntPtr nBuffer,  IntPtr eBuffer,  IntPtr dBuffer);
+        public unsafe RSA( IEnumerable<System.Byte> n,  IEnumerable<System.Byte> e)
         {
             _payload = new SwiftSafeHandle<RSA>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_4123C017(swiftIndirectResult, keySize, out var error);
+            using var nSwift = SwiftArray<System.Byte>.FromEnumerable(n);
+            using PayloadBuffer<IntPtr> nDisposable = nSwift.PayloadBuffer;
+            IntPtr nBuffer = nDisposable.Buffer;
+            using var eSwift = SwiftArray<System.Byte>.FromEnumerable(e);
+            using PayloadBuffer<IntPtr> eDisposable = eSwift.PayloadBuffer;
+            IntPtr eBuffer = eDisposable.Buffer;
+            PInvoke_init_249EF8A7(swiftIndirectResult, nBuffer, eBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_RSA_init_63EE8D4F_1")]
+        private static extern void PInvoke_init_249EF8A7( SwiftIndirectResult swiftIndirectResult,  IntPtr nBuffer,  IntPtr eBuffer);
+        
+        
+        public unsafe RSA( nint keySize)
+        {
+            _payload = new SwiftSafeHandle<RSA>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            PInvoke_init_50ED3875(swiftIndirectResult, keySize, out var error);
             
             if (error.Value != null)
             {
@@ -1927,7 +1658,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC7keySizeACSi_tKcfC")]
-        private static extern void PInvoke_init_4123C017( SwiftIndirectResult swiftIndirectResult,  System.IntPtr keySize, out SwiftError error);
+        private static extern void PInvoke_init_50ED3875( SwiftIndirectResult swiftIndirectResult,  nint keySize, out SwiftError error);
         
         
         public unsafe RSA( Swift.CryptoSwift.CS.BigUInt n,  Swift.CryptoSwift.CS.BigUInt e,  Swift.CryptoSwift.CS.BigUInt d,  Swift.CryptoSwift.CS.BigUInt p,  Swift.CryptoSwift.CS.BigUInt q)
@@ -1935,7 +1666,7 @@ namespace Swift.CryptoSwift
             _payload = new SwiftSafeHandle<RSA>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_6E8C7D40(swiftIndirectResult, n.Payload, e.Payload, d.Payload, p.Payload, q.Payload, out var error);
+            PInvoke_init_6E39AFD5(swiftIndirectResult, n.Payload, e.Payload, d.Payload, p.Payload, q.Payload, out var error);
             
             if (error.Value != null)
             {
@@ -1946,16 +1677,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC1n1e1d1p1qAcA2CSO7BigUIntV_A4LtKcfC")]
-        private static extern void PInvoke_init_6E8C7D40( SwiftIndirectResult swiftIndirectResult,  SafeHandle n,  SafeHandle e,  SafeHandle d,  SafeHandle p,  SafeHandle q, out SwiftError error);
+        private static extern void PInvoke_init_6E39AFD5( SwiftIndirectResult swiftIndirectResult,  SafeHandle n,  SafeHandle e,  SafeHandle d,  SafeHandle p,  SafeHandle q, out SwiftError error);
         
         
-        public unsafe RSA( Foundation.NSData rawRepresentation)
+        public unsafe RSA( Foundation.NSData raw)
         {
             _payload = new SwiftSafeHandle<RSA>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            var rawRepresentationSwift = Swift.Data.FromNSData(rawRepresentation);
-            PInvoke_init_237552F6(swiftIndirectResult, rawRepresentationSwift, out var error);
+            var rawSwift = Swift.Data.FromNSData(raw);
+            PInvoke_init_36C48397(swiftIndirectResult, rawSwift, out var error);
             
             if (error.Value != null)
             {
@@ -1966,7 +1697,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC17rawRepresentationAC10Foundation4DataV_tKcfC")]
-        private static extern void PInvoke_init_237552F6( SwiftIndirectResult swiftIndirectResult,  Swift.Data rawRepresentation, out SwiftError error);
+        private static extern void PInvoke_init_36C48397( SwiftIndirectResult swiftIndirectResult,  Swift.Data raw, out SwiftError error);
         
         
         public unsafe Foundation.NSData ExternalRepresentation()
@@ -1979,7 +1710,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_externalRepresentation_7490303A(self, out var error);
+                var result = PInvoke_externalRepresentation_74E1B0CB(self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2000,7 +1731,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC22externalRepresentation10Foundation4DataVyKF")]
-        private static extern Swift.Data PInvoke_externalRepresentation_7490303A( SwiftSelf self, out SwiftError error);
+        private static extern Swift.Data PInvoke_externalRepresentation_74E1B0CB( SwiftSelf self, out SwiftError error);
         
         
         public unsafe Foundation.NSData PublicKeyExternalRepresentation()
@@ -2013,7 +1744,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_publicKeyExternalRepresentation_573E51F6(self, out var error);
+                var result = PInvoke_publicKeyExternalRepresentation_08446F01(self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2034,10 +1765,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC31publicKeyExternalRepresentation10Foundation4DataVyKF")]
-        private static extern Swift.Data PInvoke_publicKeyExternalRepresentation_573E51F6( SwiftSelf self, out SwiftError error);
+        private static extern Swift.Data PInvoke_publicKeyExternalRepresentation_08446F01( SwiftSelf self, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> Sign( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Sign( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2046,11 +1777,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_sign_70B585F5(arg0Buffer, self, out var error);
+                var result = PInvoke_sign_61747669(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2070,9 +1801,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_RSA_sign_239FB4FB")]
-        private static extern IntPtr PInvoke_sign_70B585F5( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_sign_61747669( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
-        public unsafe IReadOnlyList<System.Byte> Sign( IEnumerable<System.Byte> arg0,  Swift.CryptoSwift.RSA.SignatureVariant variant)
+        public unsafe IReadOnlyList<System.Byte> Sign( IEnumerable<System.Byte> bytes,  Swift.CryptoSwift.RSA.SignatureVariant variant)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2081,11 +1812,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_sign_62D8F241(arg0Buffer, variant.Payload.DangerousGetHandle(), self, out var error);
+                var result = PInvoke_sign_2527FBCF(bytesBuffer, variant.Payload.DangerousGetHandle(), self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2105,10 +1836,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC4sign_7variantSays5UInt8VGAH_AC16SignatureVariantOtKF")]
-        private static extern IntPtr PInvoke_sign_62D8F241( IntPtr arg0Buffer,  IntPtr variant,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_sign_2527FBCF( IntPtr bytesBuffer,  IntPtr variant,  SwiftSelf self, out SwiftError error);
         
         
-        public unsafe System.Boolean Verify( IEnumerable<System.Byte> signature,  IEnumerable<System.Byte> _for)
+        public unsafe System.Boolean Verify( IEnumerable<System.Byte> signature,  IEnumerable<System.Byte> expectedData)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2120,11 +1851,11 @@ namespace Swift.CryptoSwift
                 using var signatureSwift = SwiftArray<System.Byte>.FromEnumerable(signature);
                 using PayloadBuffer<IntPtr> signatureDisposable = signatureSwift.PayloadBuffer;
                 IntPtr signatureBuffer = signatureDisposable.Buffer;
-                using var _forSwift = SwiftArray<System.Byte>.FromEnumerable(_for);
-                using PayloadBuffer<IntPtr> _forDisposable = _forSwift.PayloadBuffer;
-                IntPtr _forBuffer = _forDisposable.Buffer;
+                using var expectedDataSwift = SwiftArray<System.Byte>.FromEnumerable(expectedData);
+                using PayloadBuffer<IntPtr> expectedDataDisposable = expectedDataSwift.PayloadBuffer;
+                IntPtr expectedDataBuffer = expectedDataDisposable.Buffer;
                 
-                var result = PInvoke_verify_14078ADE(signatureBuffer, _forBuffer, self, out var error);
+                var result = PInvoke_verify_683DA01C(signatureBuffer, expectedDataBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2144,9 +1875,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_RSA_verify_7BC52380")]
-        private static extern System.Boolean PInvoke_verify_14078ADE( IntPtr signatureBuffer,  IntPtr _forBuffer,  SwiftSelf self, out SwiftError error);
+        private static extern System.Boolean PInvoke_verify_683DA01C( IntPtr signatureBuffer,  IntPtr expectedDataBuffer,  SwiftSelf self, out SwiftError error);
         
-        public unsafe System.Boolean Verify( IEnumerable<System.Byte> signature,  IEnumerable<System.Byte> _for,  Swift.CryptoSwift.RSA.SignatureVariant variant)
+        public unsafe System.Boolean Verify( IEnumerable<System.Byte> signature,  IEnumerable<System.Byte> bytes,  Swift.CryptoSwift.RSA.SignatureVariant variant)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2158,11 +1889,11 @@ namespace Swift.CryptoSwift
                 using var signatureSwift = SwiftArray<System.Byte>.FromEnumerable(signature);
                 using PayloadBuffer<IntPtr> signatureDisposable = signatureSwift.PayloadBuffer;
                 IntPtr signatureBuffer = signatureDisposable.Buffer;
-                using var _forSwift = SwiftArray<System.Byte>.FromEnumerable(_for);
-                using PayloadBuffer<IntPtr> _forDisposable = _forSwift.PayloadBuffer;
-                IntPtr _forBuffer = _forDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_verify_1AD39928(signatureBuffer, _forBuffer, variant.Payload.DangerousGetHandle(), self, out var error);
+                var result = PInvoke_verify_211295F5(signatureBuffer, bytesBuffer, variant.Payload.DangerousGetHandle(), self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2182,10 +1913,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC6verify9signature3for7variantSbSays5UInt8VG_AjC16SignatureVariantOtKF")]
-        private static extern System.Boolean PInvoke_verify_1AD39928( IntPtr signatureBuffer,  IntPtr _forBuffer,  IntPtr variant,  SwiftSelf self, out SwiftError error);
+        private static extern System.Boolean PInvoke_verify_211295F5( IntPtr signatureBuffer,  IntPtr bytesBuffer,  IntPtr variant,  SwiftSelf self, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> Encrypt( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Encrypt( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2194,11 +1925,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_encrypt_0B0A2DCA(arg0Buffer, self, out var error);
+                var result = PInvoke_encrypt_1A7095DF(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2218,9 +1949,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_RSA_encrypt_7FB8985E")]
-        private static extern IntPtr PInvoke_encrypt_0B0A2DCA( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_encrypt_1A7095DF( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
-        public unsafe IReadOnlyList<System.Byte> Encrypt( IEnumerable<System.Byte> arg0,  Swift.CryptoSwift.RSA.RSAEncryptionVariant variant)
+        public unsafe IReadOnlyList<System.Byte> Encrypt( IEnumerable<System.Byte> bytes,  Swift.CryptoSwift.RSA.RSAEncryptionVariant variant)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2229,11 +1960,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_encrypt_5B2454FB(arg0Buffer, variant.Payload.DangerousGetHandle(), self, out var error);
+                var result = PInvoke_encrypt_282ED822(bytesBuffer, (int)variant, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2253,10 +1984,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC7encrypt_7variantSays5UInt8VGAH_AC20RSAEncryptionVariantOtKF")]
-        private static extern IntPtr PInvoke_encrypt_5B2454FB( IntPtr arg0Buffer,  IntPtr variant,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_encrypt_282ED822( IntPtr bytesBuffer,  int variant,  SwiftSelf self, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> EncryptPreparedBytes( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> EncryptPreparedBytes( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2265,11 +1996,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_encryptPreparedBytes_5915950B(arg0Buffer, self, out var error);
+                var result = PInvoke_encryptPreparedBytes_6F514B67(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2289,10 +2020,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC20encryptPreparedBytesySays5UInt8VGAGKF")]
-        private static extern IntPtr PInvoke_encryptPreparedBytes_5915950B( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_encryptPreparedBytes_6F514B67( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> Decrypt( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Decrypt( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2301,11 +2032,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_decrypt_565D11E4(arg0Buffer, self, out var error);
+                var result = PInvoke_decrypt_11513B92(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2325,9 +2056,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_RSA_decrypt_2180AEB6")]
-        private static extern IntPtr PInvoke_decrypt_565D11E4( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_decrypt_11513B92( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
-        public unsafe IReadOnlyList<System.Byte> Decrypt( IEnumerable<System.Byte> arg0,  Swift.CryptoSwift.RSA.RSAEncryptionVariant variant)
+        public unsafe IReadOnlyList<System.Byte> Decrypt( IEnumerable<System.Byte> bytes,  Swift.CryptoSwift.RSA.RSAEncryptionVariant variant)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2336,11 +2067,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_decrypt_46731CBD(arg0Buffer, variant.Payload.DangerousGetHandle(), self, out var error);
+                var result = PInvoke_decrypt_7A9F6E09(bytesBuffer, (int)variant, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2360,10 +2091,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC7decrypt_7variantSays5UInt8VGAH_AC20RSAEncryptionVariantOtKF")]
-        private static extern IntPtr PInvoke_decrypt_46731CBD( IntPtr arg0Buffer,  IntPtr variant,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_decrypt_7A9F6E09( IntPtr bytesBuffer,  int variant,  SwiftSelf self, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> DecryptPreparedBytes( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> DecryptPreparedBytes( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2372,11 +2103,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_decryptPreparedBytes_04CDA1A2(arg0Buffer, self, out var error);
+                var result = PInvoke_decryptPreparedBytes_36659FF7(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -2396,7 +2127,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3RSAC20decryptPreparedBytesySays5UInt8VGAGKF")]
-        private static extern IntPtr PInvoke_decryptPreparedBytes_04CDA1A2( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_decryptPreparedBytes_36659FF7( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -2418,7 +2149,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_options_Get_5E96F322(swiftIndirectResult, self);
+                PInvoke_options_Get_3B9FAB6D(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -2433,14 +2164,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CFBV7optionsAA15BlockModeOptionVvg")]
-        private static extern void PInvoke_options_Get_5E96F322( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_3B9FAB6D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.BlockModeOption Options
         {
             get => Options_Get();
         }
         
-        private unsafe Swift.SwiftOptional<System.IntPtr> CustomBlockSize_Get()
+        private unsafe Swift.SwiftOptional<nint> CustomBlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -2450,9 +2181,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_customBlockSize_Get_7C923977(self);
+                var result = PInvoke_customBlockSize_Get_7D2D2930(self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<nint>>(new IntPtr(&result));
             }
             
             finally
@@ -2465,39 +2196,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CFBV15customBlockSizeSiSgvg")]
-        private static extern IntPtr PInvoke_customBlockSize_Get_7C923977( SwiftSelf self);
+        private static extern IntPtr PInvoke_customBlockSize_Get_7D2D2930( SwiftSelf self);
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public nint? CustomBlockSize
         {
-            get => CustomBlockSize_Get();
+            get => ((nint?)CustomBlockSize_Get());
         }
         
         static nuint _payloadSize = SwiftObjectHelper<CFB>.GetTypeMetadata().Size;
         SwiftSafeHandle<CFB> _payload = SwiftSafeHandle<CFB>.Zero;
         
-        public SwiftSafeHandle<CFB> Payload => _payload;
+        internal SwiftSafeHandle<CFB> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type CFB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type CFB does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(CFB left, CFB right)
-        {
-            throw new InvalidOperationException("Type CFB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(CFB left, CFB right)
-        {
-            throw new InvalidOperationException("Type CFB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -2545,7 +2256,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftBlockMode), "$s11CryptoSwift3CFBVAA9BlockModeAAMc"}
+                {typeof(IBlockMode), "$s11CryptoSwift3CFBVAA9BlockModeAAMc"}
             };
         }
         
@@ -2564,7 +2275,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidInitializationVector' case of Error.
@@ -2615,7 +2328,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -2623,7 +2336,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_52672E1C(self);
+                    var result = PInvoke_hashValue_Get_34018EA2(self);
                     
                     return result;
                 }
@@ -2636,9 +2349,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CFBV5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_52672E1C( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_34018EA2( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -2707,7 +2420,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -2715,7 +2428,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_4C45087E(into.Payload, self);
+                    PInvoke_hash_69F7C4D7(hasher.Payload, self);
                     
                     return;
                 }
@@ -2728,7 +2441,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CFBV5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_4C45087E( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_69F7C4D7( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -2738,7 +2451,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<SegmentSize>.GetTypeMetadata().Size;
             SwiftSafeHandle<SegmentSize> _payload = SwiftSafeHandle<SegmentSize>.Zero;
-            public SwiftSafeHandle<SegmentSize> Payload => _payload;
+            internal SwiftSafeHandle<SegmentSize> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Creates a SegmentSize from its raw value.
@@ -2861,7 +2576,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr RawValue_Get()
+            private unsafe nint RawValue_Get()
             {
                 try
                 {
@@ -2869,7 +2584,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_4686C5D0(self);
+                    var result = PInvoke_rawValue_Get_6E2A78A7(self);
                     
                     return result;
                 }
@@ -2882,9 +2597,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CFBV11SegmentSizeO8rawValueSivg")]
-            private static extern System.IntPtr PInvoke_rawValue_Get_4686C5D0( SwiftSelf self);
+            private static extern nint PInvoke_rawValue_Get_6E2A78A7( SwiftSelf self);
             
-            public System.IntPtr RawValue
+            public nint RawValue
             {
                 get => RawValue_Get();
             }
@@ -2964,47 +2679,42 @@ namespace Swift.CryptoSwift
             using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
             using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
             IntPtr ivBuffer = ivDisposable.Buffer;
-            PInvoke_init_21A6F5D1(swiftIndirectResult, ivBuffer, segmentSize.Payload.DangerousGetHandle());
+            PInvoke_init_7E450F5B(swiftIndirectResult, ivBuffer, segmentSize.Payload.DangerousGetHandle());
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CFBV2iv11segmentSizeACSays5UInt8VG_AC07SegmentF0OtcfC")]
-        private static extern void PInvoke_init_21A6F5D1( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr segmentSize);
+        private static extern void PInvoke_init_7E450F5B( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr segmentSize);
+        public unsafe CFB( IEnumerable<System.Byte> iv)
+        {
+            _payload = new SwiftSafeHandle<CFB>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
+            using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
+            IntPtr ivBuffer = ivDisposable.Buffer;
+            PInvoke_init_65BB2BB1(swiftIndirectResult, ivBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_CFB_init_9186A1F1_1")]
+        private static extern void PInvoke_init_65BB2BB1( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer);
         
         
         
     }
     
     
-    public unsafe class CMAC : ISwiftObject, ISwiftAuthenticator
+    public unsafe class CMAC : ISwiftObject, IAuthenticator
     {
         static nuint _payloadSize = SwiftObjectHelper<CMAC>.GetTypeMetadata().Size;
         SwiftSafeHandle<CMAC> _payload = SwiftSafeHandle<CMAC>.Zero;
         
-        public SwiftSafeHandle<CMAC> Payload => _payload;
+        internal SwiftSafeHandle<CMAC> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type CMAC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type CMAC does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(CMAC left, CMAC right)
-        {
-            throw new InvalidOperationException("Type CMAC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(CMAC left, CMAC right)
-        {
-            throw new InvalidOperationException("Type CMAC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -3052,7 +2762,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftAuthenticator), "$s11CryptoSwift4CMACCAA13AuthenticatorAAMc"}
+                {typeof(IAuthenticator), "$s11CryptoSwift4CMACCAA13AuthenticatorAAMc"}
             };
         }
         
@@ -3070,7 +2780,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'wrongKeyLength' case of Error.
@@ -3121,7 +2833,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -3129,7 +2841,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_6C1C3BD3(self);
+                    var result = PInvoke_hashValue_Get_681ECAB1(self);
                     
                     return result;
                 }
@@ -3142,9 +2854,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4CMACC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_6C1C3BD3( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_681ECAB1( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -3213,7 +2925,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -3221,7 +2933,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_07D10910(into.Payload, self);
+                    PInvoke_hash_3EDCE50C(hasher.Payload, self);
                     
                     return;
                 }
@@ -3234,7 +2946,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4CMACC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_07D10910( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_3EDCE50C( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -3248,7 +2960,7 @@ namespace Swift.CryptoSwift
             using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
             using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
             IntPtr keyBuffer = keyDisposable.Buffer;
-            PInvoke_init_4E161169(swiftIndirectResult, keyBuffer, out var error);
+            PInvoke_init_191F90BA(swiftIndirectResult, keyBuffer, out var error);
             
             if (error.Value != null)
             {
@@ -3259,10 +2971,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4CMACC3keyACSays5UInt8VG_tKcfC")]
-        private static extern void PInvoke_init_4E161169( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer, out SwiftError error);
+        private static extern void PInvoke_init_191F90BA( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -3271,11 +2983,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_authenticate_039C2581(arg0Buffer, self, out var error);
+                var result = PInvoke_authenticate_19393C45(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -3295,11 +3007,11 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4CMACC12authenticateySays5UInt8VGAGKF")]
-        private static extern IntPtr PInvoke_authenticate_039C2581( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_authenticate_19393C45( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any CryptoSwift.Cipher")]
-        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> arg0,  Swift.Runtime.ExistentialContainer1 cipher)
+        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> bytes,  ICipher cipher)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -3308,11 +3020,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_authenticate_725E7FD9(arg0Buffer, cipher, self, out var error);
+                var result = PInvoke_authenticate_256CACE6(bytesBuffer, ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)cipher).GetExistentialContainer(), self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -3332,7 +3044,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4CMACC12authenticate_6cipherSays5UInt8VGAH_AA6Cipher_ptKF")]
-        private static extern IntPtr PInvoke_authenticate_725E7FD9( IntPtr arg0Buffer,  Swift.Runtime.ExistentialContainer1 cipher,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_authenticate_256CACE6( IntPtr bytesBuffer,  Swift.Runtime.ExistentialContainer1 cipher,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -3354,7 +3066,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_options_Get_75305215(swiftIndirectResult, self);
+                PInvoke_options_Get_2E9BD5CD(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -3369,14 +3081,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC7optionsAA15BlockModeOptionVvg")]
-        private static extern void PInvoke_options_Get_75305215( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_2E9BD5CD( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.BlockModeOption Options
         {
             get => Options_Get();
         }
         
-        private unsafe Swift.SwiftOptional<System.IntPtr> CustomBlockSize_Get()
+        private unsafe Swift.SwiftOptional<nint> CustomBlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -3386,9 +3098,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_customBlockSize_Get_4595EEB1(self);
+                var result = PInvoke_customBlockSize_Get_419DDA49(self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<nint>>(new IntPtr(&result));
             }
             
             finally
@@ -3401,11 +3113,11 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC15customBlockSizeSiSgvg")]
-        private static extern IntPtr PInvoke_customBlockSize_Get_4595EEB1( SwiftSelf self);
+        private static extern IntPtr PInvoke_customBlockSize_Get_419DDA49( SwiftSelf self);
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public nint? CustomBlockSize
         {
-            get => CustomBlockSize_Get();
+            get => ((nint?)CustomBlockSize_Get());
         }
         
         private unsafe Swift.SwiftOptional<Swift.SwiftArray<System.Byte>> AuthenticationTag_Get()
@@ -3418,7 +3130,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_authenticationTag_Get_3B64EE96(self);
+                var result = PInvoke_authenticationTag_Get_2668AC86(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<System.Byte>>>(new IntPtr(&result));
             }
@@ -3433,7 +3145,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC17authenticationTagSays5UInt8VGSgvg")]
-        private static extern IntPtr PInvoke_authenticationTag_Get_3B64EE96( SwiftSelf self);
+        private static extern IntPtr PInvoke_authenticationTag_Get_2668AC86( SwiftSelf self);
         
         private unsafe void AuthenticationTag_Set( Swift.SwiftOptional<Swift.SwiftArray<System.Byte>> value)
         {
@@ -3447,7 +3159,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_authenticationTag_Set_455BF8E1(valueBuffer, self);
+                PInvoke_authenticationTag_Set_7CADC621(valueBuffer, self);
                 
                 return;
             }
@@ -3462,40 +3174,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC17authenticationTagSays5UInt8VGSgvs")]
-        private static extern void PInvoke_authenticationTag_Set_455BF8E1( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_authenticationTag_Set_7CADC621( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftOptional<Swift.SwiftArray<System.Byte>> AuthenticationTag
+        public Swift.SwiftArray? AuthenticationTag
         {
-            get => AuthenticationTag_Get();
-            set => AuthenticationTag_Set(value);
+            get => ((Swift.SwiftArray?)AuthenticationTag_Get());
+            set => AuthenticationTag_Set(SwiftOptional<Swift.SwiftArray>.FromNullable(value));
         }
         
         static nuint _payloadSize = SwiftObjectHelper<GCM>.GetTypeMetadata().Size;
         SwiftSafeHandle<GCM> _payload = SwiftSafeHandle<GCM>.Zero;
         
-        public SwiftSafeHandle<GCM> Payload => _payload;
+        internal SwiftSafeHandle<GCM> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type GCM does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type GCM does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(GCM left, GCM right)
-        {
-            throw new InvalidOperationException("Type GCM does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(GCM left, GCM right)
-        {
-            throw new InvalidOperationException("Type GCM does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -3543,7 +3235,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftBlockMode), "$s11CryptoSwift3GCMCAA9BlockModeAAMc"}
+                {typeof(IBlockMode), "$s11CryptoSwift3GCMCAA9BlockModeAAMc"}
             };
         }
         
@@ -3561,7 +3253,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Mode>.GetTypeMetadata().Size;
             SwiftSafeHandle<Mode> _payload = SwiftSafeHandle<Mode>.Zero;
-            public SwiftSafeHandle<Mode> Payload => _payload;
+            internal SwiftSafeHandle<Mode> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'combined' case of Mode.
@@ -3629,7 +3323,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -3637,7 +3331,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_0DF090C6(self);
+                    var result = PInvoke_hashValue_Get_5AA30B25(self);
                     
                     return result;
                 }
@@ -3650,9 +3344,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC4ModeO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_0DF090C6( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_5AA30B25( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -3721,7 +3415,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -3729,7 +3423,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_2B57166E(into.Payload, self);
+                    PInvoke_hash_7502A10B(hasher.Payload, self);
                     
                     return;
                 }
@@ -3742,7 +3436,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC4ModeO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_2B57166E( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_7502A10B( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -3752,7 +3446,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidInitializationVector' case of Error.
@@ -3820,7 +3516,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -3828,7 +3524,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_7A4156E5(self);
+                    var result = PInvoke_hashValue_Get_4932FF8F(self);
                     
                     return result;
                 }
@@ -3841,9 +3537,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_7A4156E5( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_4932FF8F( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -3912,7 +3608,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -3920,7 +3616,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_054FA3AF(into.Payload, self);
+                    PInvoke_hash_3D75B94D(hasher.Payload, self);
                     
                     return;
                 }
@@ -3933,13 +3629,13 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_054FA3AF( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_3D75B94D( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe GCM( IEnumerable<System.Byte> iv,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData,  System.IntPtr tagLength,  Swift.CryptoSwift.GCM.Mode mode)
+        public unsafe GCM( IEnumerable<System.Byte> iv,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData,  nint tagLength,  Swift.CryptoSwift.GCM.Mode mode)
         {
             _payload = new SwiftSafeHandle<GCM>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -3950,13 +3646,64 @@ namespace Swift.CryptoSwift
             using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
             using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
             IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
-            PInvoke_init_21BE85B1(swiftIndirectResult, ivBuffer, additionalAuthenticatedDataBuffer, tagLength, mode.Payload.DangerousGetHandle());
+            PInvoke_init_17CA0AB9(swiftIndirectResult, ivBuffer, additionalAuthenticatedDataBuffer, tagLength, mode.Payload.DangerousGetHandle());
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC2iv27additionalAuthenticatedData9tagLength4modeACSays5UInt8VG_AJSgSiAC4ModeOtcfC")]
-        private static extern void PInvoke_init_21BE85B1( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr additionalAuthenticatedDataBuffer,  System.IntPtr tagLength,  IntPtr mode);
+        private static extern void PInvoke_init_17CA0AB9( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr additionalAuthenticatedDataBuffer,  nint tagLength,  IntPtr mode);
+        public unsafe GCM( IEnumerable<System.Byte> iv)
+        {
+            _payload = new SwiftSafeHandle<GCM>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
+            using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
+            IntPtr ivBuffer = ivDisposable.Buffer;
+            PInvoke_init_34494F53(swiftIndirectResult, ivBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_GCM_init_425CAEFB_3")]
+        private static extern void PInvoke_init_34494F53( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer);
+        public unsafe GCM( IEnumerable<System.Byte> iv,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData)
+        {
+            _payload = new SwiftSafeHandle<GCM>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
+            using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
+            IntPtr ivBuffer = ivDisposable.Buffer;
+            using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
+            IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
+            PInvoke_init_0C7D8F05(swiftIndirectResult, ivBuffer, additionalAuthenticatedDataBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_GCM_init_425CAEFB_2")]
+        private static extern void PInvoke_init_0C7D8F05( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr additionalAuthenticatedDataBuffer);
+        public unsafe GCM( IEnumerable<System.Byte> iv,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData,  nint tagLength)
+        {
+            _payload = new SwiftSafeHandle<GCM>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
+            using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
+            IntPtr ivBuffer = ivDisposable.Buffer;
+            using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
+            IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
+            PInvoke_init_4C01FB68(swiftIndirectResult, ivBuffer, additionalAuthenticatedDataBuffer, tagLength);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_GCM_init_425CAEFB_1")]
+        private static extern void PInvoke_init_4C01FB68( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr additionalAuthenticatedDataBuffer,  nint tagLength);
         
         
         public unsafe GCM( IEnumerable<System.Byte> iv,  IEnumerable<System.Byte> authenticationTag,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData,  Swift.CryptoSwift.GCM.Mode mode)
@@ -3973,47 +3720,66 @@ namespace Swift.CryptoSwift
             using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
             using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
             IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
-            PInvoke_init_4D8ED6DD(swiftIndirectResult, ivBuffer, authenticationTagBuffer, additionalAuthenticatedDataBuffer, mode.Payload.DangerousGetHandle());
+            PInvoke_init_7885BC40(swiftIndirectResult, ivBuffer, authenticationTagBuffer, additionalAuthenticatedDataBuffer, mode.Payload.DangerousGetHandle());
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3GCMC2iv17authenticationTag27additionalAuthenticatedData4modeACSays5UInt8VG_A2JSgAC4ModeOtcfC")]
-        private static extern void PInvoke_init_4D8ED6DD( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr authenticationTagBuffer,  IntPtr additionalAuthenticatedDataBuffer,  IntPtr mode);
+        private static extern void PInvoke_init_7885BC40( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr authenticationTagBuffer,  IntPtr additionalAuthenticatedDataBuffer,  IntPtr mode);
+        public unsafe GCM( IEnumerable<System.Byte> iv,  IEnumerable<System.Byte> authenticationTag)
+        {
+            _payload = new SwiftSafeHandle<GCM>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
+            using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
+            IntPtr ivBuffer = ivDisposable.Buffer;
+            using var authenticationTagSwift = SwiftArray<System.Byte>.FromEnumerable(authenticationTag);
+            using PayloadBuffer<IntPtr> authenticationTagDisposable = authenticationTagSwift.PayloadBuffer;
+            IntPtr authenticationTagBuffer = authenticationTagDisposable.Buffer;
+            PInvoke_init_7394A398(swiftIndirectResult, ivBuffer, authenticationTagBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_GCM_init_025257F8_2")]
+        private static extern void PInvoke_init_7394A398( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr authenticationTagBuffer);
+        public unsafe GCM( IEnumerable<System.Byte> iv,  IEnumerable<System.Byte> authenticationTag,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData)
+        {
+            _payload = new SwiftSafeHandle<GCM>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
+            using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
+            IntPtr ivBuffer = ivDisposable.Buffer;
+            using var authenticationTagSwift = SwiftArray<System.Byte>.FromEnumerable(authenticationTag);
+            using PayloadBuffer<IntPtr> authenticationTagDisposable = authenticationTagSwift.PayloadBuffer;
+            IntPtr authenticationTagBuffer = authenticationTagDisposable.Buffer;
+            using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
+            IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
+            PInvoke_init_296D6D04(swiftIndirectResult, ivBuffer, authenticationTagBuffer, additionalAuthenticatedDataBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_GCM_init_025257F8_1")]
+        private static extern void PInvoke_init_296D6D04( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  IntPtr authenticationTagBuffer,  IntPtr additionalAuthenticatedDataBuffer);
         
         
         
     }
     
     
-    public unsafe class CBCMAC : ISwiftObject, ISwiftAuthenticator
+    public unsafe class CBCMAC : ISwiftObject, IAuthenticator
     {
         static nuint _payloadSize = SwiftObjectHelper<CBCMAC>.GetTypeMetadata().Size;
         SwiftSafeHandle<CBCMAC> _payload = SwiftSafeHandle<CBCMAC>.Zero;
         
-        public SwiftSafeHandle<CBCMAC> Payload => _payload;
+        internal SwiftSafeHandle<CBCMAC> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type CBCMAC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type CBCMAC does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(CBCMAC left, CBCMAC right)
-        {
-            throw new InvalidOperationException("Type CBCMAC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(CBCMAC left, CBCMAC right)
-        {
-            throw new InvalidOperationException("Type CBCMAC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -4061,7 +3827,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftAuthenticator), ""}
+                {typeof(IAuthenticator), ""}
             };
         }
         
@@ -4075,7 +3841,7 @@ namespace Swift.CryptoSwift
             return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
         }
         
-        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -4084,11 +3850,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_authenticate_1E52528B(arg0Buffer, self, out var error);
+                var result = PInvoke_authenticate_3865C7B1(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -4108,7 +3874,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6CBCMACC12authenticateySays5UInt8VGAGKF")]
-        private static extern IntPtr PInvoke_authenticate_1E52528B( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_authenticate_3865C7B1( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
         
         public unsafe CBCMAC( IEnumerable<System.Byte> key)
@@ -4119,7 +3885,7 @@ namespace Swift.CryptoSwift
             using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
             using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
             IntPtr keyBuffer = keyDisposable.Buffer;
-            PInvoke_init_4778039A(swiftIndirectResult, keyBuffer, out var error);
+            PInvoke_init_52168DA3(swiftIndirectResult, keyBuffer, out var error);
             
             if (error.Value != null)
             {
@@ -4130,7 +3896,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6CBCMACC3keyACSays5UInt8VG_tKcfC")]
-        private static extern void PInvoke_init_4778039A( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer, out SwiftError error);
+        private static extern void PInvoke_init_52168DA3( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer, out SwiftError error);
         
         
     }
@@ -4141,29 +3907,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<HKDF>.GetTypeMetadata().Size;
         SwiftSafeHandle<HKDF> _payload = SwiftSafeHandle<HKDF>.Zero;
         
-        public SwiftSafeHandle<HKDF> Payload => _payload;
+        internal SwiftSafeHandle<HKDF> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type HKDF does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type HKDF does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(HKDF left, HKDF right)
-        {
-            throw new InvalidOperationException("Type HKDF does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(HKDF left, HKDF right)
-        {
-            throw new InvalidOperationException("Type HKDF does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -4230,7 +3976,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidInput' case of Error.
@@ -4298,7 +4046,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -4306,7 +4054,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_673B40A5(self);
+                    var result = PInvoke_hashValue_Get_7E46F57A(self);
                     
                     return result;
                 }
@@ -4319,9 +4067,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HKDFV5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_673B40A5( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_7E46F57A( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -4390,7 +4138,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -4398,7 +4146,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_1B8B8AE4(into.Payload, self);
+                    PInvoke_hash_12C26B07(hasher.Payload, self);
                     
                     return;
                 }
@@ -4411,13 +4159,13 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HKDFV5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_1B8B8AE4( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_12C26B07( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe HKDF( IEnumerable<System.Byte> password,  Swift.SwiftArray<System.Byte>? salt,  Swift.SwiftArray<System.Byte>? info,  System.IntPtr? keyLength,  Swift.CryptoSwift.HMAC.Variant variant)
+        public unsafe HKDF( IEnumerable<System.Byte> password,  Swift.SwiftArray<System.Byte>? salt,  Swift.SwiftArray<System.Byte>? info,  nint? keyLength,  Swift.CryptoSwift.HMAC.Variant variant)
         {
             _payload = new SwiftSafeHandle<HKDF>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -4431,10 +4179,10 @@ namespace Swift.CryptoSwift
             using var infoSwift = info is {} infoValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(infoValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
             using PayloadBuffer<IntPtr> infoDisposable = infoSwift.PayloadBuffer;
             IntPtr infoBuffer = infoDisposable.Buffer;
-            using var keyLengthSwift = keyLength is {} keyLengthValue ? SwiftOptional<System.IntPtr>.NewSome(keyLengthValue) : SwiftOptional<System.IntPtr>.NewNone();
+            using var keyLengthSwift = keyLength is {} keyLengthValue ? SwiftOptional<nint>.NewSome(keyLengthValue) : SwiftOptional<nint>.NewNone();
             using PayloadBuffer<IntPtr> keyLengthDisposable = keyLengthSwift.PayloadBuffer;
             IntPtr keyLengthBuffer = keyLengthDisposable.Buffer;
-            PInvoke_init_1AF23B9F(swiftIndirectResult, passwordBuffer, saltBuffer, infoBuffer, keyLengthBuffer, variant.Payload.DangerousGetHandle(), out var error);
+            PInvoke_init_477E567C(swiftIndirectResult, passwordBuffer, saltBuffer, infoBuffer, keyLengthBuffer, variant.Payload.DangerousGetHandle(), out var error);
             
             if (error.Value != null)
             {
@@ -4445,7 +4193,105 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HKDFV8password4salt4info9keyLength7variantACSays5UInt8VG_AKSgALSiSgAA4HMACC7VariantOtKcfC")]
-        private static extern void PInvoke_init_1AF23B9F( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  IntPtr infoBuffer,  IntPtr keyLengthBuffer,  IntPtr variant, out SwiftError error);
+        private static extern void PInvoke_init_477E567C( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  IntPtr infoBuffer,  IntPtr keyLengthBuffer,  IntPtr variant, out SwiftError error);
+        public unsafe HKDF( IEnumerable<System.Byte> password)
+        {
+            _payload = new SwiftSafeHandle<HKDF>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+            using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+            IntPtr passwordBuffer = passwordDisposable.Buffer;
+            PInvoke_init_0AC0D0F0(swiftIndirectResult, passwordBuffer, out var error);
+            
+            if (error.Value != null)
+            {
+                throw new SwiftRuntimeException("Call to Swift method init failed.");
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_HKDF_init_0D046DEE_4")]
+        private static extern void PInvoke_init_0AC0D0F0( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer, out SwiftError error);
+        public unsafe HKDF( IEnumerable<System.Byte> password,  Swift.SwiftArray<System.Byte>? salt)
+        {
+            _payload = new SwiftSafeHandle<HKDF>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+            using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+            IntPtr passwordBuffer = passwordDisposable.Buffer;
+            using var saltSwift = salt is {} saltValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(saltValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
+            IntPtr saltBuffer = saltDisposable.Buffer;
+            PInvoke_init_4AD7D9FA(swiftIndirectResult, passwordBuffer, saltBuffer, out var error);
+            
+            if (error.Value != null)
+            {
+                throw new SwiftRuntimeException("Call to Swift method init failed.");
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_HKDF_init_0D046DEE_3")]
+        private static extern void PInvoke_init_4AD7D9FA( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer, out SwiftError error);
+        public unsafe HKDF( IEnumerable<System.Byte> password,  Swift.SwiftArray<System.Byte>? salt,  Swift.SwiftArray<System.Byte>? info)
+        {
+            _payload = new SwiftSafeHandle<HKDF>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+            using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+            IntPtr passwordBuffer = passwordDisposable.Buffer;
+            using var saltSwift = salt is {} saltValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(saltValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
+            IntPtr saltBuffer = saltDisposable.Buffer;
+            using var infoSwift = info is {} infoValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(infoValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> infoDisposable = infoSwift.PayloadBuffer;
+            IntPtr infoBuffer = infoDisposable.Buffer;
+            PInvoke_init_6245359C(swiftIndirectResult, passwordBuffer, saltBuffer, infoBuffer, out var error);
+            
+            if (error.Value != null)
+            {
+                throw new SwiftRuntimeException("Call to Swift method init failed.");
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_HKDF_init_0D046DEE_2")]
+        private static extern void PInvoke_init_6245359C( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  IntPtr infoBuffer, out SwiftError error);
+        public unsafe HKDF( IEnumerable<System.Byte> password,  Swift.SwiftArray<System.Byte>? salt,  Swift.SwiftArray<System.Byte>? info,  nint? keyLength)
+        {
+            _payload = new SwiftSafeHandle<HKDF>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+            using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+            IntPtr passwordBuffer = passwordDisposable.Buffer;
+            using var saltSwift = salt is {} saltValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(saltValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
+            IntPtr saltBuffer = saltDisposable.Buffer;
+            using var infoSwift = info is {} infoValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(infoValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> infoDisposable = infoSwift.PayloadBuffer;
+            IntPtr infoBuffer = infoDisposable.Buffer;
+            using var keyLengthSwift = keyLength is {} keyLengthValue ? SwiftOptional<nint>.NewSome(keyLengthValue) : SwiftOptional<nint>.NewNone();
+            using PayloadBuffer<IntPtr> keyLengthDisposable = keyLengthSwift.PayloadBuffer;
+            IntPtr keyLengthBuffer = keyLengthDisposable.Buffer;
+            PInvoke_init_3012B305(swiftIndirectResult, passwordBuffer, saltBuffer, infoBuffer, keyLengthBuffer, out var error);
+            
+            if (error.Value != null)
+            {
+                throw new SwiftRuntimeException("Call to Swift method init failed.");
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_HKDF_init_0D046DEE_1")]
+        private static extern void PInvoke_init_3012B305( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  IntPtr infoBuffer,  IntPtr keyLengthBuffer, out SwiftError error);
         
         
         public unsafe IReadOnlyList<System.Byte> Calculate()
@@ -4458,7 +4304,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_calculate_695A334F(self, out var error);
+                var result = PInvoke_calculate_099FA2A9(self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -4478,7 +4324,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HKDFV9calculateSays5UInt8VGyKF")]
-        private static extern IntPtr PInvoke_calculate_695A334F( SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_calculate_099FA2A9( SwiftSelf self, out SwiftError error);
         
         
         public unsafe IReadOnlyList<System.Byte> CallAsFunction()
@@ -4491,7 +4337,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_callAsFunction_4B11284B(self, out var error);
+                var result = PInvoke_callAsFunction_1CDA72EA(self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -4511,40 +4357,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HKDFV14callAsFunctionSays5UInt8VGyKF")]
-        private static extern IntPtr PInvoke_callAsFunction_4B11284B( SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_callAsFunction_1CDA72EA( SwiftSelf self, out SwiftError error);
         
         
     }
     
     
-    public unsafe class HMAC : ISwiftObject, ISwiftAuthenticator
+    public unsafe class HMAC : ISwiftObject, IAuthenticator
     {
         static nuint _payloadSize = SwiftObjectHelper<HMAC>.GetTypeMetadata().Size;
         SwiftSafeHandle<HMAC> _payload = SwiftSafeHandle<HMAC>.Zero;
         
-        public SwiftSafeHandle<HMAC> Payload => _payload;
+        internal SwiftSafeHandle<HMAC> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type HMAC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type HMAC does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(HMAC left, HMAC right)
-        {
-            throw new InvalidOperationException("Type HMAC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(HMAC left, HMAC right)
-        {
-            throw new InvalidOperationException("Type HMAC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -4592,7 +4418,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftAuthenticator), "$s11CryptoSwift4HMACCAA13AuthenticatorAAMc"}
+                {typeof(IAuthenticator), "$s11CryptoSwift4HMACCAA13AuthenticatorAAMc"}
             };
         }
         
@@ -4610,7 +4436,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'authenticateError' case of Error.
@@ -4678,7 +4506,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -4686,7 +4514,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_61E7E5BC(self);
+                    var result = PInvoke_hashValue_Get_29FF8613(self);
                     
                     return result;
                 }
@@ -4699,9 +4527,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HMACC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_61E7E5BC( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_29FF8613( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -4770,7 +4598,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -4778,7 +4606,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_15D5A48D(into.Payload, self);
+                    PInvoke_hash_33376E57(hasher.Payload, self);
                     
                     return;
                 }
@@ -4791,7 +4619,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HMACC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_15D5A48D( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_33376E57( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -4801,7 +4629,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Variant>.GetTypeMetadata().Size;
             SwiftSafeHandle<Variant> _payload = SwiftSafeHandle<Variant>.Zero;
-            public SwiftSafeHandle<Variant> Payload => _payload;
+            internal SwiftSafeHandle<Variant> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Creates the 'sha2' case of Variant.
@@ -5107,16 +4937,31 @@ namespace Swift.CryptoSwift
             using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
             using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
             IntPtr keyBuffer = keyDisposable.Buffer;
-            PInvoke_init_13ECF91F(swiftIndirectResult, keyBuffer, variant.Payload.DangerousGetHandle());
+            PInvoke_init_4D9B9E4D(swiftIndirectResult, keyBuffer, variant.Payload.DangerousGetHandle());
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HMACC3key7variantACSays5UInt8VG_AC7VariantOtcfC")]
-        private static extern void PInvoke_init_13ECF91F( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  IntPtr variant);
+        private static extern void PInvoke_init_4D9B9E4D( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  IntPtr variant);
+        public unsafe HMAC( IEnumerable<System.Byte> key)
+        {
+            _payload = new SwiftSafeHandle<HMAC>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
+            using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
+            IntPtr keyBuffer = keyDisposable.Buffer;
+            PInvoke_init_74B20F73(swiftIndirectResult, keyBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_HMAC_init_33BF9BB0_1")]
+        private static extern void PInvoke_init_74B20F73( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer);
         
         
-        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -5125,11 +4970,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_authenticate_6AC55F84(arg0Buffer, self, out var error);
+                var result = PInvoke_authenticate_2CAF0546(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -5149,7 +4994,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HMACC12authenticateySays5UInt8VGAGKF")]
-        private static extern IntPtr PInvoke_authenticate_6AC55F84( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_authenticate_2CAF0546( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
         
         public unsafe HMAC( string key,  Swift.CryptoSwift.HMAC.Variant variant)
@@ -5159,7 +5004,7 @@ namespace Swift.CryptoSwift
             
             using var keySwift = new SwiftString(key);
             using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
-            PInvoke_init_5B3CAA5B(swiftIndirectResult, keyDisposable.Buffer, variant.Payload.DangerousGetHandle(), out var error);
+            PInvoke_init_05F305C7(swiftIndirectResult, keyDisposable.Buffer, variant.Payload.DangerousGetHandle(), out var error);
             
             if (error.Value != null)
             {
@@ -5170,21 +5015,40 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4HMACC3key7variantACSS_AC7VariantOtKcfC")]
-        private static extern void PInvoke_init_5B3CAA5B( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  IntPtr variant, out SwiftError error);
+        private static extern void PInvoke_init_05F305C7( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  IntPtr variant, out SwiftError error);
+        public unsafe HMAC( string key)
+        {
+            _payload = new SwiftSafeHandle<HMAC>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var keySwift = new SwiftString(key);
+            using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
+            PInvoke_init_5E031A73(swiftIndirectResult, keyDisposable.Buffer, out var error);
+            
+            if (error.Value != null)
+            {
+                throw new SwiftRuntimeException("Call to Swift method init failed.");
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_HMAC_init_BA8004BB_1")]
+        private static extern void PInvoke_init_5E031A73( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key, out SwiftError error);
         
         
     }
     
     
-    public unsafe class AEADChaCha20Poly1305 : ISwiftObject, ISwiftAEAD
+    public unsafe class AEADChaCha20Poly1305 : ISwiftObject, IAEAD
     {
-        private static System.IntPtr KLen_Get()
+        private static nint KLen_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_kLen_Get_154E11B1();
+                var result = PInvoke_kLen_Get_07213AF6();
                 
                 return result;
             }
@@ -5197,9 +5061,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift20AEADChaCha20Poly1305C4kLenSivgZ")]
-        private static extern System.IntPtr PInvoke_kLen_Get_154E11B1();
+        private static extern nint PInvoke_kLen_Get_07213AF6();
         
-        public static System.IntPtr KLen
+        public static nint KLen
         {
             get => KLen_Get();
         }
@@ -5207,29 +5071,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<AEADChaCha20Poly1305>.GetTypeMetadata().Size;
         SwiftSafeHandle<AEADChaCha20Poly1305> _payload = SwiftSafeHandle<AEADChaCha20Poly1305>.Zero;
         
-        public SwiftSafeHandle<AEADChaCha20Poly1305> Payload => _payload;
+        internal SwiftSafeHandle<AEADChaCha20Poly1305> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type AEADChaCha20Poly1305 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type AEADChaCha20Poly1305 does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(AEADChaCha20Poly1305 left, AEADChaCha20Poly1305 right)
-        {
-            throw new InvalidOperationException("Type AEADChaCha20Poly1305 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(AEADChaCha20Poly1305 left, AEADChaCha20Poly1305 right)
-        {
-            throw new InvalidOperationException("Type AEADChaCha20Poly1305 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -5277,7 +5121,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftAEAD), "$s11CryptoSwift20AEADChaCha20Poly1305CAA4AEADAAMc"}
+                {typeof(IAEAD), "$s11CryptoSwift20AEADChaCha20Poly1305CAA4AEADAAMc"}
             };
         }
         
@@ -5291,14 +5135,14 @@ namespace Swift.CryptoSwift
             return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
         }
         
-        public static unsafe (Swift.SwiftArray<System.Byte> cipherText, Swift.SwiftArray<System.Byte> authenticationTag) Encrypt( IEnumerable<System.Byte> arg0,  IEnumerable<System.Byte> key,  IEnumerable<System.Byte> iv,  IEnumerable<System.Byte> authenticationHeader)
+        public static unsafe (Swift.SwiftArray<System.Byte> cipherText, Swift.SwiftArray<System.Byte> authenticationTag) Encrypt( IEnumerable<System.Byte> plainText,  IEnumerable<System.Byte> key,  IEnumerable<System.Byte> iv,  IEnumerable<System.Byte> authenticationHeader)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var plainTextSwift = SwiftArray<System.Byte>.FromEnumerable(plainText);
+                using PayloadBuffer<IntPtr> plainTextDisposable = plainTextSwift.PayloadBuffer;
+                IntPtr plainTextBuffer = plainTextDisposable.Buffer;
                 using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
                 using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
                 IntPtr keyBuffer = keyDisposable.Buffer;
@@ -5309,7 +5153,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> authenticationHeaderDisposable = authenticationHeaderSwift.PayloadBuffer;
                 IntPtr authenticationHeaderBuffer = authenticationHeaderDisposable.Buffer;
                 
-                var result = PInvoke_encrypt_5120D60D(arg0Buffer, keyBuffer, ivBuffer, authenticationHeaderBuffer, out var error);
+                var result = PInvoke_encrypt_3485BF61(plainTextBuffer, keyBuffer, ivBuffer, authenticationHeaderBuffer, out var error);
                 
                 if (error.Value != null)
                 {
@@ -5329,18 +5173,18 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift20AEADChaCha20Poly1305C7encrypt_3key2iv20authenticationHeaderSays5UInt8VG10cipherText_AJ0I3TagtAJ_A3JtKFZ")]
-        private static extern ValueTuple<IntPtr, IntPtr> PInvoke_encrypt_5120D60D( IntPtr arg0Buffer,  IntPtr keyBuffer,  IntPtr ivBuffer,  IntPtr authenticationHeaderBuffer, out SwiftError error);
+        private static extern ValueTuple<IntPtr, IntPtr> PInvoke_encrypt_3485BF61( IntPtr plainTextBuffer,  IntPtr keyBuffer,  IntPtr ivBuffer,  IntPtr authenticationHeaderBuffer, out SwiftError error);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any CryptoSwift.Cipher")]
-        public static unsafe (Swift.SwiftArray<System.Byte> cipherText, Swift.SwiftArray<System.Byte> authenticationTag) Encrypt( Swift.Runtime.ExistentialContainer1 cipher,  IEnumerable<System.Byte> arg1,  IEnumerable<System.Byte> key,  IEnumerable<System.Byte> iv,  IEnumerable<System.Byte> authenticationHeader)
+        public static unsafe (Swift.SwiftArray<System.Byte> cipherText, Swift.SwiftArray<System.Byte> authenticationTag) Encrypt( ICipher cipher,  IEnumerable<System.Byte> plainText,  IEnumerable<System.Byte> key,  IEnumerable<System.Byte> iv,  IEnumerable<System.Byte> authenticationHeader)
         {
             try
             {
                 
-                using var arg1Swift = SwiftArray<System.Byte>.FromEnumerable(arg1);
-                using PayloadBuffer<IntPtr> arg1Disposable = arg1Swift.PayloadBuffer;
-                IntPtr arg1Buffer = arg1Disposable.Buffer;
+                using var plainTextSwift = SwiftArray<System.Byte>.FromEnumerable(plainText);
+                using PayloadBuffer<IntPtr> plainTextDisposable = plainTextSwift.PayloadBuffer;
+                IntPtr plainTextBuffer = plainTextDisposable.Buffer;
                 using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
                 using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
                 IntPtr keyBuffer = keyDisposable.Buffer;
@@ -5351,7 +5195,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> authenticationHeaderDisposable = authenticationHeaderSwift.PayloadBuffer;
                 IntPtr authenticationHeaderBuffer = authenticationHeaderDisposable.Buffer;
                 
-                var result = PInvoke_encrypt_16136545(cipher, arg1Buffer, keyBuffer, ivBuffer, authenticationHeaderBuffer, out var error);
+                var result = PInvoke_encrypt_54D52C6E(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)cipher).GetExistentialContainer(), plainTextBuffer, keyBuffer, ivBuffer, authenticationHeaderBuffer, out var error);
                 
                 if (error.Value != null)
                 {
@@ -5371,17 +5215,17 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift20AEADChaCha20Poly1305C7encrypt6cipher_3key2iv20authenticationHeaderSays5UInt8VG0G4Text_AK0J3TagtAA6Cipher_p_A4KtKFZ")]
-        private static extern ValueTuple<IntPtr, IntPtr> PInvoke_encrypt_16136545( Swift.Runtime.ExistentialContainer1 cipher,  IntPtr arg1Buffer,  IntPtr keyBuffer,  IntPtr ivBuffer,  IntPtr authenticationHeaderBuffer, out SwiftError error);
+        private static extern ValueTuple<IntPtr, IntPtr> PInvoke_encrypt_54D52C6E( Swift.Runtime.ExistentialContainer1 cipher,  IntPtr plainTextBuffer,  IntPtr keyBuffer,  IntPtr ivBuffer,  IntPtr authenticationHeaderBuffer, out SwiftError error);
         
         
-        public static unsafe (Swift.SwiftArray<System.Byte> plainText, System.Boolean success) Decrypt( IEnumerable<System.Byte> arg0,  IEnumerable<System.Byte> key,  IEnumerable<System.Byte> iv,  IEnumerable<System.Byte> authenticationHeader,  IEnumerable<System.Byte> authenticationTag)
+        public static unsafe (Swift.SwiftArray<System.Byte> plainText, System.Boolean success) Decrypt( IEnumerable<System.Byte> cipherText,  IEnumerable<System.Byte> key,  IEnumerable<System.Byte> iv,  IEnumerable<System.Byte> authenticationHeader,  IEnumerable<System.Byte> authenticationTag)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var cipherTextSwift = SwiftArray<System.Byte>.FromEnumerable(cipherText);
+                using PayloadBuffer<IntPtr> cipherTextDisposable = cipherTextSwift.PayloadBuffer;
+                IntPtr cipherTextBuffer = cipherTextDisposable.Buffer;
                 using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
                 using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
                 IntPtr keyBuffer = keyDisposable.Buffer;
@@ -5395,7 +5239,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> authenticationTagDisposable = authenticationTagSwift.PayloadBuffer;
                 IntPtr authenticationTagBuffer = authenticationTagDisposable.Buffer;
                 
-                var result = PInvoke_decrypt_48ABC5E5(arg0Buffer, keyBuffer, ivBuffer, authenticationHeaderBuffer, authenticationTagBuffer, out var error);
+                var result = PInvoke_decrypt_7681B2D1(cipherTextBuffer, keyBuffer, ivBuffer, authenticationHeaderBuffer, authenticationTagBuffer, out var error);
                 
                 if (error.Value != null)
                 {
@@ -5415,21 +5259,21 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift20AEADChaCha20Poly1305C7decrypt_3key2iv20authenticationHeader0I3TagSays5UInt8VG9plainText_Sb7successtAK_A4KtKFZ")]
-        private static extern ValueTuple<IntPtr, System.Boolean> PInvoke_decrypt_48ABC5E5( IntPtr arg0Buffer,  IntPtr keyBuffer,  IntPtr ivBuffer,  IntPtr authenticationHeaderBuffer,  IntPtr authenticationTagBuffer, out SwiftError error);
+        private static extern ValueTuple<IntPtr, System.Boolean> PInvoke_decrypt_7681B2D1( IntPtr cipherTextBuffer,  IntPtr keyBuffer,  IntPtr ivBuffer,  IntPtr authenticationHeaderBuffer,  IntPtr authenticationTagBuffer, out SwiftError error);
         
         
     }
     
     
-    public unsafe class Poly1305 : ISwiftObject, ISwiftAuthenticator
+    public unsafe class Poly1305 : ISwiftObject, IAuthenticator
     {
-        private static System.IntPtr BlockSize_Get()
+        private static nint BlockSize_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_blockSize_Get_0A99CD0E();
+                var result = PInvoke_blockSize_Get_6A277292();
                 
                 return result;
             }
@@ -5442,9 +5286,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8Poly1305C9blockSizeSivgZ")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_0A99CD0E();
+        private static extern nint PInvoke_blockSize_Get_6A277292();
         
-        public static System.IntPtr BlockSize
+        public static nint BlockSize
         {
             get => BlockSize_Get();
         }
@@ -5452,29 +5296,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<Poly1305>.GetTypeMetadata().Size;
         SwiftSafeHandle<Poly1305> _payload = SwiftSafeHandle<Poly1305>.Zero;
         
-        public SwiftSafeHandle<Poly1305> Payload => _payload;
+        internal SwiftSafeHandle<Poly1305> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type Poly1305 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type Poly1305 does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(Poly1305 left, Poly1305 right)
-        {
-            throw new InvalidOperationException("Type Poly1305 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(Poly1305 left, Poly1305 right)
-        {
-            throw new InvalidOperationException("Type Poly1305 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -5522,7 +5346,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftAuthenticator), "$s11CryptoSwift8Poly1305CAA13AuthenticatorAAMc"}
+                {typeof(IAuthenticator), "$s11CryptoSwift8Poly1305CAA13AuthenticatorAAMc"}
             };
         }
         
@@ -5540,7 +5364,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'authenticateError' case of Error.
@@ -5591,7 +5417,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -5599,7 +5425,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_7CC3F901(self);
+                    var result = PInvoke_hashValue_Get_4A2C4F08(self);
                     
                     return result;
                 }
@@ -5612,9 +5438,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8Poly1305C5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_7CC3F901( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_4A2C4F08( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -5683,7 +5509,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -5691,7 +5517,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_5E93193C(into.Payload, self);
+                    PInvoke_hash_08CF094F(hasher.Payload, self);
                     
                     return;
                 }
@@ -5704,7 +5530,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8Poly1305C5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_5E93193C( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_08CF094F( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -5718,16 +5544,16 @@ namespace Swift.CryptoSwift
             using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
             using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
             IntPtr keyBuffer = keyDisposable.Buffer;
-            PInvoke_init_26EC3B34(swiftIndirectResult, keyBuffer);
+            PInvoke_init_1B4FC509(swiftIndirectResult, keyBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8Poly1305C3keyACSays5UInt8VG_tcfC")]
-        private static extern void PInvoke_init_26EC3B34( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer);
+        private static extern void PInvoke_init_1B4FC509( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer);
         
         
-        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Authenticate( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -5736,11 +5562,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_authenticate_65219536(arg0Buffer, self, out var error);
+                var result = PInvoke_authenticate_784812F8(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -5760,22 +5586,22 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8Poly1305C12authenticateySays5UInt8VGAGKF")]
-        private static extern IntPtr PInvoke_authenticate_65219536( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_authenticate_784812F8( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
         
     }
     
     
-    public interface ISwiftCryptor
+    public interface ICryptor
     {
-        void Seek(System.IntPtr to);
+        void Seek(nint to);
     }
     
     /// <summary>
     /// Proxy class that enables C# implementations of the Cryptor protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class CryptorProxy : ISwiftCryptor, ISwiftObject
+    public unsafe class CryptorProxy : ICryptor, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift Cryptor_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -5797,7 +5623,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftCryptor? _csharpImpl;
+        private readonly ICryptor? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static CryptorProxy()
@@ -5839,17 +5665,17 @@ namespace Swift.CryptoSwift
         {
             var container = *(ExistentialContainer1*)selfContainer;
             var proxy = SwiftObjectRegistry.GetProxyFromContainer<CryptorProxy>(container);
-            var param0 = MarshalFromSwift<System.IntPtr>(rawArg0);
+            var param0 = MarshalFromSwift<nint>(rawArg0);
             proxy._csharpImpl!.Seek(param0);
         }
         
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftCryptor.
+        /// Creates a proxy wrapping a C# implementation of ICryptor.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public CryptorProxy(ISwiftCryptor implementation)
+        public CryptorProxy(ICryptor implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -5880,7 +5706,7 @@ namespace Swift.CryptoSwift
         }
         #region Interface Implementation
         
-        public void Seek(System.IntPtr to)
+        public void Seek(nint to)
         {
             if (_csharpImpl != null)
             {
@@ -5952,6 +5778,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -5985,17 +5812,17 @@ namespace Swift.CryptoSwift
     }
     
     
-    public interface ISwiftBlockMode
+    public interface IBlockMode
     {
         Swift.CryptoSwift.BlockModeOption Options { get; }
-        Swift.SwiftOptional<System.IntPtr> CustomBlockSize { get; }
+        nint? CustomBlockSize { get; }
     }
     
     /// <summary>
     /// Proxy class that enables C# implementations of the BlockMode protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class BlockModeProxy : ISwiftBlockMode, ISwiftObject
+    public unsafe class BlockModeProxy : IBlockMode, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift BlockMode_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -6021,7 +5848,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftBlockMode? _csharpImpl;
+        private readonly IBlockMode? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static BlockModeProxy()
@@ -6079,10 +5906,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftBlockMode.
+        /// Creates a proxy wrapping a C# implementation of IBlockMode.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public BlockModeProxy(ISwiftBlockMode implementation)
+        public BlockModeProxy(IBlockMode implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -6125,7 +5952,7 @@ namespace Swift.CryptoSwift
             }
         }
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public Swift.SwiftOptional<nint> CustomBlockSize
         {
             get
             {
@@ -6197,6 +6024,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -6234,7 +6062,9 @@ namespace Swift.CryptoSwift
     {
         static nuint _payloadSize = SwiftObjectHelper<CipherError>.GetTypeMetadata().Size;
         SwiftSafeHandle<CipherError> _payload = SwiftSafeHandle<CipherError>.Zero;
-        public SwiftSafeHandle<CipherError> Payload => _payload;
+        internal SwiftSafeHandle<CipherError> Payload => _payload;
+        
+        public void Dispose() => _payload.Dispose();
         
         /// <summary>
         /// Gets the 'encrypt' case of CipherError.
@@ -6302,7 +6132,7 @@ namespace Swift.CryptoSwift
         }
         
         
-        private unsafe System.IntPtr HashValue_Get()
+        private unsafe nint HashValue_Get()
         {
             try
             {
@@ -6310,7 +6140,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_hashValue_Get_07C1BE27(self);
+                var result = PInvoke_hashValue_Get_4C15B37A(self);
                 
                 return result;
             }
@@ -6323,9 +6153,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift11CipherErrorO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_07C1BE27( SwiftSelf self);
+        private static extern nint PInvoke_hashValue_Get_4C15B37A( SwiftSelf self);
         
-        public System.IntPtr HashValue
+        public nint HashValue
         {
             get => HashValue_Get();
         }
@@ -6394,7 +6224,7 @@ namespace Swift.CryptoSwift
             return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
         }
         
-        public unsafe void Hash(ref Swift.Hasher into)
+        public unsafe void Hash(ref Swift.Hasher hasher)
         {
             try
             {
@@ -6402,7 +6232,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_hash_042D92F0(into.Payload, self);
+                PInvoke_hash_37E59DDA(hasher.Payload, self);
                 
                 return;
             }
@@ -6415,17 +6245,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift11CipherErrorO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_042D92F0( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_37E59DDA( SafeHandle hasher,  SwiftSelf self);
         
         
     }
     
     
-    public interface ISwiftCipher
+    public interface ICipher
     {
-        System.IntPtr KeySize { get; }
+        nint KeySize { get; }
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         IReadOnlyList<System.Byte> Encrypt(Swift.AnyType arg0);
         IReadOnlyList<System.Byte> Encrypt(IEnumerable<System.Byte> arg0);
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         IReadOnlyList<System.Byte> Decrypt(Swift.AnyType arg0);
         IReadOnlyList<System.Byte> Decrypt(IEnumerable<System.Byte> arg0);
     }
@@ -6434,7 +6266,7 @@ namespace Swift.CryptoSwift
     /// Proxy class that enables C# implementations of the Cipher protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class CipherProxy : ISwiftCipher, ISwiftObject
+    public unsafe class CipherProxy : ICipher, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift Cipher_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -6464,7 +6296,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftCipher? _csharpImpl;
+        private readonly ICipher? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static CipherProxy()
@@ -6560,10 +6392,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftCipher.
+        /// Creates a proxy wrapping a C# implementation of ICipher.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public CipherProxy(ISwiftCipher implementation)
+        public CipherProxy(ICipher implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -6594,7 +6426,7 @@ namespace Swift.CryptoSwift
         }
         #region Interface Implementation
         
-        public System.IntPtr KeySize
+        public nint KeySize
         {
             get
             {
@@ -6705,6 +6537,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -6743,34 +6576,14 @@ namespace Swift.CryptoSwift
     }
     
     
-    public unsafe class BlockEncryptor : ISwiftObject, ISwiftCryptor
+    public unsafe class BlockEncryptor : ISwiftObject, ICryptor
     {
         static nuint _payloadSize = SwiftObjectHelper<BlockEncryptor>.GetTypeMetadata().Size;
         SwiftSafeHandle<BlockEncryptor> _payload = SwiftSafeHandle<BlockEncryptor>.Zero;
         
-        public SwiftSafeHandle<BlockEncryptor> Payload => _payload;
+        internal SwiftSafeHandle<BlockEncryptor> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type BlockEncryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type BlockEncryptor does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(BlockEncryptor left, BlockEncryptor right)
-        {
-            throw new InvalidOperationException("Type BlockEncryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(BlockEncryptor left, BlockEncryptor right)
-        {
-            throw new InvalidOperationException("Type BlockEncryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -6818,8 +6631,8 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftCryptor), "$s11CryptoSwift14BlockEncryptorCAA7CryptorAAMc"},
-        {typeof(ISwiftUpdatable), "$s11CryptoSwift14BlockEncryptorCAA9UpdatableAAMc"}
+                {typeof(ICryptor), "$s11CryptoSwift14BlockEncryptorCAA7CryptorAAMc"},
+        {typeof(IUpdatable), "$s11CryptoSwift14BlockEncryptorCAA9UpdatableAAMc"}
             };
         }
         
@@ -6837,7 +6650,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'unsupported' case of Error.
@@ -6888,7 +6703,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -6896,7 +6711,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_76B18154(self);
+                    var result = PInvoke_hashValue_Get_5910C2F2(self);
                     
                     return result;
                 }
@@ -6909,9 +6724,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockEncryptorC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_76B18154( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_5910C2F2( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -6980,7 +6795,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -6988,7 +6803,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_5498E133(into.Payload, self);
+                    PInvoke_hash_0084B208(hasher.Payload, self);
                     
                     return;
                 }
@@ -7001,18 +6816,18 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockEncryptorC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_5498E133( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_0084B208( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe BlockEncryptor( System.IntPtr blockSize,  Swift.CryptoSwift.Padding padding,  Swift.Runtime.ExistentialContainer1 arg2)
+        public unsafe BlockEncryptor( nint blockSize,  Swift.CryptoSwift.Padding padding,  ICipherModeWorker worker)
         {
             _payload = new SwiftSafeHandle<BlockEncryptor>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_3A732C6E(swiftIndirectResult, blockSize, padding.Payload.DangerousGetHandle(), arg2, out var error);
+            PInvoke_init_5F78635B(swiftIndirectResult, blockSize, padding.Payload.DangerousGetHandle(), ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)worker).GetExistentialContainer(), out var error);
             
             if (error.Value != null)
             {
@@ -7023,11 +6838,11 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockEncryptorC9blockSize7padding_ACSi_AA7PaddingOAA16CipherModeWorker_ptKcfC")]
-        private static extern void PInvoke_init_3A732C6E( SwiftIndirectResult swiftIndirectResult,  System.IntPtr blockSize,  IntPtr padding,  Swift.Runtime.ExistentialContainer1 arg2, out SwiftError error);
+        private static extern void PInvoke_init_5F78635B( SwiftIndirectResult swiftIndirectResult,  nint blockSize,  IntPtr padding,  Swift.Runtime.ExistentialContainer1 worker, out SwiftError error);
         
         
         
-        public unsafe void Seek( System.IntPtr to)
+        public unsafe void Seek( nint to)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7037,7 +6852,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_seek_61768737(to, self, out var error);
+                PInvoke_seek_67532177(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -7057,7 +6872,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockEncryptorC4seek2toySi_tKF")]
-        private static extern void PInvoke_seek_61768737( System.IntPtr to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_seek_67532177( nint to,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -7065,7 +6880,7 @@ namespace Swift.CryptoSwift
     
     public unsafe class SHA2 : ISwiftObject
     {
-        private unsafe Swift.CryptoSwift.SHA2.Variant Variant_Get()
+        private unsafe Swift.CryptoSwift.SHA2.VariantInfo Variant_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7075,9 +6890,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_variant_Get_40F35ED2(self);
+                var result = PInvoke_variant_Get_0F524394(self);
                 
-                return result;
+                return (Swift.CryptoSwift.SHA2.VariantInfo)result;
             }
             
             finally
@@ -7090,14 +6905,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C7variantAC7VariantOvg")]
-        private static extern Swift.CryptoSwift.SHA2.Variant PInvoke_variant_Get_40F35ED2( SwiftSelf self);
+        private static extern int PInvoke_variant_Get_0F524394( SwiftSelf self);
         
-        public Swift.CryptoSwift.SHA2.Variant VariantValue
+        public Swift.CryptoSwift.SHA2.VariantInfo Variant
         {
             get => Variant_Get();
         }
         
-        private unsafe System.IntPtr Size_Get()
+        private unsafe nint Size_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7107,7 +6922,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_size_Get_13DFB77C(self);
+                var result = PInvoke_size_Get_780615EC(self);
                 
                 return result;
             }
@@ -7122,14 +6937,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C4sizeSivg")]
-        private static extern System.IntPtr PInvoke_size_Get_13DFB77C( SwiftSelf self);
+        private static extern nint PInvoke_size_Get_780615EC( SwiftSelf self);
         
-        public System.IntPtr Size
+        public nint Size
         {
             get => Size_Get();
         }
         
-        private unsafe System.IntPtr BlockSize_Get()
+        private unsafe nint BlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7139,7 +6954,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_blockSize_Get_70C379C5(self);
+                var result = PInvoke_blockSize_Get_17E4BE9E(self);
                 
                 return result;
             }
@@ -7154,14 +6969,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C9blockSizeSivg")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_70C379C5( SwiftSelf self);
+        private static extern nint PInvoke_blockSize_Get_17E4BE9E( SwiftSelf self);
         
-        public System.IntPtr BlockSize
+        public nint BlockSize
         {
             get => BlockSize_Get();
         }
         
-        private unsafe System.IntPtr DigestLength_Get()
+        private unsafe nint DigestLength_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7171,7 +6986,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_digestLength_Get_435169C1(self);
+                var result = PInvoke_digestLength_Get_18B5651D(self);
                 
                 return result;
             }
@@ -7186,9 +7001,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C12digestLengthSivg")]
-        private static extern System.IntPtr PInvoke_digestLength_Get_435169C1( SwiftSelf self);
+        private static extern nint PInvoke_digestLength_Get_18B5651D( SwiftSelf self);
         
-        public System.IntPtr DigestLength
+        public nint DigestLength
         {
             get => DigestLength_Get();
         }
@@ -7203,7 +7018,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_accumulated_Get_438C290E(self);
+                var result = PInvoke_accumulated_Get_24B588AD(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -7218,7 +7033,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C11accumulatedSays5UInt8VGvg")]
-        private static extern IntPtr PInvoke_accumulated_Get_438C290E( SwiftSelf self);
+        private static extern IntPtr PInvoke_accumulated_Get_24B588AD( SwiftSelf self);
         
         private unsafe void Accumulated_Set( Swift.SwiftArray<System.Byte> value)
         {
@@ -7232,7 +7047,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_accumulated_Set_39319DFB(valueBuffer, self);
+                PInvoke_accumulated_Set_3972A476(valueBuffer, self);
                 
                 return;
             }
@@ -7247,15 +7062,15 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C11accumulatedSays5UInt8VGvs")]
-        private static extern void PInvoke_accumulated_Set_39319DFB( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_accumulated_Set_3972A476( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<System.Byte> Accumulated
+        public IReadOnlyList<System.Byte> Accumulated
         {
             get => Accumulated_Get();
-            set => Accumulated_Set(value);
+            set => Accumulated_Set(SwiftArray<System.Byte>.FromEnumerable(value));
         }
         
-        private unsafe System.IntPtr ProcessedBytesTotalCount_Get()
+        private unsafe nint ProcessedBytesTotalCount_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7265,7 +7080,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_processedBytesTotalCount_Get_7BA03CBD(self);
+                var result = PInvoke_processedBytesTotalCount_Get_73C363C6(self);
                 
                 return result;
             }
@@ -7280,9 +7095,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C24processedBytesTotalCountSivg")]
-        private static extern System.IntPtr PInvoke_processedBytesTotalCount_Get_7BA03CBD( SwiftSelf self);
+        private static extern nint PInvoke_processedBytesTotalCount_Get_73C363C6( SwiftSelf self);
         
-        private unsafe void ProcessedBytesTotalCount_Set( System.IntPtr value)
+        private unsafe void ProcessedBytesTotalCount_Set( nint value)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7292,7 +7107,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_processedBytesTotalCount_Set_55E88AE3(value, self);
+                PInvoke_processedBytesTotalCount_Set_6A59F9FB(value, self);
                 
                 return;
             }
@@ -7307,9 +7122,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C24processedBytesTotalCountSivs")]
-        private static extern void PInvoke_processedBytesTotalCount_Set_55E88AE3( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_processedBytesTotalCount_Set_6A59F9FB( nint value,  SwiftSelf self);
         
-        public System.IntPtr ProcessedBytesTotalCount
+        public nint ProcessedBytesTotalCount
         {
             get => ProcessedBytesTotalCount_Get();
             set => ProcessedBytesTotalCount_Set(value);
@@ -7325,7 +7140,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_accumulatedHash32_Get_45CFD0D5(self);
+                var result = PInvoke_accumulatedHash32_Get_45362B93(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -7340,7 +7155,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C17accumulatedHash32Says6UInt32VGvg")]
-        private static extern IntPtr PInvoke_accumulatedHash32_Get_45CFD0D5( SwiftSelf self);
+        private static extern IntPtr PInvoke_accumulatedHash32_Get_45362B93( SwiftSelf self);
         
         private unsafe void AccumulatedHash32_Set( Swift.SwiftArray<System.UInt32> value)
         {
@@ -7354,7 +7169,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_accumulatedHash32_Set_48FCF484(valueBuffer, self);
+                PInvoke_accumulatedHash32_Set_65904445(valueBuffer, self);
                 
                 return;
             }
@@ -7369,12 +7184,12 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C17accumulatedHash32Says6UInt32VGvs")]
-        private static extern void PInvoke_accumulatedHash32_Set_48FCF484( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_accumulatedHash32_Set_65904445( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<System.UInt32> AccumulatedHash32
+        public IReadOnlyList<System.UInt32> AccumulatedHash32
         {
             get => AccumulatedHash32_Get();
-            set => AccumulatedHash32_Set(value);
+            set => AccumulatedHash32_Set(SwiftArray<System.UInt32>.FromEnumerable(value));
         }
         
         private unsafe Swift.SwiftArray<System.UInt64> AccumulatedHash64_Get()
@@ -7387,7 +7202,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_accumulatedHash64_Get_4BBFB04D(self);
+                var result = PInvoke_accumulatedHash64_Get_18FD288C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt64>>(new IntPtr(&result));
             }
@@ -7402,7 +7217,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C17accumulatedHash64Says6UInt64VGvg")]
-        private static extern IntPtr PInvoke_accumulatedHash64_Get_4BBFB04D( SwiftSelf self);
+        private static extern IntPtr PInvoke_accumulatedHash64_Get_18FD288C( SwiftSelf self);
         
         private unsafe void AccumulatedHash64_Set( Swift.SwiftArray<System.UInt64> value)
         {
@@ -7416,7 +7231,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_accumulatedHash64_Set_098EB0CB(valueBuffer, self);
+                PInvoke_accumulatedHash64_Set_339BF726(valueBuffer, self);
                 
                 return;
             }
@@ -7431,40 +7246,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C17accumulatedHash64Says6UInt64VGvs")]
-        private static extern void PInvoke_accumulatedHash64_Set_098EB0CB( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_accumulatedHash64_Set_339BF726( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<System.UInt64> AccumulatedHash64
+        public IReadOnlyList<System.UInt64> AccumulatedHash64
         {
             get => AccumulatedHash64_Get();
-            set => AccumulatedHash64_Set(value);
+            set => AccumulatedHash64_Set(SwiftArray<System.UInt64>.FromEnumerable(value));
         }
         
         static nuint _payloadSize = SwiftObjectHelper<SHA2>.GetTypeMetadata().Size;
         SwiftSafeHandle<SHA2> _payload = SwiftSafeHandle<SHA2>.Zero;
         
-        public SwiftSafeHandle<SHA2> Payload => _payload;
+        internal SwiftSafeHandle<SHA2> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type SHA2 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type SHA2 does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(SHA2 left, SHA2 right)
-        {
-            throw new InvalidOperationException("Type SHA2 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(SHA2 left, SHA2 right)
-        {
-            throw new InvalidOperationException("Type SHA2 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -7512,7 +7307,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftUpdatable), "$s11CryptoSwift4SHA2CAA9UpdatableAAMc"}
+                {typeof(IUpdatable), "$s11CryptoSwift4SHA2CAA9UpdatableAAMc"}
             };
         }
         
@@ -7526,334 +7321,30 @@ namespace Swift.CryptoSwift
             return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
         }
         
-        public unsafe class Variant : ISwiftObject
+        public enum VariantInfo : int
         {
-            static nuint _payloadSize = SwiftObjectHelper<Variant>.GetTypeMetadata().Size;
-            SwiftSafeHandle<Variant> _payload = SwiftSafeHandle<Variant>.Zero;
-            public SwiftSafeHandle<Variant> Payload => _payload;
-            
-            /// <summary>
-            /// Gets the 'sha224' case of Variant.
-            /// </summary>
-            public static Variant Sha224
-            {
-                get
-                {
-                    var result = new Variant();
-                    var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
-                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)0, metadata);
-                    result._payload = new SwiftSafeHandle<Variant>(buffer);
-                    return result;
-                }
-            }
-            
-            /// <summary>
-            /// Gets the 'sha256' case of Variant.
-            /// </summary>
-            public static Variant Sha256
-            {
-                get
-                {
-                    var result = new Variant();
-                    var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
-                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)1, metadata);
-                    result._payload = new SwiftSafeHandle<Variant>(buffer);
-                    return result;
-                }
-            }
-            
-            /// <summary>
-            /// Gets the 'sha384' case of Variant.
-            /// </summary>
-            public static Variant Sha384
-            {
-                get
-                {
-                    var result = new Variant();
-                    var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
-                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)2, metadata);
-                    result._payload = new SwiftSafeHandle<Variant>(buffer);
-                    return result;
-                }
-            }
-            
-            /// <summary>
-            /// Gets the 'sha512' case of Variant.
-            /// </summary>
-            public static Variant Sha512
-            {
-                get
-                {
-                    var result = new Variant();
-                    var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
-                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)3, metadata);
-                    result._payload = new SwiftSafeHandle<Variant>(buffer);
-                    return result;
-                }
-            }
-            
-            /// <summary>
-            /// Enum representing the possible cases of Variant.
-            /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
-            /// </summary>
-            public enum CaseTag : uint
-            {
-                Sha224 = 0,
-                Sha256 = 1,
-                Sha384 = 2,
-                Sha512 = 3,
-            }
-            
-            /// <summary>
-            /// Gets the current case of this enum instance.
-            /// </summary>
-            public unsafe CaseTag Tag
-            {
-                get
-                {
-                    bool success = false;
-                    _payload.DangerousAddRef(ref success);
-                    try
-                    {
-                        var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
-                        byte* payload = (byte*)_payload.DangerousGetHandle();
-                        return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
-                    }
-                    finally
-                    {
-                        if (success)
-                            _payload.DangerousRelease();
-                    }
-                }
-            }
-            
-            
-            private unsafe System.IntPtr DigestLength_Get()
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_digestLength_Get_289B8C91(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C7VariantO12digestLengthSivg")]
-            private static extern System.IntPtr PInvoke_digestLength_Get_289B8C91( SwiftSelf self);
-            
-            public System.IntPtr DigestLength
-            {
-                get => DigestLength_Get();
-            }
-            
-            private unsafe System.IntPtr BlockSize_Get()
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_blockSize_Get_57973344(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C7VariantO9blockSizeSivg")]
-            private static extern System.IntPtr PInvoke_blockSize_Get_57973344( SwiftSelf self);
-            
-            public System.IntPtr BlockSize
-            {
-                get => BlockSize_Get();
-            }
-            
-            private unsafe System.IntPtr RawValue_Get()
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_rawValue_Get_22642AA1(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C7VariantO8rawValueSivg")]
-            private static extern System.IntPtr PInvoke_rawValue_Get_22642AA1( SwiftSelf self);
-            
-            public System.IntPtr RawValue
-            {
-                get => RawValue_Get();
-            }
-            
-            private unsafe Swift.SwiftArray<System.UInt64> H_Get()
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_h_Get_36EEC761(self);
-                    
-                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt64>>(new IntPtr(&result));
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C7VariantO1hSays6UInt64VGvg")]
-            private static extern IntPtr PInvoke_h_Get_36EEC761( SwiftSelf self);
-            
-            public Swift.SwiftArray<System.UInt64> H
-            {
-                get => H_Get();
-            }
-            
-            private unsafe System.IntPtr FinalLength_Get()
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_finalLength_Get_6878527C(self);
-                    
-                    return result;
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C7VariantO11finalLengthSivg")]
-            private static extern System.IntPtr PInvoke_finalLength_Get_6878527C( SwiftSelf self);
-            
-            public System.IntPtr FinalLength
-            {
-                get => FinalLength_Get();
-            }
-            
-            static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C7VariantOMa")]
-            internal static extern TypeMetadata PInvoke_getMetadata();
-            
-            static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-            {
-                return new Variant(handle);
-            }
-            
-            Variant()
-            {
-            }
-            
-            Variant(SwiftHandle handle)
-            {
-                _payload = new SwiftSafeHandle<Variant>(handle);
-            }
-            
-            unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-            {
-                var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
-                if ((int)metadata.Size > swiftDestSpan.Length)
-                {
-                    throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-                }
-                fixed (void* swiftDest = swiftDestSpan)
-                {
-                    // Ensure that the instance is valid before making copy
-                    bool success = false;
-                    _payload.DangerousAddRef(ref success);
-                    try
-                    {
-                        metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                        return (int)metadata.Size;
-                    }
-                    finally
-                    {
-                        if (success)
-                            _payload.DangerousRelease();
-                    }
-                }
-            }
-            
-            private static Dictionary<Type, string> _protocolConformanceSymbols;
-            static Variant()
-            {
-                _protocolConformanceSymbols = new Dictionary<Type, string>
-                {
-                    {typeof(IEquatable<Variant>), "$s11CryptoSwift4SHA2C7VariantOSQAAMc"}
-                };
-            }
-            
-            static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
-                where TProtocol : class
-            {
-                if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
-                {
-                    throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type Variant and protocol {typeof(TProtocol).Name}, but no conformance was found.");
-                }
-                return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
-            }
-            
+            Sha224 = 0,
+            Sha256 = 1,
+            Sha384 = 2,
+            Sha512 = 3,
         }
         
         
-        public unsafe SHA2( Swift.CryptoSwift.SHA2.Variant variant)
+        public unsafe SHA2( Swift.CryptoSwift.SHA2.VariantInfo variant)
         {
             _payload = new SwiftSafeHandle<SHA2>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_73941B4B(swiftIndirectResult, variant.Payload.DangerousGetHandle());
+            PInvoke_init_0AD64967(swiftIndirectResult, (int)variant);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C7variantA2C7VariantO_tcfC")]
-        private static extern void PInvoke_init_73941B4B( SwiftIndirectResult swiftIndirectResult,  IntPtr variant);
+        private static extern void PInvoke_init_0AD64967( SwiftIndirectResult swiftIndirectResult,  int variant);
         
         
-        public unsafe IReadOnlyList<System.Byte> Calculate( IEnumerable<System.Byte> _for)
+        public unsafe IReadOnlyList<System.Byte> Calculate( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7862,11 +7353,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var _forSwift = SwiftArray<System.Byte>.FromEnumerable(_for);
-                using PayloadBuffer<IntPtr> _forDisposable = _forSwift.PayloadBuffer;
-                IntPtr _forBuffer = _forDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_calculate_76BCD405(_forBuffer, self);
+                var result = PInvoke_calculate_6710F7B3(bytesBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -7881,10 +7372,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C9calculate3forSays5UInt8VGAH_tF")]
-        private static extern IntPtr PInvoke_calculate_76BCD405( IntPtr _forBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_calculate_6710F7B3( IntPtr bytesBuffer,  SwiftSelf self);
         
         
-        public unsafe IReadOnlyList<System.Byte> CallAsFunction( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> CallAsFunction( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7893,11 +7384,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_callAsFunction_4A60F923(arg0Buffer, self);
+                var result = PInvoke_callAsFunction_36685409(bytesBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -7912,12 +7403,12 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA2C14callAsFunctionySays5UInt8VGAGF")]
-        private static extern IntPtr PInvoke_callAsFunction_4A60F923( IntPtr arg0Buffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_callAsFunction_36685409( IntPtr bytesBuffer,  SwiftSelf self);
         
         
         
         
-        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> withBytes,  System.Boolean isLast)
+        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> bytes,  System.Boolean isLast)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -7926,11 +7417,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var withBytesSwift = SwiftArray<System.Byte>.FromEnumerable(withBytes);
-                using PayloadBuffer<IntPtr> withBytesDisposable = withBytesSwift.PayloadBuffer;
-                IntPtr withBytesBuffer = withBytesDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_update_2657F6C6(withBytesBuffer, isLast, self, out var error);
+                var result = PInvoke_update_6B9903DD(bytesBuffer, isLast, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -7950,20 +7441,24 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_SHA2_update_0F871E93")]
-        private static extern IntPtr PInvoke_update_2657F6C6( IntPtr withBytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_update_6B9903DD( IntPtr bytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
         
     }
     
     
-    public interface ISwiftUpdatable
+    public interface IUpdatable
     {
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         IReadOnlyList<System.Byte> Update(Swift.AnyType withBytes, System.Boolean isLast);
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         void Update(Swift.AnyType withBytes, System.Boolean isLast, Action<Swift.SwiftArray<System.Byte>> output);
         IReadOnlyList<System.Byte> Update(IEnumerable<System.Byte> withBytes, System.Boolean isLast);
         void Update(IEnumerable<System.Byte> withBytes, System.Boolean isLast, Action<Swift.SwiftArray<System.Byte>> output);
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         IReadOnlyList<System.Byte> Finish(Swift.AnyType withBytes);
         IReadOnlyList<System.Byte> Finish(IEnumerable<System.Byte> withBytes);
         IReadOnlyList<System.Byte> Finish();
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         void Finish(Swift.AnyType withBytes, Action<Swift.SwiftArray<System.Byte>> output);
         void Finish(IEnumerable<System.Byte> withBytes, Action<Swift.SwiftArray<System.Byte>> output);
     }
@@ -7972,7 +7467,7 @@ namespace Swift.CryptoSwift
     /// Proxy class that enables C# implementations of the Updatable protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class UpdatableProxy : ISwiftUpdatable, ISwiftObject
+    public unsafe class UpdatableProxy : IUpdatable, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift Updatable_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -8012,7 +7507,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftUpdatable? _csharpImpl;
+        private readonly IUpdatable? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static UpdatableProxy()
@@ -8172,10 +7667,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftUpdatable.
+        /// Creates a proxy wrapping a C# implementation of IUpdatable.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public UpdatableProxy(ISwiftUpdatable implementation)
+        public UpdatableProxy(IUpdatable implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -8371,6 +7866,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -8412,7 +7908,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_table32_Get_2A40D188();
+                var result = PInvoke_table32_Get_3751327A();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -8425,9 +7921,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChecksumC7table32Says6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_table32_Get_2A40D188();
+        private static extern IntPtr PInvoke_table32_Get_3751327A();
         
-        public static Swift.SwiftArray<System.UInt32> Table32
+        public static IReadOnlyList<System.UInt32> Table32
         {
             get => Table32_Get();
         }
@@ -8438,7 +7934,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_table32c_Get_2953E3FF();
+                var result = PInvoke_table32c_Get_7E288D25();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -8451,9 +7947,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChecksumC8table32cSays6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_table32c_Get_2953E3FF();
+        private static extern IntPtr PInvoke_table32c_Get_7E288D25();
         
-        public static Swift.SwiftArray<System.UInt32> Table32c
+        public static IReadOnlyList<System.UInt32> Table32c
         {
             get => Table32c_Get();
         }
@@ -8464,7 +7960,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_table16_Get_52194E1D();
+                var result = PInvoke_table16_Get_363B1676();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt16>>(new IntPtr(&result));
             }
@@ -8477,9 +7973,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChecksumC7table16Says6UInt16VGvgZ")]
-        private static extern IntPtr PInvoke_table16_Get_52194E1D();
+        private static extern IntPtr PInvoke_table16_Get_363B1676();
         
-        public static Swift.SwiftArray<System.UInt16> Table16
+        public static IReadOnlyList<System.UInt16> Table16
         {
             get => Table16_Get();
         }
@@ -8487,29 +7983,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<Checksum>.GetTypeMetadata().Size;
         SwiftSafeHandle<Checksum> _payload = SwiftSafeHandle<Checksum>.Zero;
         
-        public SwiftSafeHandle<Checksum> Payload => _payload;
+        internal SwiftSafeHandle<Checksum> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type Checksum does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type Checksum does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(Checksum left, Checksum right)
-        {
-            throw new InvalidOperationException("Type Checksum does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(Checksum left, Checksum right)
-        {
-            throw new InvalidOperationException("Type Checksum does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -8576,16 +8052,16 @@ namespace Swift.CryptoSwift
             _payload = new SwiftSafeHandle<Checksum>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_0832528A(swiftIndirectResult);
+            PInvoke_init_5F1D38FB(swiftIndirectResult);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChecksumCACycfC")]
-        private static extern void PInvoke_init_0832528A( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_5F1D38FB( SwiftIndirectResult swiftIndirectResult);
         
         
-        public unsafe System.UInt32 Crc32( IEnumerable<System.Byte> arg0,  System.UInt32? seed,  System.Boolean reflect)
+        public unsafe System.UInt32 Crc32( IEnumerable<System.Byte> message,  System.UInt32? seed,  System.Boolean reflect)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -8594,14 +8070,14 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var messageSwift = SwiftArray<System.Byte>.FromEnumerable(message);
+                using PayloadBuffer<IntPtr> messageDisposable = messageSwift.PayloadBuffer;
+                IntPtr messageBuffer = messageDisposable.Buffer;
                 using var seedSwift = seed is {} seedValue ? SwiftOptional<System.UInt32>.NewSome(seedValue) : SwiftOptional<System.UInt32>.NewNone();
                 using PayloadBuffer<IntPtr> seedDisposable = seedSwift.PayloadBuffer;
                 IntPtr seedBuffer = seedDisposable.Buffer;
                 
-                var result = PInvoke_crc32_48B55DDF(arg0Buffer, seedBuffer, reflect, self);
+                var result = PInvoke_crc32_5C49FDD6(messageBuffer, seedBuffer, reflect, self);
                 
                 return result;
             }
@@ -8616,10 +8092,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChecksumC5crc32_4seed7reflects6UInt32VSays5UInt8VG_AHSgSbtF")]
-        private static extern System.UInt32 PInvoke_crc32_48B55DDF( IntPtr arg0Buffer,  IntPtr seedBuffer,  System.Boolean reflect,  SwiftSelf self);
+        private static extern System.UInt32 PInvoke_crc32_5C49FDD6( IntPtr messageBuffer,  IntPtr seedBuffer,  System.Boolean reflect,  SwiftSelf self);
         
         
-        public unsafe System.UInt32 Crc32c( IEnumerable<System.Byte> arg0,  System.UInt32? seed,  System.Boolean reflect)
+        public unsafe System.UInt32 Crc32c( IEnumerable<System.Byte> message,  System.UInt32? seed,  System.Boolean reflect)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -8628,14 +8104,14 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var messageSwift = SwiftArray<System.Byte>.FromEnumerable(message);
+                using PayloadBuffer<IntPtr> messageDisposable = messageSwift.PayloadBuffer;
+                IntPtr messageBuffer = messageDisposable.Buffer;
                 using var seedSwift = seed is {} seedValue ? SwiftOptional<System.UInt32>.NewSome(seedValue) : SwiftOptional<System.UInt32>.NewNone();
                 using PayloadBuffer<IntPtr> seedDisposable = seedSwift.PayloadBuffer;
                 IntPtr seedBuffer = seedDisposable.Buffer;
                 
-                var result = PInvoke_crc32c_7EAFD85A(arg0Buffer, seedBuffer, reflect, self);
+                var result = PInvoke_crc32c_2A99B204(messageBuffer, seedBuffer, reflect, self);
                 
                 return result;
             }
@@ -8650,10 +8126,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChecksumC6crc32c_4seed7reflects6UInt32VSays5UInt8VG_AHSgSbtF")]
-        private static extern System.UInt32 PInvoke_crc32c_7EAFD85A( IntPtr arg0Buffer,  IntPtr seedBuffer,  System.Boolean reflect,  SwiftSelf self);
+        private static extern System.UInt32 PInvoke_crc32c_2A99B204( IntPtr messageBuffer,  IntPtr seedBuffer,  System.Boolean reflect,  SwiftSelf self);
         
         
-        public unsafe System.UInt16 Crc16( IEnumerable<System.Byte> arg0,  System.UInt16? seed)
+        public unsafe System.UInt16 Crc16( IEnumerable<System.Byte> message,  System.UInt16? seed)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -8662,14 +8138,14 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var messageSwift = SwiftArray<System.Byte>.FromEnumerable(message);
+                using PayloadBuffer<IntPtr> messageDisposable = messageSwift.PayloadBuffer;
+                IntPtr messageBuffer = messageDisposable.Buffer;
                 using var seedSwift = seed is {} seedValue ? SwiftOptional<System.UInt16>.NewSome(seedValue) : SwiftOptional<System.UInt16>.NewNone();
                 using PayloadBuffer<IntPtr> seedDisposable = seedSwift.PayloadBuffer;
                 IntPtr seedBuffer = seedDisposable.Buffer;
                 
-                var result = PInvoke_crc16_1E0391CA(arg0Buffer, seedBuffer, self);
+                var result = PInvoke_crc16_520D26F4(messageBuffer, seedBuffer, self);
                 
                 return result;
             }
@@ -8684,15 +8160,15 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChecksumC5crc16_4seeds6UInt16VSays5UInt8VG_AGSgtF")]
-        private static extern System.UInt16 PInvoke_crc16_1E0391CA( IntPtr arg0Buffer,  IntPtr seedBuffer,  SwiftSelf self);
+        private static extern System.UInt16 PInvoke_crc16_520D26F4( IntPtr messageBuffer,  IntPtr seedBuffer,  SwiftSelf self);
         
         
     }
     
     
-    public unsafe class StreamEncryptor : ISwiftObject, ISwiftCryptor
+    public unsafe class StreamEncryptor : ISwiftObject, ICryptor
     {
-        private unsafe System.IntPtr BlockSize_Get()
+        private unsafe nint BlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -8702,7 +8178,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_blockSize_Get_0DCAA4F7(self);
+                var result = PInvoke_blockSize_Get_19BB7B24(self);
                 
                 return result;
             }
@@ -8717,14 +8193,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC9blockSizeSivg")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_0DCAA4F7( SwiftSelf self);
+        private static extern nint PInvoke_blockSize_Get_19BB7B24( SwiftSelf self);
         
-        public System.IntPtr BlockSize
+        public nint BlockSize
         {
             get => BlockSize_Get();
         }
         
-        private unsafe Swift.Runtime.ExistentialContainer1 Worker_Get()
+        private unsafe ICipherModeWorker Worker_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -8734,9 +8210,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_worker_Get_59C91FF0(self);
+                var result = PInvoke_worker_Get_102427FC(self);
                 
-                return result;
+                return new CipherModeWorkerProxy(result);
             }
             
             finally
@@ -8749,9 +8225,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC6workerAA16CipherModeWorker_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_worker_Get_59C91FF0( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_worker_Get_102427FC( SwiftSelf self);
         
-        private unsafe void Worker_Set( Swift.Runtime.ExistentialContainer1 value)
+        private unsafe void Worker_Set( ICipherModeWorker value)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -8761,7 +8237,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_worker_Set_3FBF62D6(value, self);
+                PInvoke_worker_Set_0F5403C7(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)value).GetExistentialContainer(), self);
                 
                 return;
             }
@@ -8776,10 +8252,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC6workerAA16CipherModeWorker_pvs")]
-        private static extern void PInvoke_worker_Set_3FBF62D6( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+        private static extern void PInvoke_worker_Set_0F5403C7( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any CryptoSwift.CipherModeWorker")]
-        public Swift.Runtime.ExistentialContainer1 Worker
+        public ICipherModeWorker Worker
         {
             get => Worker_Get();
             set => Worker_Set(value);
@@ -8799,7 +8275,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_padding_Get_3112A7B8(swiftIndirectResult, self);
+                PInvoke_padding_Get_0D03D57A(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.Padding>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -8814,14 +8290,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC7paddingAA7PaddingOvg")]
-        private static extern void PInvoke_padding_Get_3112A7B8( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_padding_Get_0D03D57A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.Padding Padding
         {
             get => Padding_Get();
         }
         
-        private unsafe System.IntPtr LastBlockRemainder_Get()
+        private unsafe nint LastBlockRemainder_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -8831,7 +8307,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_lastBlockRemainder_Get_780150D5(self);
+                var result = PInvoke_lastBlockRemainder_Get_4267AB53(self);
                 
                 return result;
             }
@@ -8846,9 +8322,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC18lastBlockRemainderSivg")]
-        private static extern System.IntPtr PInvoke_lastBlockRemainder_Get_780150D5( SwiftSelf self);
+        private static extern nint PInvoke_lastBlockRemainder_Get_4267AB53( SwiftSelf self);
         
-        private unsafe void LastBlockRemainder_Set( System.IntPtr value)
+        private unsafe void LastBlockRemainder_Set( nint value)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -8858,7 +8334,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_lastBlockRemainder_Set_05F22AC5(value, self);
+                PInvoke_lastBlockRemainder_Set_7E57F220(value, self);
                 
                 return;
             }
@@ -8873,9 +8349,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC18lastBlockRemainderSivs")]
-        private static extern void PInvoke_lastBlockRemainder_Set_05F22AC5( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_lastBlockRemainder_Set_7E57F220( nint value,  SwiftSelf self);
         
-        public System.IntPtr LastBlockRemainder
+        public nint LastBlockRemainder
         {
             get => LastBlockRemainder_Get();
             set => LastBlockRemainder_Set(value);
@@ -8884,29 +8360,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<StreamEncryptor>.GetTypeMetadata().Size;
         SwiftSafeHandle<StreamEncryptor> _payload = SwiftSafeHandle<StreamEncryptor>.Zero;
         
-        public SwiftSafeHandle<StreamEncryptor> Payload => _payload;
+        internal SwiftSafeHandle<StreamEncryptor> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type StreamEncryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type StreamEncryptor does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(StreamEncryptor left, StreamEncryptor right)
-        {
-            throw new InvalidOperationException("Type StreamEncryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(StreamEncryptor left, StreamEncryptor right)
-        {
-            throw new InvalidOperationException("Type StreamEncryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -8954,8 +8410,8 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftCryptor), "$s11CryptoSwift15StreamEncryptorCAA7CryptorAAMc"},
-        {typeof(ISwiftUpdatable), "$s11CryptoSwift15StreamEncryptorCAA9UpdatableAAMc"}
+                {typeof(ICryptor), "$s11CryptoSwift15StreamEncryptorCAA7CryptorAAMc"},
+        {typeof(IUpdatable), "$s11CryptoSwift15StreamEncryptorCAA9UpdatableAAMc"}
             };
         }
         
@@ -8973,7 +8429,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'unsupported' case of Error.
@@ -9024,7 +8482,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -9032,7 +8490,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_1D1177C2(self);
+                    var result = PInvoke_hashValue_Get_776DB72A(self);
                     
                     return result;
                 }
@@ -9045,9 +8503,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_1D1177C2( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_776DB72A( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -9116,7 +8574,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -9124,7 +8582,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_58F072E5(into.Payload, self);
+                    PInvoke_hash_37489A9C(hasher.Payload, self);
                     
                     return;
                 }
@@ -9137,18 +8595,18 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_58F072E5( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_37489A9C( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe StreamEncryptor( System.IntPtr blockSize,  Swift.CryptoSwift.Padding padding,  Swift.Runtime.ExistentialContainer1 arg2)
+        public unsafe StreamEncryptor( nint blockSize,  Swift.CryptoSwift.Padding padding,  ICipherModeWorker worker)
         {
             _payload = new SwiftSafeHandle<StreamEncryptor>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_1E5D150E(swiftIndirectResult, blockSize, padding.Payload.DangerousGetHandle(), arg2, out var error);
+            PInvoke_init_400F4B5C(swiftIndirectResult, blockSize, padding.Payload.DangerousGetHandle(), ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)worker).GetExistentialContainer(), out var error);
             
             if (error.Value != null)
             {
@@ -9159,11 +8617,11 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC9blockSize7padding_ACSi_AA7PaddingOAA16CipherModeWorker_ptKcfC")]
-        private static extern void PInvoke_init_1E5D150E( SwiftIndirectResult swiftIndirectResult,  System.IntPtr blockSize,  IntPtr padding,  Swift.Runtime.ExistentialContainer1 arg2, out SwiftError error);
+        private static extern void PInvoke_init_400F4B5C( SwiftIndirectResult swiftIndirectResult,  nint blockSize,  IntPtr padding,  Swift.Runtime.ExistentialContainer1 worker, out SwiftError error);
         
         
         
-        public unsafe void Seek( System.IntPtr to)
+        public unsafe void Seek( nint to)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -9173,7 +8631,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_seek_03EF419D(to, self, out var error);
+                PInvoke_seek_10C264A6(to, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -9193,23 +8651,23 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamEncryptorC4seek2toySi_tKF")]
-        private static extern void PInvoke_seek_03EF419D( System.IntPtr to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_seek_10C264A6( nint to,  SwiftSelf self, out SwiftError error);
         
         
     }
     
     
-    public interface ISwiftCryptors
+    public interface ICryptors
     {
-        Swift.Runtime.ExistentialContainer2 MakeEncryptor();
-        Swift.Runtime.ExistentialContainer2 MakeDecryptor();
+        ICryptorAndUpdatable MakeEncryptor();
+        ICryptorAndUpdatable MakeDecryptor();
     }
     
     /// <summary>
     /// Proxy class that enables C# implementations of the Cryptors protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class CryptorsProxy : ISwiftCryptors, ISwiftObject
+    public unsafe class CryptorsProxy : ICryptors, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift Cryptors_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -9233,7 +8691,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftCryptors? _csharpImpl;
+        private readonly ICryptors? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static CryptorsProxy()
@@ -9293,10 +8751,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftCryptors.
+        /// Creates a proxy wrapping a C# implementation of ICryptors.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public CryptorsProxy(ISwiftCryptors implementation)
+        public CryptorsProxy(ICryptors implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -9327,7 +8785,7 @@ namespace Swift.CryptoSwift
         }
         #region Interface Implementation
         
-        public Swift.Runtime.ExistentialContainer2 MakeEncryptor()
+        public ICryptorAndUpdatable MakeEncryptor()
         {
             if (_csharpImpl != null)
                 return _csharpImpl.MakeEncryptor();
@@ -9336,7 +8794,7 @@ namespace Swift.CryptoSwift
                 "Protocol member access is only supported when wrapping a C# implementation.");
         }
         
-        public Swift.Runtime.ExistentialContainer2 MakeDecryptor()
+        public ICryptorAndUpdatable MakeDecryptor()
         {
             if (_csharpImpl != null)
                 return _csharpImpl.MakeDecryptor();
@@ -9405,6 +8863,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -9454,7 +8913,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_options_Get_548B004E(swiftIndirectResult, self);
+                PInvoke_options_Get_164A41F7(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -9469,14 +8928,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3ECBV7optionsAA15BlockModeOptionVvg")]
-        private static extern void PInvoke_options_Get_548B004E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_164A41F7( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.BlockModeOption Options
         {
             get => Options_Get();
         }
         
-        private unsafe Swift.SwiftOptional<System.IntPtr> CustomBlockSize_Get()
+        private unsafe Swift.SwiftOptional<nint> CustomBlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -9486,9 +8945,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_customBlockSize_Get_4306CE60(self);
+                var result = PInvoke_customBlockSize_Get_58C2F93B(self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<nint>>(new IntPtr(&result));
             }
             
             finally
@@ -9501,39 +8960,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3ECBV15customBlockSizeSiSgvg")]
-        private static extern IntPtr PInvoke_customBlockSize_Get_4306CE60( SwiftSelf self);
+        private static extern IntPtr PInvoke_customBlockSize_Get_58C2F93B( SwiftSelf self);
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public nint? CustomBlockSize
         {
-            get => CustomBlockSize_Get();
+            get => ((nint?)CustomBlockSize_Get());
         }
         
         static nuint _payloadSize = SwiftObjectHelper<ECB>.GetTypeMetadata().Size;
         SwiftSafeHandle<ECB> _payload = SwiftSafeHandle<ECB>.Zero;
         
-        public SwiftSafeHandle<ECB> Payload => _payload;
+        internal SwiftSafeHandle<ECB> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type ECB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type ECB does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(ECB left, ECB right)
-        {
-            throw new InvalidOperationException("Type ECB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(ECB left, ECB right)
-        {
-            throw new InvalidOperationException("Type ECB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -9581,7 +9020,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftBlockMode), "$s11CryptoSwift3ECBVAA9BlockModeAAMc"}
+                {typeof(IBlockMode), "$s11CryptoSwift3ECBVAA9BlockModeAAMc"}
             };
         }
         
@@ -9601,24 +9040,27 @@ namespace Swift.CryptoSwift
             _payload = new SwiftSafeHandle<ECB>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_31526FA0(swiftIndirectResult);
+            PInvoke_init_50B85207(swiftIndirectResult);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3ECBVACycfC")]
-        private static extern void PInvoke_init_31526FA0( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_50B85207( SwiftIndirectResult swiftIndirectResult);
         
         
         
     }
     
     
-    public interface ISwiftCipherModeWorker
+    public interface ICipherModeWorker
     {
+        [global::Swift.UnsupportedSwiftType("Unsupported closure fallback", "(Swift.ArraySlice<Swift.UInt8>) -> Swift.Optional<Swift.Array<Swift.UInt8>>")]
         Swift.AnyType CipherOperation { get; }
-        System.IntPtr AdditionalBufferSize { get; }
+        nint AdditionalBufferSize { get; }
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         IReadOnlyList<System.Byte> Encrypt(Swift.AnyType block);
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         IReadOnlyList<System.Byte> Decrypt(Swift.AnyType block);
     }
     
@@ -9626,7 +9068,7 @@ namespace Swift.CryptoSwift
     /// Proxy class that enables C# implementations of the CipherModeWorker protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class CipherModeWorkerProxy : ISwiftCipherModeWorker, ISwiftObject
+    public unsafe class CipherModeWorkerProxy : ICipherModeWorker, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift CipherModeWorker_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -9654,7 +9096,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftCipherModeWorker? _csharpImpl;
+        private readonly ICipherModeWorker? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static CipherModeWorkerProxy()
@@ -9736,10 +9178,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftCipherModeWorker.
+        /// Creates a proxy wrapping a C# implementation of ICipherModeWorker.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public CipherModeWorkerProxy(ISwiftCipherModeWorker implementation)
+        public CipherModeWorkerProxy(ICipherModeWorker implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -9782,7 +9224,7 @@ namespace Swift.CryptoSwift
             }
         }
         
-        public System.IntPtr AdditionalBufferSize
+        public nint AdditionalBufferSize
         {
             get
             {
@@ -9875,6 +9317,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -9913,16 +9356,16 @@ namespace Swift.CryptoSwift
     }
     
     
-    public interface ISwiftBlockModeWorker
+    public interface IBlockModeWorker
     {
-        System.IntPtr BlockSize { get; }
+        nint BlockSize { get; }
     }
     
     /// <summary>
     /// Proxy class that enables C# implementations of the BlockModeWorker protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class BlockModeWorkerProxy : ISwiftBlockModeWorker, ISwiftObject
+    public unsafe class BlockModeWorkerProxy : IBlockModeWorker, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift BlockModeWorker_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -9944,7 +9387,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftBlockModeWorker? _csharpImpl;
+        private readonly IBlockModeWorker? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static BlockModeWorkerProxy()
@@ -9992,10 +9435,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftBlockModeWorker.
+        /// Creates a proxy wrapping a C# implementation of IBlockModeWorker.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public BlockModeWorkerProxy(ISwiftBlockModeWorker implementation)
+        public BlockModeWorkerProxy(IBlockModeWorker implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -10026,7 +9469,7 @@ namespace Swift.CryptoSwift
         }
         #region Interface Implementation
         
-        public System.IntPtr BlockSize
+        public nint BlockSize
         {
             get
             {
@@ -10101,6 +9544,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -10139,22 +9583,22 @@ namespace Swift.CryptoSwift
     }
     
     
-    public interface ISwiftCounterModeWorker<TCounter>
+    public interface ICounterModeWorker<TCounter>
     {
         Swift.AnyType Counter { get; set; }
     }
     
     
-    public interface ISwiftSeekableModeWorker
+    public interface ISeekableModeWorker
     {
-        void Seek(System.IntPtr to);
+        void Seek(nint to);
     }
     
     /// <summary>
     /// Proxy class that enables C# implementations of the SeekableModeWorker protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class SeekableModeWorkerProxy : ISwiftSeekableModeWorker, ISwiftObject
+    public unsafe class SeekableModeWorkerProxy : ISeekableModeWorker, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift SeekableModeWorker_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -10176,7 +9620,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftSeekableModeWorker? _csharpImpl;
+        private readonly ISeekableModeWorker? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static SeekableModeWorkerProxy()
@@ -10218,17 +9662,17 @@ namespace Swift.CryptoSwift
         {
             var container = *(ExistentialContainer1*)selfContainer;
             var proxy = SwiftObjectRegistry.GetProxyFromContainer<SeekableModeWorkerProxy>(container);
-            var param0 = MarshalFromSwift<System.IntPtr>(rawArg0);
+            var param0 = MarshalFromSwift<nint>(rawArg0);
             proxy._csharpImpl!.Seek(param0);
         }
         
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftSeekableModeWorker.
+        /// Creates a proxy wrapping a C# implementation of ISeekableModeWorker.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public SeekableModeWorkerProxy(ISwiftSeekableModeWorker implementation)
+        public SeekableModeWorkerProxy(ISeekableModeWorker implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -10259,7 +9703,7 @@ namespace Swift.CryptoSwift
         }
         #region Interface Implementation
         
-        public void Seek(System.IntPtr to)
+        public void Seek(nint to)
         {
             if (_csharpImpl != null)
             {
@@ -10331,6 +9775,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -10364,13 +9809,14 @@ namespace Swift.CryptoSwift
     }
     
     
-    public interface ISwiftStreamModeWorker
+    public interface IStreamModeWorker
     {
     }
     
     
-    public interface ISwiftFinalizingEncryptModeWorker
+    public interface IFinalizingEncryptModeWorker
     {
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         Swift.AnyType Finalize(Swift.AnyType encrypt);
     }
     
@@ -10378,7 +9824,7 @@ namespace Swift.CryptoSwift
     /// Proxy class that enables C# implementations of the FinalizingEncryptModeWorker protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class FinalizingEncryptModeWorkerProxy : ISwiftFinalizingEncryptModeWorker, ISwiftObject
+    public unsafe class FinalizingEncryptModeWorkerProxy : IFinalizingEncryptModeWorker, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift FinalizingEncryptModeWorker_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -10400,7 +9846,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftFinalizingEncryptModeWorker? _csharpImpl;
+        private readonly IFinalizingEncryptModeWorker? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static FinalizingEncryptModeWorkerProxy()
@@ -10450,10 +9896,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftFinalizingEncryptModeWorker.
+        /// Creates a proxy wrapping a C# implementation of IFinalizingEncryptModeWorker.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public FinalizingEncryptModeWorkerProxy(ISwiftFinalizingEncryptModeWorker implementation)
+        public FinalizingEncryptModeWorkerProxy(IFinalizingEncryptModeWorker implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -10553,6 +9999,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -10586,10 +10033,13 @@ namespace Swift.CryptoSwift
     }
     
     
-    public interface ISwiftFinalizingDecryptModeWorker
+    public interface IFinalizingDecryptModeWorker
     {
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         Swift.AnyType WillDecryptLast(Swift.AnyType bytes);
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         Swift.AnyType DidDecryptLast(Swift.AnyType bytes);
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         Swift.AnyType Finalize(Swift.AnyType decrypt);
     }
     
@@ -10597,7 +10047,7 @@ namespace Swift.CryptoSwift
     /// Proxy class that enables C# implementations of the FinalizingDecryptModeWorker protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class FinalizingDecryptModeWorkerProxy : ISwiftFinalizingDecryptModeWorker, ISwiftObject
+    public unsafe class FinalizingDecryptModeWorkerProxy : IFinalizingDecryptModeWorker, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift FinalizingDecryptModeWorker_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -10623,7 +10073,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftFinalizingDecryptModeWorker? _csharpImpl;
+        private readonly IFinalizingDecryptModeWorker? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static FinalizingDecryptModeWorkerProxy()
@@ -10697,10 +10147,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftFinalizingDecryptModeWorker.
+        /// Creates a proxy wrapping a C# implementation of IFinalizingDecryptModeWorker.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public FinalizingDecryptModeWorkerProxy(ISwiftFinalizingDecryptModeWorker implementation)
+        public FinalizingDecryptModeWorkerProxy(IFinalizingDecryptModeWorker implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -10818,6 +10268,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -10855,7 +10306,9 @@ namespace Swift.CryptoSwift
     {
         static nuint _payloadSize = SwiftObjectHelper<PKCS7>.GetTypeMetadata().Size;
         SwiftSafeHandle<PKCS7> _payload = SwiftSafeHandle<PKCS7>.Zero;
-        public SwiftSafeHandle<PKCS7> Payload => _payload;
+        internal SwiftSafeHandle<PKCS7> Payload => _payload;
+        
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -10928,7 +10381,9 @@ namespace Swift.CryptoSwift
     {
         static nuint _payloadSize = SwiftObjectHelper<SignatureError>.GetTypeMetadata().Size;
         SwiftSafeHandle<SignatureError> _payload = SwiftSafeHandle<SignatureError>.Zero;
-        public SwiftSafeHandle<SignatureError> Payload => _payload;
+        internal SwiftSafeHandle<SignatureError> Payload => _payload;
+        
+        public void Dispose() => _payload.Dispose();
         
         /// <summary>
         /// Gets the 'sign' case of SignatureError.
@@ -10996,7 +10451,7 @@ namespace Swift.CryptoSwift
         }
         
         
-        private unsafe System.IntPtr HashValue_Get()
+        private unsafe nint HashValue_Get()
         {
             try
             {
@@ -11004,7 +10459,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_hashValue_Get_329917D2(self);
+                var result = PInvoke_hashValue_Get_71BEE7DD(self);
                 
                 return result;
             }
@@ -11017,9 +10472,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14SignatureErrorO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_329917D2( SwiftSelf self);
+        private static extern nint PInvoke_hashValue_Get_71BEE7DD( SwiftSelf self);
         
-        public System.IntPtr HashValue
+        public nint HashValue
         {
             get => HashValue_Get();
         }
@@ -11088,7 +10543,7 @@ namespace Swift.CryptoSwift
             return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
         }
         
-        public unsafe void Hash(ref Swift.Hasher into)
+        public unsafe void Hash(ref Swift.Hasher hasher)
         {
             try
             {
@@ -11096,7 +10551,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_hash_69484E72(into.Payload, self);
+                PInvoke_hash_3D5C93A9(hasher.Payload, self);
                 
                 return;
             }
@@ -11109,17 +10564,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14SignatureErrorO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_69484E72( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_3D5C93A9( SafeHandle hasher,  SwiftSelf self);
         
         
     }
     
     
-    public interface ISwiftSignature
+    public interface ISignature
     {
-        System.IntPtr KeySize { get; }
+        nint KeySize { get; }
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         IReadOnlyList<System.Byte> Sign(Swift.AnyType arg0);
         IReadOnlyList<System.Byte> Sign(IEnumerable<System.Byte> arg0);
+        [global::Swift.UnsupportedSwiftType("Type is missing from the type database", "Swift.ArraySlice")]
         System.Boolean Verify(Swift.AnyType signature, Swift.AnyType _for);
         System.Boolean Verify(IEnumerable<System.Byte> signature, IEnumerable<System.Byte> _for);
     }
@@ -11128,7 +10585,7 @@ namespace Swift.CryptoSwift
     /// Proxy class that enables C# implementations of the Signature protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class SignatureProxy : ISwiftSignature, ISwiftObject
+    public unsafe class SignatureProxy : ISignature, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift Signature_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -11158,7 +10615,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftSignature? _csharpImpl;
+        private readonly ISignature? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static SignatureProxy()
@@ -11256,10 +10713,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftSignature.
+        /// Creates a proxy wrapping a C# implementation of ISignature.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public SignatureProxy(ISwiftSignature implementation)
+        public SignatureProxy(ISignature implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -11290,7 +10747,7 @@ namespace Swift.CryptoSwift
         }
         #region Interface Implementation
         
-        public System.IntPtr KeySize
+        public nint KeySize
         {
             get
             {
@@ -11401,6 +10858,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -11441,13 +10899,13 @@ namespace Swift.CryptoSwift
     
     public unsafe class SHA1 : ISwiftObject
     {
-        private static System.IntPtr DigestLength_Get()
+        private static nint DigestLength_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_digestLength_Get_49BC2FD7();
+                var result = PInvoke_digestLength_Get_1010195C();
                 
                 return result;
             }
@@ -11460,20 +10918,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA1C12digestLengthSivgZ")]
-        private static extern System.IntPtr PInvoke_digestLength_Get_49BC2FD7();
+        private static extern nint PInvoke_digestLength_Get_1010195C();
         
-        public static System.IntPtr DigestLength
+        public static nint DigestLength
         {
             get => DigestLength_Get();
         }
         
-        private static System.IntPtr BlockSize_Get()
+        private static nint BlockSize_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_blockSize_Get_3C05E2B1();
+                var result = PInvoke_blockSize_Get_7DB6C375();
                 
                 return result;
             }
@@ -11486,9 +10944,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA1C9blockSizeSivgZ")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_3C05E2B1();
+        private static extern nint PInvoke_blockSize_Get_7DB6C375();
         
-        public static System.IntPtr BlockSize
+        public static nint BlockSize
         {
             get => BlockSize_Get();
         }
@@ -11503,7 +10961,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_accumulated_Get_2EE292BE(self);
+                var result = PInvoke_accumulated_Get_485D311D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -11518,7 +10976,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA1C11accumulatedSays5UInt8VGvg")]
-        private static extern IntPtr PInvoke_accumulated_Get_2EE292BE( SwiftSelf self);
+        private static extern IntPtr PInvoke_accumulated_Get_485D311D( SwiftSelf self);
         
         private unsafe void Accumulated_Set( Swift.SwiftArray<System.Byte> value)
         {
@@ -11532,7 +10990,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_accumulated_Set_05A28971(valueBuffer, self);
+                PInvoke_accumulated_Set_11556C25(valueBuffer, self);
                 
                 return;
             }
@@ -11547,15 +11005,15 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA1C11accumulatedSays5UInt8VGvs")]
-        private static extern void PInvoke_accumulated_Set_05A28971( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_accumulated_Set_11556C25( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<System.Byte> Accumulated
+        public IReadOnlyList<System.Byte> Accumulated
         {
             get => Accumulated_Get();
-            set => Accumulated_Set(value);
+            set => Accumulated_Set(SwiftArray<System.Byte>.FromEnumerable(value));
         }
         
-        private unsafe System.IntPtr ProcessedBytesTotalCount_Get()
+        private unsafe nint ProcessedBytesTotalCount_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -11565,7 +11023,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_processedBytesTotalCount_Get_60D293D7(self);
+                var result = PInvoke_processedBytesTotalCount_Get_5D13EBB3(self);
                 
                 return result;
             }
@@ -11580,9 +11038,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA1C24processedBytesTotalCountSivg")]
-        private static extern System.IntPtr PInvoke_processedBytesTotalCount_Get_60D293D7( SwiftSelf self);
+        private static extern nint PInvoke_processedBytesTotalCount_Get_5D13EBB3( SwiftSelf self);
         
-        private unsafe void ProcessedBytesTotalCount_Set( System.IntPtr value)
+        private unsafe void ProcessedBytesTotalCount_Set( nint value)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -11592,7 +11050,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_processedBytesTotalCount_Set_46AE5073(value, self);
+                PInvoke_processedBytesTotalCount_Set_02FF4CC3(value, self);
                 
                 return;
             }
@@ -11607,9 +11065,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA1C24processedBytesTotalCountSivs")]
-        private static extern void PInvoke_processedBytesTotalCount_Set_46AE5073( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_processedBytesTotalCount_Set_02FF4CC3( nint value,  SwiftSelf self);
         
-        public System.IntPtr ProcessedBytesTotalCount
+        public nint ProcessedBytesTotalCount
         {
             get => ProcessedBytesTotalCount_Get();
             set => ProcessedBytesTotalCount_Set(value);
@@ -11618,29 +11076,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<SHA1>.GetTypeMetadata().Size;
         SwiftSafeHandle<SHA1> _payload = SwiftSafeHandle<SHA1>.Zero;
         
-        public SwiftSafeHandle<SHA1> Payload => _payload;
+        internal SwiftSafeHandle<SHA1> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type SHA1 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type SHA1 does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(SHA1 left, SHA1 right)
-        {
-            throw new InvalidOperationException("Type SHA1 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(SHA1 left, SHA1 right)
-        {
-            throw new InvalidOperationException("Type SHA1 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -11688,7 +11126,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftUpdatable), "$s11CryptoSwift4SHA1CAA9UpdatableAAMc"}
+                {typeof(IUpdatable), "$s11CryptoSwift4SHA1CAA9UpdatableAAMc"}
             };
         }
         
@@ -11707,16 +11145,16 @@ namespace Swift.CryptoSwift
             _payload = new SwiftSafeHandle<SHA1>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_52A73BA5(swiftIndirectResult);
+            PInvoke_init_6339673A(swiftIndirectResult);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA1CACycfC")]
-        private static extern void PInvoke_init_52A73BA5( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_6339673A( SwiftIndirectResult swiftIndirectResult);
         
         
-        public unsafe IReadOnlyList<System.Byte> Calculate( IEnumerable<System.Byte> _for)
+        public unsafe IReadOnlyList<System.Byte> Calculate( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -11725,11 +11163,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var _forSwift = SwiftArray<System.Byte>.FromEnumerable(_for);
-                using PayloadBuffer<IntPtr> _forDisposable = _forSwift.PayloadBuffer;
-                IntPtr _forBuffer = _forDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_calculate_699AD2C3(_forBuffer, self);
+                var result = PInvoke_calculate_5AB855EA(bytesBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -11744,10 +11182,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA1C9calculate3forSays5UInt8VGAH_tF")]
-        private static extern IntPtr PInvoke_calculate_699AD2C3( IntPtr _forBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_calculate_5AB855EA( IntPtr bytesBuffer,  SwiftSelf self);
         
         
-        public unsafe IReadOnlyList<System.Byte> CallAsFunction( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> CallAsFunction( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -11756,11 +11194,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_callAsFunction_1FA089B9(arg0Buffer, self);
+                var result = PInvoke_callAsFunction_46DB7328(bytesBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -11775,11 +11213,11 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA1C14callAsFunctionySays5UInt8VGAGF")]
-        private static extern IntPtr PInvoke_callAsFunction_1FA089B9( IntPtr arg0Buffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_callAsFunction_46DB7328( IntPtr bytesBuffer,  SwiftSelf self);
         
         
         
-        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> withBytes,  System.Boolean isLast)
+        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> bytes,  System.Boolean isLast)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -11788,11 +11226,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var withBytesSwift = SwiftArray<System.Byte>.FromEnumerable(withBytes);
-                using PayloadBuffer<IntPtr> withBytesDisposable = withBytesSwift.PayloadBuffer;
-                IntPtr withBytesBuffer = withBytesDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_update_15E54D2F(withBytesBuffer, isLast, self, out var error);
+                var result = PInvoke_update_3DD4BA56(bytesBuffer, isLast, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -11812,7 +11250,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_SHA1_update_5174E2D0")]
-        private static extern IntPtr PInvoke_update_15E54D2F( IntPtr withBytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_update_3DD4BA56( IntPtr bytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
         
     }
     
@@ -11821,7 +11259,9 @@ namespace Swift.CryptoSwift
     {
         static nuint _payloadSize = SwiftObjectHelper<Bit>.GetTypeMetadata().Size;
         SwiftSafeHandle<Bit> _payload = SwiftSafeHandle<Bit>.Zero;
-        public SwiftSafeHandle<Bit> Payload => _payload;
+        internal SwiftSafeHandle<Bit> Payload => _payload;
+        
+        public void Dispose() => _payload.Dispose();
         
         /// <summary>
         /// Creates a Bit from its raw value.
@@ -11944,7 +11384,7 @@ namespace Swift.CryptoSwift
         }
         
         
-        private unsafe System.IntPtr RawValue_Get()
+        private unsafe nint RawValue_Get()
         {
             try
             {
@@ -11952,7 +11392,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_rawValue_Get_2F241E54(self);
+                var result = PInvoke_rawValue_Get_733B8873(self);
                 
                 return result;
             }
@@ -11965,9 +11405,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3BitO8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_2F241E54( SwiftSelf self);
+        private static extern nint PInvoke_rawValue_Get_733B8873( SwiftSelf self);
         
-        public System.IntPtr RawValue
+        public nint RawValue
         {
             get => RawValue_Get();
         }
@@ -12048,7 +11488,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_inverted_39047DFF(swiftIndirectResult, self);
+                PInvoke_inverted_62923EAD(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.Bit>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12061,7 +11501,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3BitO8invertedACyF")]
-        private static extern void PInvoke_inverted_39047DFF( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_inverted_62923EAD( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         
     }
@@ -12083,7 +11523,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_options_Get_0DFBC5A0(swiftIndirectResult, self);
+                PInvoke_options_Get_18192BAF(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12098,14 +11538,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CCMV7optionsAA15BlockModeOptionVvg")]
-        private static extern void PInvoke_options_Get_0DFBC5A0( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_18192BAF( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.BlockModeOption Options
         {
             get => Options_Get();
         }
         
-        private unsafe Swift.SwiftOptional<System.IntPtr> CustomBlockSize_Get()
+        private unsafe Swift.SwiftOptional<nint> CustomBlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -12115,9 +11555,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_customBlockSize_Get_534A6A27(self);
+                var result = PInvoke_customBlockSize_Get_64FBEBE0(self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<nint>>(new IntPtr(&result));
             }
             
             finally
@@ -12130,11 +11570,11 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CCMV15customBlockSizeSiSgvg")]
-        private static extern IntPtr PInvoke_customBlockSize_Get_534A6A27( SwiftSelf self);
+        private static extern IntPtr PInvoke_customBlockSize_Get_64FBEBE0( SwiftSelf self);
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public nint? CustomBlockSize
         {
-            get => CustomBlockSize_Get();
+            get => ((nint?)CustomBlockSize_Get());
         }
         
         private unsafe Swift.SwiftOptional<Swift.SwiftArray<System.Byte>> AuthenticationTag_Get()
@@ -12147,7 +11587,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_authenticationTag_Get_4B08C65A(self);
+                var result = PInvoke_authenticationTag_Get_5BA2565C(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<System.Byte>>>(new IntPtr(&result));
             }
@@ -12162,7 +11602,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CCMV17authenticationTagSays5UInt8VGSgvg")]
-        private static extern IntPtr PInvoke_authenticationTag_Get_4B08C65A( SwiftSelf self);
+        private static extern IntPtr PInvoke_authenticationTag_Get_5BA2565C( SwiftSelf self);
         
         private unsafe void AuthenticationTag_Set( Swift.SwiftOptional<Swift.SwiftArray<System.Byte>> value)
         {
@@ -12176,7 +11616,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_authenticationTag_Set_1F2CEDCE(valueBuffer, self);
+                PInvoke_authenticationTag_Set_6A2DAA31(valueBuffer, self);
                 
                 return;
             }
@@ -12191,40 +11631,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CCMV17authenticationTagSays5UInt8VGSgvs")]
-        private static extern void PInvoke_authenticationTag_Set_1F2CEDCE( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_authenticationTag_Set_6A2DAA31( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftOptional<Swift.SwiftArray<System.Byte>> AuthenticationTag
+        public Swift.SwiftArray? AuthenticationTag
         {
-            get => AuthenticationTag_Get();
-            set => AuthenticationTag_Set(value);
+            get => ((Swift.SwiftArray?)AuthenticationTag_Get());
+            set => AuthenticationTag_Set(SwiftOptional<Swift.SwiftArray>.FromNullable(value));
         }
         
         static nuint _payloadSize = SwiftObjectHelper<CCM>.GetTypeMetadata().Size;
         SwiftSafeHandle<CCM> _payload = SwiftSafeHandle<CCM>.Zero;
         
-        public SwiftSafeHandle<CCM> Payload => _payload;
+        internal SwiftSafeHandle<CCM> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type CCM does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type CCM does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(CCM left, CCM right)
-        {
-            throw new InvalidOperationException("Type CCM does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(CCM left, CCM right)
-        {
-            throw new InvalidOperationException("Type CCM does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -12272,7 +11692,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftBlockMode), "$s11CryptoSwift3CCMVAA9BlockModeAAMc"}
+                {typeof(IBlockMode), "$s11CryptoSwift3CCMVAA9BlockModeAAMc"}
             };
         }
         
@@ -12291,7 +11711,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidInitializationVector' case of Error.
@@ -12376,7 +11798,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -12384,7 +11806,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_5D54AEBA(self);
+                    var result = PInvoke_hashValue_Get_7250133C(self);
                     
                     return result;
                 }
@@ -12397,9 +11819,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CCMV5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_5D54AEBA( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_7250133C( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -12468,7 +11890,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -12476,7 +11898,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_00307F76(into.Payload, self);
+                    PInvoke_hash_09B00148(hasher.Payload, self);
                     
                     return;
                 }
@@ -12489,13 +11911,13 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CCMV5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_00307F76( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_09B00148( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe CCM( IEnumerable<System.Byte> iv,  System.IntPtr tagLength,  System.IntPtr messageLength,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData)
+        public unsafe CCM( IEnumerable<System.Byte> iv,  nint tagLength,  nint messageLength,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData)
         {
             _payload = new SwiftSafeHandle<CCM>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -12506,16 +11928,31 @@ namespace Swift.CryptoSwift
             using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
             using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
             IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
-            PInvoke_init_716E6F54(swiftIndirectResult, ivBuffer, tagLength, messageLength, additionalAuthenticatedDataBuffer);
+            PInvoke_init_6A88344A(swiftIndirectResult, ivBuffer, tagLength, messageLength, additionalAuthenticatedDataBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CCMV2iv9tagLength07messageF027additionalAuthenticatedDataACSays5UInt8VG_S2iAJSgtcfC")]
-        private static extern void PInvoke_init_716E6F54( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  System.IntPtr tagLength,  System.IntPtr messageLength,  IntPtr additionalAuthenticatedDataBuffer);
+        private static extern void PInvoke_init_6A88344A( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  nint tagLength,  nint messageLength,  IntPtr additionalAuthenticatedDataBuffer);
+        public unsafe CCM( IEnumerable<System.Byte> iv,  nint tagLength,  nint messageLength)
+        {
+            _payload = new SwiftSafeHandle<CCM>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
+            using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
+            IntPtr ivBuffer = ivDisposable.Buffer;
+            PInvoke_init_7D8F8874(swiftIndirectResult, ivBuffer, tagLength, messageLength);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_CCM_init_7B045693_1")]
+        private static extern void PInvoke_init_7D8F8874( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  nint tagLength,  nint messageLength);
         
         
-        public unsafe CCM( IEnumerable<System.Byte> iv,  System.IntPtr tagLength,  System.IntPtr messageLength,  IEnumerable<System.Byte> authenticationTag,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData)
+        public unsafe CCM( IEnumerable<System.Byte> iv,  nint tagLength,  nint messageLength,  IEnumerable<System.Byte> authenticationTag,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData)
         {
             _payload = new SwiftSafeHandle<CCM>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -12529,13 +11966,13 @@ namespace Swift.CryptoSwift
             using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
             using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
             IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
-            PInvoke_init_75A47AA2(swiftIndirectResult, ivBuffer, tagLength, messageLength, authenticationTagBuffer, additionalAuthenticatedDataBuffer);
+            PInvoke_init_18B353BD(swiftIndirectResult, ivBuffer, tagLength, messageLength, authenticationTagBuffer, additionalAuthenticatedDataBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CCMV2iv9tagLength07messageF017authenticationTag27additionalAuthenticatedDataACSays5UInt8VG_S2iA2KSgtcfC")]
-        private static extern void PInvoke_init_75A47AA2( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  System.IntPtr tagLength,  System.IntPtr messageLength,  IntPtr authenticationTagBuffer,  IntPtr additionalAuthenticatedDataBuffer);
+        private static extern void PInvoke_init_18B353BD( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  nint tagLength,  nint messageLength,  IntPtr authenticationTagBuffer,  IntPtr additionalAuthenticatedDataBuffer);
         
         
         
@@ -12558,7 +11995,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_options_Get_64664907(swiftIndirectResult, self);
+                PInvoke_options_Get_0BF9C17A(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -12573,14 +12010,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CTRV7optionsAA15BlockModeOptionVvg")]
-        private static extern void PInvoke_options_Get_64664907( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_0BF9C17A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.BlockModeOption Options
         {
             get => Options_Get();
         }
         
-        private unsafe Swift.SwiftOptional<System.IntPtr> CustomBlockSize_Get()
+        private unsafe Swift.SwiftOptional<nint> CustomBlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -12590,9 +12027,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_customBlockSize_Get_7005990E(self);
+                var result = PInvoke_customBlockSize_Get_21B1EE38(self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<nint>>(new IntPtr(&result));
             }
             
             finally
@@ -12605,39 +12042,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CTRV15customBlockSizeSiSgvg")]
-        private static extern IntPtr PInvoke_customBlockSize_Get_7005990E( SwiftSelf self);
+        private static extern IntPtr PInvoke_customBlockSize_Get_21B1EE38( SwiftSelf self);
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public nint? CustomBlockSize
         {
-            get => CustomBlockSize_Get();
+            get => ((nint?)CustomBlockSize_Get());
         }
         
         static nuint _payloadSize = SwiftObjectHelper<CTR>.GetTypeMetadata().Size;
         SwiftSafeHandle<CTR> _payload = SwiftSafeHandle<CTR>.Zero;
         
-        public SwiftSafeHandle<CTR> Payload => _payload;
+        internal SwiftSafeHandle<CTR> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type CTR does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type CTR does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(CTR left, CTR right)
-        {
-            throw new InvalidOperationException("Type CTR does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(CTR left, CTR right)
-        {
-            throw new InvalidOperationException("Type CTR does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -12685,7 +12102,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftBlockMode), "$s11CryptoSwift3CTRVAA9BlockModeAAMc"}
+                {typeof(IBlockMode), "$s11CryptoSwift3CTRVAA9BlockModeAAMc"}
             };
         }
         
@@ -12704,7 +12121,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidInitializationVector' case of Error.
@@ -12755,7 +12174,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -12763,7 +12182,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_076E2BBC(self);
+                    var result = PInvoke_hashValue_Get_3D1F3079(self);
                     
                     return result;
                 }
@@ -12776,9 +12195,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CTRV5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_076E2BBC( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_3D1F3079( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -12847,7 +12266,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -12855,7 +12274,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_3495FF13(into.Payload, self);
+                    PInvoke_hash_41BA8069(hasher.Payload, self);
                     
                     return;
                 }
@@ -12868,13 +12287,13 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CTRV5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_3495FF13( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_41BA8069( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe CTR( IEnumerable<System.Byte> iv,  System.IntPtr counter)
+        public unsafe CTR( IEnumerable<System.Byte> iv,  nint counter)
         {
             _payload = new SwiftSafeHandle<CTR>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -12882,13 +12301,28 @@ namespace Swift.CryptoSwift
             using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
             using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
             IntPtr ivBuffer = ivDisposable.Buffer;
-            PInvoke_init_025426CC(swiftIndirectResult, ivBuffer, counter);
+            PInvoke_init_5EDABF46(swiftIndirectResult, ivBuffer, counter);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CTRV2iv7counterACSays5UInt8VG_SitcfC")]
-        private static extern void PInvoke_init_025426CC( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  System.IntPtr counter);
+        private static extern void PInvoke_init_5EDABF46( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer,  nint counter);
+        public unsafe CTR( IEnumerable<System.Byte> iv)
+        {
+            _payload = new SwiftSafeHandle<CTR>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
+            using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
+            IntPtr ivBuffer = ivDisposable.Buffer;
+            PInvoke_init_3CFB144A(swiftIndirectResult, ivBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_CTR_init_2C3D107B_1")]
+        private static extern void PInvoke_init_3CFB144A( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer);
         
         
         
@@ -12900,29 +12334,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<MD5>.GetTypeMetadata().Size;
         SwiftSafeHandle<MD5> _payload = SwiftSafeHandle<MD5>.Zero;
         
-        public SwiftSafeHandle<MD5> Payload => _payload;
+        internal SwiftSafeHandle<MD5> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type MD5 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type MD5 does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(MD5 left, MD5 right)
-        {
-            throw new InvalidOperationException("Type MD5 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(MD5 left, MD5 right)
-        {
-            throw new InvalidOperationException("Type MD5 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -12970,7 +12384,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftUpdatable), "$s11CryptoSwift3MD5CAA9UpdatableAAMc"}
+                {typeof(IUpdatable), "$s11CryptoSwift3MD5CAA9UpdatableAAMc"}
             };
         }
         
@@ -12989,16 +12403,16 @@ namespace Swift.CryptoSwift
             _payload = new SwiftSafeHandle<MD5>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_381664CA(swiftIndirectResult);
+            PInvoke_init_691044AB(swiftIndirectResult);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3MD5CACycfC")]
-        private static extern void PInvoke_init_381664CA( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_691044AB( SwiftIndirectResult swiftIndirectResult);
         
         
-        public unsafe IReadOnlyList<System.Byte> Calculate( IEnumerable<System.Byte> _for)
+        public unsafe IReadOnlyList<System.Byte> Calculate( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -13007,11 +12421,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var _forSwift = SwiftArray<System.Byte>.FromEnumerable(_for);
-                using PayloadBuffer<IntPtr> _forDisposable = _forSwift.PayloadBuffer;
-                IntPtr _forBuffer = _forDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_calculate_71E62067(_forBuffer, self);
+                var result = PInvoke_calculate_291D9FB8(bytesBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -13026,10 +12440,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3MD5C9calculate3forSays5UInt8VGAH_tF")]
-        private static extern IntPtr PInvoke_calculate_71E62067( IntPtr _forBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_calculate_291D9FB8( IntPtr bytesBuffer,  SwiftSelf self);
         
         
-        public unsafe IReadOnlyList<System.Byte> CallAsFunction( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> CallAsFunction( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -13038,11 +12452,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_callAsFunction_764C7C6A(arg0Buffer, self);
+                var result = PInvoke_callAsFunction_0925A9C2(bytesBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -13057,10 +12471,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3MD5C14callAsFunctionySays5UInt8VGAGF")]
-        private static extern IntPtr PInvoke_callAsFunction_764C7C6A( IntPtr arg0Buffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_callAsFunction_0925A9C2( IntPtr bytesBuffer,  SwiftSelf self);
         
         
-        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> withBytes,  System.Boolean isLast)
+        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> bytes,  System.Boolean isLast)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -13069,11 +12483,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var withBytesSwift = SwiftArray<System.Byte>.FromEnumerable(withBytes);
-                using PayloadBuffer<IntPtr> withBytesDisposable = withBytesSwift.PayloadBuffer;
-                IntPtr withBytesBuffer = withBytesDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_update_12101958(withBytesBuffer, isLast, self, out var error);
+                var result = PInvoke_update_71E301A5(bytesBuffer, isLast, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -13093,14 +12507,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_MD5_update_1E4EF80A")]
-        private static extern IntPtr PInvoke_update_12101958( IntPtr withBytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_update_71E301A5( IntPtr bytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
         
     }
     
     
-    public unsafe class AES : ISwiftObject, ISwiftCryptors
+    public unsafe class AES : ISwiftObject
     {
-        private unsafe System.IntPtr VariantNr_Get()
+        private unsafe nint VariantNr_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -13110,7 +12524,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_variantNr_Get_0278EDFD(self);
+                var result = PInvoke_variantNr_Get_396DEA32(self);
                 
                 return result;
             }
@@ -13125,14 +12539,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC9variantNrSivg")]
-        private static extern System.IntPtr PInvoke_variantNr_Get_0278EDFD( SwiftSelf self);
+        private static extern nint PInvoke_variantNr_Get_396DEA32( SwiftSelf self);
         
-        public System.IntPtr VariantNr
+        public nint VariantNr
         {
             get => VariantNr_Get();
         }
         
-        private unsafe System.IntPtr VariantNb_Get()
+        private unsafe nint VariantNb_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -13142,7 +12556,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_variantNb_Get_39A793F1(self);
+                var result = PInvoke_variantNb_Get_7BCA0712(self);
                 
                 return result;
             }
@@ -13157,14 +12571,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC9variantNbSivg")]
-        private static extern System.IntPtr PInvoke_variantNb_Get_39A793F1( SwiftSelf self);
+        private static extern nint PInvoke_variantNb_Get_7BCA0712( SwiftSelf self);
         
-        public System.IntPtr VariantNb
+        public nint VariantNb
         {
             get => VariantNb_Get();
         }
         
-        private unsafe System.IntPtr VariantNk_Get()
+        private unsafe nint VariantNk_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -13174,7 +12588,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_variantNk_Get_4470504E(self);
+                var result = PInvoke_variantNk_Get_4A1E53A1(self);
                 
                 return result;
             }
@@ -13189,20 +12603,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC9variantNkSivg")]
-        private static extern System.IntPtr PInvoke_variantNk_Get_4470504E( SwiftSelf self);
+        private static extern nint PInvoke_variantNk_Get_4A1E53A1( SwiftSelf self);
         
-        public System.IntPtr VariantNk
+        public nint VariantNk
         {
             get => VariantNk_Get();
         }
         
-        private static System.IntPtr BlockSize_Get()
+        private static nint BlockSize_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_blockSize_Get_27A44F0C();
+                var result = PInvoke_blockSize_Get_2121017B();
                 
                 return result;
             }
@@ -13215,14 +12629,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC9blockSizeSivgZ")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_27A44F0C();
+        private static extern nint PInvoke_blockSize_Get_2121017B();
         
-        public static System.IntPtr BlockSize
+        public static nint BlockSize
         {
             get => BlockSize_Get();
         }
         
-        private unsafe System.IntPtr KeySize_Get()
+        private unsafe nint KeySize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -13232,7 +12646,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_keySize_Get_391D92D3(self);
+                var result = PInvoke_keySize_Get_4B637D20(self);
                 
                 return result;
             }
@@ -13247,14 +12661,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC7keySizeSivg")]
-        private static extern System.IntPtr PInvoke_keySize_Get_391D92D3( SwiftSelf self);
+        private static extern nint PInvoke_keySize_Get_4B637D20( SwiftSelf self);
         
-        public System.IntPtr KeySize
+        public nint KeySize
         {
             get => KeySize_Get();
         }
         
-        private unsafe Swift.CryptoSwift.AES.Variant Variant_Get()
+        private unsafe Swift.CryptoSwift.AES.VariantInfo Variant_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -13262,15 +12676,15 @@ namespace Swift.CryptoSwift
             {
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
-                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.AES.Variant>();
+                var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.AES.VariantInfo>();
                 var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                 var swiftIndirectResult = new SwiftIndirectResult(payload);
                 
                 
                 
-                PInvoke_variant_Get_0BD01844(swiftIndirectResult, self);
+                PInvoke_variant_Get_7706F481(swiftIndirectResult, self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.AES.Variant>(new IntPtr(swiftIndirectResult.Value));
+                return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.AES.VariantInfo>(new IntPtr(swiftIndirectResult.Value));
             }
             
             finally
@@ -13283,14 +12697,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC7variantAC7VariantOvg")]
-        private static extern void PInvoke_variant_Get_0BD01844( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_variant_Get_7706F481( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
-        public Swift.CryptoSwift.AES.Variant VariantValue
+        public Swift.CryptoSwift.AES.VariantInfo Variant
         {
             get => Variant_Get();
         }
         
-        private unsafe Swift.Runtime.ExistentialContainer1 BlockMode_Get()
+        private unsafe IBlockMode BlockMode_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -13300,9 +12714,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_blockMode_Get_7BD9AD64(self);
+                var result = PInvoke_blockMode_Get_5C341B5F(self);
                 
-                return result;
+                return new BlockModeProxy(result);
             }
             
             finally
@@ -13315,10 +12729,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC9blockModeAA05BlockE0_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_blockMode_Get_7BD9AD64( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_blockMode_Get_5C341B5F( SwiftSelf self);
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any CryptoSwift.BlockMode")]
-        public Swift.Runtime.ExistentialContainer1 BlockMode
+        public IBlockMode BlockMode
         {
             get => BlockMode_Get();
         }
@@ -13337,7 +12751,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_padding_Get_5D41AE14(swiftIndirectResult, self);
+                PInvoke_padding_Get_2685989E(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.Padding>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -13352,7 +12766,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC7paddingAA7PaddingOvg")]
-        private static extern void PInvoke_padding_Get_5D41AE14( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_padding_Get_2685989E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.Padding Padding
         {
@@ -13369,7 +12783,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_expandedKey_Get_70F943B3(self);
+                var result = PInvoke_expandedKey_Get_3E65875D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftArray<System.UInt32>>>(new IntPtr(&result));
             }
@@ -13384,7 +12798,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC11expandedKeySaySays6UInt32VGGvg")]
-        private static extern IntPtr PInvoke_expandedKey_Get_70F943B3( SwiftSelf self);
+        private static extern IntPtr PInvoke_expandedKey_Get_3E65875D( SwiftSelf self);
         
         private unsafe void ExpandedKey_Set( Swift.SwiftArray<Swift.SwiftArray<System.UInt32>> value)
         {
@@ -13398,7 +12812,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_expandedKey_Set_103D0015(valueBuffer, self);
+                PInvoke_expandedKey_Set_1860BC44(valueBuffer, self);
                 
                 return;
             }
@@ -13413,12 +12827,12 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC11expandedKeySaySays6UInt32VGGvs")]
-        private static extern void PInvoke_expandedKey_Set_103D0015( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_expandedKey_Set_1860BC44( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<Swift.SwiftArray<System.UInt32>> ExpandedKey
+        public IReadOnlyList<Swift.SwiftArray> ExpandedKey
         {
             get => ExpandedKey_Get();
-            set => ExpandedKey_Set(value);
+            set => ExpandedKey_Set(SwiftArray<Swift.SwiftArray>.FromEnumerable(value));
         }
         
         private unsafe Swift.SwiftArray<Swift.SwiftArray<System.UInt32>> ExpandedKeyInv_Get()
@@ -13431,7 +12845,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_expandedKeyInv_Get_74D2DBFF(self);
+                var result = PInvoke_expandedKeyInv_Get_1C8033E8(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<Swift.SwiftArray<System.UInt32>>>(new IntPtr(&result));
             }
@@ -13446,7 +12860,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC14expandedKeyInvSaySays6UInt32VGGvg")]
-        private static extern IntPtr PInvoke_expandedKeyInv_Get_74D2DBFF( SwiftSelf self);
+        private static extern IntPtr PInvoke_expandedKeyInv_Get_1C8033E8( SwiftSelf self);
         
         private unsafe void ExpandedKeyInv_Set( Swift.SwiftArray<Swift.SwiftArray<System.UInt32>> value)
         {
@@ -13460,7 +12874,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_expandedKeyInv_Set_784393B2(valueBuffer, self);
+                PInvoke_expandedKeyInv_Set_073F3AE5(valueBuffer, self);
                 
                 return;
             }
@@ -13475,12 +12889,12 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC14expandedKeyInvSaySays6UInt32VGGvs")]
-        private static extern void PInvoke_expandedKeyInv_Set_784393B2( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_expandedKeyInv_Set_073F3AE5( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<Swift.SwiftArray<System.UInt32>> ExpandedKeyInv
+        public IReadOnlyList<Swift.SwiftArray> ExpandedKeyInv
         {
             get => ExpandedKeyInv_Get();
-            set => ExpandedKeyInv_Set(value);
+            set => ExpandedKeyInv_Set(SwiftArray<Swift.SwiftArray>.FromEnumerable(value));
         }
         
         private static unsafe Swift.SwiftArray<System.UInt32> T0_Get()
@@ -13489,7 +12903,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_T0_Get_3AF483DE();
+                var result = PInvoke_T0_Get_4FD9A9F4();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13502,9 +12916,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC2T0Says6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_T0_Get_3AF483DE();
+        private static extern IntPtr PInvoke_T0_Get_4FD9A9F4();
         
-        public static Swift.SwiftArray<System.UInt32> T0
+        public static IReadOnlyList<System.UInt32> T0
         {
             get => T0_Get();
         }
@@ -13515,7 +12929,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_T0_INV_Get_4CDDDF4E();
+                var result = PInvoke_T0_INV_Get_60DD34E3();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13528,9 +12942,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC6T0_INVSays6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_T0_INV_Get_4CDDDF4E();
+        private static extern IntPtr PInvoke_T0_INV_Get_60DD34E3();
         
-        public static Swift.SwiftArray<System.UInt32> T0_INV
+        public static IReadOnlyList<System.UInt32> T0_INV
         {
             get => T0_INV_Get();
         }
@@ -13541,7 +12955,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_T1_Get_4A0F66F4();
+                var result = PInvoke_T1_Get_0C671CBD();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13554,9 +12968,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC2T1Says6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_T1_Get_4A0F66F4();
+        private static extern IntPtr PInvoke_T1_Get_0C671CBD();
         
-        public static Swift.SwiftArray<System.UInt32> T1
+        public static IReadOnlyList<System.UInt32> T1
         {
             get => T1_Get();
         }
@@ -13567,7 +12981,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_T1_INV_Get_61E07821();
+                var result = PInvoke_T1_INV_Get_7D6E98DD();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13580,9 +12994,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC6T1_INVSays6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_T1_INV_Get_61E07821();
+        private static extern IntPtr PInvoke_T1_INV_Get_7D6E98DD();
         
-        public static Swift.SwiftArray<System.UInt32> T1_INV
+        public static IReadOnlyList<System.UInt32> T1_INV
         {
             get => T1_INV_Get();
         }
@@ -13593,7 +13007,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_T2_Get_23DEBC4C();
+                var result = PInvoke_T2_Get_58936B87();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13606,9 +13020,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC2T2Says6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_T2_Get_23DEBC4C();
+        private static extern IntPtr PInvoke_T2_Get_58936B87();
         
-        public static Swift.SwiftArray<System.UInt32> T2
+        public static IReadOnlyList<System.UInt32> T2
         {
             get => T2_Get();
         }
@@ -13619,7 +13033,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_T2_INV_Get_7B07FCB4();
+                var result = PInvoke_T2_INV_Get_164C9437();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13632,9 +13046,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC6T2_INVSays6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_T2_INV_Get_7B07FCB4();
+        private static extern IntPtr PInvoke_T2_INV_Get_164C9437();
         
-        public static Swift.SwiftArray<System.UInt32> T2_INV
+        public static IReadOnlyList<System.UInt32> T2_INV
         {
             get => T2_INV_Get();
         }
@@ -13645,7 +13059,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_T3_Get_50AFAA74();
+                var result = PInvoke_T3_Get_09EF52A2();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13658,9 +13072,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC2T3Says6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_T3_Get_50AFAA74();
+        private static extern IntPtr PInvoke_T3_Get_09EF52A2();
         
-        public static Swift.SwiftArray<System.UInt32> T3
+        public static IReadOnlyList<System.UInt32> T3
         {
             get => T3_Get();
         }
@@ -13671,7 +13085,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_T3_INV_Get_4023404B();
+                var result = PInvoke_T3_INV_Get_497F2065();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13684,9 +13098,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC6T3_INVSays6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_T3_INV_Get_4023404B();
+        private static extern IntPtr PInvoke_T3_INV_Get_497F2065();
         
-        public static Swift.SwiftArray<System.UInt32> T3_INV
+        public static IReadOnlyList<System.UInt32> T3_INV
         {
             get => T3_INV_Get();
         }
@@ -13697,7 +13111,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_U1_Get_2A9C59AD();
+                var result = PInvoke_U1_Get_7F4DDED3();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13710,9 +13124,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC2U1Says6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_U1_Get_2A9C59AD();
+        private static extern IntPtr PInvoke_U1_Get_7F4DDED3();
         
-        public static Swift.SwiftArray<System.UInt32> U1
+        public static IReadOnlyList<System.UInt32> U1
         {
             get => U1_Get();
         }
@@ -13723,7 +13137,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_U2_Get_38F5399C();
+                var result = PInvoke_U2_Get_5462E3F0();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13736,9 +13150,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC2U2Says6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_U2_Get_38F5399C();
+        private static extern IntPtr PInvoke_U2_Get_5462E3F0();
         
-        public static Swift.SwiftArray<System.UInt32> U2
+        public static IReadOnlyList<System.UInt32> U2
         {
             get => U2_Get();
         }
@@ -13749,7 +13163,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_U3_Get_2B840480();
+                var result = PInvoke_U3_Get_42D86280();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13762,9 +13176,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC2U3Says6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_U3_Get_2B840480();
+        private static extern IntPtr PInvoke_U3_Get_42D86280();
         
-        public static Swift.SwiftArray<System.UInt32> U3
+        public static IReadOnlyList<System.UInt32> U3
         {
             get => U3_Get();
         }
@@ -13775,7 +13189,7 @@ namespace Swift.CryptoSwift
             {
                 
                 
-                var result = PInvoke_U4_Get_4CBF7087();
+                var result = PInvoke_U4_Get_26D98FBF();
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt32>>(new IntPtr(&result));
             }
@@ -13788,9 +13202,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC2U4Says6UInt32VGvgZ")]
-        private static extern IntPtr PInvoke_U4_Get_4CBF7087();
+        private static extern IntPtr PInvoke_U4_Get_26D98FBF();
         
-        public static Swift.SwiftArray<System.UInt32> U4
+        public static IReadOnlyList<System.UInt32> U4
         {
             get => U4_Get();
         }
@@ -13798,29 +13212,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<AES>.GetTypeMetadata().Size;
         SwiftSafeHandle<AES> _payload = SwiftSafeHandle<AES>.Zero;
         
-        public SwiftSafeHandle<AES> Payload => _payload;
+        internal SwiftSafeHandle<AES> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type AES does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type AES does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(AES left, AES right)
-        {
-            throw new InvalidOperationException("Type AES does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(AES left, AES right)
-        {
-            throw new InvalidOperationException("Type AES does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -13868,8 +13262,8 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftCipher), "$s11CryptoSwift3AESCAA6CipherAAMc"},
-        {typeof(ISwiftCryptors), "$s11CryptoSwift3AESCAA8CryptorsAAMc"}
+                {typeof(ICipher), "$s11CryptoSwift3AESCAA6CipherAAMc"},
+        {typeof(ICryptors), "$s11CryptoSwift3AESCAA8CryptorsAAMc"}
             };
         }
         
@@ -13887,7 +13281,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidKeySize' case of Error.
@@ -13972,7 +13368,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -13980,7 +13376,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_68F4B13E(self);
+                    var result = PInvoke_hashValue_Get_17EAB0B3(self);
                     
                     return result;
                 }
@@ -13993,9 +13389,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_68F4B13E( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_17EAB0B3( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -14064,7 +13460,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -14072,7 +13468,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_4D2B20BF(into.Payload, self);
+                    PInvoke_hash_5E423EF7(hasher.Payload, self);
                     
                     return;
                 }
@@ -14085,23 +13481,25 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_4D2B20BF( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_5E423EF7( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe class Variant : ISwiftObject
+        public unsafe class VariantInfo : ISwiftObject
         {
-            static nuint _payloadSize = SwiftObjectHelper<Variant>.GetTypeMetadata().Size;
-            SwiftSafeHandle<Variant> _payload = SwiftSafeHandle<Variant>.Zero;
-            public SwiftSafeHandle<Variant> Payload => _payload;
+            static nuint _payloadSize = SwiftObjectHelper<VariantInfo>.GetTypeMetadata().Size;
+            SwiftSafeHandle<VariantInfo> _payload = SwiftSafeHandle<VariantInfo>.Zero;
+            internal SwiftSafeHandle<VariantInfo> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
-            /// Creates a Variant from its raw value.
+            /// Creates a VariantInfo from its raw value.
             /// Returns null if the raw value doesn't correspond to a valid case.
             /// </summary>
-            public static unsafe Variant? FromRawValue(long rawValue)
+            public static unsafe VariantInfo? FromRawValue(long rawValue)
             {
                 // Get metadata for the enum type
                 var enumMetadata = PInvoke_getMetadata();
@@ -14131,8 +13529,8 @@ namespace Swift.CryptoSwift
                     IntPtr enumBuffer = (IntPtr)NativeMemory.Alloc(enumMetadata.Size);
                     enumMetadata.ValueWitnessTable->InitializeWithCopy((void*)enumBuffer, resultBuffer, enumMetadata);
                     
-                    var result = new Variant();
-                    result._payload = new SwiftSafeHandle<Variant>(enumBuffer);
+                    var result = new VariantInfo();
+                    result._payload = new SwiftSafeHandle<VariantInfo>(enumBuffer);
                     return result;
                 }
                 finally
@@ -14153,48 +13551,48 @@ namespace Swift.CryptoSwift
             private static extern TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);
             
             /// <summary>
-            /// Gets the 'aes128' case of Variant.
+            /// Gets the 'aes128' case of VariantInfo.
             /// </summary>
-            public static Variant Aes128
+            public static VariantInfo Aes128
             {
                 get
                 {
                     var result = FromRawValue(0);
                     if (result == null)
                     {
-                        throw new InvalidOperationException("Failed to create Variant.Aes128 from raw value 0");
+                        throw new InvalidOperationException("Failed to create VariantInfo.Aes128 from raw value 0");
                     }
                     return result;
                 }
             }
             
             /// <summary>
-            /// Gets the 'aes192' case of Variant.
+            /// Gets the 'aes192' case of VariantInfo.
             /// </summary>
-            public static Variant Aes192
+            public static VariantInfo Aes192
             {
                 get
                 {
                     var result = FromRawValue(1);
                     if (result == null)
                     {
-                        throw new InvalidOperationException("Failed to create Variant.Aes192 from raw value 1");
+                        throw new InvalidOperationException("Failed to create VariantInfo.Aes192 from raw value 1");
                     }
                     return result;
                 }
             }
             
             /// <summary>
-            /// Gets the 'aes256' case of Variant.
+            /// Gets the 'aes256' case of VariantInfo.
             /// </summary>
-            public static Variant Aes256
+            public static VariantInfo Aes256
             {
                 get
                 {
                     var result = FromRawValue(2);
                     if (result == null)
                     {
-                        throw new InvalidOperationException("Failed to create Variant.Aes256 from raw value 2");
+                        throw new InvalidOperationException("Failed to create VariantInfo.Aes256 from raw value 2");
                     }
                     return result;
                 }
@@ -14222,7 +13620,7 @@ namespace Swift.CryptoSwift
                     _payload.DangerousAddRef(ref success);
                     try
                     {
-                        var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
+                        var metadata = SwiftObjectHelper<VariantInfo>.GetTypeMetadata();
                         byte* payload = (byte*)_payload.DangerousGetHandle();
                         return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                     }
@@ -14235,7 +13633,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr RawValue_Get()
+            private unsafe nint RawValue_Get()
             {
                 try
                 {
@@ -14243,7 +13641,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_06FD9C9D(self);
+                    var result = PInvoke_rawValue_Get_152245E5(self);
                     
                     return result;
                 }
@@ -14256,9 +13654,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC7VariantO8rawValueSivg")]
-            private static extern System.IntPtr PInvoke_rawValue_Get_06FD9C9D( SwiftSelf self);
+            private static extern nint PInvoke_rawValue_Get_152245E5( SwiftSelf self);
             
-            public System.IntPtr RawValue
+            public nint RawValue
             {
                 get => RawValue_Get();
             }
@@ -14271,21 +13669,21 @@ namespace Swift.CryptoSwift
             
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
-                return new Variant(handle);
+                return new VariantInfo(handle);
             }
             
-            Variant()
+            VariantInfo()
             {
             }
             
-            Variant(SwiftHandle handle)
+            VariantInfo(SwiftHandle handle)
             {
-                _payload = new SwiftSafeHandle<Variant>(handle);
+                _payload = new SwiftSafeHandle<VariantInfo>(handle);
             }
             
             unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
-                var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
+                var metadata = SwiftObjectHelper<VariantInfo>.GetTypeMetadata();
                 if ((int)metadata.Size > swiftDestSpan.Length)
                 {
                     throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -14309,11 +13707,11 @@ namespace Swift.CryptoSwift
             }
             
             private static Dictionary<Type, string> _protocolConformanceSymbols;
-            static Variant()
+            static VariantInfo()
             {
                 _protocolConformanceSymbols = new Dictionary<Type, string>
                 {
-                    {typeof(IEquatable<Variant>), "$s11CryptoSwift3AESC7VariantOSQAAMc"}
+                    {typeof(IEquatable<VariantInfo>), "$s11CryptoSwift3AESC7VariantOSQAAMc"}
                 };
             }
             
@@ -14330,7 +13728,7 @@ namespace Swift.CryptoSwift
         }
         
         
-        public unsafe AES( IEnumerable<System.Byte> key,  Swift.Runtime.ExistentialContainer1 blockMode,  Swift.CryptoSwift.Padding padding)
+        public unsafe AES( IEnumerable<System.Byte> key,  IBlockMode blockMode,  Swift.CryptoSwift.Padding padding)
         {
             _payload = new SwiftSafeHandle<AES>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -14338,7 +13736,7 @@ namespace Swift.CryptoSwift
             using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
             using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
             IntPtr keyBuffer = keyDisposable.Buffer;
-            PInvoke_init_4BE97DFD(swiftIndirectResult, keyBuffer, blockMode, padding.Payload.DangerousGetHandle(), out var error);
+            PInvoke_init_15C312F3(swiftIndirectResult, keyBuffer, ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)blockMode).GetExistentialContainer(), padding.Payload.DangerousGetHandle(), out var error);
             
             if (error.Value != null)
             {
@@ -14349,7 +13747,27 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC3key9blockMode7paddingACSays5UInt8VG_AA05BlockF0_pAA7PaddingOtKcfC")]
-        private static extern void PInvoke_init_4BE97DFD( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  Swift.Runtime.ExistentialContainer1 blockMode,  IntPtr padding, out SwiftError error);
+        private static extern void PInvoke_init_15C312F3( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  Swift.Runtime.ExistentialContainer1 blockMode,  IntPtr padding, out SwiftError error);
+        public unsafe AES( IEnumerable<System.Byte> key,  IBlockMode blockMode)
+        {
+            _payload = new SwiftSafeHandle<AES>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
+            using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
+            IntPtr keyBuffer = keyDisposable.Buffer;
+            PInvoke_init_2ADA9606(swiftIndirectResult, keyBuffer, ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)blockMode).GetExistentialContainer(), out var error);
+            
+            if (error.Value != null)
+            {
+                throw new SwiftRuntimeException("Call to Swift method init failed.");
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_AES_init_2D550C3A_1")]
+        private static extern void PInvoke_init_2ADA9606( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  Swift.Runtime.ExistentialContainer1 blockMode, out SwiftError error);
         
         
         
@@ -14363,7 +13781,7 @@ namespace Swift.CryptoSwift
             using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
             using var ivSwift = new SwiftString(iv);
             using PayloadBuffer<SwiftString.Buffer> ivDisposable = ivSwift.PayloadBuffer;
-            PInvoke_init_4DF7138E(swiftIndirectResult, keyDisposable.Buffer, ivDisposable.Buffer, padding.Payload.DangerousGetHandle(), out var error);
+            PInvoke_init_65CCFF76(swiftIndirectResult, keyDisposable.Buffer, ivDisposable.Buffer, padding.Payload.DangerousGetHandle(), out var error);
             
             if (error.Value != null)
             {
@@ -14374,10 +13792,31 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC3key2iv7paddingACSS_SSAA7PaddingOtKcfC")]
-        private static extern void PInvoke_init_4DF7138E( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer iv,  IntPtr padding, out SwiftError error);
+        private static extern void PInvoke_init_65CCFF76( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer iv,  IntPtr padding, out SwiftError error);
+        public unsafe AES( string key,  string iv)
+        {
+            _payload = new SwiftSafeHandle<AES>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var keySwift = new SwiftString(key);
+            using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
+            using var ivSwift = new SwiftString(iv);
+            using PayloadBuffer<SwiftString.Buffer> ivDisposable = ivSwift.PayloadBuffer;
+            PInvoke_init_069E5569(swiftIndirectResult, keyDisposable.Buffer, ivDisposable.Buffer, out var error);
+            
+            if (error.Value != null)
+            {
+                throw new SwiftRuntimeException("Call to Swift method init failed.");
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_AES_init_830F3331_1")]
+        private static extern void PInvoke_init_069E5569( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer iv, out SwiftError error);
         
         
-        public unsafe System.UInt32 F1( System.UInt32 arg0,  System.UInt32 arg1,  System.UInt32 arg2,  System.UInt32 arg3)
+        public unsafe System.UInt32 F1( System.UInt32 x0,  System.UInt32 x1,  System.UInt32 x2,  System.UInt32 x3)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -14387,7 +13826,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_F1_69BA90F0(arg0, arg1, arg2, arg3, self);
+                var result = PInvoke_F1_6F597B63(x0, x1, x2, x3, self);
                 
                 return result;
             }
@@ -14402,10 +13841,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC2F1ys6UInt32VAF_A3FtF")]
-        private static extern System.UInt32 PInvoke_F1_69BA90F0( System.UInt32 arg0,  System.UInt32 arg1,  System.UInt32 arg2,  System.UInt32 arg3,  SwiftSelf self);
+        private static extern System.UInt32 PInvoke_F1_6F597B63( System.UInt32 x0,  System.UInt32 x1,  System.UInt32 x2,  System.UInt32 x3,  SwiftSelf self);
         
         
-        public unsafe Swift.Runtime.ExistentialContainer2 MakeEncryptor()
+        public unsafe ICryptorAndUpdatable MakeEncryptor()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -14415,14 +13854,14 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_makeEncryptor_65B78F21(self, out var error);
+                var result = PInvoke_makeEncryptor_3F32A502(self, out var error);
                 
                 if (error.Value != null)
                 {
                     throw new SwiftRuntimeException("Call to Swift method makeEncryptor failed.");
                 }
                 
-                return result;
+                return new CryptorAndUpdatableProxy(result);
             }
             
             finally
@@ -14435,10 +13874,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC13makeEncryptorAA7Cryptor_AA9UpdatablepyKF")]
-        private static extern Swift.Runtime.ExistentialContainer2 PInvoke_makeEncryptor_65B78F21( SwiftSelf self, out SwiftError error);
+        private static extern Swift.Runtime.ExistentialContainer2 PInvoke_makeEncryptor_3F32A502( SwiftSelf self, out SwiftError error);
         
         
-        public unsafe Swift.Runtime.ExistentialContainer2 MakeDecryptor()
+        public unsafe ICryptorAndUpdatable MakeDecryptor()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -14448,14 +13887,14 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_makeDecryptor_4D853B78(self, out var error);
+                var result = PInvoke_makeDecryptor_4A4997CB(self, out var error);
                 
                 if (error.Value != null)
                 {
                     throw new SwiftRuntimeException("Call to Swift method makeDecryptor failed.");
                 }
                 
-                return result;
+                return new CryptorAndUpdatableProxy(result);
             }
             
             finally
@@ -14468,7 +13907,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3AESC13makeDecryptorAA7Cryptor_AA9UpdatablepyKF")]
-        private static extern Swift.Runtime.ExistentialContainer2 PInvoke_makeDecryptor_4D853B78( SwiftSelf self, out SwiftError error);
+        private static extern Swift.Runtime.ExistentialContainer2 PInvoke_makeDecryptor_4A4997CB( SwiftSelf self, out SwiftError error);
         
         
     }
@@ -14476,13 +13915,13 @@ namespace Swift.CryptoSwift
     
     public unsafe class Blowfish : ISwiftObject
     {
-        private static System.IntPtr BlockSize_Get()
+        private static nint BlockSize_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_blockSize_Get_43E2E3FB();
+                var result = PInvoke_blockSize_Get_5CDE6F3F();
                 
                 return result;
             }
@@ -14495,14 +13934,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8BlowfishC9blockSizeSivgZ")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_43E2E3FB();
+        private static extern nint PInvoke_blockSize_Get_5CDE6F3F();
         
-        public static System.IntPtr BlockSize
+        public static nint BlockSize
         {
             get => BlockSize_Get();
         }
         
-        private unsafe System.IntPtr KeySize_Get()
+        private unsafe nint KeySize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -14512,7 +13951,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_keySize_Get_41EFAB5F(self);
+                var result = PInvoke_keySize_Get_6CD23346(self);
                 
                 return result;
             }
@@ -14527,9 +13966,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8BlowfishC7keySizeSivg")]
-        private static extern System.IntPtr PInvoke_keySize_Get_41EFAB5F( SwiftSelf self);
+        private static extern nint PInvoke_keySize_Get_6CD23346( SwiftSelf self);
         
-        public System.IntPtr KeySize
+        public nint KeySize
         {
             get => KeySize_Get();
         }
@@ -14537,29 +13976,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<Blowfish>.GetTypeMetadata().Size;
         SwiftSafeHandle<Blowfish> _payload = SwiftSafeHandle<Blowfish>.Zero;
         
-        public SwiftSafeHandle<Blowfish> Payload => _payload;
+        internal SwiftSafeHandle<Blowfish> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type Blowfish does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type Blowfish does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(Blowfish left, Blowfish right)
-        {
-            throw new InvalidOperationException("Type Blowfish does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(Blowfish left, Blowfish right)
-        {
-            throw new InvalidOperationException("Type Blowfish does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -14607,7 +14026,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftCipher), "$s11CryptoSwift8BlowfishCAA6CipherAAMc"}
+                {typeof(ICipher), "$s11CryptoSwift8BlowfishCAA6CipherAAMc"}
             };
         }
         
@@ -14625,7 +14044,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'dataPaddingRequired' case of Error.
@@ -14727,7 +14148,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -14735,7 +14156,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_152FB5B4(self);
+                    var result = PInvoke_hashValue_Get_651AFBD2(self);
                     
                     return result;
                 }
@@ -14748,9 +14169,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8BlowfishC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_152FB5B4( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_651AFBD2( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -14819,7 +14240,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -14827,7 +14248,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_779FDE95(into.Payload, self);
+                    PInvoke_hash_2CAD8FD6(hasher.Payload, self);
                     
                     return;
                 }
@@ -14840,13 +14261,13 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8BlowfishC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_779FDE95( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_2CAD8FD6( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe Blowfish( IEnumerable<System.Byte> key,  Swift.Runtime.ExistentialContainer1 blockMode,  Swift.CryptoSwift.Padding padding)
+        public unsafe Blowfish( IEnumerable<System.Byte> key,  IBlockMode blockMode,  Swift.CryptoSwift.Padding padding)
         {
             _payload = new SwiftSafeHandle<Blowfish>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -14854,7 +14275,7 @@ namespace Swift.CryptoSwift
             using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
             using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
             IntPtr keyBuffer = keyDisposable.Buffer;
-            PInvoke_init_32BE861D(swiftIndirectResult, keyBuffer, blockMode, padding.Payload.DangerousGetHandle(), out var error);
+            PInvoke_init_62FAE218(swiftIndirectResult, keyBuffer, ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)blockMode).GetExistentialContainer(), padding.Payload.DangerousGetHandle(), out var error);
             
             if (error.Value != null)
             {
@@ -14865,7 +14286,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8BlowfishC3key9blockMode7paddingACSays5UInt8VG_AA05BlockF0_pAA7PaddingOtKcfC")]
-        private static extern void PInvoke_init_32BE861D( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  Swift.Runtime.ExistentialContainer1 blockMode,  IntPtr padding, out SwiftError error);
+        private static extern void PInvoke_init_62FAE218( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  Swift.Runtime.ExistentialContainer1 blockMode,  IntPtr padding, out SwiftError error);
         
         
         public unsafe Blowfish( string key,  string iv,  Swift.CryptoSwift.Padding padding)
@@ -14877,7 +14298,7 @@ namespace Swift.CryptoSwift
             using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
             using var ivSwift = new SwiftString(iv);
             using PayloadBuffer<SwiftString.Buffer> ivDisposable = ivSwift.PayloadBuffer;
-            PInvoke_init_1A04E263(swiftIndirectResult, keyDisposable.Buffer, ivDisposable.Buffer, padding.Payload.DangerousGetHandle(), out var error);
+            PInvoke_init_34D9121D(swiftIndirectResult, keyDisposable.Buffer, ivDisposable.Buffer, padding.Payload.DangerousGetHandle(), out var error);
             
             if (error.Value != null)
             {
@@ -14888,26 +14309,47 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8BlowfishC3key2iv7paddingACSS_SSAA7PaddingOtKcfC")]
-        private static extern void PInvoke_init_1A04E263( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer iv,  IntPtr padding, out SwiftError error);
+        private static extern void PInvoke_init_34D9121D( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer iv,  IntPtr padding, out SwiftError error);
+        public unsafe Blowfish( string key,  string iv)
+        {
+            _payload = new SwiftSafeHandle<Blowfish>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var keySwift = new SwiftString(key);
+            using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
+            using var ivSwift = new SwiftString(iv);
+            using PayloadBuffer<SwiftString.Buffer> ivDisposable = ivSwift.PayloadBuffer;
+            PInvoke_init_2B1A58E1(swiftIndirectResult, keyDisposable.Buffer, ivDisposable.Buffer, out var error);
+            
+            if (error.Value != null)
+            {
+                throw new SwiftRuntimeException("Call to Swift method init failed.");
+            }
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_Blowfish_init_18CB40CF_1")]
+        private static extern void PInvoke_init_2B1A58E1( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer iv, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> Encrypt<T0>( T0 arg0)
+        public unsafe IReadOnlyList<System.Byte> Encrypt<T0>( T0 bytes)
             where T0 : ISwiftObject
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
             TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-            IntPtr arg0Payload = IntPtr.Zero;
+            IntPtr bytesPayload = IntPtr.Zero;
             try
             {
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
-                Span<byte> arg0PayloadSpan = stackalloc byte[(int)T0Metadata.Size];
-                arg0Payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(arg0PayloadSpan));
-                SwiftMarshal.MarshalToSwift(arg0, ref arg0PayloadSpan);
+                Span<byte> bytesPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                bytesPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(bytesPayloadSpan));
+                SwiftMarshal.MarshalToSwift(bytes, ref bytesPayloadSpan);
                 
                 
-                var result = PInvoke_encrypt_5DFDA587(arg0Payload, T0Metadata, self, out var error);
+                var result = PInvoke_encrypt_52D3186B(bytesPayload, T0Metadata, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -14921,33 +14363,33 @@ namespace Swift.CryptoSwift
             {
                 if (success)
                    _payload.DangerousRelease();
-                T0Metadata.ValueWitnessTable->Destroy((void *)arg0Payload, T0Metadata);
+                T0Metadata.ValueWitnessTable->Destroy((void *)bytesPayload, T0Metadata);
             }
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8BlowfishC7encryptySays5UInt8VGxKSlRzAF7ElementRtzSi5IndexRtzlF")]
-        private static extern IntPtr PInvoke_encrypt_5DFDA587( IntPtr arg0Payload,  TypeMetadata T0Metadata,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_encrypt_52D3186B( IntPtr bytesPayload,  TypeMetadata T0Metadata,  SwiftSelf self, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> Decrypt<T0>( T0 arg0)
+        public unsafe IReadOnlyList<System.Byte> Decrypt<T0>( T0 bytes)
             where T0 : ISwiftObject
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
             TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-            IntPtr arg0Payload = IntPtr.Zero;
+            IntPtr bytesPayload = IntPtr.Zero;
             try
             {
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
-                Span<byte> arg0PayloadSpan = stackalloc byte[(int)T0Metadata.Size];
-                arg0Payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(arg0PayloadSpan));
-                SwiftMarshal.MarshalToSwift(arg0, ref arg0PayloadSpan);
+                Span<byte> bytesPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                bytesPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(bytesPayloadSpan));
+                SwiftMarshal.MarshalToSwift(bytes, ref bytesPayloadSpan);
                 
                 
-                var result = PInvoke_decrypt_2E7A3BD4(arg0Payload, T0Metadata, self, out var error);
+                var result = PInvoke_decrypt_7CF53DEB(bytesPayload, T0Metadata, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -14961,30 +14403,30 @@ namespace Swift.CryptoSwift
             {
                 if (success)
                    _payload.DangerousRelease();
-                T0Metadata.ValueWitnessTable->Destroy((void *)arg0Payload, T0Metadata);
+                T0Metadata.ValueWitnessTable->Destroy((void *)bytesPayload, T0Metadata);
             }
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8BlowfishC7decryptySays5UInt8VGxKSlRzAF7ElementRtzSi5IndexRtzlF")]
-        private static extern IntPtr PInvoke_decrypt_2E7A3BD4( IntPtr arg0Payload,  TypeMetadata T0Metadata,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_decrypt_7CF53DEB( IntPtr bytesPayload,  TypeMetadata T0Metadata,  SwiftSelf self, out SwiftError error);
         
         
     }
     
     
-    public interface ISwiftPaddingProtocol
+    public interface IPaddingProtocol
     {
-        IReadOnlyList<System.Byte> Add(IEnumerable<System.Byte> to, System.IntPtr blockSize);
-        IReadOnlyList<System.Byte> Remove(IEnumerable<System.Byte> from, System.IntPtr? blockSize);
+        IReadOnlyList<System.Byte> Add(IEnumerable<System.Byte> to, nint blockSize);
+        IReadOnlyList<System.Byte> Remove(IEnumerable<System.Byte> from, nint? blockSize);
     }
     
     /// <summary>
     /// Proxy class that enables C# implementations of the PaddingProtocol protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class PaddingProtocolProxy : ISwiftPaddingProtocol, ISwiftObject
+    public unsafe class PaddingProtocolProxy : IPaddingProtocol, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift PaddingProtocol_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -15008,7 +14450,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftPaddingProtocol? _csharpImpl;
+        private readonly IPaddingProtocol? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static PaddingProtocolProxy()
@@ -15053,7 +14495,7 @@ namespace Swift.CryptoSwift
             var container = *(ExistentialContainer1*)selfContainer;
             var proxy = SwiftObjectRegistry.GetProxyFromContainer<PaddingProtocolProxy>(container);
             var param0 = MarshalFromSwift<Swift.SwiftArray<System.Byte>>(rawArg0);
-            var param1 = MarshalFromSwift<System.IntPtr>(rawArg1);
+            var param1 = MarshalFromSwift<nint>(rawArg1);
             var result = proxy._csharpImpl!.Add(param0, param1);
             return MarshalToSwiftBuffer(result);
         }
@@ -15064,7 +14506,7 @@ namespace Swift.CryptoSwift
             var container = *(ExistentialContainer1*)selfContainer;
             var proxy = SwiftObjectRegistry.GetProxyFromContainer<PaddingProtocolProxy>(container);
             var param0 = MarshalFromSwift<Swift.SwiftArray<System.Byte>>(rawArg0);
-            var param1 = MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(rawArg1);
+            var param1 = MarshalFromSwift<Swift.SwiftOptional<nint>>(rawArg1);
             var result = proxy._csharpImpl!.Remove(param0, param1);
             return MarshalToSwiftBuffer(result);
         }
@@ -15072,10 +14514,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftPaddingProtocol.
+        /// Creates a proxy wrapping a C# implementation of IPaddingProtocol.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public PaddingProtocolProxy(ISwiftPaddingProtocol implementation)
+        public PaddingProtocolProxy(IPaddingProtocol implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -15106,7 +14548,7 @@ namespace Swift.CryptoSwift
         }
         #region Interface Implementation
         
-        public IReadOnlyList<System.Byte> Add(IEnumerable<System.Byte> to, System.IntPtr blockSize)
+        public IReadOnlyList<System.Byte> Add(IEnumerable<System.Byte> to, nint blockSize)
         {
             if (_csharpImpl != null)
                 return _csharpImpl.Add(to, blockSize);
@@ -15115,7 +14557,7 @@ namespace Swift.CryptoSwift
                 "Protocol member access is only supported when wrapping a C# implementation.");
         }
         
-        public IReadOnlyList<System.Byte> Remove(IEnumerable<System.Byte> from, System.IntPtr? blockSize)
+        public IReadOnlyList<System.Byte> Remove(IEnumerable<System.Byte> from, nint? blockSize)
         {
             if (_csharpImpl != null)
                 return _csharpImpl.Remove(from, blockSize);
@@ -15184,6 +14626,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -15217,11 +14660,13 @@ namespace Swift.CryptoSwift
     }
     
     
-    public unsafe class Padding : ISwiftObject, ISwiftPaddingProtocol
+    public unsafe class Padding : ISwiftObject, IPaddingProtocol
     {
         static nuint _payloadSize = SwiftObjectHelper<Padding>.GetTypeMetadata().Size;
         SwiftSafeHandle<Padding> _payload = SwiftSafeHandle<Padding>.Zero;
-        public SwiftSafeHandle<Padding> Payload => _payload;
+        internal SwiftSafeHandle<Padding> Payload => _payload;
+        
+        public void Dispose() => _payload.Dispose();
         
         /// <summary>
         /// Gets the 'noPadding' case of Padding.
@@ -15391,7 +14836,7 @@ namespace Swift.CryptoSwift
         }
         
         
-        private unsafe System.IntPtr HashValue_Get()
+        private unsafe nint HashValue_Get()
         {
             try
             {
@@ -15399,7 +14844,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_hashValue_Get_1A54746B(self);
+                var result = PInvoke_hashValue_Get_651DEED7(self);
                 
                 return result;
             }
@@ -15412,9 +14857,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift7PaddingO9hashValueSivg")]
-        private static extern System.IntPtr PInvoke_hashValue_Get_1A54746B( SwiftSelf self);
+        private static extern nint PInvoke_hashValue_Get_651DEED7( SwiftSelf self);
         
-        public System.IntPtr HashValue
+        public nint HashValue
         {
             get => HashValue_Get();
         }
@@ -15470,7 +14915,7 @@ namespace Swift.CryptoSwift
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
                 {typeof(IEquatable<Padding>), "$s11CryptoSwift7PaddingOSQAAMc"},
-        {typeof(ISwiftPaddingProtocol), "$s11CryptoSwift7PaddingOAA0C8ProtocolAAMc"}
+        {typeof(IPaddingProtocol), "$s11CryptoSwift7PaddingOAA0C8ProtocolAAMc"}
             };
         }
         
@@ -15484,7 +14929,7 @@ namespace Swift.CryptoSwift
             return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
         }
         
-        public unsafe IReadOnlyList<System.Byte> Add( IEnumerable<System.Byte> to,  System.IntPtr blockSize)
+        public unsafe IReadOnlyList<System.Byte> Add( IEnumerable<System.Byte> to,  nint blockSize)
         {
             try
             {
@@ -15495,7 +14940,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> toDisposable = toSwift.PayloadBuffer;
                 IntPtr toBuffer = toDisposable.Buffer;
                 
-                var result = PInvoke_add_694C3630(toBuffer, blockSize, self);
+                var result = PInvoke_add_43B58929(toBuffer, blockSize, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -15508,10 +14953,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift7PaddingO3add2to9blockSizeSays5UInt8VGAI_SitF")]
-        private static extern IntPtr PInvoke_add_694C3630( IntPtr toBuffer,  System.IntPtr blockSize,  SwiftSelf self);
+        private static extern IntPtr PInvoke_add_43B58929( IntPtr toBuffer,  nint blockSize,  SwiftSelf self);
         
         
-        public unsafe IReadOnlyList<System.Byte> Remove( IEnumerable<System.Byte> from,  System.IntPtr? blockSize)
+        public unsafe IReadOnlyList<System.Byte> Remove( IEnumerable<System.Byte> from,  nint? blockSize)
         {
             try
             {
@@ -15521,11 +14966,11 @@ namespace Swift.CryptoSwift
                 using var fromSwift = SwiftArray<System.Byte>.FromEnumerable(from);
                 using PayloadBuffer<IntPtr> fromDisposable = fromSwift.PayloadBuffer;
                 IntPtr fromBuffer = fromDisposable.Buffer;
-                using var blockSizeSwift = blockSize is {} blockSizeValue ? SwiftOptional<System.IntPtr>.NewSome(blockSizeValue) : SwiftOptional<System.IntPtr>.NewNone();
+                using var blockSizeSwift = blockSize is {} blockSizeValue ? SwiftOptional<nint>.NewSome(blockSizeValue) : SwiftOptional<nint>.NewNone();
                 using PayloadBuffer<IntPtr> blockSizeDisposable = blockSizeSwift.PayloadBuffer;
                 IntPtr blockSizeBuffer = blockSizeDisposable.Buffer;
                 
-                var result = PInvoke_remove_4BAB3E13(fromBuffer, blockSizeBuffer, self);
+                var result = PInvoke_remove_06ADF056(fromBuffer, blockSizeBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -15538,10 +14983,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift7PaddingO6remove4from9blockSizeSays5UInt8VGAI_SiSgtF")]
-        private static extern IntPtr PInvoke_remove_4BAB3E13( IntPtr fromBuffer,  IntPtr blockSizeBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_remove_06ADF056( IntPtr fromBuffer,  IntPtr blockSizeBuffer,  SwiftSelf self);
         
         
-        public unsafe void Hash(ref Swift.Hasher into)
+        public unsafe void Hash(ref Swift.Hasher hasher)
         {
             try
             {
@@ -15549,7 +14994,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_hash_1E94B72A(into.Payload, self);
+                PInvoke_hash_2091CA7A(hasher.Payload, self);
                 
                 return;
             }
@@ -15562,7 +15007,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift7PaddingO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_1E94B72A( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_2091CA7A( SafeHandle hasher,  SwiftSelf self);
         
         
     }
@@ -15573,7 +15018,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<BatchedCollectionIndex<T0>>.GetTypeMetadata().Size;
         SwiftSafeHandle<BatchedCollectionIndex<T0>> _payload = SwiftSafeHandle<BatchedCollectionIndex<T0>>.Zero;
         
-        public SwiftSafeHandle<BatchedCollectionIndex<T0>> Payload => _payload;
+        internal SwiftSafeHandle<BatchedCollectionIndex<T0>> Payload => _payload;
+        
+        public void Dispose() => _payload.Dispose();
         
         public static System.Boolean operator ==(Swift.CryptoSwift.BatchedCollectionIndex<T0> arg0, Swift.CryptoSwift.BatchedCollectionIndex<T0> arg1)
         {
@@ -15605,7 +15052,11 @@ namespace Swift.CryptoSwift
         }
         public override int GetHashCode()
         {
-            throw new InvalidOperationException("Type BatchedCollectionIndex does not implement Swift's Hashable protocol, so GetHashCode() is not supported.");
+            // TODO: Implement when Swift Hashable protocol binding is supported.
+            // Returning constant 0 satisfies the Equals/GetHashCode contract
+            // (equal objects must have equal hashes). This is correct but makes
+            // hash-based collections O(n) until Hashable is supported.
+            return 0;
         }
         
         public bool Equals(BatchedCollectionIndex<T0>? other)
@@ -15702,7 +15153,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = BatchedCollection_PInvoke.PInvoke_startIndex_Get_5A4437E7(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = BatchedCollection_PInvoke.PInvoke_startIndex_Get_3A2CEDC6(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BatchedCollectionIndex<T0>>(new IntPtr(&result));
             }
@@ -15732,7 +15183,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = BatchedCollection_PInvoke.PInvoke_endIndex_Get_74D845CC(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = BatchedCollection_PInvoke.PInvoke_endIndex_Get_7C3683B6(T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BatchedCollectionIndex<T0>>(new IntPtr(&result));
             }
@@ -15754,29 +15205,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<BatchedCollection<T0>>.GetTypeMetadata().Size;
         SwiftSafeHandle<BatchedCollection<T0>> _payload = SwiftSafeHandle<BatchedCollection<T0>>.Zero;
         
-        public SwiftSafeHandle<BatchedCollection<T0>> Payload => _payload;
+        internal SwiftSafeHandle<BatchedCollection<T0>> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type BatchedCollection does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type BatchedCollection does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(BatchedCollection<T0> left, BatchedCollection<T0> right)
-        {
-            throw new InvalidOperationException("Type BatchedCollection does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(BatchedCollection<T0> left, BatchedCollection<T0> right)
-        {
-            throw new InvalidOperationException("Type BatchedCollection does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => BatchedCollection_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T0>.GetTypeMetadata());
         
@@ -15835,7 +15266,7 @@ namespace Swift.CryptoSwift
         }
         
         
-        public unsafe BatchedCollection( T0 _base,  System.IntPtr size)
+        public unsafe BatchedCollection( T0 _base,  nint size)
         {
             TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
             IntPtr _basePayload = IntPtr.Zero;
@@ -15849,7 +15280,7 @@ namespace Swift.CryptoSwift
                 SwiftMarshal.MarshalToSwift(_base, ref _basePayloadSpan);
                 
                 
-                BatchedCollection_PInvoke.PInvoke_init_2B7A8EB3(swiftIndirectResult, _basePayload, size, T0Metadata, SwiftObjectHelper<T0>.GetTypeMetadata());
+                BatchedCollection_PInvoke.PInvoke_init_13A96610(swiftIndirectResult, _basePayload, size, T0Metadata, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
             }
             
@@ -15862,7 +15293,7 @@ namespace Swift.CryptoSwift
         
         
         
-        public unsafe Swift.CryptoSwift.BatchedCollectionIndex<T0> Index( Swift.CryptoSwift.BatchedCollectionIndex<T0> after)
+        public unsafe Swift.CryptoSwift.BatchedCollectionIndex<T0> Index( Swift.CryptoSwift.BatchedCollectionIndex<T0> idx)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -15872,9 +15303,9 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                IntPtr afterBuffer = after.Payload.DangerousGetHandle();
+                IntPtr idxBuffer = idx.Payload.DangerousGetHandle();
                 
-                var result = BatchedCollection_PInvoke.PInvoke_index_675D4F84(afterBuffer, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
+                var result = BatchedCollection_PInvoke.PInvoke_index_7F3BE140(idxBuffer, T0Metadata, self, SwiftObjectHelper<T0>.GetTypeMetadata());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BatchedCollectionIndex<T0>>(new IntPtr(&result));
             }
@@ -15895,11 +15326,11 @@ namespace Swift.CryptoSwift
     {
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift17BatchedCollectionV10startIndexAA0cdF0VyxGvg")]
-        internal static extern Swift.AnyType PInvoke_startIndex_Get_5A4437E7( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern Swift.AnyType PInvoke_startIndex_Get_3A2CEDC6( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift17BatchedCollectionV8endIndexAA0cdF0VyxGvg")]
-        internal static extern Swift.AnyType PInvoke_endIndex_Get_74D845CC( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern Swift.AnyType PInvoke_endIndex_Get_7C3683B6( TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift17BatchedCollectionVMa")]
@@ -15907,16 +15338,16 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift17BatchedCollectionV4base4sizeACyxGx_SitcfC")]
-        internal static extern void PInvoke_init_2B7A8EB3( SwiftIndirectResult swiftIndirectResult,  IntPtr _basePayload,  System.IntPtr size,  TypeMetadata T0Metadata, TypeMetadata t0Metadata);
+        internal static extern void PInvoke_init_13A96610( SwiftIndirectResult swiftIndirectResult,  IntPtr _basePayload,  nint size,  TypeMetadata T0Metadata, TypeMetadata t0Metadata);
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift17BatchedCollectionV5index5afterAA0cD5IndexVyxGAH_tF")]
-        internal static extern Swift.AnyType PInvoke_index_675D4F84( Swift.AnyType afterBuffer,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
+        internal static extern Swift.AnyType PInvoke_index_7F3BE140( Swift.AnyType idxBuffer,  TypeMetadata T0Metadata,  SwiftSelf self, TypeMetadata t0Metadata);
         
     }
     
     
-    public interface ISwift_UInt8Type
+    public interface I_UInt8Type
     {
     }
     
@@ -15937,7 +15368,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_options_Get_323B369E(swiftIndirectResult, self);
+                PInvoke_options_Get_3856F0B4(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -15952,14 +15383,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OFBV7optionsAA15BlockModeOptionVvg")]
-        private static extern void PInvoke_options_Get_323B369E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_3856F0B4( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.BlockModeOption Options
         {
             get => Options_Get();
         }
         
-        private unsafe Swift.SwiftOptional<System.IntPtr> CustomBlockSize_Get()
+        private unsafe Swift.SwiftOptional<nint> CustomBlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -15969,9 +15400,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_customBlockSize_Get_09670EF9(self);
+                var result = PInvoke_customBlockSize_Get_69394033(self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<nint>>(new IntPtr(&result));
             }
             
             finally
@@ -15984,39 +15415,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OFBV15customBlockSizeSiSgvg")]
-        private static extern IntPtr PInvoke_customBlockSize_Get_09670EF9( SwiftSelf self);
+        private static extern IntPtr PInvoke_customBlockSize_Get_69394033( SwiftSelf self);
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public nint? CustomBlockSize
         {
-            get => CustomBlockSize_Get();
+            get => ((nint?)CustomBlockSize_Get());
         }
         
         static nuint _payloadSize = SwiftObjectHelper<OFB>.GetTypeMetadata().Size;
         SwiftSafeHandle<OFB> _payload = SwiftSafeHandle<OFB>.Zero;
         
-        public SwiftSafeHandle<OFB> Payload => _payload;
+        internal SwiftSafeHandle<OFB> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type OFB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type OFB does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(OFB left, OFB right)
-        {
-            throw new InvalidOperationException("Type OFB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(OFB left, OFB right)
-        {
-            throw new InvalidOperationException("Type OFB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -16064,7 +15475,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftBlockMode), "$s11CryptoSwift3OFBVAA9BlockModeAAMc"}
+                {typeof(IBlockMode), "$s11CryptoSwift3OFBVAA9BlockModeAAMc"}
             };
         }
         
@@ -16083,7 +15494,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidInitializationVector' case of Error.
@@ -16134,7 +15547,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -16142,7 +15555,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_47778A77(self);
+                    var result = PInvoke_hashValue_Get_470A74AC(self);
                     
                     return result;
                 }
@@ -16155,9 +15568,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OFBV5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_47778A77( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_470A74AC( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -16226,7 +15639,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -16234,7 +15647,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_7EE45773(into.Payload, self);
+                    PInvoke_hash_55068370(hasher.Payload, self);
                     
                     return;
                 }
@@ -16247,7 +15660,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OFBV5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_7EE45773( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_55068370( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -16261,13 +15674,13 @@ namespace Swift.CryptoSwift
             using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
             using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
             IntPtr ivBuffer = ivDisposable.Buffer;
-            PInvoke_init_54AD7320(swiftIndirectResult, ivBuffer);
+            PInvoke_init_049925C5(swiftIndirectResult, ivBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OFBV2ivACSays5UInt8VG_tcfC")]
-        private static extern void PInvoke_init_54AD7320( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer);
+        private static extern void PInvoke_init_049925C5( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer);
         
         
         
@@ -16276,7 +15689,7 @@ namespace Swift.CryptoSwift
     
     public unsafe class BlockModeOption : ISwiftObject, IEquatable<BlockModeOption>
     {
-        private unsafe System.IntPtr RawValue_Get()
+        private unsafe nint RawValue_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -16286,7 +15699,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_rawValue_Get_598EA4AF(self);
+                var result = PInvoke_rawValue_Get_2BEFBD05(self);
                 
                 return result;
             }
@@ -16301,9 +15714,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15BlockModeOptionV8rawValueSivg")]
-        private static extern System.IntPtr PInvoke_rawValue_Get_598EA4AF( SwiftSelf self);
+        private static extern nint PInvoke_rawValue_Get_2BEFBD05( SwiftSelf self);
         
-        public System.IntPtr RawValue
+        public nint RawValue
         {
             get => RawValue_Get();
         }
@@ -16318,7 +15731,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_none_Get_70F5F8A7(swiftIndirectResult);
+                PInvoke_none_Get_59CD6BBC(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16331,7 +15744,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15BlockModeOptionV4noneACvgZ")]
-        private static extern void PInvoke_none_Get_70F5F8A7( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_none_Get_59CD6BBC( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.CryptoSwift.BlockModeOption None
         {
@@ -16348,7 +15761,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_initializationVectorRequired_Get_3EEF5ED4(swiftIndirectResult);
+                PInvoke_initializationVectorRequired_Get_47DFB627(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16361,7 +15774,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15BlockModeOptionV28initializationVectorRequiredACvgZ")]
-        private static extern void PInvoke_initializationVectorRequired_Get_3EEF5ED4( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_initializationVectorRequired_Get_47DFB627( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.CryptoSwift.BlockModeOption InitializationVectorRequired
         {
@@ -16378,7 +15791,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_paddingRequired_Get_4A02E5E7(swiftIndirectResult);
+                PInvoke_paddingRequired_Get_2BB68994(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16391,7 +15804,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15BlockModeOptionV15paddingRequiredACvgZ")]
-        private static extern void PInvoke_paddingRequired_Get_4A02E5E7( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_paddingRequired_Get_2BB68994( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.CryptoSwift.BlockModeOption PaddingRequired
         {
@@ -16408,7 +15821,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_useEncryptToDecrypt_Get_0F9C7E74(swiftIndirectResult);
+                PInvoke_useEncryptToDecrypt_Get_5864FAF5(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16421,7 +15834,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15BlockModeOptionV19useEncryptToDecryptACvgZ")]
-        private static extern void PInvoke_useEncryptToDecrypt_Get_0F9C7E74( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_useEncryptToDecrypt_Get_5864FAF5( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.CryptoSwift.BlockModeOption UseEncryptToDecrypt
         {
@@ -16431,7 +15844,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<BlockModeOption>.GetTypeMetadata().Size;
         SwiftSafeHandle<BlockModeOption> _payload = SwiftSafeHandle<BlockModeOption>.Zero;
         
-        public SwiftSafeHandle<BlockModeOption> Payload => _payload;
+        internal SwiftSafeHandle<BlockModeOption> Payload => _payload;
+        
+        public void Dispose() => _payload.Dispose();
         
         public override bool Equals(object? obj)
         {
@@ -16439,7 +15854,11 @@ namespace Swift.CryptoSwift
         }
         public override int GetHashCode()
         {
-            throw new InvalidOperationException("Type BlockModeOption does not implement Swift's Hashable protocol, so GetHashCode() is not supported.");
+            // TODO: Implement when Swift Hashable protocol binding is supported.
+            // Returning constant 0 satisfies the Equals/GetHashCode contract
+            // (equal objects must have equal hashes). This is correct but makes
+            // hash-based collections O(n) until Hashable is supported.
+            return 0;
         }
         
         public static bool operator ==(BlockModeOption left, BlockModeOption right)
@@ -16518,26 +15937,26 @@ namespace Swift.CryptoSwift
         }
         
         
-        public unsafe BlockModeOption( System.IntPtr rawValue)
+        public unsafe BlockModeOption( nint rawValue)
         {
             _payload = new SwiftSafeHandle<BlockModeOption>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_7F6F007C(swiftIndirectResult, rawValue);
+            PInvoke_init_6518DA24(swiftIndirectResult, rawValue);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15BlockModeOptionV8rawValueACSi_tcfC")]
-        private static extern void PInvoke_init_7F6F007C( SwiftIndirectResult swiftIndirectResult,  System.IntPtr rawValue);
+        private static extern void PInvoke_init_6518DA24( SwiftIndirectResult swiftIndirectResult,  nint rawValue);
         
         
     }
     
     
-    public unsafe class StreamDecryptor : ISwiftObject, ISwiftCryptor
+    public unsafe class StreamDecryptor : ISwiftObject, ICryptor
     {
-        private unsafe System.IntPtr BlockSize_Get()
+        private unsafe nint BlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -16547,7 +15966,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_blockSize_Get_26A5C48A(self);
+                var result = PInvoke_blockSize_Get_1022527E(self);
                 
                 return result;
             }
@@ -16562,14 +15981,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC9blockSizeSivg")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_26A5C48A( SwiftSelf self);
+        private static extern nint PInvoke_blockSize_Get_1022527E( SwiftSelf self);
         
-        public System.IntPtr BlockSize
+        public nint BlockSize
         {
             get => BlockSize_Get();
         }
         
-        private unsafe Swift.Runtime.ExistentialContainer1 Worker_Get()
+        private unsafe ICipherModeWorker Worker_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -16579,9 +15998,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_worker_Get_04D6A4F2(self);
+                var result = PInvoke_worker_Get_6BAC9143(self);
                 
-                return result;
+                return new CipherModeWorkerProxy(result);
             }
             
             finally
@@ -16594,9 +16013,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC6workerAA16CipherModeWorker_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_worker_Get_04D6A4F2( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_worker_Get_6BAC9143( SwiftSelf self);
         
-        private unsafe void Worker_Set( Swift.Runtime.ExistentialContainer1 value)
+        private unsafe void Worker_Set( ICipherModeWorker value)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -16606,7 +16025,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_worker_Set_2DB2D32B(value, self);
+                PInvoke_worker_Set_4E24988D(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)value).GetExistentialContainer(), self);
                 
                 return;
             }
@@ -16621,10 +16040,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC6workerAA16CipherModeWorker_pvs")]
-        private static extern void PInvoke_worker_Set_2DB2D32B( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+        private static extern void PInvoke_worker_Set_4E24988D( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any CryptoSwift.CipherModeWorker")]
-        public Swift.Runtime.ExistentialContainer1 Worker
+        public ICipherModeWorker Worker
         {
             get => Worker_Get();
             set => Worker_Set(value);
@@ -16644,7 +16063,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_padding_Get_0E1D5534(swiftIndirectResult, self);
+                PInvoke_padding_Get_2C463EB5(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.Padding>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -16659,7 +16078,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC7paddingAA7PaddingOvg")]
-        private static extern void PInvoke_padding_Get_0E1D5534( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_padding_Get_2C463EB5( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.Padding Padding
         {
@@ -16676,7 +16095,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_accumulated_Get_6AF5A3E1(self);
+                var result = PInvoke_accumulated_Get_173AE1F3(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -16691,7 +16110,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC11accumulatedSays5UInt8VGvg")]
-        private static extern IntPtr PInvoke_accumulated_Get_6AF5A3E1( SwiftSelf self);
+        private static extern IntPtr PInvoke_accumulated_Get_173AE1F3( SwiftSelf self);
         
         private unsafe void Accumulated_Set( Swift.SwiftArray<System.Byte> value)
         {
@@ -16705,7 +16124,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_accumulated_Set_089170C9(valueBuffer, self);
+                PInvoke_accumulated_Set_68097D2F(valueBuffer, self);
                 
                 return;
             }
@@ -16720,15 +16139,15 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC11accumulatedSays5UInt8VGvs")]
-        private static extern void PInvoke_accumulated_Set_089170C9( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_accumulated_Set_68097D2F( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<System.Byte> Accumulated
+        public IReadOnlyList<System.Byte> Accumulated
         {
             get => Accumulated_Get();
-            set => Accumulated_Set(value);
+            set => Accumulated_Set(SwiftArray<System.Byte>.FromEnumerable(value));
         }
         
-        private unsafe System.IntPtr LastBlockRemainder_Get()
+        private unsafe nint LastBlockRemainder_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -16738,7 +16157,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_lastBlockRemainder_Get_413ACEC5(self);
+                var result = PInvoke_lastBlockRemainder_Get_469F5D87(self);
                 
                 return result;
             }
@@ -16753,9 +16172,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC18lastBlockRemainderSivg")]
-        private static extern System.IntPtr PInvoke_lastBlockRemainder_Get_413ACEC5( SwiftSelf self);
+        private static extern nint PInvoke_lastBlockRemainder_Get_469F5D87( SwiftSelf self);
         
-        private unsafe void LastBlockRemainder_Set( System.IntPtr value)
+        private unsafe void LastBlockRemainder_Set( nint value)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -16765,7 +16184,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_lastBlockRemainder_Set_164E046A(value, self);
+                PInvoke_lastBlockRemainder_Set_186D2E7E(value, self);
                 
                 return;
             }
@@ -16780,9 +16199,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC18lastBlockRemainderSivs")]
-        private static extern void PInvoke_lastBlockRemainder_Set_164E046A( System.IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_lastBlockRemainder_Set_186D2E7E( nint value,  SwiftSelf self);
         
-        public System.IntPtr LastBlockRemainder
+        public nint LastBlockRemainder
         {
             get => LastBlockRemainder_Get();
             set => LastBlockRemainder_Set(value);
@@ -16791,29 +16210,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<StreamDecryptor>.GetTypeMetadata().Size;
         SwiftSafeHandle<StreamDecryptor> _payload = SwiftSafeHandle<StreamDecryptor>.Zero;
         
-        public SwiftSafeHandle<StreamDecryptor> Payload => _payload;
+        internal SwiftSafeHandle<StreamDecryptor> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type StreamDecryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type StreamDecryptor does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(StreamDecryptor left, StreamDecryptor right)
-        {
-            throw new InvalidOperationException("Type StreamDecryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(StreamDecryptor left, StreamDecryptor right)
-        {
-            throw new InvalidOperationException("Type StreamDecryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -16861,8 +16260,8 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftCryptor), "$s11CryptoSwift15StreamDecryptorCAA7CryptorAAMc"},
-        {typeof(ISwiftUpdatable), "$s11CryptoSwift15StreamDecryptorCAA9UpdatableAAMc"}
+                {typeof(ICryptor), "$s11CryptoSwift15StreamDecryptorCAA7CryptorAAMc"},
+        {typeof(IUpdatable), "$s11CryptoSwift15StreamDecryptorCAA9UpdatableAAMc"}
             };
         }
         
@@ -16880,7 +16279,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'unsupported' case of Error.
@@ -16931,7 +16332,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -16939,7 +16340,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_18DB5EBF(self);
+                    var result = PInvoke_hashValue_Get_299A2D3F(self);
                     
                     return result;
                 }
@@ -16952,9 +16353,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_18DB5EBF( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_299A2D3F( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -17023,7 +16424,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -17031,7 +16432,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_177F9884(into.Payload, self);
+                    PInvoke_hash_7AB939EA(hasher.Payload, self);
                     
                     return;
                 }
@@ -17044,18 +16445,18 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_177F9884( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_7AB939EA( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe StreamDecryptor( System.IntPtr blockSize,  Swift.CryptoSwift.Padding padding,  Swift.Runtime.ExistentialContainer1 arg2)
+        public unsafe StreamDecryptor( nint blockSize,  Swift.CryptoSwift.Padding padding,  ICipherModeWorker worker)
         {
             _payload = new SwiftSafeHandle<StreamDecryptor>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_5D5D24C9(swiftIndirectResult, blockSize, padding.Payload.DangerousGetHandle(), arg2, out var error);
+            PInvoke_init_05750F4D(swiftIndirectResult, blockSize, padding.Payload.DangerousGetHandle(), ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)worker).GetExistentialContainer(), out var error);
             
             if (error.Value != null)
             {
@@ -17066,11 +16467,11 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC9blockSize7padding_ACSi_AA7PaddingOAA16CipherModeWorker_ptKcfC")]
-        private static extern void PInvoke_init_5D5D24C9( SwiftIndirectResult swiftIndirectResult,  System.IntPtr blockSize,  IntPtr padding,  Swift.Runtime.ExistentialContainer1 arg2, out SwiftError error);
+        private static extern void PInvoke_init_05750F4D( SwiftIndirectResult swiftIndirectResult,  nint blockSize,  IntPtr padding,  Swift.Runtime.ExistentialContainer1 worker, out SwiftError error);
         
         
         
-        public unsafe void Seek( System.IntPtr to)
+        public unsafe void Seek( nint position)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -17080,7 +16481,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_seek_1C467A04(to, self, out var error);
+                PInvoke_seek_7D62B7B1(position, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -17100,7 +16501,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift15StreamDecryptorC4seek2toySi_tKF")]
-        private static extern void PInvoke_seek_1C467A04( System.IntPtr to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_seek_7D62B7B1( nint position,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -17110,7 +16511,9 @@ namespace Swift.CryptoSwift
     {
         static nuint _payloadSize = SwiftObjectHelper<CS>.GetTypeMetadata().Size;
         SwiftSafeHandle<CS> _payload = SwiftSafeHandle<CS>.Zero;
-        public SwiftSafeHandle<CS> Payload => _payload;
+        internal SwiftSafeHandle<CS> Payload => _payload;
+        
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -17184,7 +16587,7 @@ namespace Swift.CryptoSwift
                 {
                     
                     
-                    var result = PInvoke_isSigned_Get_726EF40F();
+                    var result = PInvoke_isSigned_Get_55581470();
                     
                     return result;
                 }
@@ -17197,14 +16600,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV8isSignedSbvgZ")]
-            private static extern System.Boolean PInvoke_isSigned_Get_726EF40F();
+            private static extern System.Boolean PInvoke_isSigned_Get_55581470();
             
             public static System.Boolean IsSigned
             {
                 get => IsSigned_Get();
             }
             
-            private unsafe System.IntPtr BitWidth_Get()
+            private unsafe nint BitWidth_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -17214,7 +16617,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_bitWidth_Get_39B2AE13(self);
+                    var result = PInvoke_bitWidth_Get_6ED354A0(self);
                     
                     return result;
                 }
@@ -17229,14 +16632,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV8bitWidthSivg")]
-            private static extern System.IntPtr PInvoke_bitWidth_Get_39B2AE13( SwiftSelf self);
+            private static extern nint PInvoke_bitWidth_Get_6ED354A0( SwiftSelf self);
             
-            public System.IntPtr BitWidth
+            public nint BitWidth
             {
                 get => BitWidth_Get();
             }
             
-            private unsafe System.IntPtr LeadingZeroBitCount_Get()
+            private unsafe nint LeadingZeroBitCount_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -17246,7 +16649,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_leadingZeroBitCount_Get_5BBA963B(self);
+                    var result = PInvoke_leadingZeroBitCount_Get_44C7AA66(self);
                     
                     return result;
                 }
@@ -17261,14 +16664,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV19leadingZeroBitCountSivg")]
-            private static extern System.IntPtr PInvoke_leadingZeroBitCount_Get_5BBA963B( SwiftSelf self);
+            private static extern nint PInvoke_leadingZeroBitCount_Get_44C7AA66( SwiftSelf self);
             
-            public System.IntPtr LeadingZeroBitCount
+            public nint LeadingZeroBitCount
             {
                 get => LeadingZeroBitCount_Get();
             }
             
-            private unsafe System.IntPtr TrailingZeroBitCount_Get()
+            private unsafe nint TrailingZeroBitCount_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -17278,7 +16681,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_trailingZeroBitCount_Get_77E703F0(self);
+                    var result = PInvoke_trailingZeroBitCount_Get_3647B694(self);
                     
                     return result;
                 }
@@ -17293,14 +16696,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV20trailingZeroBitCountSivg")]
-            private static extern System.IntPtr PInvoke_trailingZeroBitCount_Get_77E703F0( SwiftSelf self);
+            private static extern nint PInvoke_trailingZeroBitCount_Get_3647B694( SwiftSelf self);
             
-            public System.IntPtr TrailingZeroBitCount
+            public nint TrailingZeroBitCount
             {
                 get => TrailingZeroBitCount_Get();
             }
             
-            private unsafe Swift.CryptoSwift.CS.BigUInt.Words Words_Get()
+            private unsafe Swift.CryptoSwift.CS.BigUInt.WordsInfo Words_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -17308,15 +16711,15 @@ namespace Swift.CryptoSwift
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.CS.BigUInt.Words>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.CS.BigUInt.WordsInfo>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    PInvoke_words_Get_4EB957BD(swiftIndirectResult, self);
+                    PInvoke_words_Get_1CB4CA82(swiftIndirectResult, self);
                     
-                    return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt.Words>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt.WordsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -17329,20 +16732,20 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV5wordsAE5WordsVvg")]
-            private static extern void PInvoke_words_Get_4EB957BD( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_words_Get_1CB4CA82( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
-            public Swift.CryptoSwift.CS.BigUInt.Words WordsValue
+            public Swift.CryptoSwift.CS.BigUInt.WordsInfo Words
             {
                 get => Words_Get();
             }
             
-            private static System.IntPtr DirectMultiplicationLimit_Get()
+            private static nint DirectMultiplicationLimit_Get()
             {
                 try
                 {
                     
                     
-                    var result = PInvoke_directMultiplicationLimit_Get_7431C994();
+                    var result = PInvoke_directMultiplicationLimit_Get_6AEE7BF1();
                     
                     return result;
                 }
@@ -17355,15 +16758,15 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV25directMultiplicationLimitSivgZ")]
-            private static extern System.IntPtr PInvoke_directMultiplicationLimit_Get_7431C994();
+            private static extern nint PInvoke_directMultiplicationLimit_Get_6AEE7BF1();
             
-            private static void DirectMultiplicationLimit_Set( System.IntPtr value)
+            private static void DirectMultiplicationLimit_Set( nint value)
             {
                 try
                 {
                     
                     
-                    PInvoke_directMultiplicationLimit_Set_3CB93FB5(value);
+                    PInvoke_directMultiplicationLimit_Set_5912C757(value);
                     
                     return;
                 }
@@ -17376,9 +16779,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV25directMultiplicationLimitSivsZ")]
-            private static extern void PInvoke_directMultiplicationLimit_Set_3CB93FB5( System.IntPtr value);
+            private static extern void PInvoke_directMultiplicationLimit_Set_5912C757( nint value);
             
-            public static System.IntPtr DirectMultiplicationLimit
+            public static nint DirectMultiplicationLimit
             {
                 get => DirectMultiplicationLimit_Get();
                 set => DirectMultiplicationLimit_Set(value);
@@ -17394,7 +16797,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_description_Get_70B9C853(self);
+                    var result = PInvoke_description_Get_3F0E04AF(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17411,14 +16814,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_70B9C853( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_3F0E04AF( SwiftSelf self);
             
-            public Swift.SwiftString Description
+            public string Description
             {
-                get => Description_Get();
+                get => Description_Get().ToString();
             }
             
-            private unsafe Swift.Runtime.ExistentialContainer0 PlaygroundDescription_Get()
+            private unsafe object PlaygroundDescription_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -17428,9 +16831,9 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_playgroundDescription_Get_0DAC414D(self);
+                    var result = PInvoke_playgroundDescription_Get_0BE3F8D7(self);
                     
-                    return result;
+                    return new Proxy(result);
                 }
                 
                 finally
@@ -17443,14 +16846,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV21playgroundDescriptionypvg")]
-            private static extern Swift.Runtime.ExistentialContainer0 PInvoke_playgroundDescription_Get_0DAC414D( SwiftSelf self);
+            private static extern Swift.Runtime.ExistentialContainer0 PInvoke_playgroundDescription_Get_0BE3F8D7( SwiftSelf self);
             
-            public Swift.Runtime.ExistentialContainer0 PlaygroundDescription
+            public object PlaygroundDescription
             {
                 get => PlaygroundDescription_Get();
             }
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -17460,7 +16863,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_4539AA6B(self);
+                    var result = PInvoke_hashValue_Get_2514DDE6(self);
                     
                     return result;
                 }
@@ -17475,9 +16878,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_4539AA6B( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_2514DDE6( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -17485,7 +16888,9 @@ namespace Swift.CryptoSwift
             static nuint _payloadSize = SwiftObjectHelper<BigUInt>.GetTypeMetadata().Size;
             SwiftSafeHandle<BigUInt> _payload = SwiftSafeHandle<BigUInt>.Zero;
             
-            public SwiftSafeHandle<BigUInt> Payload => _payload;
+            internal SwiftSafeHandle<BigUInt> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             public static Swift.CryptoSwift.CS.BigUInt operator /(Swift.CryptoSwift.CS.BigUInt arg0, Swift.CryptoSwift.CS.BigUInt arg1)
             {
@@ -17595,7 +17000,11 @@ namespace Swift.CryptoSwift
             }
             public override int GetHashCode()
             {
-                throw new InvalidOperationException("Type BigUInt does not implement Swift's Hashable protocol, so GetHashCode() is not supported.");
+                // TODO: Implement when Swift Hashable protocol binding is supported.
+                // Returning constant 0 satisfies the Equals/GetHashCode contract
+                // (equal objects must have equal hashes). This is correct but makes
+                // hash-based collections O(n) until Hashable is supported.
+                return 0;
             }
             
             public bool Equals(BigUInt? other)
@@ -17664,9 +17073,9 @@ namespace Swift.CryptoSwift
             }
             
             
-            public unsafe class Words : ISwiftObject
+            public unsafe class WordsInfo : ISwiftObject
             {
-                private unsafe System.IntPtr StartIndex_Get()
+                private unsafe nint StartIndex_Get()
                 {
                     var success = false;
                     _payload.DangerousAddRef(ref success);
@@ -17676,7 +17085,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_startIndex_Get_24E66CE0(self);
+                        var result = PInvoke_startIndex_Get_37FB7CDB(self);
                         
                         return result;
                     }
@@ -17691,14 +17100,14 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV5WordsV10startIndexSivg")]
-                private static extern System.IntPtr PInvoke_startIndex_Get_24E66CE0( SwiftSelf self);
+                private static extern nint PInvoke_startIndex_Get_37FB7CDB( SwiftSelf self);
                 
-                public System.IntPtr StartIndex
+                public nint StartIndex
                 {
                     get => StartIndex_Get();
                 }
                 
-                private unsafe System.IntPtr EndIndex_Get()
+                private unsafe nint EndIndex_Get()
                 {
                     var success = false;
                     _payload.DangerousAddRef(ref success);
@@ -17708,7 +17117,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_endIndex_Get_1C38F64B(self);
+                        var result = PInvoke_endIndex_Get_6BBC4AE6(self);
                         
                         return result;
                     }
@@ -17723,39 +17132,19 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV5WordsV8endIndexSivg")]
-                private static extern System.IntPtr PInvoke_endIndex_Get_1C38F64B( SwiftSelf self);
+                private static extern nint PInvoke_endIndex_Get_6BBC4AE6( SwiftSelf self);
                 
-                public System.IntPtr EndIndex
+                public nint EndIndex
                 {
                     get => EndIndex_Get();
                 }
                 
-                static nuint _payloadSize = SwiftObjectHelper<Words>.GetTypeMetadata().Size;
-                SwiftSafeHandle<Words> _payload = SwiftSafeHandle<Words>.Zero;
+                static nuint _payloadSize = SwiftObjectHelper<WordsInfo>.GetTypeMetadata().Size;
+                SwiftSafeHandle<WordsInfo> _payload = SwiftSafeHandle<WordsInfo>.Zero;
                 
-                public SwiftSafeHandle<Words> Payload => _payload;
+                internal SwiftSafeHandle<WordsInfo> Payload => _payload;
                 
-                // Swift structs cannot be compared using .NET's default equality semantics,
-                // since Swift's equality is defined by the Equatable protocol.
-                // This type does not implement Swift's Equatable protocol.
-                public override bool Equals(object? obj)
-                {
-                    throw new InvalidOperationException("Type Words does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-                }
-                public override int GetHashCode()
-                {
-                    throw new InvalidOperationException("Type Words does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-                }
-                
-                public static bool operator ==(Words left, Words right)
-                {
-                    throw new InvalidOperationException("Type Words does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-                }
-                
-                public static bool operator !=(Words left, Words right)
-                {
-                    throw new InvalidOperationException("Type Words does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-                }
+                public void Dispose() => _payload.Dispose();
                 
                 static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
                 
@@ -17765,17 +17154,17 @@ namespace Swift.CryptoSwift
                 
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    return new Words(handle);
+                    return new WordsInfo(handle);
                 }
                 
-                Words(SwiftHandle handle)
+                WordsInfo(SwiftHandle handle)
                 {
-                    _payload = new SwiftSafeHandle<Words>(handle);
+                    _payload = new SwiftSafeHandle<WordsInfo>(handle);
                 }
                 
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
-                    var metadata = SwiftObjectHelper<Words>.GetTypeMetadata();
+                    var metadata = SwiftObjectHelper<WordsInfo>.GetTypeMetadata();
                     if ((int)metadata.Size > swiftDestSpan.Length)
                     {
                         throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -17799,7 +17188,7 @@ namespace Swift.CryptoSwift
                 }
                 
                 private static Dictionary<Type, string> _protocolConformanceSymbols;
-                static Words()
+                static WordsInfo()
                 {
                     _protocolConformanceSymbols = new Dictionary<Type, string>
                     {
@@ -17826,30 +17215,30 @@ namespace Swift.CryptoSwift
                 _payload = new SwiftSafeHandle<BigUInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_5491EB6F(swiftIndirectResult);
+                PInvoke_init_5410C0D3(swiftIndirectResult);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntVAEycfC")]
-            private static extern void PInvoke_init_5491EB6F( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_init_5410C0D3( SwiftIndirectResult swiftIndirectResult);
             
             
-            public unsafe BigUInt( IEnumerable<System.UIntPtr> words)
+            public unsafe BigUInt( IEnumerable<nuint> words)
             {
                 _payload = new SwiftSafeHandle<BigUInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                using var wordsSwift = SwiftArray<System.UIntPtr>.FromEnumerable(words);
+                using var wordsSwift = SwiftArray<nuint>.FromEnumerable(words);
                 using PayloadBuffer<IntPtr> wordsDisposable = wordsSwift.PayloadBuffer;
                 IntPtr wordsBuffer = wordsDisposable.Buffer;
-                PInvoke_init_559819F0(swiftIndirectResult, wordsBuffer);
+                PInvoke_init_62745D8D(swiftIndirectResult, wordsBuffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV5wordsAESaySuG_tcfC")]
-            private static extern void PInvoke_init_559819F0( SwiftIndirectResult swiftIndirectResult,  IntPtr wordsBuffer);
+            private static extern void PInvoke_init_62745D8D( SwiftIndirectResult swiftIndirectResult,  IntPtr wordsBuffer);
             
             
             public unsafe Swift.CryptoSwift.CS.BigUInt Signum()
@@ -17866,7 +17255,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_signum_5AA04F4A(swiftIndirectResult, self);
+                    PInvoke_signum_2D0CCA66(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -17881,11 +17270,11 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV6signumAEyF")]
-            private static extern void PInvoke_signum_5AA04F4A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_signum_2D0CCA66( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             
             
-            public unsafe (Swift.CryptoSwift.CS.BigUInt quotient, Swift.CryptoSwift.CS.BigUInt remainder) QuotientAndRemainder( Swift.CryptoSwift.CS.BigUInt dividingBy)
+            public unsafe (Swift.CryptoSwift.CS.BigUInt quotient, Swift.CryptoSwift.CS.BigUInt remainder) QuotientAndRemainder( Swift.CryptoSwift.CS.BigUInt y)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -17895,7 +17284,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_quotientAndRemainder_14ACBDC2(dividingBy.Payload, self);
+                    var result = PInvoke_quotientAndRemainder_32ABAA2F(y.Payload, self);
                     
                     var elem0 = SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(&result.Item1));
                     var elem1 = SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(&result.Item2));
@@ -17912,10 +17301,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV20quotientAndRemainder10dividingByAE0F0_AE9remaindertAE_tF")]
-            private static extern ValueTuple<Swift.CryptoSwift.CS.BigUInt, Swift.CryptoSwift.CS.BigUInt> PInvoke_quotientAndRemainder_14ACBDC2( SafeHandle dividingBy,  SwiftSelf self);
+            private static extern ValueTuple<Swift.CryptoSwift.CS.BigUInt, Swift.CryptoSwift.CS.BigUInt> PInvoke_quotientAndRemainder_32ABAA2F( SafeHandle y,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigUInt GreatestCommonDivisor( Swift.CryptoSwift.CS.BigUInt with)
+            public unsafe Swift.CryptoSwift.CS.BigUInt GreatestCommonDivisor( Swift.CryptoSwift.CS.BigUInt b)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -17929,7 +17318,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_greatestCommonDivisor_6DFD8642(swiftIndirectResult, with.Payload, self);
+                    PInvoke_greatestCommonDivisor_4B5BBC92(swiftIndirectResult, b.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -17944,10 +17333,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV21greatestCommonDivisor4withA2E_tF")]
-            private static extern void PInvoke_greatestCommonDivisor_6DFD8642( SwiftIndirectResult swiftIndirectResult,  SafeHandle with,  SwiftSelf self);
+            private static extern void PInvoke_greatestCommonDivisor_4B5BBC92( SwiftIndirectResult swiftIndirectResult,  SafeHandle b,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigUInt? Inverse( Swift.CryptoSwift.CS.BigUInt arg0)
+            public unsafe Swift.CryptoSwift.CS.BigUInt? Inverse( Swift.CryptoSwift.CS.BigUInt modulus)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -17957,7 +17346,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_inverse_352975F7(arg0.Payload, self);
+                    var result = PInvoke_inverse_5E27B92D(modulus.Payload, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.CryptoSwift.CS.BigUInt>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -17973,10 +17362,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV7inverseyAESgAEF")]
-            private static extern IntPtr PInvoke_inverse_352975F7( SafeHandle arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_inverse_5E27B92D( SafeHandle modulus,  SwiftSelf self);
             
             
-            public static unsafe Swift.CryptoSwift.CS.BigUInt GeneratePrime( System.IntPtr arg0)
+            public static unsafe Swift.CryptoSwift.CS.BigUInt GeneratePrime( nint width)
             {
                 try
                 {
@@ -17986,7 +17375,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_generatePrime_7423B0FF(swiftIndirectResult, arg0);
+                    PInvoke_generatePrime_5067B7D3(swiftIndirectResult, width);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -17999,10 +17388,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV13generatePrimeyAESiFZ")]
-            private static extern void PInvoke_generatePrime_7423B0FF( SwiftIndirectResult swiftIndirectResult,  System.IntPtr arg0);
+            private static extern void PInvoke_generatePrime_5067B7D3( SwiftIndirectResult swiftIndirectResult,  nint width);
             
             
-            public unsafe void Multiply( System.UIntPtr byWord)
+            public unsafe void Multiply( nuint y)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18012,7 +17401,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_multiply_5E86437A(byWord, self);
+                    PInvoke_multiply_500083C9(y, self);
                     
                     return;
                 }
@@ -18027,10 +17416,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV8multiply6byWordySu_tF")]
-            private static extern void PInvoke_multiply_5E86437A( System.UIntPtr byWord,  SwiftSelf self);
+            private static extern void PInvoke_multiply_500083C9( nuint y,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigUInt Multiplied( System.UIntPtr byWord)
+            public unsafe Swift.CryptoSwift.CS.BigUInt Multiplied( nuint y)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18044,7 +17433,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_multiplied_3CB8AE9D(swiftIndirectResult, byWord, self);
+                    PInvoke_multiplied_18424CB3(swiftIndirectResult, y, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18059,10 +17448,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV10multiplied6byWordAESu_tF")]
-            private static extern void PInvoke_multiplied_3CB8AE9D( SwiftIndirectResult swiftIndirectResult,  System.UIntPtr byWord,  SwiftSelf self);
+            private static extern void PInvoke_multiplied_18424CB3( SwiftIndirectResult swiftIndirectResult,  nuint y,  SwiftSelf self);
             
             
-            public unsafe void MultiplyAndAdd( Swift.CryptoSwift.CS.BigUInt arg0,  System.UIntPtr arg1,  System.IntPtr shiftedBy)
+            public unsafe void MultiplyAndAdd( Swift.CryptoSwift.CS.BigUInt x,  nuint y,  nint shift)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18072,7 +17461,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_multiplyAndAdd_4C5C7D87(arg0.Payload, arg1, shiftedBy, self);
+                    PInvoke_multiplyAndAdd_5A693935(x.Payload, y, shift, self);
                     
                     return;
                 }
@@ -18087,10 +17476,36 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV14multiplyAndAdd__9shiftedByyAE_SuSitF")]
-            private static extern void PInvoke_multiplyAndAdd_4C5C7D87( SafeHandle arg0,  System.UIntPtr arg1,  System.IntPtr shiftedBy,  SwiftSelf self);
+            private static extern void PInvoke_multiplyAndAdd_5A693935( SafeHandle x,  nuint y,  nint shift,  SwiftSelf self);
+            public unsafe void MultiplyAndAdd( Swift.CryptoSwift.CS.BigUInt x,  nuint y)
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                    
+                    
+                    
+                    PInvoke_multiplyAndAdd_1320EB4F(x.Payload, y, self);
+                    
+                    return;
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_BigUInt_multiplyAndAdd_1FB718E6_1")]
+            private static extern void PInvoke_multiplyAndAdd_1320EB4F( SafeHandle x,  nuint y,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigUInt Multiplied( Swift.CryptoSwift.CS.BigUInt by)
+            public unsafe Swift.CryptoSwift.CS.BigUInt Multiplied( Swift.CryptoSwift.CS.BigUInt y)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18104,7 +17519,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_multiplied_7ACA4804(swiftIndirectResult, by.Payload, self);
+                    PInvoke_multiplied_7EC529AD(swiftIndirectResult, y.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18119,21 +17534,21 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV10multiplied2byA2E_tF")]
-            private static extern void PInvoke_multiplied_7ACA4804( SwiftIndirectResult swiftIndirectResult,  SafeHandle by,  SwiftSelf self);
+            private static extern void PInvoke_multiplied_7EC529AD( SwiftIndirectResult swiftIndirectResult,  SafeHandle y,  SwiftSelf self);
             
             
-            public unsafe BigUInt( System.UInt64 integerLiteral)
+            public unsafe BigUInt( System.UInt64 _value)
             {
                 _payload = new SwiftSafeHandle<BigUInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_629C7394(swiftIndirectResult, integerLiteral);
+                PInvoke_init_2C5242A0(swiftIndirectResult, _value);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV14integerLiteralAEs6UInt64V_tcfC")]
-            private static extern void PInvoke_init_629C7394( SwiftIndirectResult swiftIndirectResult,  System.UInt64 integerLiteral);
+            private static extern void PInvoke_init_2C5242A0( SwiftIndirectResult swiftIndirectResult,  System.UInt64 _value);
             
             
             public unsafe Swift.CryptoSwift.CS.BigUInt SquareRoot()
@@ -18150,7 +17565,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_squareRoot_792BA772(swiftIndirectResult, self);
+                    PInvoke_squareRoot_3E6A52E2(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18165,27 +17580,27 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV10squareRootAEyF")]
-            private static extern void PInvoke_squareRoot_792BA772( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_squareRoot_3E6A52E2( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             
             
-            public unsafe BigUInt( string extendedGraphemeClusterLiteral)
+            public unsafe BigUInt( string _value)
             {
                 _payload = new SwiftSafeHandle<BigUInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                using var extendedGraphemeClusterLiteralSwift = new SwiftString(extendedGraphemeClusterLiteral);
-                using PayloadBuffer<SwiftString.Buffer> extendedGraphemeClusterLiteralDisposable = extendedGraphemeClusterLiteralSwift.PayloadBuffer;
-                PInvoke_init_69D47D47(swiftIndirectResult, extendedGraphemeClusterLiteralDisposable.Buffer);
+                using var _valueSwift = new SwiftString(_value);
+                using PayloadBuffer<SwiftString.Buffer> _valueDisposable = _valueSwift.PayloadBuffer;
+                PInvoke_init_1FD55A46(swiftIndirectResult, _valueDisposable.Buffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV30extendedGraphemeClusterLiteralAESS_tcfC")]
-            private static extern void PInvoke_init_69D47D47( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer extendedGraphemeClusterLiteral);
+            private static extern void PInvoke_init_1FD55A46( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer _value);
             
             
-            public unsafe System.Boolean IsStrongProbablePrime( Swift.CryptoSwift.CS.BigUInt arg0)
+            public unsafe System.Boolean IsStrongProbablePrime( Swift.CryptoSwift.CS.BigUInt _base)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18195,7 +17610,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_isStrongProbablePrime_5240BF3E(arg0.Payload, self);
+                    var result = PInvoke_isStrongProbablePrime_07E10528(_base.Payload, self);
                     
                     return result;
                 }
@@ -18210,10 +17625,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV21isStrongProbablePrimeySbAEF")]
-            private static extern System.Boolean PInvoke_isStrongProbablePrime_5240BF3E( SafeHandle arg0,  SwiftSelf self);
+            private static extern System.Boolean PInvoke_isStrongProbablePrime_07E10528( SafeHandle _base,  SwiftSelf self);
             
             
-            public unsafe System.Boolean IsPrime( System.IntPtr rounds)
+            public unsafe System.Boolean IsPrime( nint rounds)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18223,7 +17638,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_isPrime_22FB4B68(rounds, self);
+                    var result = PInvoke_isPrime_711435D3(rounds, self);
                     
                     return result;
                 }
@@ -18238,10 +17653,8 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV7isPrime6roundsSbSi_tF")]
-            private static extern System.Boolean PInvoke_isPrime_22FB4B68( System.IntPtr rounds,  SwiftSelf self);
-            
-            
-            public unsafe void Hash(ref Swift.Hasher into)
+            private static extern System.Boolean PInvoke_isPrime_711435D3( nint rounds,  SwiftSelf self);
+            public unsafe System.Boolean IsPrime()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18251,7 +17664,35 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_4A3C2F71(into.Payload, self);
+                    var result = PInvoke_isPrime_17FCB079(self);
+                    
+                    return result;
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_BigUInt_isPrime_4D99C1D9_1")]
+            private static extern System.Boolean PInvoke_isPrime_17FCB079( SwiftSelf self);
+            
+            
+            public unsafe void Hash(ref Swift.Hasher hasher)
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                    
+                    
+                    
+                    PInvoke_hash_1B82EE1C(hasher.Payload, self);
                     
                     return;
                 }
@@ -18266,11 +17707,11 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_4A3C2F71( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_1B82EE1C( SafeHandle hasher,  SwiftSelf self);
             
             
             [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
-            public unsafe void Encode( Swift.Runtime.ExistentialContainer1 to)
+            public unsafe void Encode( ISwiftEncoder encoder)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18280,7 +17721,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_encode_0670464D(to, self, out var error);
+                    PInvoke_encode_0432A4AB(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)encoder).GetExistentialContainer(), self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -18300,11 +17741,11 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV6encode2toys7Encoder_p_tKF")]
-            private static extern void PInvoke_encode_0670464D( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_encode_0432A4AB( Swift.Runtime.ExistentialContainer1 encoder,  SwiftSelf self, out SwiftError error);
             
             
             
-            public unsafe Swift.CryptoSwift.CS.BigUInt Power( System.IntPtr arg0)
+            public unsafe Swift.CryptoSwift.CS.BigUInt Power( nint exponent)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18318,7 +17759,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_power_720FDB93(swiftIndirectResult, arg0, self);
+                    PInvoke_power_54520298(swiftIndirectResult, exponent, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18333,10 +17774,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV5poweryAESiF")]
-            private static extern void PInvoke_power_720FDB93( SwiftIndirectResult swiftIndirectResult,  System.IntPtr arg0,  SwiftSelf self);
+            private static extern void PInvoke_power_54520298( SwiftIndirectResult swiftIndirectResult,  nint exponent,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigUInt Power( Swift.CryptoSwift.CS.BigUInt arg0,  Swift.CryptoSwift.CS.BigUInt modulus)
+            public unsafe Swift.CryptoSwift.CS.BigUInt Power( Swift.CryptoSwift.CS.BigUInt exponent,  Swift.CryptoSwift.CS.BigUInt modulus)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18350,7 +17791,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_power_37CBEE89(swiftIndirectResult, arg0.Payload, modulus.Payload, self);
+                    PInvoke_power_0B85DE5A(swiftIndirectResult, exponent.Payload, modulus.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18365,10 +17806,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV5power_7modulusA2E_AEtF")]
-            private static extern void PInvoke_power_37CBEE89( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SafeHandle modulus,  SwiftSelf self);
+            private static extern void PInvoke_power_0B85DE5A( SwiftIndirectResult swiftIndirectResult,  SafeHandle exponent,  SafeHandle modulus,  SwiftSelf self);
             
             
-            public unsafe System.Boolean SubtractReportingOverflow( Swift.CryptoSwift.CS.BigUInt arg0,  System.IntPtr shiftedBy)
+            public unsafe System.Boolean SubtractReportingOverflow( Swift.CryptoSwift.CS.BigUInt b,  nint shift)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18378,7 +17819,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_subtractReportingOverflow_31D313E2(arg0.Payload, shiftedBy, self);
+                    var result = PInvoke_subtractReportingOverflow_0FE4600E(b.Payload, shift, self);
                     
                     return result;
                 }
@@ -18393,10 +17834,8 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV25subtractReportingOverflow_9shiftedBySbAE_SitF")]
-            private static extern System.Boolean PInvoke_subtractReportingOverflow_31D313E2( SafeHandle arg0,  System.IntPtr shiftedBy,  SwiftSelf self);
-            
-            
-            public unsafe (Swift.CryptoSwift.CS.BigUInt partialValue, System.Boolean overflow) SubtractingReportingOverflow( Swift.CryptoSwift.CS.BigUInt arg0,  System.IntPtr shiftedBy)
+            private static extern System.Boolean PInvoke_subtractReportingOverflow_0FE4600E( SafeHandle b,  nint shift,  SwiftSelf self);
+            public unsafe System.Boolean SubtractReportingOverflow( Swift.CryptoSwift.CS.BigUInt b)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18406,7 +17845,35 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_subtractingReportingOverflow_2FB3854C(arg0.Payload, shiftedBy, self);
+                    var result = PInvoke_subtractReportingOverflow_3F6DB381(b.Payload, self);
+                    
+                    return result;
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_BigUInt_subtractReportingOverflow_04307E15_1")]
+            private static extern System.Boolean PInvoke_subtractReportingOverflow_3F6DB381( SafeHandle b,  SwiftSelf self);
+            
+            
+            public unsafe (Swift.CryptoSwift.CS.BigUInt partialValue, System.Boolean overflow) SubtractingReportingOverflow( Swift.CryptoSwift.CS.BigUInt other,  nint shift)
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                    
+                    
+                    
+                    var result = PInvoke_subtractingReportingOverflow_2B8E4501(other.Payload, shift, self);
                     
                     var elem0 = SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(&result.Item1));
                     var elem1 = result.Item2;
@@ -18423,10 +17890,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV28subtractingReportingOverflow_9shiftedByAE12partialValue_Sb8overflowtAE_SitF")]
-            private static extern ValueTuple<Swift.CryptoSwift.CS.BigUInt, System.Boolean> PInvoke_subtractingReportingOverflow_2FB3854C( SafeHandle arg0,  System.IntPtr shiftedBy,  SwiftSelf self);
+            private static extern ValueTuple<Swift.CryptoSwift.CS.BigUInt, System.Boolean> PInvoke_subtractingReportingOverflow_2B8E4501( SafeHandle other,  nint shift,  SwiftSelf self);
             
             
-            public unsafe (Swift.CryptoSwift.CS.BigUInt partialValue, System.Boolean overflow) SubtractingReportingOverflow( Swift.CryptoSwift.CS.BigUInt arg0)
+            public unsafe (Swift.CryptoSwift.CS.BigUInt partialValue, System.Boolean overflow) SubtractingReportingOverflow( Swift.CryptoSwift.CS.BigUInt other)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18436,7 +17903,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_subtractingReportingOverflow_5297EEF5(arg0.Payload, self);
+                    var result = PInvoke_subtractingReportingOverflow_7F528B98(other.Payload, self);
                     
                     var elem0 = SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(&result.Item1));
                     var elem1 = result.Item2;
@@ -18453,10 +17920,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV28subtractingReportingOverflowyAE12partialValue_Sb8overflowtAEF")]
-            private static extern ValueTuple<Swift.CryptoSwift.CS.BigUInt, System.Boolean> PInvoke_subtractingReportingOverflow_5297EEF5( SafeHandle arg0,  SwiftSelf self);
+            private static extern ValueTuple<Swift.CryptoSwift.CS.BigUInt, System.Boolean> PInvoke_subtractingReportingOverflow_7F528B98( SafeHandle other,  SwiftSelf self);
             
             
-            public unsafe void Subtract( Swift.CryptoSwift.CS.BigUInt arg0,  System.IntPtr shiftedBy)
+            public unsafe void Subtract( Swift.CryptoSwift.CS.BigUInt other,  nint shift)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18466,7 +17933,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_subtract_2B83AD52(arg0.Payload, shiftedBy, self);
+                    PInvoke_subtract_704A81C4(other.Payload, shift, self);
                     
                     return;
                 }
@@ -18481,10 +17948,36 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV8subtract_9shiftedByyAE_SitF")]
-            private static extern void PInvoke_subtract_2B83AD52( SafeHandle arg0,  System.IntPtr shiftedBy,  SwiftSelf self);
+            private static extern void PInvoke_subtract_704A81C4( SafeHandle other,  nint shift,  SwiftSelf self);
+            public unsafe void Subtract( Swift.CryptoSwift.CS.BigUInt other)
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                    
+                    
+                    
+                    PInvoke_subtract_349C63A4(other.Payload, self);
+                    
+                    return;
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_BigUInt_subtract_79E83190_1")]
+            private static extern void PInvoke_subtract_349C63A4( SafeHandle other,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigUInt Subtracting( Swift.CryptoSwift.CS.BigUInt arg0,  System.IntPtr shiftedBy)
+            public unsafe Swift.CryptoSwift.CS.BigUInt Subtracting( Swift.CryptoSwift.CS.BigUInt other,  nint shift)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18498,7 +17991,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_subtracting_655305B8(swiftIndirectResult, arg0.Payload, shiftedBy, self);
+                    PInvoke_subtracting_2E262A60(swiftIndirectResult, other.Payload, shift, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18513,10 +18006,40 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV11subtracting_9shiftedByA2E_SitF")]
-            private static extern void PInvoke_subtracting_655305B8( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  System.IntPtr shiftedBy,  SwiftSelf self);
+            private static extern void PInvoke_subtracting_2E262A60( SwiftIndirectResult swiftIndirectResult,  SafeHandle other,  nint shift,  SwiftSelf self);
+            public unsafe Swift.CryptoSwift.CS.BigUInt Subtracting( Swift.CryptoSwift.CS.BigUInt other)
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                    
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.CS.BigUInt>();
+                    var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var swiftIndirectResult = new SwiftIndirectResult(payload);
+                    
+                    
+                    
+                    PInvoke_subtracting_6054FB5E(swiftIndirectResult, other.Payload, self);
+                    
+                    return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_BigUInt_subtracting_36A2B09B_1")]
+            private static extern void PInvoke_subtracting_6054FB5E( SwiftIndirectResult swiftIndirectResult,  SafeHandle other,  SwiftSelf self);
             
             
-            public unsafe void Decrement( System.IntPtr shiftedBy)
+            public unsafe void Decrement( nint shift)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18526,7 +18049,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_decrement_7B271A74(shiftedBy, self);
+                    PInvoke_decrement_51C78BEA(shift, self);
                     
                     return;
                 }
@@ -18541,10 +18064,36 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV9decrement9shiftedByySi_tF")]
-            private static extern void PInvoke_decrement_7B271A74( System.IntPtr shiftedBy,  SwiftSelf self);
+            private static extern void PInvoke_decrement_51C78BEA( nint shift,  SwiftSelf self);
+            public unsafe void Decrement()
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                    
+                    
+                    
+                    PInvoke_decrement_379A68F6(self);
+                    
+                    return;
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_BigUInt_decrement_559E786F_1")]
+            private static extern void PInvoke_decrement_379A68F6( SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigUInt Advanced( Swift.CryptoSwift.CS.BigInt by)
+            public unsafe Swift.CryptoSwift.CS.BigUInt Advanced( Swift.CryptoSwift.CS.BigInt n)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18558,7 +18107,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_advanced_5311DCB6(swiftIndirectResult, by.Payload, self);
+                    PInvoke_advanced_1F8749D8(swiftIndirectResult, n.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18573,10 +18122,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV8advanced2byAeC0D3IntV_tF")]
-            private static extern void PInvoke_advanced_5311DCB6( SwiftIndirectResult swiftIndirectResult,  SafeHandle by,  SwiftSelf self);
+            private static extern void PInvoke_advanced_1F8749D8( SwiftIndirectResult swiftIndirectResult,  SafeHandle n,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigInt Distance( Swift.CryptoSwift.CS.BigUInt to)
+            public unsafe Swift.CryptoSwift.CS.BigInt Distance( Swift.CryptoSwift.CS.BigUInt other)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18590,7 +18139,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_distance_056590AA(swiftIndirectResult, to.Payload, self);
+                    PInvoke_distance_72656476(swiftIndirectResult, other.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18605,45 +18154,45 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV8distance2toAC0D3IntVAE_tF")]
-            private static extern void PInvoke_distance_056590AA( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  SwiftSelf self);
+            private static extern void PInvoke_distance_72656476( SwiftIndirectResult swiftIndirectResult,  SafeHandle other,  SwiftSelf self);
             
             
-            public static unsafe Swift.CryptoSwift.CS.BigUInt RandomInteger<T0>( System.IntPtr withMaximumWidth, ref T0 _using)
+            public static unsafe Swift.CryptoSwift.CS.BigUInt RandomInteger<T0>( nint width, ref T0 generator)
                 where T0 : ISwiftObject
             {
                 TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-                IntPtr _usingPayload = IntPtr.Zero;
+                IntPtr generatorPayload = IntPtr.Zero;
                 try
                 {
                     var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.CS.BigUInt>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
-                    Span<byte> _usingPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
-                    _usingPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(_usingPayloadSpan));
-                    SwiftMarshal.MarshalToSwift(_using, ref _usingPayloadSpan);
+                    Span<byte> generatorPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    generatorPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(generatorPayloadSpan));
+                    SwiftMarshal.MarshalToSwift(generator, ref generatorPayloadSpan);
                     
                     
-                    PInvoke_randomInteger_58085FC0(swiftIndirectResult, withMaximumWidth, ref _usingPayload, T0Metadata);
+                    PInvoke_randomInteger_2CFD8587(swiftIndirectResult, width, ref generatorPayload, T0Metadata);
                     
                     // Write back modified inout generic parameter
-                    _using = SwiftMarshal.MarshalFromSwift<T0>(_usingPayload);
+                    generator = SwiftMarshal.MarshalFromSwift<T0>(generatorPayload);
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)_usingPayload, T0Metadata);
+                    T0Metadata.ValueWitnessTable->Destroy((void *)generatorPayload, T0Metadata);
                 }
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV13randomInteger16withMaximumWidth5usingAESi_xztSGRzlFZ")]
-            private static extern void PInvoke_randomInteger_58085FC0( SwiftIndirectResult swiftIndirectResult,  System.IntPtr withMaximumWidth, ref IntPtr _usingPayload,  TypeMetadata T0Metadata);
+            private static extern void PInvoke_randomInteger_2CFD8587( SwiftIndirectResult swiftIndirectResult,  nint width, ref IntPtr generatorPayload,  TypeMetadata T0Metadata);
             
             
-            public static unsafe Swift.CryptoSwift.CS.BigUInt RandomInteger( System.IntPtr withMaximumWidth)
+            public static unsafe Swift.CryptoSwift.CS.BigUInt RandomInteger( nint width)
             {
                 try
                 {
@@ -18653,7 +18202,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_randomInteger_0B903632(swiftIndirectResult, withMaximumWidth);
+                    PInvoke_randomInteger_6FFFB326(swiftIndirectResult, width);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18666,45 +18215,45 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV13randomInteger16withMaximumWidthAESi_tFZ")]
-            private static extern void PInvoke_randomInteger_0B903632( SwiftIndirectResult swiftIndirectResult,  System.IntPtr withMaximumWidth);
+            private static extern void PInvoke_randomInteger_6FFFB326( SwiftIndirectResult swiftIndirectResult,  nint width);
             
             
-            public static unsafe Swift.CryptoSwift.CS.BigUInt RandomInteger<T0>( Swift.CryptoSwift.CS.BigUInt lessThan, ref T0 _using)
+            public static unsafe Swift.CryptoSwift.CS.BigUInt RandomInteger<T0>( Swift.CryptoSwift.CS.BigUInt limit, ref T0 generator)
                 where T0 : ISwiftObject
             {
                 TypeMetadata T0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();
-                IntPtr _usingPayload = IntPtr.Zero;
+                IntPtr generatorPayload = IntPtr.Zero;
                 try
                 {
                     var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.CS.BigUInt>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
-                    Span<byte> _usingPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
-                    _usingPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(_usingPayloadSpan));
-                    SwiftMarshal.MarshalToSwift(_using, ref _usingPayloadSpan);
+                    Span<byte> generatorPayloadSpan = stackalloc byte[(int)T0Metadata.Size];
+                    generatorPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(generatorPayloadSpan));
+                    SwiftMarshal.MarshalToSwift(generator, ref generatorPayloadSpan);
                     
                     
-                    PInvoke_randomInteger_5B4D7052(swiftIndirectResult, lessThan.Payload, ref _usingPayload, T0Metadata);
+                    PInvoke_randomInteger_1AB43851(swiftIndirectResult, limit.Payload, ref generatorPayload, T0Metadata);
                     
                     // Write back modified inout generic parameter
-                    _using = SwiftMarshal.MarshalFromSwift<T0>(_usingPayload);
+                    generator = SwiftMarshal.MarshalFromSwift<T0>(generatorPayload);
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
                 {
-                    T0Metadata.ValueWitnessTable->Destroy((void *)_usingPayload, T0Metadata);
+                    T0Metadata.ValueWitnessTable->Destroy((void *)generatorPayload, T0Metadata);
                 }
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV13randomInteger8lessThan5usingA2E_xztSGRzlFZ")]
-            private static extern void PInvoke_randomInteger_5B4D7052( SwiftIndirectResult swiftIndirectResult,  SafeHandle lessThan, ref IntPtr _usingPayload,  TypeMetadata T0Metadata);
+            private static extern void PInvoke_randomInteger_1AB43851( SwiftIndirectResult swiftIndirectResult,  SafeHandle limit, ref IntPtr generatorPayload,  TypeMetadata T0Metadata);
             
             
-            public static unsafe Swift.CryptoSwift.CS.BigUInt RandomInteger( Swift.CryptoSwift.CS.BigUInt lessThan)
+            public static unsafe Swift.CryptoSwift.CS.BigUInt RandomInteger( Swift.CryptoSwift.CS.BigUInt limit)
             {
                 try
                 {
@@ -18714,7 +18263,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_randomInteger_73C93C92(swiftIndirectResult, lessThan.Payload);
+                    PInvoke_randomInteger_1F12E693(swiftIndirectResult, limit.Payload);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18727,36 +18276,36 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV13randomInteger8lessThanA2E_tFZ")]
-            private static extern void PInvoke_randomInteger_73C93C92( SwiftIndirectResult swiftIndirectResult,  SafeHandle lessThan);
+            private static extern void PInvoke_randomInteger_1F12E693( SwiftIndirectResult swiftIndirectResult,  SafeHandle limit);
             
             
-            public unsafe BigUInt( Swift.UnsafeRawBufferPointer arg0)
+            public unsafe BigUInt( Swift.UnsafeRawBufferPointer source)
             {
                 _payload = new SwiftSafeHandle<BigUInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_554F788D(swiftIndirectResult, arg0);
+                PInvoke_init_2A07009A(swiftIndirectResult, source);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntVyAESWcfC")]
-            private static extern void PInvoke_init_554F788D( SwiftIndirectResult swiftIndirectResult,  Swift.UnsafeRawBufferPointer arg0);
+            private static extern void PInvoke_init_2A07009A( SwiftIndirectResult swiftIndirectResult,  Swift.UnsafeRawBufferPointer source);
             
             
-            public unsafe BigUInt( Foundation.NSData arg0)
+            public unsafe BigUInt( Foundation.NSData source)
             {
                 _payload = new SwiftSafeHandle<BigUInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                var arg0Swift = Swift.Data.FromNSData(arg0);
-                PInvoke_init_207D5153(swiftIndirectResult, arg0Swift);
+                var sourceSwift = Swift.Data.FromNSData(source);
+                PInvoke_init_63E70447(swiftIndirectResult, sourceSwift);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntVyAE10Foundation4DataVcfC")]
-            private static extern void PInvoke_init_207D5153( SwiftIndirectResult swiftIndirectResult,  Swift.Data arg0);
+            private static extern void PInvoke_init_63E70447( SwiftIndirectResult swiftIndirectResult,  Swift.Data source);
             
             
             public unsafe Foundation.NSData Serialize()
@@ -18769,7 +18318,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_serialize_6289203E(self);
+                    var result = PInvoke_serialize_6E242226(self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.Data>(new IntPtr(&result));
                     return swiftResult.ToNSData();
@@ -18785,7 +18334,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO7BigUIntV9serialize10Foundation4DataVyF")]
-            private static extern Swift.Data PInvoke_serialize_6289203E( SwiftSelf self);
+            private static extern Swift.Data PInvoke_serialize_6E242226( SwiftSelf self);
             
             
         }
@@ -18799,7 +18348,7 @@ namespace Swift.CryptoSwift
                 {
                     
                     
-                    var result = PInvoke_isSigned_Get_5F03FF00();
+                    var result = PInvoke_isSigned_Get_56012534();
                     
                     return result;
                 }
@@ -18812,7 +18361,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV8isSignedSbvgZ")]
-            private static extern System.Boolean PInvoke_isSigned_Get_5F03FF00();
+            private static extern System.Boolean PInvoke_isSigned_Get_56012534();
             
             public static System.Boolean IsSigned
             {
@@ -18833,7 +18382,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_magnitude_Get_747F743C(swiftIndirectResult, self);
+                    PInvoke_magnitude_Get_62AB8CDE(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigUInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -18848,7 +18397,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV9magnitudeAC0D4UIntVvg")]
-            private static extern void PInvoke_magnitude_Get_747F743C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_magnitude_Get_62AB8CDE( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             private unsafe void Magnitude_Set( Swift.CryptoSwift.CS.BigUInt value)
             {
@@ -18860,7 +18409,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_magnitude_Set_2B66633B(value.Payload, self);
+                    PInvoke_magnitude_Set_723EC49F(value.Payload, self);
                     
                     return;
                 }
@@ -18875,7 +18424,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV9magnitudeAC0D4UIntVvs")]
-            private static extern void PInvoke_magnitude_Set_2B66633B( SafeHandle value,  SwiftSelf self);
+            private static extern void PInvoke_magnitude_Set_723EC49F( SafeHandle value,  SwiftSelf self);
             
             public Swift.CryptoSwift.CS.BigUInt Magnitude
             {
@@ -18883,7 +18432,7 @@ namespace Swift.CryptoSwift
                 set => Magnitude_Set(value);
             }
             
-            private unsafe Swift.CryptoSwift.CS.BigInt.Sign Sign_Get()
+            private unsafe Swift.CryptoSwift.CS.BigInt.SignInfo Sign_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18891,15 +18440,15 @@ namespace Swift.CryptoSwift
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.CS.BigInt.Sign>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.CS.BigInt.SignInfo>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    PInvoke_sign_Get_62D0DF03(swiftIndirectResult, self);
+                    PInvoke_sign_Get_0ADB664A(swiftIndirectResult, self);
                     
-                    return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt.Sign>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt.SignInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -18912,9 +18461,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV4signAE4SignOvg")]
-            private static extern void PInvoke_sign_Get_62D0DF03( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_sign_Get_0ADB664A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
-            private unsafe void Sign_Set( Swift.CryptoSwift.CS.BigInt.Sign value)
+            private unsafe void Sign_Set( Swift.CryptoSwift.CS.BigInt.SignInfo value)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18924,7 +18473,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_sign_Set_50AA45A0(value.Payload.DangerousGetHandle(), self);
+                    PInvoke_sign_Set_3151A0E1(value.Payload.DangerousGetHandle(), self);
                     
                     return;
                 }
@@ -18939,9 +18488,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV4signAE4SignOvs")]
-            private static extern void PInvoke_sign_Set_50AA45A0( IntPtr value,  SwiftSelf self);
+            private static extern void PInvoke_sign_Set_3151A0E1( IntPtr value,  SwiftSelf self);
             
-            public Swift.CryptoSwift.CS.BigInt.Sign SignValue
+            public Swift.CryptoSwift.CS.BigInt.SignInfo Sign
             {
                 get => Sign_Get();
                 set => Sign_Set(value);
@@ -18957,7 +18506,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_isZero_Get_028F3A57(self);
+                    var result = PInvoke_isZero_Get_3D013496(self);
                     
                     return result;
                 }
@@ -18972,14 +18521,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV6isZeroSbvg")]
-            private static extern System.Boolean PInvoke_isZero_Get_028F3A57( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isZero_Get_3D013496( SwiftSelf self);
             
             public System.Boolean IsZero
             {
                 get => IsZero_Get();
             }
             
-            private unsafe System.IntPtr BitWidth_Get()
+            private unsafe nint BitWidth_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -18989,7 +18538,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_bitWidth_Get_6EB0E8C2(self);
+                    var result = PInvoke_bitWidth_Get_2BDFE669(self);
                     
                     return result;
                 }
@@ -19004,14 +18553,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV8bitWidthSivg")]
-            private static extern System.IntPtr PInvoke_bitWidth_Get_6EB0E8C2( SwiftSelf self);
+            private static extern nint PInvoke_bitWidth_Get_2BDFE669( SwiftSelf self);
             
-            public System.IntPtr BitWidth
+            public nint BitWidth
             {
                 get => BitWidth_Get();
             }
             
-            private unsafe System.IntPtr TrailingZeroBitCount_Get()
+            private unsafe nint TrailingZeroBitCount_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -19021,7 +18570,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_trailingZeroBitCount_Get_5DE82C1C(self);
+                    var result = PInvoke_trailingZeroBitCount_Get_1F2DACFC(self);
                     
                     return result;
                 }
@@ -19036,14 +18585,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV20trailingZeroBitCountSivg")]
-            private static extern System.IntPtr PInvoke_trailingZeroBitCount_Get_5DE82C1C( SwiftSelf self);
+            private static extern nint PInvoke_trailingZeroBitCount_Get_1F2DACFC( SwiftSelf self);
             
-            public System.IntPtr TrailingZeroBitCount
+            public nint TrailingZeroBitCount
             {
                 get => TrailingZeroBitCount_Get();
             }
             
-            private unsafe Swift.CryptoSwift.CS.BigInt.Words Words_Get()
+            private unsafe Swift.CryptoSwift.CS.BigInt.WordsInfo Words_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -19051,15 +18600,15 @@ namespace Swift.CryptoSwift
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.CS.BigInt.Words>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.CS.BigInt.WordsInfo>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    PInvoke_words_Get_311E378C(swiftIndirectResult, self);
+                    PInvoke_words_Get_50F04E59(swiftIndirectResult, self);
                     
-                    return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt.Words>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt.WordsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -19072,9 +18621,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV5wordsAE5WordsVvg")]
-            private static extern void PInvoke_words_Get_311E378C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_words_Get_50F04E59( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
-            public Swift.CryptoSwift.CS.BigInt.Words WordsValue
+            public Swift.CryptoSwift.CS.BigInt.WordsInfo Words
             {
                 get => Words_Get();
             }
@@ -19089,7 +18638,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_description_Get_0226A91E(self);
+                    var result = PInvoke_description_Get_37309086(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -19106,14 +18655,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_0226A91E( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_37309086( SwiftSelf self);
             
-            public Swift.SwiftString Description
+            public string Description
             {
-                get => Description_Get();
+                get => Description_Get().ToString();
             }
             
-            private unsafe Swift.Runtime.ExistentialContainer0 PlaygroundDescription_Get()
+            private unsafe object PlaygroundDescription_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -19123,9 +18672,9 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_playgroundDescription_Get_5C2175A5(self);
+                    var result = PInvoke_playgroundDescription_Get_30AA7C05(self);
                     
-                    return result;
+                    return new Proxy(result);
                 }
                 
                 finally
@@ -19138,14 +18687,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV21playgroundDescriptionypvg")]
-            private static extern Swift.Runtime.ExistentialContainer0 PInvoke_playgroundDescription_Get_5C2175A5( SwiftSelf self);
+            private static extern Swift.Runtime.ExistentialContainer0 PInvoke_playgroundDescription_Get_30AA7C05( SwiftSelf self);
             
-            public Swift.Runtime.ExistentialContainer0 PlaygroundDescription
+            public object PlaygroundDescription
             {
                 get => PlaygroundDescription_Get();
             }
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -19155,7 +18704,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_6C4345F5(self);
+                    var result = PInvoke_hashValue_Get_3F9C5254(self);
                     
                     return result;
                 }
@@ -19170,9 +18719,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_6C4345F5( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_3F9C5254( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -19180,7 +18729,9 @@ namespace Swift.CryptoSwift
             static nuint _payloadSize = SwiftObjectHelper<BigInt>.GetTypeMetadata().Size;
             SwiftSafeHandle<BigInt> _payload = SwiftSafeHandle<BigInt>.Zero;
             
-            public SwiftSafeHandle<BigInt> Payload => _payload;
+            internal SwiftSafeHandle<BigInt> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             public static Swift.CryptoSwift.CS.BigInt operator /(Swift.CryptoSwift.CS.BigInt arg0, Swift.CryptoSwift.CS.BigInt arg1)
             {
@@ -19326,7 +18877,11 @@ namespace Swift.CryptoSwift
             }
             public override int GetHashCode()
             {
-                throw new InvalidOperationException("Type BigInt does not implement Swift's Hashable protocol, so GetHashCode() is not supported.");
+                // TODO: Implement when Swift Hashable protocol binding is supported.
+                // Returning constant 0 satisfies the Equals/GetHashCode contract
+                // (equal objects must have equal hashes). This is correct but makes
+                // hash-based collections O(n) until Hashable is supported.
+                return 0;
             }
             
             public bool Equals(BigInt? other)
@@ -19395,40 +18950,42 @@ namespace Swift.CryptoSwift
             }
             
             
-            public unsafe class Sign : ISwiftObject
+            public unsafe class SignInfo : ISwiftObject
             {
-                static nuint _payloadSize = SwiftObjectHelper<Sign>.GetTypeMetadata().Size;
-                SwiftSafeHandle<Sign> _payload = SwiftSafeHandle<Sign>.Zero;
-                public SwiftSafeHandle<Sign> Payload => _payload;
+                static nuint _payloadSize = SwiftObjectHelper<SignInfo>.GetTypeMetadata().Size;
+                SwiftSafeHandle<SignInfo> _payload = SwiftSafeHandle<SignInfo>.Zero;
+                internal SwiftSafeHandle<SignInfo> Payload => _payload;
+                
+                public void Dispose() => _payload.Dispose();
                 
                 /// <summary>
-                /// Gets the 'plus' case of Sign.
+                /// Gets the 'plus' case of SignInfo.
                 /// </summary>
-                public static Sign Plus
+                public static SignInfo Plus
                 {
                     get
                     {
-                        var result = new Sign();
-                        var metadata = SwiftObjectHelper<Sign>.GetTypeMetadata();
+                        var result = new SignInfo();
+                        var metadata = SwiftObjectHelper<SignInfo>.GetTypeMetadata();
                         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
                         metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)0, metadata);
-                        result._payload = new SwiftSafeHandle<Sign>(buffer);
+                        result._payload = new SwiftSafeHandle<SignInfo>(buffer);
                         return result;
                     }
                 }
                 
                 /// <summary>
-                /// Gets the 'minus' case of Sign.
+                /// Gets the 'minus' case of SignInfo.
                 /// </summary>
-                public static Sign Minus
+                public static SignInfo Minus
                 {
                     get
                     {
-                        var result = new Sign();
-                        var metadata = SwiftObjectHelper<Sign>.GetTypeMetadata();
+                        var result = new SignInfo();
+                        var metadata = SwiftObjectHelper<SignInfo>.GetTypeMetadata();
                         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
                         metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)1, metadata);
-                        result._payload = new SwiftSafeHandle<Sign>(buffer);
+                        result._payload = new SwiftSafeHandle<SignInfo>(buffer);
                         return result;
                     }
                 }
@@ -19454,7 +19011,7 @@ namespace Swift.CryptoSwift
                         _payload.DangerousAddRef(ref success);
                         try
                         {
-                            var metadata = SwiftObjectHelper<Sign>.GetTypeMetadata();
+                            var metadata = SwiftObjectHelper<SignInfo>.GetTypeMetadata();
                             byte* payload = (byte*)_payload.DangerousGetHandle();
                             return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                         }
@@ -19467,7 +19024,7 @@ namespace Swift.CryptoSwift
                 }
                 
                 
-                private unsafe System.IntPtr HashValue_Get()
+                private unsafe nint HashValue_Get()
                 {
                     try
                     {
@@ -19475,7 +19032,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_hashValue_Get_2BBF8378(self);
+                        var result = PInvoke_hashValue_Get_4468D75D(self);
                         
                         return result;
                     }
@@ -19488,9 +19045,9 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV4SignO9hashValueSivg")]
-                private static extern System.IntPtr PInvoke_hashValue_Get_2BBF8378( SwiftSelf self);
+                private static extern nint PInvoke_hashValue_Get_4468D75D( SwiftSelf self);
                 
-                public System.IntPtr HashValue
+                public nint HashValue
                 {
                     get => HashValue_Get();
                 }
@@ -19503,21 +19060,21 @@ namespace Swift.CryptoSwift
                 
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    return new Sign(handle);
+                    return new SignInfo(handle);
                 }
                 
-                Sign()
+                SignInfo()
                 {
                 }
                 
-                Sign(SwiftHandle handle)
+                SignInfo(SwiftHandle handle)
                 {
-                    _payload = new SwiftSafeHandle<Sign>(handle);
+                    _payload = new SwiftSafeHandle<SignInfo>(handle);
                 }
                 
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
-                    var metadata = SwiftObjectHelper<Sign>.GetTypeMetadata();
+                    var metadata = SwiftObjectHelper<SignInfo>.GetTypeMetadata();
                     if ((int)metadata.Size > swiftDestSpan.Length)
                     {
                         throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -19541,11 +19098,11 @@ namespace Swift.CryptoSwift
                 }
                 
                 private static Dictionary<Type, string> _protocolConformanceSymbols;
-                static Sign()
+                static SignInfo()
                 {
                     _protocolConformanceSymbols = new Dictionary<Type, string>
                     {
-                        {typeof(IEquatable<Sign>), "$s11CryptoSwift2CSO6BigIntV4SignOSQAAMc"}
+                        {typeof(IEquatable<SignInfo>), "$s11CryptoSwift2CSO6BigIntV4SignOSQAAMc"}
                     };
                 }
                 
@@ -19559,7 +19116,7 @@ namespace Swift.CryptoSwift
                     return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
                 }
                 
-                public unsafe void Hash(ref Swift.Hasher into)
+                public unsafe void Hash(ref Swift.Hasher hasher)
                 {
                     try
                     {
@@ -19567,7 +19124,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        PInvoke_hash_0137FE12(into.Payload, self);
+                        PInvoke_hash_1C5137A4(hasher.Payload, self);
                         
                         return;
                     }
@@ -19580,15 +19137,15 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV4SignO4hash4intoys6HasherVz_tF")]
-                private static extern void PInvoke_hash_0137FE12( SafeHandle into,  SwiftSelf self);
+                private static extern void PInvoke_hash_1C5137A4( SafeHandle hasher,  SwiftSelf self);
                 
                 
             }
             
             
-            public unsafe class Words : ISwiftObject
+            public unsafe class WordsInfo : ISwiftObject
             {
-                private unsafe System.IntPtr Count_Get()
+                private unsafe nint Count_Get()
                 {
                     var success = false;
                     _payload.DangerousAddRef(ref success);
@@ -19598,7 +19155,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_count_Get_4AE4C200(self);
+                        var result = PInvoke_count_Get_7F2B01B0(self);
                         
                         return result;
                     }
@@ -19613,14 +19170,14 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV5WordsV5countSivg")]
-                private static extern System.IntPtr PInvoke_count_Get_4AE4C200( SwiftSelf self);
+                private static extern nint PInvoke_count_Get_7F2B01B0( SwiftSelf self);
                 
-                public System.IntPtr Count
+                public nint Count
                 {
                     get => Count_Get();
                 }
                 
-                private unsafe System.IntPtr StartIndex_Get()
+                private unsafe nint StartIndex_Get()
                 {
                     var success = false;
                     _payload.DangerousAddRef(ref success);
@@ -19630,7 +19187,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_startIndex_Get_5AB417B4(self);
+                        var result = PInvoke_startIndex_Get_26395A0D(self);
                         
                         return result;
                     }
@@ -19645,14 +19202,14 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV5WordsV10startIndexSivg")]
-                private static extern System.IntPtr PInvoke_startIndex_Get_5AB417B4( SwiftSelf self);
+                private static extern nint PInvoke_startIndex_Get_26395A0D( SwiftSelf self);
                 
-                public System.IntPtr StartIndex
+                public nint StartIndex
                 {
                     get => StartIndex_Get();
                 }
                 
-                private unsafe System.IntPtr EndIndex_Get()
+                private unsafe nint EndIndex_Get()
                 {
                     var success = false;
                     _payload.DangerousAddRef(ref success);
@@ -19662,7 +19219,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_endIndex_Get_6B12EC57(self);
+                        var result = PInvoke_endIndex_Get_6892AB3C(self);
                         
                         return result;
                     }
@@ -19677,39 +19234,19 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV5WordsV8endIndexSivg")]
-                private static extern System.IntPtr PInvoke_endIndex_Get_6B12EC57( SwiftSelf self);
+                private static extern nint PInvoke_endIndex_Get_6892AB3C( SwiftSelf self);
                 
-                public System.IntPtr EndIndex
+                public nint EndIndex
                 {
                     get => EndIndex_Get();
                 }
                 
-                static nuint _payloadSize = SwiftObjectHelper<Words>.GetTypeMetadata().Size;
-                SwiftSafeHandle<Words> _payload = SwiftSafeHandle<Words>.Zero;
+                static nuint _payloadSize = SwiftObjectHelper<WordsInfo>.GetTypeMetadata().Size;
+                SwiftSafeHandle<WordsInfo> _payload = SwiftSafeHandle<WordsInfo>.Zero;
                 
-                public SwiftSafeHandle<Words> Payload => _payload;
+                internal SwiftSafeHandle<WordsInfo> Payload => _payload;
                 
-                // Swift structs cannot be compared using .NET's default equality semantics,
-                // since Swift's equality is defined by the Equatable protocol.
-                // This type does not implement Swift's Equatable protocol.
-                public override bool Equals(object? obj)
-                {
-                    throw new InvalidOperationException("Type Words does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-                }
-                public override int GetHashCode()
-                {
-                    throw new InvalidOperationException("Type Words does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-                }
-                
-                public static bool operator ==(Words left, Words right)
-                {
-                    throw new InvalidOperationException("Type Words does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-                }
-                
-                public static bool operator !=(Words left, Words right)
-                {
-                    throw new InvalidOperationException("Type Words does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-                }
+                public void Dispose() => _payload.Dispose();
                 
                 static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
                 
@@ -19719,17 +19256,17 @@ namespace Swift.CryptoSwift
                 
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    return new Words(handle);
+                    return new WordsInfo(handle);
                 }
                 
-                Words(SwiftHandle handle)
+                WordsInfo(SwiftHandle handle)
                 {
-                    _payload = new SwiftSafeHandle<Words>(handle);
+                    _payload = new SwiftSafeHandle<WordsInfo>(handle);
                 }
                 
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
-                    var metadata = SwiftObjectHelper<Words>.GetTypeMetadata();
+                    var metadata = SwiftObjectHelper<WordsInfo>.GetTypeMetadata();
                     if ((int)metadata.Size > swiftDestSpan.Length)
                     {
                         throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -19753,7 +19290,7 @@ namespace Swift.CryptoSwift
                 }
                 
                 private static Dictionary<Type, string> _protocolConformanceSymbols;
-                static Words()
+                static WordsInfo()
                 {
                     _protocolConformanceSymbols = new Dictionary<Type, string>
                     {
@@ -19775,18 +19312,18 @@ namespace Swift.CryptoSwift
             }
             
             
-            public unsafe BigInt( Swift.CryptoSwift.CS.BigInt.Sign sign,  Swift.CryptoSwift.CS.BigUInt magnitude)
+            public unsafe BigInt( Swift.CryptoSwift.CS.BigInt.SignInfo sign,  Swift.CryptoSwift.CS.BigUInt magnitude)
             {
                 _payload = new SwiftSafeHandle<BigInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_27D8B7CC(swiftIndirectResult, sign.Payload.DangerousGetHandle(), magnitude.Payload);
+                PInvoke_init_74472668(swiftIndirectResult, sign.Payload.DangerousGetHandle(), magnitude.Payload);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV4sign9magnitudeA2E4SignO_AC0D4UIntVtcfC")]
-            private static extern void PInvoke_init_27D8B7CC( SwiftIndirectResult swiftIndirectResult,  IntPtr sign,  SafeHandle magnitude);
+            private static extern void PInvoke_init_74472668( SwiftIndirectResult swiftIndirectResult,  IntPtr sign,  SafeHandle magnitude);
             
             
             public unsafe Swift.CryptoSwift.CS.BigInt Signum()
@@ -19803,7 +19340,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_signum_5D4BA7B5(swiftIndirectResult, self);
+                    PInvoke_signum_1B390118(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -19818,11 +19355,11 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV6signumAEyF")]
-            private static extern void PInvoke_signum_5D4BA7B5( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_signum_1B390118( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             
             
-            public unsafe (Swift.CryptoSwift.CS.BigInt quotient, Swift.CryptoSwift.CS.BigInt remainder) QuotientAndRemainder( Swift.CryptoSwift.CS.BigInt dividingBy)
+            public unsafe (Swift.CryptoSwift.CS.BigInt quotient, Swift.CryptoSwift.CS.BigInt remainder) QuotientAndRemainder( Swift.CryptoSwift.CS.BigInt y)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -19832,7 +19369,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_quotientAndRemainder_5A1A7474(dividingBy.Payload, self);
+                    var result = PInvoke_quotientAndRemainder_4B949D02(y.Payload, self);
                     
                     var elem0 = SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(&result.Item1));
                     var elem1 = SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(&result.Item2));
@@ -19849,10 +19386,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV20quotientAndRemainder10dividingByAE0F0_AE9remaindertAE_tF")]
-            private static extern ValueTuple<Swift.CryptoSwift.CS.BigInt, Swift.CryptoSwift.CS.BigInt> PInvoke_quotientAndRemainder_5A1A7474( SafeHandle dividingBy,  SwiftSelf self);
+            private static extern ValueTuple<Swift.CryptoSwift.CS.BigInt, Swift.CryptoSwift.CS.BigInt> PInvoke_quotientAndRemainder_4B949D02( SafeHandle y,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigInt Modulus( Swift.CryptoSwift.CS.BigInt arg0)
+            public unsafe Swift.CryptoSwift.CS.BigInt Modulus( Swift.CryptoSwift.CS.BigInt mod)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -19866,7 +19403,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_modulus_360644A9(swiftIndirectResult, arg0.Payload, self);
+                    PInvoke_modulus_72AF0585(swiftIndirectResult, mod.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -19881,10 +19418,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV7modulusyA2EF")]
-            private static extern void PInvoke_modulus_360644A9( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SwiftSelf self);
+            private static extern void PInvoke_modulus_72AF0585( SwiftIndirectResult swiftIndirectResult,  SafeHandle mod,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigInt GreatestCommonDivisor( Swift.CryptoSwift.CS.BigInt with)
+            public unsafe Swift.CryptoSwift.CS.BigInt GreatestCommonDivisor( Swift.CryptoSwift.CS.BigInt b)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -19898,7 +19435,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_greatestCommonDivisor_746A09C9(swiftIndirectResult, with.Payload, self);
+                    PInvoke_greatestCommonDivisor_572359A5(swiftIndirectResult, b.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -19913,10 +19450,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV21greatestCommonDivisor4withA2E_tF")]
-            private static extern void PInvoke_greatestCommonDivisor_746A09C9( SwiftIndirectResult swiftIndirectResult,  SafeHandle with,  SwiftSelf self);
+            private static extern void PInvoke_greatestCommonDivisor_572359A5( SwiftIndirectResult swiftIndirectResult,  SafeHandle b,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigInt? Inverse( Swift.CryptoSwift.CS.BigInt arg0)
+            public unsafe Swift.CryptoSwift.CS.BigInt? Inverse( Swift.CryptoSwift.CS.BigInt modulus)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -19926,7 +19463,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_inverse_4B0D05CE(arg0.Payload, self);
+                    var result = PInvoke_inverse_569932BB(modulus.Payload, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.CryptoSwift.CS.BigInt>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -19942,7 +19479,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV7inverseyAESgAEF")]
-            private static extern IntPtr PInvoke_inverse_4B0D05CE( SafeHandle arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_inverse_569932BB( SafeHandle modulus,  SwiftSelf self);
             
             
             public unsafe BigInt()
@@ -19950,41 +19487,41 @@ namespace Swift.CryptoSwift
                 _payload = new SwiftSafeHandle<BigInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_7D6F0D12(swiftIndirectResult);
+                PInvoke_init_1BD13503(swiftIndirectResult);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntVAEycfC")]
-            private static extern void PInvoke_init_7D6F0D12( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_init_1BD13503( SwiftIndirectResult swiftIndirectResult);
             
             
-            public unsafe BigInt( Swift.CryptoSwift.CS.BigUInt arg0)
+            public unsafe BigInt( Swift.CryptoSwift.CS.BigUInt source)
             {
                 _payload = new SwiftSafeHandle<BigInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_5A2F4512(swiftIndirectResult, arg0.Payload);
+                PInvoke_init_04F646DD(swiftIndirectResult, source.Payload);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntVyAeC0D4UIntVcfC")]
-            private static extern void PInvoke_init_5A2F4512( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0);
+            private static extern void PInvoke_init_04F646DD( SwiftIndirectResult swiftIndirectResult,  SafeHandle source);
             
             
-            public unsafe BigInt( System.Int64 integerLiteral)
+            public unsafe BigInt( System.Int64 _value)
             {
                 _payload = new SwiftSafeHandle<BigInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_397145D5(swiftIndirectResult, integerLiteral);
+                PInvoke_init_49B12EDA(swiftIndirectResult, _value);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV14integerLiteralAEs5Int64V_tcfC")]
-            private static extern void PInvoke_init_397145D5( SwiftIndirectResult swiftIndirectResult,  System.Int64 integerLiteral);
+            private static extern void PInvoke_init_49B12EDA( SwiftIndirectResult swiftIndirectResult,  System.Int64 _value);
             
             
             public unsafe Swift.CryptoSwift.CS.BigInt SquareRoot()
@@ -20001,7 +19538,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_squareRoot_34CA0B30(swiftIndirectResult, self);
+                    PInvoke_squareRoot_4D76CD2E(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -20016,27 +19553,27 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV10squareRootAEyF")]
-            private static extern void PInvoke_squareRoot_34CA0B30( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_squareRoot_4D76CD2E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             
             
-            public unsafe BigInt( string extendedGraphemeClusterLiteral)
+            public unsafe BigInt( string _value)
             {
                 _payload = new SwiftSafeHandle<BigInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                using var extendedGraphemeClusterLiteralSwift = new SwiftString(extendedGraphemeClusterLiteral);
-                using PayloadBuffer<SwiftString.Buffer> extendedGraphemeClusterLiteralDisposable = extendedGraphemeClusterLiteralSwift.PayloadBuffer;
-                PInvoke_init_09C561FE(swiftIndirectResult, extendedGraphemeClusterLiteralDisposable.Buffer);
+                using var _valueSwift = new SwiftString(_value);
+                using PayloadBuffer<SwiftString.Buffer> _valueDisposable = _valueSwift.PayloadBuffer;
+                PInvoke_init_510713CC(swiftIndirectResult, _valueDisposable.Buffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV30extendedGraphemeClusterLiteralAESS_tcfC")]
-            private static extern void PInvoke_init_09C561FE( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer extendedGraphemeClusterLiteral);
+            private static extern void PInvoke_init_510713CC( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer _value);
             
             
-            public unsafe System.Boolean IsStrongProbablePrime( Swift.CryptoSwift.CS.BigInt arg0)
+            public unsafe System.Boolean IsStrongProbablePrime( Swift.CryptoSwift.CS.BigInt _base)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20046,7 +19583,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_isStrongProbablePrime_566A8E62(arg0.Payload, self);
+                    var result = PInvoke_isStrongProbablePrime_5FB18E75(_base.Payload, self);
                     
                     return result;
                 }
@@ -20061,10 +19598,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV21isStrongProbablePrimeySbAEF")]
-            private static extern System.Boolean PInvoke_isStrongProbablePrime_566A8E62( SafeHandle arg0,  SwiftSelf self);
+            private static extern System.Boolean PInvoke_isStrongProbablePrime_5FB18E75( SafeHandle _base,  SwiftSelf self);
             
             
-            public unsafe System.Boolean IsPrime( System.IntPtr rounds)
+            public unsafe System.Boolean IsPrime( nint rounds)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20074,7 +19611,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_isPrime_74828A66(rounds, self);
+                    var result = PInvoke_isPrime_5C690DA5(rounds, self);
                     
                     return result;
                 }
@@ -20089,10 +19626,8 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV7isPrime6roundsSbSi_tF")]
-            private static extern System.Boolean PInvoke_isPrime_74828A66( System.IntPtr rounds,  SwiftSelf self);
-            
-            
-            public unsafe void Hash(ref Swift.Hasher into)
+            private static extern System.Boolean PInvoke_isPrime_5C690DA5( nint rounds,  SwiftSelf self);
+            public unsafe System.Boolean IsPrime()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20102,7 +19637,35 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_73D6332B(into.Payload, self);
+                    var result = PInvoke_isPrime_23334F80(self);
+                    
+                    return result;
+                }
+                
+                finally
+                {
+                    if (success)
+                       _payload.DangerousRelease();
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_BigInt_isPrime_52FCC06F_1")]
+            private static extern System.Boolean PInvoke_isPrime_23334F80( SwiftSelf self);
+            
+            
+            public unsafe void Hash(ref Swift.Hasher hasher)
+            {
+                var success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                    
+                    
+                    
+                    PInvoke_hash_1C0AE34D(hasher.Payload, self);
                     
                     return;
                 }
@@ -20117,11 +19680,11 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_73D6332B( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_1C0AE34D( SafeHandle hasher,  SwiftSelf self);
             
             
             [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
-            public unsafe void Encode( Swift.Runtime.ExistentialContainer1 to)
+            public unsafe void Encode( ISwiftEncoder encoder)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20131,7 +19694,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_encode_300A153F(to, self, out var error);
+                    PInvoke_encode_58F88D10(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)encoder).GetExistentialContainer(), self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -20151,10 +19714,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV6encode2toys7Encoder_p_tKF")]
-            private static extern void PInvoke_encode_300A153F( Swift.Runtime.ExistentialContainer1 to,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_encode_58F88D10( Swift.Runtime.ExistentialContainer1 encoder,  SwiftSelf self, out SwiftError error);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigInt Power( System.IntPtr arg0)
+            public unsafe Swift.CryptoSwift.CS.BigInt Power( nint exponent)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20168,7 +19731,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_power_41AE797D(swiftIndirectResult, arg0, self);
+                    PInvoke_power_23364B57(swiftIndirectResult, exponent, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -20183,10 +19746,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV5poweryAESiF")]
-            private static extern void PInvoke_power_41AE797D( SwiftIndirectResult swiftIndirectResult,  System.IntPtr arg0,  SwiftSelf self);
+            private static extern void PInvoke_power_23364B57( SwiftIndirectResult swiftIndirectResult,  nint exponent,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigInt Power( Swift.CryptoSwift.CS.BigInt arg0,  Swift.CryptoSwift.CS.BigInt modulus)
+            public unsafe Swift.CryptoSwift.CS.BigInt Power( Swift.CryptoSwift.CS.BigInt exponent,  Swift.CryptoSwift.CS.BigInt modulus)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20200,7 +19763,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_power_1BAA17E0(swiftIndirectResult, arg0.Payload, modulus.Payload, self);
+                    PInvoke_power_639819F4(swiftIndirectResult, exponent.Payload, modulus.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -20215,7 +19778,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV5power_7modulusA2E_AEtF")]
-            private static extern void PInvoke_power_1BAA17E0( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SafeHandle modulus,  SwiftSelf self);
+            private static extern void PInvoke_power_639819F4( SwiftIndirectResult swiftIndirectResult,  SafeHandle exponent,  SafeHandle modulus,  SwiftSelf self);
             
             
             public unsafe void Negate()
@@ -20228,7 +19791,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_negate_77077906(self);
+                    PInvoke_negate_59AF3518(self);
                     
                     return;
                 }
@@ -20243,10 +19806,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV6negateyyF")]
-            private static extern void PInvoke_negate_77077906( SwiftSelf self);
+            private static extern void PInvoke_negate_59AF3518( SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigInt Advanced( Swift.CryptoSwift.CS.BigInt by)
+            public unsafe Swift.CryptoSwift.CS.BigInt Advanced( Swift.CryptoSwift.CS.BigInt n)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20260,7 +19823,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_advanced_52766E52(swiftIndirectResult, by.Payload, self);
+                    PInvoke_advanced_42E2576C(swiftIndirectResult, n.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -20275,10 +19838,10 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV8advanced2byA2E_tF")]
-            private static extern void PInvoke_advanced_52766E52( SwiftIndirectResult swiftIndirectResult,  SafeHandle by,  SwiftSelf self);
+            private static extern void PInvoke_advanced_42E2576C( SwiftIndirectResult swiftIndirectResult,  SafeHandle n,  SwiftSelf self);
             
             
-            public unsafe Swift.CryptoSwift.CS.BigInt Distance( Swift.CryptoSwift.CS.BigInt to)
+            public unsafe Swift.CryptoSwift.CS.BigInt Distance( Swift.CryptoSwift.CS.BigInt other)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20292,7 +19855,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_distance_1722B573(swiftIndirectResult, to.Payload, self);
+                    PInvoke_distance_6BC201CA(swiftIndirectResult, other.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.CS.BigInt>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -20307,36 +19870,36 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV8distance2toA2E_tF")]
-            private static extern void PInvoke_distance_1722B573( SwiftIndirectResult swiftIndirectResult,  SafeHandle to,  SwiftSelf self);
+            private static extern void PInvoke_distance_6BC201CA( SwiftIndirectResult swiftIndirectResult,  SafeHandle other,  SwiftSelf self);
             
             
-            public unsafe BigInt( Swift.UnsafeRawBufferPointer arg0)
+            public unsafe BigInt( Swift.UnsafeRawBufferPointer source)
             {
                 _payload = new SwiftSafeHandle<BigInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_53DF524A(swiftIndirectResult, arg0);
+                PInvoke_init_5C23AF75(swiftIndirectResult, source);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntVyAESWcfC")]
-            private static extern void PInvoke_init_53DF524A( SwiftIndirectResult swiftIndirectResult,  Swift.UnsafeRawBufferPointer arg0);
+            private static extern void PInvoke_init_5C23AF75( SwiftIndirectResult swiftIndirectResult,  Swift.UnsafeRawBufferPointer source);
             
             
-            public unsafe BigInt( Foundation.NSData arg0)
+            public unsafe BigInt( Foundation.NSData source)
             {
                 _payload = new SwiftSafeHandle<BigInt>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                var arg0Swift = Swift.Data.FromNSData(arg0);
-                PInvoke_init_5D1EED88(swiftIndirectResult, arg0Swift);
+                var sourceSwift = Swift.Data.FromNSData(source);
+                PInvoke_init_465621B2(swiftIndirectResult, sourceSwift);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntVyAE10Foundation4DataVcfC")]
-            private static extern void PInvoke_init_5D1EED88( SwiftIndirectResult swiftIndirectResult,  Swift.Data arg0);
+            private static extern void PInvoke_init_465621B2( SwiftIndirectResult swiftIndirectResult,  Swift.Data source);
             
             
             public unsafe Foundation.NSData Serialize()
@@ -20349,7 +19912,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_serialize_7B1CC0D2(self);
+                    var result = PInvoke_serialize_4066F3BE(self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.Data>(new IntPtr(&result));
                     return swiftResult.ToNSData();
@@ -20365,7 +19928,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift2CSO6BigIntV9serialize10Foundation4DataVyF")]
-            private static extern Swift.Data PInvoke_serialize_7B1CC0D2( SwiftSelf self);
+            private static extern Swift.Data PInvoke_serialize_4066F3BE( SwiftSelf self);
             
             
         }
@@ -20378,7 +19941,9 @@ namespace Swift.CryptoSwift
     {
         static nuint _payloadSize = SwiftObjectHelper<PKCS5>.GetTypeMetadata().Size;
         SwiftSafeHandle<PKCS5> _payload = SwiftSafeHandle<PKCS5>.Zero;
-        public SwiftSafeHandle<PKCS5> Payload => _payload;
+        internal SwiftSafeHandle<PKCS5> Payload => _payload;
+        
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -20446,7 +20011,7 @@ namespace Swift.CryptoSwift
         
         public unsafe class PBKDF1 : ISwiftObject
         {
-            private unsafe System.IntPtr Iterations_Get()
+            private unsafe nint Iterations_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20456,7 +20021,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_iterations_Get_675783F0(self);
+                    var result = PInvoke_iterations_Get_2C2E17B7(self);
                     
                     return result;
                 }
@@ -20471,14 +20036,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V10iterationsSivg")]
-            private static extern System.IntPtr PInvoke_iterations_Get_675783F0( SwiftSelf self);
+            private static extern nint PInvoke_iterations_Get_2C2E17B7( SwiftSelf self);
             
-            public System.IntPtr Iterations
+            public nint Iterations
             {
                 get => Iterations_Get();
             }
             
-            private unsafe Swift.CryptoSwift.PKCS5.PBKDF1.Variant Variant_Get()
+            private unsafe Swift.CryptoSwift.PKCS5.PBKDF1.VariantInfo Variant_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20486,15 +20051,15 @@ namespace Swift.CryptoSwift
                 {
                     var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                     
-                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.PKCS5.PBKDF1.Variant>();
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.CryptoSwift.PKCS5.PBKDF1.VariantInfo>();
                     var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                     var swiftIndirectResult = new SwiftIndirectResult(payload);
                     
                     
                     
-                    PInvoke_variant_Get_4D831783(swiftIndirectResult, self);
+                    PInvoke_variant_Get_73144F19(swiftIndirectResult, self);
                     
-                    return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.PKCS5.PBKDF1.Variant>(new IntPtr(swiftIndirectResult.Value));
+                    return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.PKCS5.PBKDF1.VariantInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
                 
                 finally
@@ -20507,14 +20072,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V7variantAE7VariantOvg")]
-            private static extern void PInvoke_variant_Get_4D831783( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_variant_Get_73144F19( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
-            public Swift.CryptoSwift.PKCS5.PBKDF1.Variant VariantValue
+            public Swift.CryptoSwift.PKCS5.PBKDF1.VariantInfo Variant
             {
                 get => Variant_Get();
             }
             
-            private unsafe System.IntPtr KeyLength_Get()
+            private unsafe nint KeyLength_Get()
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -20524,7 +20089,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_keyLength_Get_71F360B4(self);
+                    var result = PInvoke_keyLength_Get_5F028E84(self);
                     
                     return result;
                 }
@@ -20539,9 +20104,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V9keyLengthSivg")]
-            private static extern System.IntPtr PInvoke_keyLength_Get_71F360B4( SwiftSelf self);
+            private static extern nint PInvoke_keyLength_Get_5F028E84( SwiftSelf self);
             
-            public System.IntPtr KeyLength
+            public nint KeyLength
             {
                 get => KeyLength_Get();
             }
@@ -20556,7 +20121,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_t1_Get_36C5E1CA(self);
+                    var result = PInvoke_t1_Get_52BA2762(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
                 }
@@ -20571,9 +20136,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V2t1Says5UInt8VGvg")]
-            private static extern IntPtr PInvoke_t1_Get_36C5E1CA( SwiftSelf self);
+            private static extern IntPtr PInvoke_t1_Get_52BA2762( SwiftSelf self);
             
-            public Swift.SwiftArray<System.Byte> T1
+            public IReadOnlyList<System.Byte> T1
             {
                 get => T1_Get();
             }
@@ -20581,29 +20146,9 @@ namespace Swift.CryptoSwift
             static nuint _payloadSize = SwiftObjectHelper<PBKDF1>.GetTypeMetadata().Size;
             SwiftSafeHandle<PBKDF1> _payload = SwiftSafeHandle<PBKDF1>.Zero;
             
-            public SwiftSafeHandle<PBKDF1> Payload => _payload;
+            internal SwiftSafeHandle<PBKDF1> Payload => _payload;
             
-            // Swift structs cannot be compared using .NET's default equality semantics,
-            // since Swift's equality is defined by the Equatable protocol.
-            // This type does not implement Swift's Equatable protocol.
-            public override bool Equals(object? obj)
-            {
-                throw new InvalidOperationException("Type PBKDF1 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-            public override int GetHashCode()
-            {
-                throw new InvalidOperationException("Type PBKDF1 does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-            }
-            
-            public static bool operator ==(PBKDF1 left, PBKDF1 right)
-            {
-                throw new InvalidOperationException("Type PBKDF1 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-            
-            public static bool operator !=(PBKDF1 left, PBKDF1 right)
-            {
-                throw new InvalidOperationException("Type PBKDF1 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
+            public void Dispose() => _payload.Dispose();
             
             static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
             
@@ -20670,7 +20215,9 @@ namespace Swift.CryptoSwift
             {
                 static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
                 SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-                public SwiftSafeHandle<Error> Payload => _payload;
+                internal SwiftSafeHandle<Error> Payload => _payload;
+                
+                public void Dispose() => _payload.Dispose();
                 
                 /// <summary>
                 /// Gets the 'invalidInput' case of Error.
@@ -20738,7 +20285,7 @@ namespace Swift.CryptoSwift
                 }
                 
                 
-                private unsafe System.IntPtr HashValue_Get()
+                private unsafe nint HashValue_Get()
                 {
                     try
                     {
@@ -20746,7 +20293,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_hashValue_Get_5DBF8BC5(self);
+                        var result = PInvoke_hashValue_Get_64D8CBDB(self);
                         
                         return result;
                     }
@@ -20759,9 +20306,9 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V5ErrorO9hashValueSivg")]
-                private static extern System.IntPtr PInvoke_hashValue_Get_5DBF8BC5( SwiftSelf self);
+                private static extern nint PInvoke_hashValue_Get_64D8CBDB( SwiftSelf self);
                 
-                public System.IntPtr HashValue
+                public nint HashValue
                 {
                     get => HashValue_Get();
                 }
@@ -20830,7 +20377,7 @@ namespace Swift.CryptoSwift
                     return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
                 }
                 
-                public unsafe void Hash(ref Swift.Hasher into)
+                public unsafe void Hash(ref Swift.Hasher hasher)
                 {
                     try
                     {
@@ -20838,7 +20385,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        PInvoke_hash_506DB2FD(into.Payload, self);
+                        PInvoke_hash_35BEE7C8(hasher.Payload, self);
                         
                         return;
                     }
@@ -20851,46 +20398,48 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V5ErrorO4hash4intoys6HasherVz_tF")]
-                private static extern void PInvoke_hash_506DB2FD( SafeHandle into,  SwiftSelf self);
+                private static extern void PInvoke_hash_35BEE7C8( SafeHandle hasher,  SwiftSelf self);
                 
                 
             }
             
             
-            public unsafe class Variant : ISwiftObject
+            public unsafe class VariantInfo : ISwiftObject
             {
-                static nuint _payloadSize = SwiftObjectHelper<Variant>.GetTypeMetadata().Size;
-                SwiftSafeHandle<Variant> _payload = SwiftSafeHandle<Variant>.Zero;
-                public SwiftSafeHandle<Variant> Payload => _payload;
+                static nuint _payloadSize = SwiftObjectHelper<VariantInfo>.GetTypeMetadata().Size;
+                SwiftSafeHandle<VariantInfo> _payload = SwiftSafeHandle<VariantInfo>.Zero;
+                internal SwiftSafeHandle<VariantInfo> Payload => _payload;
+                
+                public void Dispose() => _payload.Dispose();
                 
                 /// <summary>
-                /// Gets the 'md5' case of Variant.
+                /// Gets the 'md5' case of VariantInfo.
                 /// </summary>
-                public static Variant Md5
+                public static VariantInfo Md5
                 {
                     get
                     {
-                        var result = new Variant();
-                        var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
+                        var result = new VariantInfo();
+                        var metadata = SwiftObjectHelper<VariantInfo>.GetTypeMetadata();
                         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
                         metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)0, metadata);
-                        result._payload = new SwiftSafeHandle<Variant>(buffer);
+                        result._payload = new SwiftSafeHandle<VariantInfo>(buffer);
                         return result;
                     }
                 }
                 
                 /// <summary>
-                /// Gets the 'sha1' case of Variant.
+                /// Gets the 'sha1' case of VariantInfo.
                 /// </summary>
-                public static Variant Sha1
+                public static VariantInfo Sha1
                 {
                     get
                     {
-                        var result = new Variant();
-                        var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
+                        var result = new VariantInfo();
+                        var metadata = SwiftObjectHelper<VariantInfo>.GetTypeMetadata();
                         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
                         metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint)1, metadata);
-                        result._payload = new SwiftSafeHandle<Variant>(buffer);
+                        result._payload = new SwiftSafeHandle<VariantInfo>(buffer);
                         return result;
                     }
                 }
@@ -20916,7 +20465,7 @@ namespace Swift.CryptoSwift
                         _payload.DangerousAddRef(ref success);
                         try
                         {
-                            var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
+                            var metadata = SwiftObjectHelper<VariantInfo>.GetTypeMetadata();
                             byte* payload = (byte*)_payload.DangerousGetHandle();
                             return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
                         }
@@ -20929,7 +20478,7 @@ namespace Swift.CryptoSwift
                 }
                 
                 
-                private unsafe System.IntPtr Size_Get()
+                private unsafe nint Size_Get()
                 {
                     try
                     {
@@ -20937,7 +20486,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_size_Get_2DFA9686(self);
+                        var result = PInvoke_size_Get_75D9B638(self);
                         
                         return result;
                     }
@@ -20950,14 +20499,14 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V7VariantO4sizeSivg")]
-                private static extern System.IntPtr PInvoke_size_Get_2DFA9686( SwiftSelf self);
+                private static extern nint PInvoke_size_Get_75D9B638( SwiftSelf self);
                 
-                public System.IntPtr Size
+                public nint Size
                 {
                     get => Size_Get();
                 }
                 
-                private unsafe System.IntPtr HashValue_Get()
+                private unsafe nint HashValue_Get()
                 {
                     try
                     {
@@ -20965,7 +20514,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_hashValue_Get_3DAD0FD1(self);
+                        var result = PInvoke_hashValue_Get_2A3A4160(self);
                         
                         return result;
                     }
@@ -20978,9 +20527,9 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V7VariantO9hashValueSivg")]
-                private static extern System.IntPtr PInvoke_hashValue_Get_3DAD0FD1( SwiftSelf self);
+                private static extern nint PInvoke_hashValue_Get_2A3A4160( SwiftSelf self);
                 
-                public System.IntPtr HashValue
+                public nint HashValue
                 {
                     get => HashValue_Get();
                 }
@@ -20993,21 +20542,21 @@ namespace Swift.CryptoSwift
                 
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    return new Variant(handle);
+                    return new VariantInfo(handle);
                 }
                 
-                Variant()
+                VariantInfo()
                 {
                 }
                 
-                Variant(SwiftHandle handle)
+                VariantInfo(SwiftHandle handle)
                 {
-                    _payload = new SwiftSafeHandle<Variant>(handle);
+                    _payload = new SwiftSafeHandle<VariantInfo>(handle);
                 }
                 
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
-                    var metadata = SwiftObjectHelper<Variant>.GetTypeMetadata();
+                    var metadata = SwiftObjectHelper<VariantInfo>.GetTypeMetadata();
                     if ((int)metadata.Size > swiftDestSpan.Length)
                     {
                         throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -21031,11 +20580,11 @@ namespace Swift.CryptoSwift
                 }
                 
                 private static Dictionary<Type, string> _protocolConformanceSymbols;
-                static Variant()
+                static VariantInfo()
                 {
                     _protocolConformanceSymbols = new Dictionary<Type, string>
                     {
-                        {typeof(IEquatable<Variant>), "$s11CryptoSwift5PKCS5O6PBKDF1V7VariantOSQAAMc"}
+                        {typeof(IEquatable<VariantInfo>), "$s11CryptoSwift5PKCS5O6PBKDF1V7VariantOSQAAMc"}
                     };
                 }
                 
@@ -21049,18 +20598,18 @@ namespace Swift.CryptoSwift
                     return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
                 }
                 
-                public unsafe IReadOnlyList<System.Byte> CalculateHash( IEnumerable<System.Byte> arg0)
+                public unsafe IReadOnlyList<System.Byte> CalculateHash( IEnumerable<System.Byte> bytes)
                 {
                     try
                     {
                         var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                         
                         
-                        using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                        using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                        IntPtr arg0Buffer = arg0Disposable.Buffer;
+                        using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                        using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                        IntPtr bytesBuffer = bytesDisposable.Buffer;
                         
-                        var result = PInvoke_calculateHash_5DE21C46(arg0Buffer, self);
+                        var result = PInvoke_calculateHash_2E5E804D(bytesBuffer, self);
                         
                         return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
                     }
@@ -21073,10 +20622,10 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V7VariantO13calculateHashySays5UInt8VGAKF")]
-                private static extern IntPtr PInvoke_calculateHash_5DE21C46( IntPtr arg0Buffer,  SwiftSelf self);
+                private static extern IntPtr PInvoke_calculateHash_2E5E804D( IntPtr bytesBuffer,  SwiftSelf self);
                 
                 
-                public unsafe void Hash(ref Swift.Hasher into)
+                public unsafe void Hash(ref Swift.Hasher hasher)
                 {
                     try
                     {
@@ -21084,7 +20633,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        PInvoke_hash_1B35E8B0(into.Payload, self);
+                        PInvoke_hash_3CC479AB(hasher.Payload, self);
                         
                         return;
                     }
@@ -21097,13 +20646,13 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V7VariantO4hash4intoys6HasherVz_tF")]
-                private static extern void PInvoke_hash_1B35E8B0( SafeHandle into,  SwiftSelf self);
+                private static extern void PInvoke_hash_3CC479AB( SafeHandle hasher,  SwiftSelf self);
                 
                 
             }
             
             
-            public unsafe PBKDF1( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  Swift.CryptoSwift.PKCS5.PBKDF1.Variant variant,  System.IntPtr iterations,  System.IntPtr? keyLength)
+            public unsafe PBKDF1( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  Swift.CryptoSwift.PKCS5.PBKDF1.VariantInfo variant,  nint iterations,  nint? keyLength)
             {
                 _payload = new SwiftSafeHandle<PBKDF1>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -21114,10 +20663,10 @@ namespace Swift.CryptoSwift
                 using var saltSwift = SwiftArray<System.Byte>.FromEnumerable(salt);
                 using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
                 IntPtr saltBuffer = saltDisposable.Buffer;
-                using var keyLengthSwift = keyLength is {} keyLengthValue ? SwiftOptional<System.IntPtr>.NewSome(keyLengthValue) : SwiftOptional<System.IntPtr>.NewNone();
+                using var keyLengthSwift = keyLength is {} keyLengthValue ? SwiftOptional<nint>.NewSome(keyLengthValue) : SwiftOptional<nint>.NewNone();
                 using PayloadBuffer<IntPtr> keyLengthDisposable = keyLengthSwift.PayloadBuffer;
                 IntPtr keyLengthBuffer = keyLengthDisposable.Buffer;
-                PInvoke_init_01ECC8ED(swiftIndirectResult, passwordBuffer, saltBuffer, variant.Payload.DangerousGetHandle(), iterations, keyLengthBuffer, out var error);
+                PInvoke_init_614C311A(swiftIndirectResult, passwordBuffer, saltBuffer, variant.Payload.DangerousGetHandle(), iterations, keyLengthBuffer, out var error);
                 
                 if (error.Value != null)
                 {
@@ -21128,7 +20677,76 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V8password4salt7variant10iterations9keyLengthAESays5UInt8VG_AmE7VariantOS2iSgtKcfC")]
-            private static extern void PInvoke_init_01ECC8ED( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  IntPtr variant,  System.IntPtr iterations,  IntPtr keyLengthBuffer, out SwiftError error);
+            private static extern void PInvoke_init_614C311A( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  IntPtr variant,  nint iterations,  IntPtr keyLengthBuffer, out SwiftError error);
+            public unsafe PBKDF1( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt)
+            {
+                _payload = new SwiftSafeHandle<PBKDF1>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                
+                using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+                using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+                IntPtr passwordBuffer = passwordDisposable.Buffer;
+                using var saltSwift = SwiftArray<System.Byte>.FromEnumerable(salt);
+                using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
+                IntPtr saltBuffer = saltDisposable.Buffer;
+                PInvoke_init_4CC40303(swiftIndirectResult, passwordBuffer, saltBuffer, out var error);
+                
+                if (error.Value != null)
+                {
+                    throw new SwiftRuntimeException("Call to Swift method init failed.");
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_PBKDF1_init_7BE41FE2_3")]
+            private static extern void PInvoke_init_4CC40303( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer, out SwiftError error);
+            public unsafe PBKDF1( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  Swift.CryptoSwift.PKCS5.PBKDF1.VariantInfo variant)
+            {
+                _payload = new SwiftSafeHandle<PBKDF1>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                
+                using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+                using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+                IntPtr passwordBuffer = passwordDisposable.Buffer;
+                using var saltSwift = SwiftArray<System.Byte>.FromEnumerable(salt);
+                using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
+                IntPtr saltBuffer = saltDisposable.Buffer;
+                PInvoke_init_3BB0C50E(swiftIndirectResult, passwordBuffer, saltBuffer, variant.Payload.DangerousGetHandle(), out var error);
+                
+                if (error.Value != null)
+                {
+                    throw new SwiftRuntimeException("Call to Swift method init failed.");
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_PBKDF1_init_7BE41FE2_2")]
+            private static extern void PInvoke_init_3BB0C50E( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  IntPtr variant, out SwiftError error);
+            public unsafe PBKDF1( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  Swift.CryptoSwift.PKCS5.PBKDF1.VariantInfo variant,  nint iterations)
+            {
+                _payload = new SwiftSafeHandle<PBKDF1>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                
+                using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+                using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+                IntPtr passwordBuffer = passwordDisposable.Buffer;
+                using var saltSwift = SwiftArray<System.Byte>.FromEnumerable(salt);
+                using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
+                IntPtr saltBuffer = saltDisposable.Buffer;
+                PInvoke_init_524753C7(swiftIndirectResult, passwordBuffer, saltBuffer, variant.Payload.DangerousGetHandle(), iterations, out var error);
+                
+                if (error.Value != null)
+                {
+                    throw new SwiftRuntimeException("Call to Swift method init failed.");
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_PBKDF1_init_7BE41FE2_1")]
+            private static extern void PInvoke_init_524753C7( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  IntPtr variant,  nint iterations, out SwiftError error);
             
             
             public unsafe IReadOnlyList<System.Byte> Calculate()
@@ -21141,7 +20759,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_calculate_5BE97F11(self);
+                    var result = PInvoke_calculate_3740372B(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
                 }
@@ -21156,7 +20774,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V9calculateSays5UInt8VGyF")]
-            private static extern IntPtr PInvoke_calculate_5BE97F11( SwiftSelf self);
+            private static extern IntPtr PInvoke_calculate_3740372B( SwiftSelf self);
             
             
             public unsafe IReadOnlyList<System.Byte> CallAsFunction()
@@ -21169,7 +20787,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_callAsFunction_6BE85FB6(self);
+                    var result = PInvoke_callAsFunction_6EBF091D(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
                 }
@@ -21184,7 +20802,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF1V14callAsFunctionSays5UInt8VGyF")]
-            private static extern IntPtr PInvoke_callAsFunction_6BE85FB6( SwiftSelf self);
+            private static extern IntPtr PInvoke_callAsFunction_6EBF091D( SwiftSelf self);
             
             
         }
@@ -21195,29 +20813,9 @@ namespace Swift.CryptoSwift
             static nuint _payloadSize = SwiftObjectHelper<PBKDF2>.GetTypeMetadata().Size;
             SwiftSafeHandle<PBKDF2> _payload = SwiftSafeHandle<PBKDF2>.Zero;
             
-            public SwiftSafeHandle<PBKDF2> Payload => _payload;
+            internal SwiftSafeHandle<PBKDF2> Payload => _payload;
             
-            // Swift structs cannot be compared using .NET's default equality semantics,
-            // since Swift's equality is defined by the Equatable protocol.
-            // This type does not implement Swift's Equatable protocol.
-            public override bool Equals(object? obj)
-            {
-                throw new InvalidOperationException("Type PBKDF2 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-            public override int GetHashCode()
-            {
-                throw new InvalidOperationException("Type PBKDF2 does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-            }
-            
-            public static bool operator ==(PBKDF2 left, PBKDF2 right)
-            {
-                throw new InvalidOperationException("Type PBKDF2 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-            
-            public static bool operator !=(PBKDF2 left, PBKDF2 right)
-            {
-                throw new InvalidOperationException("Type PBKDF2 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
+            public void Dispose() => _payload.Dispose();
             
             static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
             
@@ -21284,7 +20882,9 @@ namespace Swift.CryptoSwift
             {
                 static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
                 SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-                public SwiftSafeHandle<Error> Payload => _payload;
+                internal SwiftSafeHandle<Error> Payload => _payload;
+                
+                public void Dispose() => _payload.Dispose();
                 
                 /// <summary>
                 /// Gets the 'invalidInput' case of Error.
@@ -21352,7 +20952,7 @@ namespace Swift.CryptoSwift
                 }
                 
                 
-                private unsafe System.IntPtr HashValue_Get()
+                private unsafe nint HashValue_Get()
                 {
                     try
                     {
@@ -21360,7 +20960,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        var result = PInvoke_hashValue_Get_6E299CEC(self);
+                        var result = PInvoke_hashValue_Get_16B91283(self);
                         
                         return result;
                     }
@@ -21373,9 +20973,9 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF2V5ErrorO9hashValueSivg")]
-                private static extern System.IntPtr PInvoke_hashValue_Get_6E299CEC( SwiftSelf self);
+                private static extern nint PInvoke_hashValue_Get_16B91283( SwiftSelf self);
                 
-                public System.IntPtr HashValue
+                public nint HashValue
                 {
                     get => HashValue_Get();
                 }
@@ -21444,7 +21044,7 @@ namespace Swift.CryptoSwift
                     return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
                 }
                 
-                public unsafe void Hash(ref Swift.Hasher into)
+                public unsafe void Hash(ref Swift.Hasher hasher)
                 {
                     try
                     {
@@ -21452,7 +21052,7 @@ namespace Swift.CryptoSwift
                         
                         
                         
-                        PInvoke_hash_4CA4D04E(into.Payload, self);
+                        PInvoke_hash_7AFDBFD9(hasher.Payload, self);
                         
                         return;
                     }
@@ -21465,13 +21065,13 @@ namespace Swift.CryptoSwift
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF2V5ErrorO4hash4intoys6HasherVz_tF")]
-                private static extern void PInvoke_hash_4CA4D04E( SafeHandle into,  SwiftSelf self);
+                private static extern void PInvoke_hash_7AFDBFD9( SafeHandle hasher,  SwiftSelf self);
                 
                 
             }
             
             
-            public unsafe PBKDF2( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  System.IntPtr iterations,  System.IntPtr? keyLength,  Swift.CryptoSwift.HMAC.Variant variant)
+            public unsafe PBKDF2( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  nint iterations,  nint? keyLength,  Swift.CryptoSwift.HMAC.Variant variant)
             {
                 _payload = new SwiftSafeHandle<PBKDF2>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -21482,10 +21082,10 @@ namespace Swift.CryptoSwift
                 using var saltSwift = SwiftArray<System.Byte>.FromEnumerable(salt);
                 using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
                 IntPtr saltBuffer = saltDisposable.Buffer;
-                using var keyLengthSwift = keyLength is {} keyLengthValue ? SwiftOptional<System.IntPtr>.NewSome(keyLengthValue) : SwiftOptional<System.IntPtr>.NewNone();
+                using var keyLengthSwift = keyLength is {} keyLengthValue ? SwiftOptional<nint>.NewSome(keyLengthValue) : SwiftOptional<nint>.NewNone();
                 using PayloadBuffer<IntPtr> keyLengthDisposable = keyLengthSwift.PayloadBuffer;
                 IntPtr keyLengthBuffer = keyLengthDisposable.Buffer;
-                PInvoke_init_7BD63D88(swiftIndirectResult, passwordBuffer, saltBuffer, iterations, keyLengthBuffer, variant.Payload.DangerousGetHandle(), out var error);
+                PInvoke_init_5F14CC17(swiftIndirectResult, passwordBuffer, saltBuffer, iterations, keyLengthBuffer, variant.Payload.DangerousGetHandle(), out var error);
                 
                 if (error.Value != null)
                 {
@@ -21496,7 +21096,79 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF2V8password4salt10iterations9keyLength7variantAESays5UInt8VG_AMS2iSgAA4HMACC7VariantOtKcfC")]
-            private static extern void PInvoke_init_7BD63D88( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  System.IntPtr iterations,  IntPtr keyLengthBuffer,  IntPtr variant, out SwiftError error);
+            private static extern void PInvoke_init_5F14CC17( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  nint iterations,  IntPtr keyLengthBuffer,  IntPtr variant, out SwiftError error);
+            public unsafe PBKDF2( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt)
+            {
+                _payload = new SwiftSafeHandle<PBKDF2>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                
+                using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+                using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+                IntPtr passwordBuffer = passwordDisposable.Buffer;
+                using var saltSwift = SwiftArray<System.Byte>.FromEnumerable(salt);
+                using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
+                IntPtr saltBuffer = saltDisposable.Buffer;
+                PInvoke_init_775E4781(swiftIndirectResult, passwordBuffer, saltBuffer, out var error);
+                
+                if (error.Value != null)
+                {
+                    throw new SwiftRuntimeException("Call to Swift method init failed.");
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_PBKDF2_init_7F982646_3")]
+            private static extern void PInvoke_init_775E4781( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer, out SwiftError error);
+            public unsafe PBKDF2( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  nint iterations)
+            {
+                _payload = new SwiftSafeHandle<PBKDF2>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                
+                using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+                using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+                IntPtr passwordBuffer = passwordDisposable.Buffer;
+                using var saltSwift = SwiftArray<System.Byte>.FromEnumerable(salt);
+                using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
+                IntPtr saltBuffer = saltDisposable.Buffer;
+                PInvoke_init_6E86340D(swiftIndirectResult, passwordBuffer, saltBuffer, iterations, out var error);
+                
+                if (error.Value != null)
+                {
+                    throw new SwiftRuntimeException("Call to Swift method init failed.");
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_PBKDF2_init_7F982646_2")]
+            private static extern void PInvoke_init_6E86340D( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  nint iterations, out SwiftError error);
+            public unsafe PBKDF2( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  nint iterations,  nint? keyLength)
+            {
+                _payload = new SwiftSafeHandle<PBKDF2>((IntPtr)NativeMemory.Alloc(_payloadSize));
+                var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+                
+                using var passwordSwift = SwiftArray<System.Byte>.FromEnumerable(password);
+                using PayloadBuffer<IntPtr> passwordDisposable = passwordSwift.PayloadBuffer;
+                IntPtr passwordBuffer = passwordDisposable.Buffer;
+                using var saltSwift = SwiftArray<System.Byte>.FromEnumerable(salt);
+                using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
+                IntPtr saltBuffer = saltDisposable.Buffer;
+                using var keyLengthSwift = keyLength is {} keyLengthValue ? SwiftOptional<nint>.NewSome(keyLengthValue) : SwiftOptional<nint>.NewNone();
+                using PayloadBuffer<IntPtr> keyLengthDisposable = keyLengthSwift.PayloadBuffer;
+                IntPtr keyLengthBuffer = keyLengthDisposable.Buffer;
+                PInvoke_init_6AA7C53E(swiftIndirectResult, passwordBuffer, saltBuffer, iterations, keyLengthBuffer, out var error);
+                
+                if (error.Value != null)
+                {
+                    throw new SwiftRuntimeException("Call to Swift method init failed.");
+                }
+                
+            }
+            
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+            [DllImport("SwiftBindings", EntryPoint = "DBW_PBKDF2_init_7F982646_1")]
+            private static extern void PInvoke_init_6AA7C53E( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  nint iterations,  IntPtr keyLengthBuffer, out SwiftError error);
             
             
             public unsafe IReadOnlyList<System.Byte> Calculate()
@@ -21509,7 +21181,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_calculate_737AF86F(self, out var error);
+                    var result = PInvoke_calculate_7CD70621(self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -21529,7 +21201,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF2V9calculateSays5UInt8VGyKF")]
-            private static extern IntPtr PInvoke_calculate_737AF86F( SwiftSelf self, out SwiftError error);
+            private static extern IntPtr PInvoke_calculate_7CD70621( SwiftSelf self, out SwiftError error);
             
             
             public unsafe IReadOnlyList<System.Byte> CallAsFunction()
@@ -21542,7 +21214,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_callAsFunction_6200684A(self, out var error);
+                    var result = PInvoke_callAsFunction_7D43BAF1(self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -21562,7 +21234,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift5PKCS5O6PBKDF2V14callAsFunctionSays5UInt8VGyKF")]
-            private static extern IntPtr PInvoke_callAsFunction_6200684A( SwiftSelf self, out SwiftError error);
+            private static extern IntPtr PInvoke_callAsFunction_7D43BAF1( SwiftSelf self, out SwiftError error);
             
             
         }
@@ -21571,7 +21243,7 @@ namespace Swift.CryptoSwift
     }
     
     
-    public interface ISwiftAEAD
+    public interface IAEAD
     {
     }
     
@@ -21592,7 +21264,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_options_Get_02495200(swiftIndirectResult, self);
+                PInvoke_options_Get_56E64F6B(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -21607,14 +21279,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC7optionsAA15BlockModeOptionVvg")]
-        private static extern void PInvoke_options_Get_02495200( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_56E64F6B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.BlockModeOption Options
         {
             get => Options_Get();
         }
         
-        private unsafe Swift.SwiftOptional<System.IntPtr> CustomBlockSize_Get()
+        private unsafe Swift.SwiftOptional<nint> CustomBlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -21624,9 +21296,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_customBlockSize_Get_2ACC4EA1(self);
+                var result = PInvoke_customBlockSize_Get_2C4A280B(self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<nint>>(new IntPtr(&result));
             }
             
             finally
@@ -21639,11 +21311,11 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC15customBlockSizeSiSgvg")]
-        private static extern IntPtr PInvoke_customBlockSize_Get_2ACC4EA1( SwiftSelf self);
+        private static extern IntPtr PInvoke_customBlockSize_Get_2C4A280B( SwiftSelf self);
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public nint? CustomBlockSize
         {
-            get => CustomBlockSize_Get();
+            get => ((nint?)CustomBlockSize_Get());
         }
         
         private unsafe Swift.SwiftOptional<Swift.SwiftArray<System.Byte>> AuthenticationTag_Get()
@@ -21656,7 +21328,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_authenticationTag_Get_0C40DD53(self);
+                var result = PInvoke_authenticationTag_Get_2B397713(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftArray<System.Byte>>>(new IntPtr(&result));
             }
@@ -21671,7 +21343,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC17authenticationTagSays5UInt8VGSgvg")]
-        private static extern IntPtr PInvoke_authenticationTag_Get_0C40DD53( SwiftSelf self);
+        private static extern IntPtr PInvoke_authenticationTag_Get_2B397713( SwiftSelf self);
         
         private unsafe void AuthenticationTag_Set( Swift.SwiftOptional<Swift.SwiftArray<System.Byte>> value)
         {
@@ -21685,7 +21357,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_authenticationTag_Set_0E206D4B(valueBuffer, self);
+                PInvoke_authenticationTag_Set_766F438B(valueBuffer, self);
                 
                 return;
             }
@@ -21700,40 +21372,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC17authenticationTagSays5UInt8VGSgvs")]
-        private static extern void PInvoke_authenticationTag_Set_0E206D4B( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_authenticationTag_Set_766F438B( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftOptional<Swift.SwiftArray<System.Byte>> AuthenticationTag
+        public Swift.SwiftArray? AuthenticationTag
         {
-            get => AuthenticationTag_Get();
-            set => AuthenticationTag_Set(value);
+            get => ((Swift.SwiftArray?)AuthenticationTag_Get());
+            set => AuthenticationTag_Set(SwiftOptional<Swift.SwiftArray>.FromNullable(value));
         }
         
         static nuint _payloadSize = SwiftObjectHelper<OCB>.GetTypeMetadata().Size;
         SwiftSafeHandle<OCB> _payload = SwiftSafeHandle<OCB>.Zero;
         
-        public SwiftSafeHandle<OCB> Payload => _payload;
+        internal SwiftSafeHandle<OCB> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type OCB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type OCB does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(OCB left, OCB right)
-        {
-            throw new InvalidOperationException("Type OCB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(OCB left, OCB right)
-        {
-            throw new InvalidOperationException("Type OCB does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -21781,7 +21433,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftBlockMode), "$s11CryptoSwift3OCBCAA9BlockModeAAMc"}
+                {typeof(IBlockMode), "$s11CryptoSwift3OCBCAA9BlockModeAAMc"}
             };
         }
         
@@ -21799,7 +21451,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Mode>.GetTypeMetadata().Size;
             SwiftSafeHandle<Mode> _payload = SwiftSafeHandle<Mode>.Zero;
-            public SwiftSafeHandle<Mode> Payload => _payload;
+            internal SwiftSafeHandle<Mode> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'combined' case of Mode.
@@ -21867,7 +21521,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -21875,7 +21529,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_43B86439(self);
+                    var result = PInvoke_hashValue_Get_2EE4077E(self);
                     
                     return result;
                 }
@@ -21888,9 +21542,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC4ModeO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_43B86439( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_2EE4077E( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -21959,7 +21613,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -21967,7 +21621,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_5B542CA1(into.Payload, self);
+                    PInvoke_hash_74501C2C(hasher.Payload, self);
                     
                     return;
                 }
@@ -21980,7 +21634,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC4ModeO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_5B542CA1( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_74501C2C( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -21990,7 +21644,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidNonce' case of Error.
@@ -22058,7 +21714,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -22066,7 +21722,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_4F53E230(self);
+                    var result = PInvoke_hashValue_Get_479AAE3F(self);
                     
                     return result;
                 }
@@ -22079,9 +21735,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_4F53E230( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_479AAE3F( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -22150,7 +21806,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -22158,7 +21814,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_2A0BDE0D(into.Payload, self);
+                    PInvoke_hash_07F4CF65(hasher.Payload, self);
                     
                     return;
                 }
@@ -22171,53 +21827,143 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_2A0BDE0D( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_07F4CF65( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe OCB( IEnumerable<System.Byte> nonce,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData,  System.IntPtr tagLength,  Swift.CryptoSwift.OCB.Mode mode)
+        public unsafe OCB( IEnumerable<System.Byte> N,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData,  nint tagLength,  Swift.CryptoSwift.OCB.Mode mode)
         {
             _payload = new SwiftSafeHandle<OCB>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            using var nonceSwift = SwiftArray<System.Byte>.FromEnumerable(nonce);
-            using PayloadBuffer<IntPtr> nonceDisposable = nonceSwift.PayloadBuffer;
-            IntPtr nonceBuffer = nonceDisposable.Buffer;
+            using var NSwift = SwiftArray<System.Byte>.FromEnumerable(N);
+            using PayloadBuffer<IntPtr> NDisposable = NSwift.PayloadBuffer;
+            IntPtr NBuffer = NDisposable.Buffer;
             using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
             using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
             IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
-            PInvoke_init_72291896(swiftIndirectResult, nonceBuffer, additionalAuthenticatedDataBuffer, tagLength, mode.Payload.DangerousGetHandle());
+            PInvoke_init_2CA6639F(swiftIndirectResult, NBuffer, additionalAuthenticatedDataBuffer, tagLength, mode.Payload.DangerousGetHandle());
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC5nonce27additionalAuthenticatedData9tagLength4modeACSays5UInt8VG_AJSgSiAC4ModeOtcfC")]
-        private static extern void PInvoke_init_72291896( SwiftIndirectResult swiftIndirectResult,  IntPtr nonceBuffer,  IntPtr additionalAuthenticatedDataBuffer,  System.IntPtr tagLength,  IntPtr mode);
-        
-        
-        public unsafe OCB( IEnumerable<System.Byte> nonce,  IEnumerable<System.Byte> authenticationTag,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData,  Swift.CryptoSwift.OCB.Mode mode)
+        private static extern void PInvoke_init_2CA6639F( SwiftIndirectResult swiftIndirectResult,  IntPtr NBuffer,  IntPtr additionalAuthenticatedDataBuffer,  nint tagLength,  IntPtr mode);
+        public unsafe OCB( IEnumerable<System.Byte> N)
         {
             _payload = new SwiftSafeHandle<OCB>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            using var nonceSwift = SwiftArray<System.Byte>.FromEnumerable(nonce);
-            using PayloadBuffer<IntPtr> nonceDisposable = nonceSwift.PayloadBuffer;
-            IntPtr nonceBuffer = nonceDisposable.Buffer;
+            using var NSwift = SwiftArray<System.Byte>.FromEnumerable(N);
+            using PayloadBuffer<IntPtr> NDisposable = NSwift.PayloadBuffer;
+            IntPtr NBuffer = NDisposable.Buffer;
+            PInvoke_init_57DA64F6(swiftIndirectResult, NBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_OCB_init_0ECB1569_3")]
+        private static extern void PInvoke_init_57DA64F6( SwiftIndirectResult swiftIndirectResult,  IntPtr NBuffer);
+        public unsafe OCB( IEnumerable<System.Byte> N,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData)
+        {
+            _payload = new SwiftSafeHandle<OCB>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var NSwift = SwiftArray<System.Byte>.FromEnumerable(N);
+            using PayloadBuffer<IntPtr> NDisposable = NSwift.PayloadBuffer;
+            IntPtr NBuffer = NDisposable.Buffer;
+            using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
+            IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
+            PInvoke_init_0EA293E0(swiftIndirectResult, NBuffer, additionalAuthenticatedDataBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_OCB_init_0ECB1569_2")]
+        private static extern void PInvoke_init_0EA293E0( SwiftIndirectResult swiftIndirectResult,  IntPtr NBuffer,  IntPtr additionalAuthenticatedDataBuffer);
+        public unsafe OCB( IEnumerable<System.Byte> N,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData,  nint tagLength)
+        {
+            _payload = new SwiftSafeHandle<OCB>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var NSwift = SwiftArray<System.Byte>.FromEnumerable(N);
+            using PayloadBuffer<IntPtr> NDisposable = NSwift.PayloadBuffer;
+            IntPtr NBuffer = NDisposable.Buffer;
+            using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
+            IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
+            PInvoke_init_79E675FF(swiftIndirectResult, NBuffer, additionalAuthenticatedDataBuffer, tagLength);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_OCB_init_0ECB1569_1")]
+        private static extern void PInvoke_init_79E675FF( SwiftIndirectResult swiftIndirectResult,  IntPtr NBuffer,  IntPtr additionalAuthenticatedDataBuffer,  nint tagLength);
+        
+        
+        public unsafe OCB( IEnumerable<System.Byte> N,  IEnumerable<System.Byte> authenticationTag,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData,  Swift.CryptoSwift.OCB.Mode mode)
+        {
+            _payload = new SwiftSafeHandle<OCB>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var NSwift = SwiftArray<System.Byte>.FromEnumerable(N);
+            using PayloadBuffer<IntPtr> NDisposable = NSwift.PayloadBuffer;
+            IntPtr NBuffer = NDisposable.Buffer;
             using var authenticationTagSwift = SwiftArray<System.Byte>.FromEnumerable(authenticationTag);
             using PayloadBuffer<IntPtr> authenticationTagDisposable = authenticationTagSwift.PayloadBuffer;
             IntPtr authenticationTagBuffer = authenticationTagDisposable.Buffer;
             using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
             using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
             IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
-            PInvoke_init_23859246(swiftIndirectResult, nonceBuffer, authenticationTagBuffer, additionalAuthenticatedDataBuffer, mode.Payload.DangerousGetHandle());
+            PInvoke_init_02A3BF4D(swiftIndirectResult, NBuffer, authenticationTagBuffer, additionalAuthenticatedDataBuffer, mode.Payload.DangerousGetHandle());
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3OCBC5nonce17authenticationTag27additionalAuthenticatedData4modeACSays5UInt8VG_A2JSgAC4ModeOtcfC")]
-        private static extern void PInvoke_init_23859246( SwiftIndirectResult swiftIndirectResult,  IntPtr nonceBuffer,  IntPtr authenticationTagBuffer,  IntPtr additionalAuthenticatedDataBuffer,  IntPtr mode);
+        private static extern void PInvoke_init_02A3BF4D( SwiftIndirectResult swiftIndirectResult,  IntPtr NBuffer,  IntPtr authenticationTagBuffer,  IntPtr additionalAuthenticatedDataBuffer,  IntPtr mode);
+        public unsafe OCB( IEnumerable<System.Byte> N,  IEnumerable<System.Byte> authenticationTag)
+        {
+            _payload = new SwiftSafeHandle<OCB>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var NSwift = SwiftArray<System.Byte>.FromEnumerable(N);
+            using PayloadBuffer<IntPtr> NDisposable = NSwift.PayloadBuffer;
+            IntPtr NBuffer = NDisposable.Buffer;
+            using var authenticationTagSwift = SwiftArray<System.Byte>.FromEnumerable(authenticationTag);
+            using PayloadBuffer<IntPtr> authenticationTagDisposable = authenticationTagSwift.PayloadBuffer;
+            IntPtr authenticationTagBuffer = authenticationTagDisposable.Buffer;
+            PInvoke_init_1B91A2FA(swiftIndirectResult, NBuffer, authenticationTagBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_OCB_init_018E626A_2")]
+        private static extern void PInvoke_init_1B91A2FA( SwiftIndirectResult swiftIndirectResult,  IntPtr NBuffer,  IntPtr authenticationTagBuffer);
+        public unsafe OCB( IEnumerable<System.Byte> N,  IEnumerable<System.Byte> authenticationTag,  Swift.SwiftArray<System.Byte>? additionalAuthenticatedData)
+        {
+            _payload = new SwiftSafeHandle<OCB>((IntPtr)NativeMemory.Alloc(_payloadSize));
+            var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
+            
+            using var NSwift = SwiftArray<System.Byte>.FromEnumerable(N);
+            using PayloadBuffer<IntPtr> NDisposable = NSwift.PayloadBuffer;
+            IntPtr NBuffer = NDisposable.Buffer;
+            using var authenticationTagSwift = SwiftArray<System.Byte>.FromEnumerable(authenticationTag);
+            using PayloadBuffer<IntPtr> authenticationTagDisposable = authenticationTagSwift.PayloadBuffer;
+            IntPtr authenticationTagBuffer = authenticationTagDisposable.Buffer;
+            using var additionalAuthenticatedDataSwift = additionalAuthenticatedData is {} additionalAuthenticatedDataValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(additionalAuthenticatedDataValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
+            using PayloadBuffer<IntPtr> additionalAuthenticatedDataDisposable = additionalAuthenticatedDataSwift.PayloadBuffer;
+            IntPtr additionalAuthenticatedDataBuffer = additionalAuthenticatedDataDisposable.Buffer;
+            PInvoke_init_5FA175D3(swiftIndirectResult, NBuffer, authenticationTagBuffer, additionalAuthenticatedDataBuffer);
+            
+        }
+        
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+        [DllImport("SwiftBindings", EntryPoint = "DBW_OCB_init_018E626A_1")]
+        private static extern void PInvoke_init_5FA175D3( SwiftIndirectResult swiftIndirectResult,  IntPtr NBuffer,  IntPtr authenticationTagBuffer,  IntPtr additionalAuthenticatedDataBuffer);
         
         
         
@@ -22240,7 +21986,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_options_Get_246E6BBD(swiftIndirectResult, self);
+                PInvoke_options_Get_663924E7(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -22255,14 +22001,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4PCBCV7optionsAA15BlockModeOptionVvg")]
-        private static extern void PInvoke_options_Get_246E6BBD( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_663924E7( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.BlockModeOption Options
         {
             get => Options_Get();
         }
         
-        private unsafe Swift.SwiftOptional<System.IntPtr> CustomBlockSize_Get()
+        private unsafe Swift.SwiftOptional<nint> CustomBlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -22272,9 +22018,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_customBlockSize_Get_0A9023F2(self);
+                var result = PInvoke_customBlockSize_Get_61F4E7F1(self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<nint>>(new IntPtr(&result));
             }
             
             finally
@@ -22287,39 +22033,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4PCBCV15customBlockSizeSiSgvg")]
-        private static extern IntPtr PInvoke_customBlockSize_Get_0A9023F2( SwiftSelf self);
+        private static extern IntPtr PInvoke_customBlockSize_Get_61F4E7F1( SwiftSelf self);
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public nint? CustomBlockSize
         {
-            get => CustomBlockSize_Get();
+            get => ((nint?)CustomBlockSize_Get());
         }
         
         static nuint _payloadSize = SwiftObjectHelper<PCBC>.GetTypeMetadata().Size;
         SwiftSafeHandle<PCBC> _payload = SwiftSafeHandle<PCBC>.Zero;
         
-        public SwiftSafeHandle<PCBC> Payload => _payload;
+        internal SwiftSafeHandle<PCBC> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type PCBC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type PCBC does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(PCBC left, PCBC right)
-        {
-            throw new InvalidOperationException("Type PCBC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(PCBC left, PCBC right)
-        {
-            throw new InvalidOperationException("Type PCBC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -22367,7 +22093,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftBlockMode), "$s11CryptoSwift4PCBCVAA9BlockModeAAMc"}
+                {typeof(IBlockMode), "$s11CryptoSwift4PCBCVAA9BlockModeAAMc"}
             };
         }
         
@@ -22386,7 +22112,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidInitializationVector' case of Error.
@@ -22437,7 +22165,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -22445,7 +22173,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_7C498030(self);
+                    var result = PInvoke_hashValue_Get_26E2CA29(self);
                     
                     return result;
                 }
@@ -22458,9 +22186,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4PCBCV5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_7C498030( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_26E2CA29( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -22529,7 +22257,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -22537,7 +22265,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_3F026577(into.Payload, self);
+                    PInvoke_hash_11C1B7D1(hasher.Payload, self);
                     
                     return;
                 }
@@ -22550,7 +22278,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4PCBCV5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_3F026577( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_11C1B7D1( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -22564,28 +22292,28 @@ namespace Swift.CryptoSwift
             using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
             using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
             IntPtr ivBuffer = ivDisposable.Buffer;
-            PInvoke_init_5A5A41DA(swiftIndirectResult, ivBuffer);
+            PInvoke_init_17705B60(swiftIndirectResult, ivBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4PCBCV2ivACSays5UInt8VG_tcfC")]
-        private static extern void PInvoke_init_5A5A41DA( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer);
+        private static extern void PInvoke_init_17705B60( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer);
         
         
         
     }
     
     
-    public unsafe class ChaCha20 : ISwiftObject, ISwiftCryptors
+    public unsafe class ChaCha20 : ISwiftObject
     {
-        private static System.IntPtr BlockSize_Get()
+        private static nint BlockSize_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_blockSize_Get_10BEC0C0();
+                var result = PInvoke_blockSize_Get_29062A2D();
                 
                 return result;
             }
@@ -22598,14 +22326,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C9blockSizeSivgZ")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_10BEC0C0();
+        private static extern nint PInvoke_blockSize_Get_29062A2D();
         
-        public static System.IntPtr BlockSize
+        public static nint BlockSize
         {
             get => BlockSize_Get();
         }
         
-        private unsafe System.IntPtr KeySize_Get()
+        private unsafe nint KeySize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -22615,7 +22343,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_keySize_Get_4948E9BC(self);
+                var result = PInvoke_keySize_Get_0466291D(self);
                 
                 return result;
             }
@@ -22630,9 +22358,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C7keySizeSivg")]
-        private static extern System.IntPtr PInvoke_keySize_Get_4948E9BC( SwiftSelf self);
+        private static extern nint PInvoke_keySize_Get_0466291D( SwiftSelf self);
         
-        public System.IntPtr KeySize
+        public nint KeySize
         {
             get => KeySize_Get();
         }
@@ -22640,29 +22368,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<ChaCha20>.GetTypeMetadata().Size;
         SwiftSafeHandle<ChaCha20> _payload = SwiftSafeHandle<ChaCha20>.Zero;
         
-        public SwiftSafeHandle<ChaCha20> Payload => _payload;
+        internal SwiftSafeHandle<ChaCha20> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type ChaCha20 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type ChaCha20 does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(ChaCha20 left, ChaCha20 right)
-        {
-            throw new InvalidOperationException("Type ChaCha20 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(ChaCha20 left, ChaCha20 right)
-        {
-            throw new InvalidOperationException("Type ChaCha20 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -22710,8 +22418,8 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftCipher), "$s11CryptoSwift8ChaCha20CAA6CipherAAMc"},
-        {typeof(ISwiftCryptors), "$s11CryptoSwift8ChaCha20CAA8CryptorsAAMc"}
+                {typeof(ICipher), "$s11CryptoSwift8ChaCha20CAA6CipherAAMc"},
+        {typeof(ICryptors), "$s11CryptoSwift8ChaCha20CAA8CryptorsAAMc"}
             };
         }
         
@@ -22729,7 +22437,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidKeyOrInitializationVector' case of Error.
@@ -22797,7 +22507,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -22805,7 +22515,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_426A259D(self);
+                    var result = PInvoke_hashValue_Get_5ED7A50C(self);
                     
                     return result;
                 }
@@ -22818,9 +22528,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_426A259D( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_5ED7A50C( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -22889,7 +22599,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -22897,7 +22607,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_513EAD43(into.Payload, self);
+                    PInvoke_hash_241A01EC(hasher.Payload, self);
                     
                     return;
                 }
@@ -22910,40 +22620,20 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_513EAD43( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_241A01EC( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe class ChaChaEncryptor : ISwiftObject, ISwiftCryptor
+        public unsafe class ChaChaEncryptor : ISwiftObject, ICryptor
         {
             static nuint _payloadSize = SwiftObjectHelper<ChaChaEncryptor>.GetTypeMetadata().Size;
             SwiftSafeHandle<ChaChaEncryptor> _payload = SwiftSafeHandle<ChaChaEncryptor>.Zero;
             
-            public SwiftSafeHandle<ChaChaEncryptor> Payload => _payload;
+            internal SwiftSafeHandle<ChaChaEncryptor> Payload => _payload;
             
-            // Swift structs cannot be compared using .NET's default equality semantics,
-            // since Swift's equality is defined by the Equatable protocol.
-            // This type does not implement Swift's Equatable protocol.
-            public override bool Equals(object? obj)
-            {
-                throw new InvalidOperationException("Type ChaChaEncryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-            public override int GetHashCode()
-            {
-                throw new InvalidOperationException("Type ChaChaEncryptor does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-            }
-            
-            public static bool operator ==(ChaChaEncryptor left, ChaChaEncryptor right)
-            {
-                throw new InvalidOperationException("Type ChaChaEncryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-            
-            public static bool operator !=(ChaChaEncryptor left, ChaChaEncryptor right)
-            {
-                throw new InvalidOperationException("Type ChaChaEncryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
+            public void Dispose() => _payload.Dispose();
             
             static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
             
@@ -22991,8 +22681,8 @@ namespace Swift.CryptoSwift
             {
                 _protocolConformanceSymbols = new Dictionary<Type, string>
                 {
-                    {typeof(ISwiftCryptor), "$s11CryptoSwift8ChaCha20C0cC9EncryptorVAA7CryptorAAMc"},
-            {typeof(ISwiftUpdatable), "$s11CryptoSwift8ChaCha20C0cC9EncryptorVAA9UpdatableAAMc"}
+                    {typeof(ICryptor), "$s11CryptoSwift8ChaCha20C0cC9EncryptorVAA7CryptorAAMc"},
+            {typeof(IUpdatable), "$s11CryptoSwift8ChaCha20C0cC9EncryptorVAA9UpdatableAAMc"}
                 };
             }
             
@@ -23008,7 +22698,7 @@ namespace Swift.CryptoSwift
             
             
             
-            public unsafe void Seek( System.IntPtr to)
+            public unsafe void Seek( nint to)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -23018,7 +22708,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_seek_52888702(to, self, out var error);
+                    PInvoke_seek_1EE7D685(to, self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -23038,40 +22728,20 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C0cC9EncryptorV4seek2toySi_tKF")]
-            private static extern void PInvoke_seek_52888702( System.IntPtr to,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_seek_1EE7D685( nint to,  SwiftSelf self, out SwiftError error);
             
             
         }
         
         
-        public unsafe class ChaChaDecryptor : ISwiftObject, ISwiftCryptor
+        public unsafe class ChaChaDecryptor : ISwiftObject, ICryptor
         {
             static nuint _payloadSize = SwiftObjectHelper<ChaChaDecryptor>.GetTypeMetadata().Size;
             SwiftSafeHandle<ChaChaDecryptor> _payload = SwiftSafeHandle<ChaChaDecryptor>.Zero;
             
-            public SwiftSafeHandle<ChaChaDecryptor> Payload => _payload;
+            internal SwiftSafeHandle<ChaChaDecryptor> Payload => _payload;
             
-            // Swift structs cannot be compared using .NET's default equality semantics,
-            // since Swift's equality is defined by the Equatable protocol.
-            // This type does not implement Swift's Equatable protocol.
-            public override bool Equals(object? obj)
-            {
-                throw new InvalidOperationException("Type ChaChaDecryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-            public override int GetHashCode()
-            {
-                throw new InvalidOperationException("Type ChaChaDecryptor does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-            }
-            
-            public static bool operator ==(ChaChaDecryptor left, ChaChaDecryptor right)
-            {
-                throw new InvalidOperationException("Type ChaChaDecryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
-            
-            public static bool operator !=(ChaChaDecryptor left, ChaChaDecryptor right)
-            {
-                throw new InvalidOperationException("Type ChaChaDecryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-            }
+            public void Dispose() => _payload.Dispose();
             
             static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
             
@@ -23119,8 +22789,8 @@ namespace Swift.CryptoSwift
             {
                 _protocolConformanceSymbols = new Dictionary<Type, string>
                 {
-                    {typeof(ISwiftCryptor), "$s11CryptoSwift8ChaCha20C0cC9DecryptorVAA7CryptorAAMc"},
-            {typeof(ISwiftUpdatable), "$s11CryptoSwift8ChaCha20C0cC9DecryptorVAA9UpdatableAAMc"}
+                    {typeof(ICryptor), "$s11CryptoSwift8ChaCha20C0cC9DecryptorVAA7CryptorAAMc"},
+            {typeof(IUpdatable), "$s11CryptoSwift8ChaCha20C0cC9DecryptorVAA9UpdatableAAMc"}
                 };
             }
             
@@ -23136,7 +22806,7 @@ namespace Swift.CryptoSwift
             
             
             
-            public unsafe void Seek( System.IntPtr to)
+            public unsafe void Seek( nint to)
             {
                 var success = false;
                 _payload.DangerousAddRef(ref success);
@@ -23146,7 +22816,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_seek_4DFE0976(to, self, out var error);
+                    PInvoke_seek_1E91678C(to, self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -23166,13 +22836,13 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C0cC9DecryptorV4seek2toySi_tKF")]
-            private static extern void PInvoke_seek_4DFE0976( System.IntPtr to,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_seek_1E91678C( nint to,  SwiftSelf self, out SwiftError error);
             
             
         }
         
         
-        public unsafe ChaCha20( IEnumerable<System.Byte> key,  IEnumerable<System.Byte> iv)
+        public unsafe ChaCha20( IEnumerable<System.Byte> key,  IEnumerable<System.Byte> nonce)
         {
             _payload = new SwiftSafeHandle<ChaCha20>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -23180,10 +22850,10 @@ namespace Swift.CryptoSwift
             using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
             using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
             IntPtr keyBuffer = keyDisposable.Buffer;
-            using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
-            using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
-            IntPtr ivBuffer = ivDisposable.Buffer;
-            PInvoke_init_25A094F0(swiftIndirectResult, keyBuffer, ivBuffer, out var error);
+            using var nonceSwift = SwiftArray<System.Byte>.FromEnumerable(nonce);
+            using PayloadBuffer<IntPtr> nonceDisposable = nonceSwift.PayloadBuffer;
+            IntPtr nonceBuffer = nonceDisposable.Buffer;
+            PInvoke_init_229FA242(swiftIndirectResult, keyBuffer, nonceBuffer, out var error);
             
             if (error.Value != null)
             {
@@ -23194,19 +22864,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C3key2ivACSays5UInt8VG_AHtKcfC")]
-        private static extern void PInvoke_init_25A094F0( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  IntPtr ivBuffer, out SwiftError error);
+        private static extern void PInvoke_init_229FA242( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  IntPtr nonceBuffer, out SwiftError error);
         
         
-        public unsafe ChaCha20( string key,  string iv)
+        public unsafe ChaCha20( string key,  string nonce)
         {
             _payload = new SwiftSafeHandle<ChaCha20>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var keySwift = new SwiftString(key);
             using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
-            using var ivSwift = new SwiftString(iv);
-            using PayloadBuffer<SwiftString.Buffer> ivDisposable = ivSwift.PayloadBuffer;
-            PInvoke_init_3B1FFD9A(swiftIndirectResult, keyDisposable.Buffer, ivDisposable.Buffer, out var error);
+            using var nonceSwift = new SwiftString(nonce);
+            using PayloadBuffer<SwiftString.Buffer> nonceDisposable = nonceSwift.PayloadBuffer;
+            PInvoke_init_5E016545(swiftIndirectResult, keyDisposable.Buffer, nonceDisposable.Buffer, out var error);
             
             if (error.Value != null)
             {
@@ -23217,10 +22887,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C3key2ivACSS_SStKcfC")]
-        private static extern void PInvoke_init_3B1FFD9A( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer iv, out SwiftError error);
+        private static extern void PInvoke_init_5E016545( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer nonce, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> Encrypt( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Encrypt( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -23229,11 +22899,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_encrypt_2130A014(arg0Buffer, self, out var error);
+                var result = PInvoke_encrypt_1AC24322(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -23253,9 +22923,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_ChaCha20_encrypt_26BBF911")]
-        private static extern IntPtr PInvoke_encrypt_2130A014( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_encrypt_1AC24322( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
-        public unsafe IReadOnlyList<System.Byte> Decrypt( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Decrypt( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -23264,11 +22934,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_decrypt_1F6A813F(arg0Buffer, self, out var error);
+                var result = PInvoke_decrypt_252E486F(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -23288,9 +22958,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_ChaCha20_decrypt_20F04D3D")]
-        private static extern IntPtr PInvoke_decrypt_1F6A813F( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_decrypt_252E486F( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
-        public unsafe Swift.Runtime.ExistentialContainer2 MakeEncryptor()
+        public unsafe ICryptorAndUpdatable MakeEncryptor()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -23300,9 +22970,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_makeEncryptor_02C0B92E(self);
+                var result = PInvoke_makeEncryptor_54BF101A(self);
                 
-                return result;
+                return new CryptorAndUpdatableProxy(result);
             }
             
             finally
@@ -23315,10 +22985,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C13makeEncryptorAA7Cryptor_AA9UpdatablepyF")]
-        private static extern Swift.Runtime.ExistentialContainer2 PInvoke_makeEncryptor_02C0B92E( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer2 PInvoke_makeEncryptor_54BF101A( SwiftSelf self);
         
         
-        public unsafe Swift.Runtime.ExistentialContainer2 MakeDecryptor()
+        public unsafe ICryptorAndUpdatable MakeDecryptor()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -23328,9 +22998,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_makeDecryptor_78417ACD(self);
+                var result = PInvoke_makeDecryptor_697FA444(self);
                 
-                return result;
+                return new CryptorAndUpdatableProxy(result);
             }
             
             finally
@@ -23343,7 +23013,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift8ChaCha20C13makeDecryptorAA7Cryptor_AA9UpdatablepyF")]
-        private static extern Swift.Runtime.ExistentialContainer2 PInvoke_makeDecryptor_78417ACD( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer2 PInvoke_makeDecryptor_697FA444( SwiftSelf self);
         
         
     }
@@ -23365,7 +23035,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_options_Get_00A71FF8(swiftIndirectResult, self);
+                PInvoke_options_Get_7DA450E6(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.BlockModeOption>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -23380,14 +23050,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CBCV7optionsAA15BlockModeOptionVvg")]
-        private static extern void PInvoke_options_Get_00A71FF8( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_7DA450E6( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.BlockModeOption Options
         {
             get => Options_Get();
         }
         
-        private unsafe Swift.SwiftOptional<System.IntPtr> CustomBlockSize_Get()
+        private unsafe Swift.SwiftOptional<nint> CustomBlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -23397,9 +23067,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_customBlockSize_Get_0DA5DD20(self);
+                var result = PInvoke_customBlockSize_Get_67E9FCCC(self);
                 
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.IntPtr>>(new IntPtr(&result));
+                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<nint>>(new IntPtr(&result));
             }
             
             finally
@@ -23412,39 +23082,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CBCV15customBlockSizeSiSgvg")]
-        private static extern IntPtr PInvoke_customBlockSize_Get_0DA5DD20( SwiftSelf self);
+        private static extern IntPtr PInvoke_customBlockSize_Get_67E9FCCC( SwiftSelf self);
         
-        public Swift.SwiftOptional<System.IntPtr> CustomBlockSize
+        public nint? CustomBlockSize
         {
-            get => CustomBlockSize_Get();
+            get => ((nint?)CustomBlockSize_Get());
         }
         
         static nuint _payloadSize = SwiftObjectHelper<CBC>.GetTypeMetadata().Size;
         SwiftSafeHandle<CBC> _payload = SwiftSafeHandle<CBC>.Zero;
         
-        public SwiftSafeHandle<CBC> Payload => _payload;
+        internal SwiftSafeHandle<CBC> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type CBC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type CBC does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(CBC left, CBC right)
-        {
-            throw new InvalidOperationException("Type CBC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(CBC left, CBC right)
-        {
-            throw new InvalidOperationException("Type CBC does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -23492,7 +23142,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftBlockMode), "$s11CryptoSwift3CBCVAA9BlockModeAAMc"}
+                {typeof(IBlockMode), "$s11CryptoSwift3CBCVAA9BlockModeAAMc"}
             };
         }
         
@@ -23511,7 +23161,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidInitializationVector' case of Error.
@@ -23562,7 +23214,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -23570,7 +23222,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_62CC1C15(self);
+                    var result = PInvoke_hashValue_Get_48B5A23D(self);
                     
                     return result;
                 }
@@ -23583,9 +23235,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CBCV5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_62CC1C15( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_48B5A23D( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -23654,7 +23306,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -23662,7 +23314,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_3F99E06A(into.Payload, self);
+                    PInvoke_hash_3252CE37(hasher.Payload, self);
                     
                     return;
                 }
@@ -23675,7 +23327,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CBCV5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_3F99E06A( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_3252CE37( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -23689,20 +23341,20 @@ namespace Swift.CryptoSwift
             using var ivSwift = SwiftArray<System.Byte>.FromEnumerable(iv);
             using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
             IntPtr ivBuffer = ivDisposable.Buffer;
-            PInvoke_init_53916E62(swiftIndirectResult, ivBuffer);
+            PInvoke_init_54D1833F(swiftIndirectResult, ivBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift3CBCV2ivACSays5UInt8VG_tcfC")]
-        private static extern void PInvoke_init_53916E62( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer);
+        private static extern void PInvoke_init_54D1833F( SwiftIndirectResult swiftIndirectResult,  IntPtr ivBuffer);
         
         
         
     }
     
     
-    public interface ISwiftAuthenticator
+    public interface IAuthenticator
     {
         IReadOnlyList<System.Byte> Authenticate(IEnumerable<System.Byte> arg0);
     }
@@ -23711,7 +23363,7 @@ namespace Swift.CryptoSwift
     /// Proxy class that enables C# implementations of the Authenticator protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class AuthenticatorProxy : ISwiftAuthenticator, ISwiftObject
+    public unsafe class AuthenticatorProxy : IAuthenticator, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift Authenticator_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -23733,7 +23385,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftAuthenticator? _csharpImpl;
+        private readonly IAuthenticator? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static AuthenticatorProxy()
@@ -23783,10 +23435,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftAuthenticator.
+        /// Creates a proxy wrapping a C# implementation of IAuthenticator.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public AuthenticatorProxy(ISwiftAuthenticator implementation)
+        public AuthenticatorProxy(IAuthenticator implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -23886,6 +23538,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -23921,13 +23574,13 @@ namespace Swift.CryptoSwift
     
     public unsafe class Rabbit : ISwiftObject
     {
-        private static System.IntPtr IvSize_Get()
+        private static nint IvSize_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_ivSize_Get_670EF015();
+                var result = PInvoke_ivSize_Get_715E65A5();
                 
                 return result;
             }
@@ -23940,20 +23593,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6RabbitC6ivSizeSivgZ")]
-        private static extern System.IntPtr PInvoke_ivSize_Get_670EF015();
+        private static extern nint PInvoke_ivSize_Get_715E65A5();
         
-        public static System.IntPtr IvSize
+        public static nint IvSize
         {
             get => IvSize_Get();
         }
         
-        private static System.IntPtr KeySize_Get()
+        private static nint KeySize_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_keySize_Get_42AC6D1B();
+                var result = PInvoke_keySize_Get_0AD6185C();
                 
                 return result;
             }
@@ -23966,20 +23619,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6RabbitC7keySizeSivgZ")]
-        private static extern System.IntPtr PInvoke_keySize_Get_42AC6D1B();
+        private static extern nint PInvoke_keySize_Get_0AD6185C();
         
-        public static System.IntPtr KeySize
+        public static nint KeySize
         {
             get => KeySize_Get();
         }
         
-        private static System.IntPtr BlockSize_Get()
+        private static nint BlockSize_Get()
         {
             try
             {
                 
                 
-                var result = PInvoke_blockSize_Get_3FBB60E7();
+                var result = PInvoke_blockSize_Get_1DCEF975();
                 
                 return result;
             }
@@ -23992,9 +23645,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6RabbitC9blockSizeSivgZ")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_3FBB60E7();
+        private static extern nint PInvoke_blockSize_Get_1DCEF975();
         
-        public static System.IntPtr BlockSize
+        public static nint BlockSize
         {
             get => BlockSize_Get();
         }
@@ -24002,29 +23655,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<Rabbit>.GetTypeMetadata().Size;
         SwiftSafeHandle<Rabbit> _payload = SwiftSafeHandle<Rabbit>.Zero;
         
-        public SwiftSafeHandle<Rabbit> Payload => _payload;
+        internal SwiftSafeHandle<Rabbit> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type Rabbit does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type Rabbit does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(Rabbit left, Rabbit right)
-        {
-            throw new InvalidOperationException("Type Rabbit does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(Rabbit left, Rabbit right)
-        {
-            throw new InvalidOperationException("Type Rabbit does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -24072,7 +23705,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftCipher), "$s11CryptoSwift6RabbitCAA6CipherAAMc"}
+                {typeof(ICipher), "$s11CryptoSwift6RabbitCAA6CipherAAMc"}
             };
         }
         
@@ -24090,7 +23723,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'invalidKeyOrInitializationVector' case of Error.
@@ -24141,7 +23776,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -24149,7 +23784,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_494AAC3E(self);
+                    var result = PInvoke_hashValue_Get_1E6C6516(self);
                     
                     return result;
                 }
@@ -24162,9 +23797,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6RabbitC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_494AAC3E( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_1E6C6516( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -24233,7 +23868,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -24241,7 +23876,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_368E8588(into.Payload, self);
+                    PInvoke_hash_2E2E8254(hasher.Payload, self);
                     
                     return;
                 }
@@ -24254,7 +23889,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6RabbitC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_368E8588( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_2E2E8254( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -24268,7 +23903,7 @@ namespace Swift.CryptoSwift
             using var keySwift = SwiftArray<System.Byte>.FromEnumerable(key);
             using PayloadBuffer<IntPtr> keyDisposable = keySwift.PayloadBuffer;
             IntPtr keyBuffer = keyDisposable.Buffer;
-            PInvoke_init_4B23DC49(swiftIndirectResult, keyBuffer, out var error);
+            PInvoke_init_2D167313(swiftIndirectResult, keyBuffer, out var error);
             
             if (error.Value != null)
             {
@@ -24279,7 +23914,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6RabbitC3keyACSays5UInt8VG_tKcfC")]
-        private static extern void PInvoke_init_4B23DC49( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer, out SwiftError error);
+        private static extern void PInvoke_init_2D167313( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer, out SwiftError error);
         
         
         public unsafe Rabbit( IEnumerable<System.Byte> key,  Swift.SwiftArray<System.Byte>? iv)
@@ -24293,7 +23928,7 @@ namespace Swift.CryptoSwift
             using var ivSwift = iv is {} ivValue ? SwiftOptional<Swift.SwiftArray<System.Byte>>.NewSome(ivValue) : SwiftOptional<Swift.SwiftArray<System.Byte>>.NewNone();
             using PayloadBuffer<IntPtr> ivDisposable = ivSwift.PayloadBuffer;
             IntPtr ivBuffer = ivDisposable.Buffer;
-            PInvoke_init_0B7A5B0E(swiftIndirectResult, keyBuffer, ivBuffer, out var error);
+            PInvoke_init_5F00E808(swiftIndirectResult, keyBuffer, ivBuffer, out var error);
             
             if (error.Value != null)
             {
@@ -24304,7 +23939,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6RabbitC3key2ivACSays5UInt8VG_AHSgtKcfC")]
-        private static extern void PInvoke_init_0B7A5B0E( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  IntPtr ivBuffer, out SwiftError error);
+        private static extern void PInvoke_init_5F00E808( SwiftIndirectResult swiftIndirectResult,  IntPtr keyBuffer,  IntPtr ivBuffer, out SwiftError error);
         
         
         public unsafe Rabbit( string key)
@@ -24314,7 +23949,7 @@ namespace Swift.CryptoSwift
             
             using var keySwift = new SwiftString(key);
             using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
-            PInvoke_init_6529D8A2(swiftIndirectResult, keyDisposable.Buffer, out var error);
+            PInvoke_init_2714ACA3(swiftIndirectResult, keyDisposable.Buffer, out var error);
             
             if (error.Value != null)
             {
@@ -24325,7 +23960,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6RabbitC3keyACSS_tKcfC")]
-        private static extern void PInvoke_init_6529D8A2( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key, out SwiftError error);
+        private static extern void PInvoke_init_2714ACA3( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key, out SwiftError error);
         
         
         public unsafe Rabbit( string key,  string iv)
@@ -24337,7 +23972,7 @@ namespace Swift.CryptoSwift
             using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
             using var ivSwift = new SwiftString(iv);
             using PayloadBuffer<SwiftString.Buffer> ivDisposable = ivSwift.PayloadBuffer;
-            PInvoke_init_54282852(swiftIndirectResult, keyDisposable.Buffer, ivDisposable.Buffer, out var error);
+            PInvoke_init_23210901(swiftIndirectResult, keyDisposable.Buffer, ivDisposable.Buffer, out var error);
             
             if (error.Value != null)
             {
@@ -24348,10 +23983,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6RabbitC3key2ivACSS_SStKcfC")]
-        private static extern void PInvoke_init_54282852( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer iv, out SwiftError error);
+        private static extern void PInvoke_init_23210901( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key,  Swift.SwiftString.Buffer iv, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> Encrypt( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Encrypt( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -24360,11 +23995,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_encrypt_35D55C3A(arg0Buffer, self, out var error);
+                var result = PInvoke_encrypt_051FDC85(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -24384,9 +24019,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_Rabbit_encrypt_82911D05")]
-        private static extern IntPtr PInvoke_encrypt_35D55C3A( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_encrypt_051FDC85( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
-        public unsafe IReadOnlyList<System.Byte> Decrypt( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> Decrypt( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -24395,11 +24030,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_decrypt_6D899E78(arg0Buffer, self, out var error);
+                var result = PInvoke_decrypt_664BF418(bytesBuffer, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -24419,14 +24054,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_Rabbit_decrypt_3A6508F1")]
-        private static extern IntPtr PInvoke_decrypt_6D899E78( IntPtr arg0Buffer,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_decrypt_664BF418( IntPtr bytesBuffer,  SwiftSelf self, out SwiftError error);
         
     }
     
     
-    public unsafe class BlockDecryptor : ISwiftObject, ISwiftCryptor
+    public unsafe class BlockDecryptor : ISwiftObject, ICryptor
     {
-        private unsafe System.IntPtr BlockSize_Get()
+        private unsafe nint BlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -24436,7 +24071,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_blockSize_Get_2C453E14(self);
+                var result = PInvoke_blockSize_Get_1F0B067E(self);
                 
                 return result;
             }
@@ -24451,9 +24086,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC9blockSizeSivg")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_2C453E14( SwiftSelf self);
+        private static extern nint PInvoke_blockSize_Get_1F0B067E( SwiftSelf self);
         
-        public System.IntPtr BlockSize
+        public nint BlockSize
         {
             get => BlockSize_Get();
         }
@@ -24472,7 +24107,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_padding_Get_3AF9ECB1(swiftIndirectResult, self);
+                PInvoke_padding_Get_2480ADAD(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.CryptoSwift.Padding>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -24487,14 +24122,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC7paddingAA7PaddingOvg")]
-        private static extern void PInvoke_padding_Get_3AF9ECB1( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_padding_Get_2480ADAD( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.CryptoSwift.Padding Padding
         {
             get => Padding_Get();
         }
         
-        private unsafe Swift.Runtime.ExistentialContainer1 Worker_Get()
+        private unsafe ICipherModeWorker Worker_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -24504,9 +24139,9 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_worker_Get_36339D48(self);
+                var result = PInvoke_worker_Get_09062172(self);
                 
-                return result;
+                return new CipherModeWorkerProxy(result);
             }
             
             finally
@@ -24519,9 +24154,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC6workerAA16CipherModeWorker_pvg")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_worker_Get_36339D48( SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_worker_Get_09062172( SwiftSelf self);
         
-        private unsafe void Worker_Set( Swift.Runtime.ExistentialContainer1 value)
+        private unsafe void Worker_Set( ICipherModeWorker value)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -24531,7 +24166,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_worker_Set_3AA07DAD(value, self);
+                PInvoke_worker_Set_2798458D(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)value).GetExistentialContainer(), self);
                 
                 return;
             }
@@ -24546,10 +24181,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC6workerAA16CipherModeWorker_pvs")]
-        private static extern void PInvoke_worker_Set_3AA07DAD( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+        private static extern void PInvoke_worker_Set_2798458D( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any CryptoSwift.CipherModeWorker")]
-        public Swift.Runtime.ExistentialContainer1 Worker
+        public ICipherModeWorker Worker
         {
             get => Worker_Get();
             set => Worker_Set(value);
@@ -24565,7 +24200,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_accumulated_Get_77AF42B3(self);
+                var result = PInvoke_accumulated_Get_3C1DEDBB(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -24580,7 +24215,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC11accumulatedSays5UInt8VGvg")]
-        private static extern IntPtr PInvoke_accumulated_Get_77AF42B3( SwiftSelf self);
+        private static extern IntPtr PInvoke_accumulated_Get_3C1DEDBB( SwiftSelf self);
         
         private unsafe void Accumulated_Set( Swift.SwiftArray<System.Byte> value)
         {
@@ -24594,7 +24229,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_accumulated_Set_47102690(valueBuffer, self);
+                PInvoke_accumulated_Set_19C1B7AE(valueBuffer, self);
                 
                 return;
             }
@@ -24609,40 +24244,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC11accumulatedSays5UInt8VGvs")]
-        private static extern void PInvoke_accumulated_Set_47102690( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_accumulated_Set_19C1B7AE( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<System.Byte> Accumulated
+        public IReadOnlyList<System.Byte> Accumulated
         {
             get => Accumulated_Get();
-            set => Accumulated_Set(value);
+            set => Accumulated_Set(SwiftArray<System.Byte>.FromEnumerable(value));
         }
         
         static nuint _payloadSize = SwiftObjectHelper<BlockDecryptor>.GetTypeMetadata().Size;
         SwiftSafeHandle<BlockDecryptor> _payload = SwiftSafeHandle<BlockDecryptor>.Zero;
         
-        public SwiftSafeHandle<BlockDecryptor> Payload => _payload;
+        internal SwiftSafeHandle<BlockDecryptor> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type BlockDecryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type BlockDecryptor does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(BlockDecryptor left, BlockDecryptor right)
-        {
-            throw new InvalidOperationException("Type BlockDecryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(BlockDecryptor left, BlockDecryptor right)
-        {
-            throw new InvalidOperationException("Type BlockDecryptor does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -24690,8 +24305,8 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftCryptor), "$s11CryptoSwift14BlockDecryptorCAA7CryptorAAMc"},
-        {typeof(ISwiftUpdatable), "$s11CryptoSwift14BlockDecryptorCAA9UpdatableAAMc"}
+                {typeof(ICryptor), "$s11CryptoSwift14BlockDecryptorCAA7CryptorAAMc"},
+        {typeof(IUpdatable), "$s11CryptoSwift14BlockDecryptorCAA9UpdatableAAMc"}
             };
         }
         
@@ -24709,7 +24324,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Error>.GetTypeMetadata().Size;
             SwiftSafeHandle<Error> _payload = SwiftSafeHandle<Error>.Zero;
-            public SwiftSafeHandle<Error> Payload => _payload;
+            internal SwiftSafeHandle<Error> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'unsupported' case of Error.
@@ -24760,7 +24377,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -24768,7 +24385,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_13062D85(self);
+                    var result = PInvoke_hashValue_Get_4F79CE6F(self);
                     
                     return result;
                 }
@@ -24781,9 +24398,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC5ErrorO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_13062D85( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_4F79CE6F( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -24852,7 +24469,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -24860,7 +24477,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_2E5EA2B7(into.Payload, self);
+                    PInvoke_hash_5A0E69CA(hasher.Payload, self);
                     
                     return;
                 }
@@ -24873,18 +24490,18 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC5ErrorO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_2E5EA2B7( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_5A0E69CA( SafeHandle hasher,  SwiftSelf self);
             
             
         }
         
         
-        public unsafe BlockDecryptor( System.IntPtr blockSize,  Swift.CryptoSwift.Padding padding,  Swift.Runtime.ExistentialContainer1 arg2)
+        public unsafe BlockDecryptor( nint blockSize,  Swift.CryptoSwift.Padding padding,  ICipherModeWorker worker)
         {
             _payload = new SwiftSafeHandle<BlockDecryptor>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_45218A9D(swiftIndirectResult, blockSize, padding.Payload.DangerousGetHandle(), arg2, out var error);
+            PInvoke_init_37A4FDB5(swiftIndirectResult, blockSize, padding.Payload.DangerousGetHandle(), ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)worker).GetExistentialContainer(), out var error);
             
             if (error.Value != null)
             {
@@ -24895,10 +24512,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC9blockSize7padding_ACSi_AA7PaddingOAA16CipherModeWorker_ptKcfC")]
-        private static extern void PInvoke_init_45218A9D( SwiftIndirectResult swiftIndirectResult,  System.IntPtr blockSize,  IntPtr padding,  Swift.Runtime.ExistentialContainer1 arg2, out SwiftError error);
+        private static extern void PInvoke_init_37A4FDB5( SwiftIndirectResult swiftIndirectResult,  nint blockSize,  IntPtr padding,  Swift.Runtime.ExistentialContainer1 worker, out SwiftError error);
         
         
-        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> withBytes,  System.Boolean isLast)
+        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> bytes,  System.Boolean isLast)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -24907,11 +24524,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var withBytesSwift = SwiftArray<System.Byte>.FromEnumerable(withBytes);
-                using PayloadBuffer<IntPtr> withBytesDisposable = withBytesSwift.PayloadBuffer;
-                IntPtr withBytesBuffer = withBytesDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_update_049F037A(withBytesBuffer, isLast, self, out var error);
+                var result = PInvoke_update_3160D0E4(bytesBuffer, isLast, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -24931,9 +24548,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_BlockDecryptor_update_AF13EE4D")]
-        private static extern IntPtr PInvoke_update_049F037A( IntPtr withBytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_update_3160D0E4( IntPtr bytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
         
-        public unsafe void Seek( System.IntPtr to)
+        public unsafe void Seek( nint position)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -24943,7 +24560,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                PInvoke_seek_3807AD6D(to, self, out var error);
+                PInvoke_seek_07B9AD70(position, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -24963,7 +24580,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift14BlockDecryptorC4seek2toySi_tKF")]
-        private static extern void PInvoke_seek_3807AD6D( System.IntPtr to,  SwiftSelf self, out SwiftError error);
+        private static extern void PInvoke_seek_07B9AD70( nint position,  SwiftSelf self, out SwiftError error);
         
         
     }
@@ -24971,7 +24588,7 @@ namespace Swift.CryptoSwift
     
     public unsafe class SHA3 : ISwiftObject
     {
-        private unsafe System.IntPtr BlockSize_Get()
+        private unsafe nint BlockSize_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -24981,7 +24598,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_blockSize_Get_55FE7C2C(self);
+                var result = PInvoke_blockSize_Get_2E7F1C3E(self);
                 
                 return result;
             }
@@ -24996,14 +24613,14 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C9blockSizeSivg")]
-        private static extern System.IntPtr PInvoke_blockSize_Get_55FE7C2C( SwiftSelf self);
+        private static extern nint PInvoke_blockSize_Get_2E7F1C3E( SwiftSelf self);
         
-        public System.IntPtr BlockSize
+        public nint BlockSize
         {
             get => BlockSize_Get();
         }
         
-        private unsafe System.IntPtr DigestLength_Get()
+        private unsafe nint DigestLength_Get()
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -25013,7 +24630,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_digestLength_Get_3B4DD40E(self);
+                var result = PInvoke_digestLength_Get_137F6ADF(self);
                 
                 return result;
             }
@@ -25028,9 +24645,9 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C12digestLengthSivg")]
-        private static extern System.IntPtr PInvoke_digestLength_Get_3B4DD40E( SwiftSelf self);
+        private static extern nint PInvoke_digestLength_Get_137F6ADF( SwiftSelf self);
         
-        public System.IntPtr DigestLength
+        public nint DigestLength
         {
             get => DigestLength_Get();
         }
@@ -25045,7 +24662,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_markByte_Get_32812980(self);
+                var result = PInvoke_markByte_Get_7E61228E(self);
                 
                 return result;
             }
@@ -25060,7 +24677,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C8markBytes5UInt8Vvg")]
-        private static extern System.Byte PInvoke_markByte_Get_32812980( SwiftSelf self);
+        private static extern System.Byte PInvoke_markByte_Get_7E61228E( SwiftSelf self);
         
         public System.Byte MarkByte
         {
@@ -25077,7 +24694,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_accumulated_Get_0579FD03(self);
+                var result = PInvoke_accumulated_Get_48C1C5DC(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -25092,7 +24709,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C11accumulatedSays5UInt8VGvg")]
-        private static extern IntPtr PInvoke_accumulated_Get_0579FD03( SwiftSelf self);
+        private static extern IntPtr PInvoke_accumulated_Get_48C1C5DC( SwiftSelf self);
         
         private unsafe void Accumulated_Set( Swift.SwiftArray<System.Byte> value)
         {
@@ -25106,7 +24723,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_accumulated_Set_42295052(valueBuffer, self);
+                PInvoke_accumulated_Set_465E52AC(valueBuffer, self);
                 
                 return;
             }
@@ -25121,12 +24738,12 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C11accumulatedSays5UInt8VGvs")]
-        private static extern void PInvoke_accumulated_Set_42295052( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_accumulated_Set_465E52AC( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<System.Byte> Accumulated
+        public IReadOnlyList<System.Byte> Accumulated
         {
             get => Accumulated_Get();
-            set => Accumulated_Set(value);
+            set => Accumulated_Set(SwiftArray<System.Byte>.FromEnumerable(value));
         }
         
         private unsafe Swift.SwiftArray<System.UInt64> AccumulatedHash_Get()
@@ -25139,7 +24756,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_accumulatedHash_Get_1BB64171(self);
+                var result = PInvoke_accumulatedHash_Get_590139DD(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.UInt64>>(new IntPtr(&result));
             }
@@ -25154,7 +24771,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C15accumulatedHashSays6UInt64VGvg")]
-        private static extern IntPtr PInvoke_accumulatedHash_Get_1BB64171( SwiftSelf self);
+        private static extern IntPtr PInvoke_accumulatedHash_Get_590139DD( SwiftSelf self);
         
         private unsafe void AccumulatedHash_Set( Swift.SwiftArray<System.UInt64> value)
         {
@@ -25168,7 +24785,7 @@ namespace Swift.CryptoSwift
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_accumulatedHash_Set_7BB6AD26(valueBuffer, self);
+                PInvoke_accumulatedHash_Set_7C02495B(valueBuffer, self);
                 
                 return;
             }
@@ -25183,40 +24800,20 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C15accumulatedHashSays6UInt64VGvs")]
-        private static extern void PInvoke_accumulatedHash_Set_7BB6AD26( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_accumulatedHash_Set_7C02495B( IntPtr valueBuffer,  SwiftSelf self);
         
-        public Swift.SwiftArray<System.UInt64> AccumulatedHash
+        public IReadOnlyList<System.UInt64> AccumulatedHash
         {
             get => AccumulatedHash_Get();
-            set => AccumulatedHash_Set(value);
+            set => AccumulatedHash_Set(SwiftArray<System.UInt64>.FromEnumerable(value));
         }
         
         static nuint _payloadSize = SwiftObjectHelper<SHA3>.GetTypeMetadata().Size;
         SwiftSafeHandle<SHA3> _payload = SwiftSafeHandle<SHA3>.Zero;
         
-        public SwiftSafeHandle<SHA3> Payload => _payload;
+        internal SwiftSafeHandle<SHA3> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type SHA3 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type SHA3 does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(SHA3 left, SHA3 right)
-        {
-            throw new InvalidOperationException("Type SHA3 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(SHA3 left, SHA3 right)
-        {
-            throw new InvalidOperationException("Type SHA3 does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -25264,7 +24861,7 @@ namespace Swift.CryptoSwift
         {
             _protocolConformanceSymbols = new Dictionary<Type, string>
             {
-                {typeof(ISwiftUpdatable), "$s11CryptoSwift4SHA3CAA9UpdatableAAMc"}
+                {typeof(IUpdatable), "$s11CryptoSwift4SHA3CAA9UpdatableAAMc"}
             };
         }
         
@@ -25282,7 +24879,9 @@ namespace Swift.CryptoSwift
         {
             static nuint _payloadSize = SwiftObjectHelper<Variant>.GetTypeMetadata().Size;
             SwiftSafeHandle<Variant> _payload = SwiftSafeHandle<Variant>.Zero;
-            public SwiftSafeHandle<Variant> Payload => _payload;
+            internal SwiftSafeHandle<Variant> Payload => _payload;
+            
+            public void Dispose() => _payload.Dispose();
             
             /// <summary>
             /// Gets the 'sha224' case of Variant.
@@ -25452,7 +25051,7 @@ namespace Swift.CryptoSwift
             }
             
             
-            private unsafe System.IntPtr OutputLength_Get()
+            private unsafe nint OutputLength_Get()
             {
                 try
                 {
@@ -25460,7 +25059,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_outputLength_Get_2E2DA7AA(self);
+                    var result = PInvoke_outputLength_Get_4A0DE3DF(self);
                     
                     return result;
                 }
@@ -25473,14 +25072,14 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C7VariantO12outputLengthSivg")]
-            private static extern System.IntPtr PInvoke_outputLength_Get_2E2DA7AA( SwiftSelf self);
+            private static extern nint PInvoke_outputLength_Get_4A0DE3DF( SwiftSelf self);
             
-            public System.IntPtr OutputLength
+            public nint OutputLength
             {
                 get => OutputLength_Get();
             }
             
-            private unsafe System.IntPtr HashValue_Get()
+            private unsafe nint HashValue_Get()
             {
                 try
                 {
@@ -25488,7 +25087,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_799BFF92(self);
+                    var result = PInvoke_hashValue_Get_4FB85642(self);
                     
                     return result;
                 }
@@ -25501,9 +25100,9 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C7VariantO9hashValueSivg")]
-            private static extern System.IntPtr PInvoke_hashValue_Get_799BFF92( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_4FB85642( SwiftSelf self);
             
-            public System.IntPtr HashValue
+            public nint HashValue
             {
                 get => HashValue_Get();
             }
@@ -25572,7 +25171,7 @@ namespace Swift.CryptoSwift
                 return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
             }
             
-            public unsafe void Hash(ref Swift.Hasher into)
+            public unsafe void Hash(ref Swift.Hasher hasher)
             {
                 try
                 {
@@ -25580,7 +25179,7 @@ namespace Swift.CryptoSwift
                     
                     
                     
-                    PInvoke_hash_2D3E91B9(into.Payload, self);
+                    PInvoke_hash_0DDC13CA(hasher.Payload, self);
                     
                     return;
                 }
@@ -25593,7 +25192,7 @@ namespace Swift.CryptoSwift
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C7VariantO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_2D3E91B9( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_0DDC13CA( SafeHandle hasher,  SwiftSelf self);
             
             
         }
@@ -25604,16 +25203,16 @@ namespace Swift.CryptoSwift
             _payload = new SwiftSafeHandle<SHA3>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_7D0183D9(swiftIndirectResult, variant.Payload.DangerousGetHandle());
+            PInvoke_init_433B9BF1(swiftIndirectResult, variant.Payload.DangerousGetHandle());
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C7variantA2C7VariantO_tcfC")]
-        private static extern void PInvoke_init_7D0183D9( SwiftIndirectResult swiftIndirectResult,  IntPtr variant);
+        private static extern void PInvoke_init_433B9BF1( SwiftIndirectResult swiftIndirectResult,  IntPtr variant);
         
         
-        public unsafe IReadOnlyList<System.Byte> Calculate( IEnumerable<System.Byte> _for)
+        public unsafe IReadOnlyList<System.Byte> Calculate( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -25622,11 +25221,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var _forSwift = SwiftArray<System.Byte>.FromEnumerable(_for);
-                using PayloadBuffer<IntPtr> _forDisposable = _forSwift.PayloadBuffer;
-                IntPtr _forBuffer = _forDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_calculate_57FFFF3A(_forBuffer, self);
+                var result = PInvoke_calculate_250A9536(bytesBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -25641,10 +25240,10 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C9calculate3forSays5UInt8VGAH_tF")]
-        private static extern IntPtr PInvoke_calculate_57FFFF3A( IntPtr _forBuffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_calculate_250A9536( IntPtr bytesBuffer,  SwiftSelf self);
         
         
-        public unsafe IReadOnlyList<System.Byte> CallAsFunction( IEnumerable<System.Byte> arg0)
+        public unsafe IReadOnlyList<System.Byte> CallAsFunction( IEnumerable<System.Byte> bytes)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -25653,11 +25252,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_callAsFunction_3F931229(arg0Buffer, self);
+                var result = PInvoke_callAsFunction_729A11A6(bytesBuffer, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -25672,11 +25271,11 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift4SHA3C14callAsFunctionySays5UInt8VGAGF")]
-        private static extern IntPtr PInvoke_callAsFunction_3F931229( IntPtr arg0Buffer,  SwiftSelf self);
+        private static extern IntPtr PInvoke_callAsFunction_729A11A6( IntPtr bytesBuffer,  SwiftSelf self);
         
         
         
-        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> withBytes,  System.Boolean isLast)
+        public unsafe IReadOnlyList<System.Byte> Update( IEnumerable<System.Byte> bytes,  System.Boolean isLast)
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
@@ -25685,11 +25284,11 @@ namespace Swift.CryptoSwift
                 var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
                 
                 
-                using var withBytesSwift = SwiftArray<System.Byte>.FromEnumerable(withBytes);
-                using PayloadBuffer<IntPtr> withBytesDisposable = withBytesSwift.PayloadBuffer;
-                IntPtr withBytesBuffer = withBytesDisposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_update_757959A7(withBytesBuffer, isLast, self, out var error);
+                var result = PInvoke_update_587688F6(bytesBuffer, isLast, self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -25709,7 +25308,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "SBW_SHA3_update_603F8BDE")]
-        private static extern IntPtr PInvoke_update_757959A7( IntPtr withBytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_update_587688F6( IntPtr bytesBuffer,  System.Boolean isLast,  SwiftSelf self, out SwiftError error);
         
     }
     
@@ -25719,29 +25318,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<Scrypt>.GetTypeMetadata().Size;
         SwiftSafeHandle<Scrypt> _payload = SwiftSafeHandle<Scrypt>.Zero;
         
-        public SwiftSafeHandle<Scrypt> Payload => _payload;
+        internal SwiftSafeHandle<Scrypt> Payload => _payload;
         
-        // Swift classes cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type Scrypt does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type Scrypt does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(Scrypt left, Scrypt right)
-        {
-            throw new InvalidOperationException("Type Scrypt does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(Scrypt left, Scrypt right)
-        {
-            throw new InvalidOperationException("Type Scrypt does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -25803,7 +25382,7 @@ namespace Swift.CryptoSwift
             return ProtocolConformanceDescriptor.LoadFromSymbol("CryptoSwift", symbolName);
         }
         
-        public unsafe Scrypt( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  System.IntPtr dkLen,  System.IntPtr N,  System.IntPtr r,  System.IntPtr p)
+        public unsafe Scrypt( IEnumerable<System.Byte> password,  IEnumerable<System.Byte> salt,  nint dkLen,  nint N,  nint r,  nint p)
         {
             _payload = new SwiftSafeHandle<Scrypt>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
@@ -25814,7 +25393,7 @@ namespace Swift.CryptoSwift
             using var saltSwift = SwiftArray<System.Byte>.FromEnumerable(salt);
             using PayloadBuffer<IntPtr> saltDisposable = saltSwift.PayloadBuffer;
             IntPtr saltBuffer = saltDisposable.Buffer;
-            PInvoke_init_4BE5A756(swiftIndirectResult, passwordBuffer, saltBuffer, dkLen, N, r, p, out var error);
+            PInvoke_init_5B79BC66(swiftIndirectResult, passwordBuffer, saltBuffer, dkLen, N, r, p, out var error);
             
             if (error.Value != null)
             {
@@ -25825,7 +25404,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6ScryptC8password4salt5dkLen1N1r1pACSays5UInt8VG_ALS4itKcfC")]
-        private static extern void PInvoke_init_4BE5A756( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  System.IntPtr dkLen,  System.IntPtr N,  System.IntPtr r,  System.IntPtr p, out SwiftError error);
+        private static extern void PInvoke_init_5B79BC66( SwiftIndirectResult swiftIndirectResult,  IntPtr passwordBuffer,  IntPtr saltBuffer,  nint dkLen,  nint N,  nint r,  nint p, out SwiftError error);
         
         
         public unsafe IReadOnlyList<System.Byte> Calculate()
@@ -25838,7 +25417,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_calculate_31A9D665(self, out var error);
+                var result = PInvoke_calculate_00EAF911(self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -25858,7 +25437,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6ScryptC9calculateSays5UInt8VGyKF")]
-        private static extern IntPtr PInvoke_calculate_31A9D665( SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_calculate_00EAF911( SwiftSelf self, out SwiftError error);
         
         
         public unsafe IReadOnlyList<System.Byte> CallAsFunction()
@@ -25871,7 +25450,7 @@ namespace Swift.CryptoSwift
                 
                 
                 
-                var result = PInvoke_callAsFunction_3B94EDFA(self, out var error);
+                var result = PInvoke_callAsFunction_6CF792C8(self, out var error);
                 
                 if (error.Value != null)
                 {
@@ -25891,7 +25470,7 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6ScryptC14callAsFunctionSays5UInt8VGyKF")]
-        private static extern IntPtr PInvoke_callAsFunction_3B94EDFA( SwiftSelf self, out SwiftError error);
+        private static extern IntPtr PInvoke_callAsFunction_6CF792C8( SwiftSelf self, out SwiftError error);
         
         
     }
@@ -25902,29 +25481,9 @@ namespace Swift.CryptoSwift
         static nuint _payloadSize = SwiftObjectHelper<Digest>.GetTypeMetadata().Size;
         SwiftSafeHandle<Digest> _payload = SwiftSafeHandle<Digest>.Zero;
         
-        public SwiftSafeHandle<Digest> Payload => _payload;
+        internal SwiftSafeHandle<Digest> Payload => _payload;
         
-        // Swift structs cannot be compared using .NET's default equality semantics,
-        // since Swift's equality is defined by the Equatable protocol.
-        // This type does not implement Swift's Equatable protocol.
-        public override bool Equals(object? obj)
-        {
-            throw new InvalidOperationException("Type Digest does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        public override int GetHashCode()
-        {
-            throw new InvalidOperationException("Type Digest does not implement Swift's Equatable protocol, so GetHashCode() is not supported.");
-        }
-        
-        public static bool operator ==(Digest left, Digest right)
-        {
-            throw new InvalidOperationException("Type Digest does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
-        
-        public static bool operator !=(Digest left, Digest right)
-        {
-            throw new InvalidOperationException("Type Digest does not implement Swift's Equatable protocol, so equality comparison is not supported.");
-        }
+        public void Dispose() => _payload.Dispose();
         
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
         
@@ -25987,16 +25546,16 @@ namespace Swift.CryptoSwift
         }
         
         
-        public static unsafe IReadOnlyList<System.Byte> Md5( IEnumerable<System.Byte> arg0)
+        public static unsafe IReadOnlyList<System.Byte> Md5( IEnumerable<System.Byte> bytes)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_md5_5549D4D5(arg0Buffer);
+                var result = PInvoke_md5_282BFF6D(bytesBuffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -26009,19 +25568,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6DigestV3md5ySays5UInt8VGAGFZ")]
-        private static extern IntPtr PInvoke_md5_5549D4D5( IntPtr arg0Buffer);
+        private static extern IntPtr PInvoke_md5_282BFF6D( IntPtr bytesBuffer);
         
         
-        public static unsafe IReadOnlyList<System.Byte> Sha1( IEnumerable<System.Byte> arg0)
+        public static unsafe IReadOnlyList<System.Byte> Sha1( IEnumerable<System.Byte> bytes)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_sha1_5A40BC24(arg0Buffer);
+                var result = PInvoke_sha1_41520C3B(bytesBuffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -26034,19 +25593,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6DigestV4sha1ySays5UInt8VGAGFZ")]
-        private static extern IntPtr PInvoke_sha1_5A40BC24( IntPtr arg0Buffer);
+        private static extern IntPtr PInvoke_sha1_41520C3B( IntPtr bytesBuffer);
         
         
-        public static unsafe IReadOnlyList<System.Byte> Sha224( IEnumerable<System.Byte> arg0)
+        public static unsafe IReadOnlyList<System.Byte> Sha224( IEnumerable<System.Byte> bytes)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_sha224_35D84A69(arg0Buffer);
+                var result = PInvoke_sha224_3A065108(bytesBuffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -26059,19 +25618,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6DigestV6sha224ySays5UInt8VGAGFZ")]
-        private static extern IntPtr PInvoke_sha224_35D84A69( IntPtr arg0Buffer);
+        private static extern IntPtr PInvoke_sha224_3A065108( IntPtr bytesBuffer);
         
         
-        public static unsafe IReadOnlyList<System.Byte> Sha256( IEnumerable<System.Byte> arg0)
+        public static unsafe IReadOnlyList<System.Byte> Sha256( IEnumerable<System.Byte> bytes)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_sha256_405C3722(arg0Buffer);
+                var result = PInvoke_sha256_68506779(bytesBuffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -26084,19 +25643,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6DigestV6sha256ySays5UInt8VGAGFZ")]
-        private static extern IntPtr PInvoke_sha256_405C3722( IntPtr arg0Buffer);
+        private static extern IntPtr PInvoke_sha256_68506779( IntPtr bytesBuffer);
         
         
-        public static unsafe IReadOnlyList<System.Byte> Sha384( IEnumerable<System.Byte> arg0)
+        public static unsafe IReadOnlyList<System.Byte> Sha384( IEnumerable<System.Byte> bytes)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_sha384_7E1D5815(arg0Buffer);
+                var result = PInvoke_sha384_7D2B249A(bytesBuffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -26109,19 +25668,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6DigestV6sha384ySays5UInt8VGAGFZ")]
-        private static extern IntPtr PInvoke_sha384_7E1D5815( IntPtr arg0Buffer);
+        private static extern IntPtr PInvoke_sha384_7D2B249A( IntPtr bytesBuffer);
         
         
-        public static unsafe IReadOnlyList<System.Byte> Sha512( IEnumerable<System.Byte> arg0)
+        public static unsafe IReadOnlyList<System.Byte> Sha512( IEnumerable<System.Byte> bytes)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_sha512_28CDD102(arg0Buffer);
+                var result = PInvoke_sha512_508DBB68(bytesBuffer);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -26134,19 +25693,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6DigestV6sha512ySays5UInt8VGAGFZ")]
-        private static extern IntPtr PInvoke_sha512_28CDD102( IntPtr arg0Buffer);
+        private static extern IntPtr PInvoke_sha512_508DBB68( IntPtr bytesBuffer);
         
         
-        public static unsafe IReadOnlyList<System.Byte> Sha2( IEnumerable<System.Byte> arg0,  Swift.CryptoSwift.SHA2.Variant variant)
+        public static unsafe IReadOnlyList<System.Byte> Sha2( IEnumerable<System.Byte> bytes,  Swift.CryptoSwift.SHA2.VariantInfo variant)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_sha2_56B92A34(arg0Buffer, variant.Payload.DangerousGetHandle());
+                var result = PInvoke_sha2_6AC01DC8(bytesBuffer, (int)variant);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -26159,19 +25718,19 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6DigestV4sha2_7variantSays5UInt8VGAH_AA4SHA2C7VariantOtFZ")]
-        private static extern IntPtr PInvoke_sha2_56B92A34( IntPtr arg0Buffer,  IntPtr variant);
+        private static extern IntPtr PInvoke_sha2_6AC01DC8( IntPtr bytesBuffer,  int variant);
         
         
-        public static unsafe IReadOnlyList<System.Byte> Sha3( IEnumerable<System.Byte> arg0,  Swift.CryptoSwift.SHA3.Variant variant)
+        public static unsafe IReadOnlyList<System.Byte> Sha3( IEnumerable<System.Byte> bytes,  Swift.CryptoSwift.SHA3.Variant variant)
         {
             try
             {
                 
-                using var arg0Swift = SwiftArray<System.Byte>.FromEnumerable(arg0);
-                using PayloadBuffer<IntPtr> arg0Disposable = arg0Swift.PayloadBuffer;
-                IntPtr arg0Buffer = arg0Disposable.Buffer;
+                using var bytesSwift = SwiftArray<System.Byte>.FromEnumerable(bytes);
+                using PayloadBuffer<IntPtr> bytesDisposable = bytesSwift.PayloadBuffer;
+                IntPtr bytesBuffer = bytesDisposable.Buffer;
                 
-                var result = PInvoke_sha3_355EAF09(arg0Buffer, variant.Payload.DangerousGetHandle());
+                var result = PInvoke_sha3_7D343CCB(bytesBuffer, variant.Payload.DangerousGetHandle());
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftArray<System.Byte>>(new IntPtr(&result));
             }
@@ -26184,13 +25743,13 @@ namespace Swift.CryptoSwift
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("CryptoSwift", EntryPoint = "$s11CryptoSwift6DigestV4sha3_7variantSays5UInt8VGAH_AA4SHA3C7VariantOtFZ")]
-        private static extern IntPtr PInvoke_sha3_355EAF09( IntPtr arg0Buffer,  IntPtr variant);
+        private static extern IntPtr PInvoke_sha3_7D343CCB( IntPtr bytesBuffer,  IntPtr variant);
         
         
     }
     
     
-    public interface ISwiftCollection
+    public interface ICollection
     {
         IReadOnlyList<System.UInt32> ToUInt32Array();
         IReadOnlyList<System.UInt64> ToUInt64Array();
@@ -26200,7 +25759,7 @@ namespace Swift.CryptoSwift
     /// Proxy class that enables C# implementations of the Collection protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class CollectionProxy : ISwiftCollection, ISwiftObject
+    public unsafe class CollectionProxy : ICollection, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift Collection_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -26226,7 +25785,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftCollection? _csharpImpl;
+        private readonly ICollection? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static CollectionProxy()
@@ -26286,10 +25845,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftCollection.
+        /// Creates a proxy wrapping a C# implementation of ICollection.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public CollectionProxy(ISwiftCollection implementation)
+        public CollectionProxy(ICollection implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -26398,6 +25957,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -26431,16 +25991,16 @@ namespace Swift.CryptoSwift
     }
     
     
-    public interface ISwiftFixedWidthInteger
+    public interface IFixedWidthInteger
     {
-        IReadOnlyList<System.Byte> Bytes(System.IntPtr totalBytes);
+        IReadOnlyList<System.Byte> Bytes(nint totalBytes);
     }
     
     /// <summary>
     /// Proxy class that enables C# implementations of the FixedWidthInteger protocol.
     /// Can wrap either a C# implementation or receive Swift existential containers.
     /// </summary>
-    public unsafe class FixedWidthIntegerProxy : ISwiftFixedWidthInteger, ISwiftObject
+    public unsafe class FixedWidthIntegerProxy : IFixedWidthInteger, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>
     {
         /// <summary>Matches Swift FixedWidthInteger_vtable layout</summary>
         [StructLayout(LayoutKind.Sequential)]
@@ -26462,7 +26022,7 @@ namespace Swift.CryptoSwift
         private static GCHandle _localVTableHandle;
         private static bool _vtableInitialized;
         private static readonly object _vtableLock = new object();
-        private readonly ISwiftFixedWidthInteger? _csharpImpl;
+        private readonly IFixedWidthInteger? _csharpImpl;
         private readonly EveryProtocol? _everyProtocol;
         private ExistentialContainer1 _swiftContainer;
         static FixedWidthIntegerProxy()
@@ -26504,7 +26064,7 @@ namespace Swift.CryptoSwift
         {
             var container = *(ExistentialContainer1*)selfContainer;
             var proxy = SwiftObjectRegistry.GetProxyFromContainer<FixedWidthIntegerProxy>(container);
-            var param0 = MarshalFromSwift<System.IntPtr>(rawArg0);
+            var param0 = MarshalFromSwift<nint>(rawArg0);
             var result = proxy._csharpImpl!.Bytes(param0);
             return MarshalToSwiftBuffer(result);
         }
@@ -26512,10 +26072,10 @@ namespace Swift.CryptoSwift
         #endregion
         
         /// <summary>
-        /// Creates a proxy wrapping a C# implementation of ISwiftFixedWidthInteger.
+        /// Creates a proxy wrapping a C# implementation of IFixedWidthInteger.
         /// </summary>
         /// <param name="implementation">The C# implementation of the protocol.</param>
-        public FixedWidthIntegerProxy(ISwiftFixedWidthInteger implementation)
+        public FixedWidthIntegerProxy(IFixedWidthInteger implementation)
         {
             _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
             _everyProtocol = new EveryProtocol();
@@ -26546,7 +26106,7 @@ namespace Swift.CryptoSwift
         }
         #region Interface Implementation
         
-        public IReadOnlyList<System.Byte> Bytes(System.IntPtr totalBytes)
+        public IReadOnlyList<System.Byte> Bytes(nint totalBytes)
         {
             if (_csharpImpl != null)
                 return _csharpImpl.Bytes(totalBytes);
@@ -26615,6 +26175,7 @@ namespace Swift.CryptoSwift
                 "Protocol conformance descriptor is not available for proxy types. " +
                 "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
         }
+        public void Dispose() { }
         #endregion
         #region Marshalling Helpers
         [StructLayout(LayoutKind.Sequential)]
@@ -26648,9 +26209,13 @@ namespace Swift.CryptoSwift
     }
     
     
-    public interface ISwiftBinaryFloatingPoint
+    public interface IBinaryFloatingPoint
     {
     }
     
     
+    
+    public interface ICryptorAndUpdatable : ICryptor, IUpdatable
+    {
+    }
 }

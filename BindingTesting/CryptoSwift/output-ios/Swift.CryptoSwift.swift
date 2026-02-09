@@ -156,19 +156,19 @@ extension EveryProtocol: CryptoSwift.Cipher {
         }
     }
     
-    public func encrypt(_ arg0: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
+    public func encrypt(_ bytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Cipher = self
-            var arg0Copy = arg0
+            var bytesCopy = bytes
                 let resultPtr = _cipher_vtable.func_encrypt_0!(
-                _cipher_vtable.csVTHandle, &selfProto, &arg0Copy)
+                _cipher_vtable.csVTHandle, &selfProto, &bytesCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func decrypt(_ arg0: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
+    public func decrypt(_ bytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Cipher = self
-            var arg0Copy = arg0
+            var bytesCopy = bytes
                 let resultPtr = _cipher_vtable.func_decrypt_2!(
-                _cipher_vtable.csVTHandle, &selfProto, &arg0Copy)
+                _cipher_vtable.csVTHandle, &selfProto, &bytesCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
@@ -231,29 +231,29 @@ private var _updatable_vtable = Updatable_vtable()
 
 // EveryProtocol conformance to Updatable
 extension EveryProtocol: CryptoSwift.Updatable {
-    public func update(withBytes: Swift.ArraySlice<Swift.UInt8>, isLast: Swift.Bool) throws -> Swift.Array<Swift.UInt8> {
+    public func update(withBytes bytes: Swift.ArraySlice<Swift.UInt8>, isLast: Swift.Bool) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Updatable = self
-            var withBytesCopy = withBytes
+            var bytesCopy = bytes
                 var isLastCopy = isLast
                 let resultPtr = _updatable_vtable.func_update_0!(
-                _updatable_vtable.csVTHandle, &selfProto, &withBytesCopy, &isLastCopy)
+                _updatable_vtable.csVTHandle, &selfProto, &bytesCopy, &isLastCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func update(withBytes: Swift.ArraySlice<Swift.UInt8>, isLast: Swift.Bool, output: (Swift.Array<Swift.UInt8>) -> Void) throws {
+    public func update(withBytes bytes: Swift.ArraySlice<Swift.UInt8>, isLast: Swift.Bool, output: (Swift.Array<Swift.UInt8>) -> Void) throws {
             var selfProto: CryptoSwift.Updatable = self
-            var withBytesCopy = withBytes
+            var bytesCopy = bytes
                 var isLastCopy = isLast
                 var outputCopy = output
                 _updatable_vtable.func_update_1!(
-                _updatable_vtable.csVTHandle, &selfProto, &withBytesCopy, &isLastCopy, &outputCopy)
+                _updatable_vtable.csVTHandle, &selfProto, &bytesCopy, &isLastCopy, &outputCopy)
     }
     
-    public func finish(withBytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
+    public func finish(withBytes bytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Updatable = self
-            var withBytesCopy = withBytes
+            var bytesCopy = bytes
                 let resultPtr = _updatable_vtable.func_finish_4!(
-                _updatable_vtable.csVTHandle, &selfProto, &withBytesCopy)
+                _updatable_vtable.csVTHandle, &selfProto, &bytesCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
@@ -264,12 +264,12 @@ extension EveryProtocol: CryptoSwift.Updatable {
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func finish(withBytes: Swift.ArraySlice<Swift.UInt8>, output: (Swift.Array<Swift.UInt8>) -> Void) throws {
+    public func finish(withBytes bytes: Swift.ArraySlice<Swift.UInt8>, output: (Swift.Array<Swift.UInt8>) -> Void) throws {
             var selfProto: CryptoSwift.Updatable = self
-            var withBytesCopy = withBytes
+            var bytesCopy = bytes
                 var outputCopy = output
                 _updatable_vtable.func_finish_7!(
-                _updatable_vtable.csVTHandle, &selfProto, &withBytesCopy, &outputCopy)
+                _updatable_vtable.csVTHandle, &selfProto, &bytesCopy, &outputCopy)
     }
     
     public func finish(output: (Swift.Array<Swift.UInt8>) -> Void) throws {
@@ -385,19 +385,19 @@ extension EveryProtocol: CryptoSwift.CipherModeWorker {
         }
     }
     
-    public func encrypt(block: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
+    public func encrypt(block plaintext: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.CipherModeWorker = self
-            var blockCopy = block
+            var plaintextCopy = plaintext
                 let resultPtr = _cipherModeWorker_vtable.func_encrypt_0!(
-                _cipherModeWorker_vtable.csVTHandle, &selfProto, &blockCopy)
+                _cipherModeWorker_vtable.csVTHandle, &selfProto, &plaintextCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func decrypt(block: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
+    public func decrypt(block ciphertext: Swift.ArraySlice<Swift.UInt8>) -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.CipherModeWorker = self
-            var blockCopy = block
+            var ciphertextCopy = ciphertext
                 let resultPtr = _cipherModeWorker_vtable.func_decrypt_1!(
-                _cipherModeWorker_vtable.csVTHandle, &selfProto, &blockCopy)
+                _cipherModeWorker_vtable.csVTHandle, &selfProto, &ciphertextCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
@@ -545,11 +545,11 @@ private var _finalizingEncryptModeWorker_vtable = FinalizingEncryptModeWorker_vt
 
 // EveryProtocol conformance to FinalizingEncryptModeWorker
 extension EveryProtocol: CryptoSwift.FinalizingEncryptModeWorker {
-    public func finalize(encrypt: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
+    public func finalize(encrypt ciphertext: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
             var selfProto: CryptoSwift.FinalizingEncryptModeWorker = self
-            var encryptCopy = encrypt
+            var ciphertextCopy = ciphertext
                 let resultPtr = _finalizingEncryptModeWorker_vtable.func_finalize_0!(
-                _finalizingEncryptModeWorker_vtable.csVTHandle, &selfProto, &encryptCopy)
+                _finalizingEncryptModeWorker_vtable.csVTHandle, &selfProto, &ciphertextCopy)
             return resultPtr.assumingMemoryBound(to: Swift.ArraySlice<Swift.UInt8>.self).pointee
     }
     
@@ -590,27 +590,27 @@ private var _finalizingDecryptModeWorker_vtable = FinalizingDecryptModeWorker_vt
 
 // EveryProtocol conformance to FinalizingDecryptModeWorker
 extension EveryProtocol: CryptoSwift.FinalizingDecryptModeWorker {
-    public func willDecryptLast(bytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
+    public func willDecryptLast(bytes ciphertext: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
             var selfProto: CryptoSwift.FinalizingDecryptModeWorker = self
-            var bytesCopy = bytes
+            var ciphertextCopy = ciphertext
                 let resultPtr = _finalizingDecryptModeWorker_vtable.func_willDecryptLast_0!(
-                _finalizingDecryptModeWorker_vtable.csVTHandle, &selfProto, &bytesCopy)
+                _finalizingDecryptModeWorker_vtable.csVTHandle, &selfProto, &ciphertextCopy)
             return resultPtr.assumingMemoryBound(to: Swift.ArraySlice<Swift.UInt8>.self).pointee
     }
     
-    public func didDecryptLast(bytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
+    public func didDecryptLast(bytes plaintext: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
             var selfProto: CryptoSwift.FinalizingDecryptModeWorker = self
-            var bytesCopy = bytes
+            var plaintextCopy = plaintext
                 let resultPtr = _finalizingDecryptModeWorker_vtable.func_didDecryptLast_1!(
-                _finalizingDecryptModeWorker_vtable.csVTHandle, &selfProto, &bytesCopy)
+                _finalizingDecryptModeWorker_vtable.csVTHandle, &selfProto, &plaintextCopy)
             return resultPtr.assumingMemoryBound(to: Swift.ArraySlice<Swift.UInt8>.self).pointee
     }
     
-    public func finalize(decrypt: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
+    public func finalize(decrypt plaintext: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.ArraySlice<Swift.UInt8> {
             var selfProto: CryptoSwift.FinalizingDecryptModeWorker = self
-            var decryptCopy = decrypt
+            var plaintextCopy = plaintext
                 let resultPtr = _finalizingDecryptModeWorker_vtable.func_finalize_2!(
-                _finalizingDecryptModeWorker_vtable.csVTHandle, &selfProto, &decryptCopy)
+                _finalizingDecryptModeWorker_vtable.csVTHandle, &selfProto, &plaintextCopy)
             return resultPtr.assumingMemoryBound(to: Swift.ArraySlice<Swift.UInt8>.self).pointee
     }
     
@@ -653,20 +653,20 @@ private var _signature_vtable = Signature_vtable()
 
 // EveryProtocol conformance to Signature
 extension EveryProtocol: CryptoSwift.Signature {
-    public func sign(_ arg0: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
+    public func sign(_ bytes: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Signature = self
-            var arg0Copy = arg0
+            var bytesCopy = bytes
                 let resultPtr = _signature_vtable.func_sign_0!(
-                _signature_vtable.csVTHandle, &selfProto, &arg0Copy)
+                _signature_vtable.csVTHandle, &selfProto, &bytesCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
-    public func verify(signature: Swift.ArraySlice<Swift.UInt8>, for forValue: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Bool {
+    public func verify(signature: Swift.ArraySlice<Swift.UInt8>, for expectedData: Swift.ArraySlice<Swift.UInt8>) throws -> Swift.Bool {
             var selfProto: CryptoSwift.Signature = self
             var signatureCopy = signature
-                var forValueCopy = forValue
+                var expectedDataCopy = expectedData
                 let resultPtr = _signature_vtable.func_verify_2!(
-                _signature_vtable.csVTHandle, &selfProto, &signatureCopy, &forValueCopy)
+                _signature_vtable.csVTHandle, &selfProto, &signatureCopy, &expectedDataCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Bool.self).pointee
     }
     
@@ -774,11 +774,11 @@ private var _authenticator_vtable = Authenticator_vtable()
 
 // EveryProtocol conformance to Authenticator
 extension EveryProtocol: CryptoSwift.Authenticator {
-    public func authenticate(_ arg0: Swift.Array<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
+    public func authenticate(_ bytes: Swift.Array<Swift.UInt8>) throws -> Swift.Array<Swift.UInt8> {
             var selfProto: CryptoSwift.Authenticator = self
-            var arg0Copy = arg0
+            var bytesCopy = bytes
                 let resultPtr = _authenticator_vtable.func_authenticate_0!(
-                _authenticator_vtable.csVTHandle, &selfProto, &arg0Copy)
+                _authenticator_vtable.csVTHandle, &selfProto, &bytesCopy)
             return resultPtr.assumingMemoryBound(to: Swift.Array<Swift.UInt8>.self).pointee
     }
     
@@ -809,92 +809,351 @@ public func getEveryProtocolAuthenticatorWitnessTable() -> UnsafeRawPointer {
 }
 
 extension CryptoSwift.RSA {
+    @_silgen_name("DBW_RSA_init_38C93253_1")
+    public static func _dbw_init_38C93253_1(_ n: CS.BigUInt, _ e: CS.BigUInt) -> CryptoSwift.RSA {
+        return CryptoSwift.RSA(n: n, e: e)
+    }
+}
+
+extension CryptoSwift.RSA {
+    @_silgen_name("DBW_RSA_init_63EE8D4F_1")
+    public static func _dbw_init_63EE8D4F_1(_ n: Array<UInt8>, _ e: Array<UInt8>) -> CryptoSwift.RSA {
+        return CryptoSwift.RSA(n: n, e: e)
+    }
+}
+
+extension CryptoSwift.RSA {
     @_silgen_name("SBW_RSA_sign_239FB4FB")
-    public func _sbw_sign_239FB4FB(_ arg0: Array<UInt8>) throws -> Array<UInt8> {
-        return try self.sign(Swift.ArraySlice(arg0))
+    public func _sbw_sign_239FB4FB(_ bytes: Array<UInt8>) throws -> Array<UInt8> {
+        return try self.sign(Swift.ArraySlice(bytes))
     }
 }
 
 extension CryptoSwift.RSA {
     @_silgen_name("SBW_RSA_verify_7BC52380")
-    public func _sbw_verify_7BC52380(_ signature: Array<UInt8>, _ _for: Array<UInt8>) throws -> Bool {
-        return try self.verify(signature: Swift.ArraySlice(signature), for: Swift.ArraySlice(_for))
+    public func _sbw_verify_7BC52380(_ signature: Array<UInt8>, _ expectedData: Array<UInt8>) throws -> Bool {
+        return try self.verify(signature: Swift.ArraySlice(signature), for: Swift.ArraySlice(expectedData))
     }
 }
 
 extension CryptoSwift.RSA {
     @_silgen_name("SBW_RSA_encrypt_7FB8985E")
-    public func _sbw_encrypt_7FB8985E(_ arg0: Array<UInt8>) throws -> Array<UInt8> {
-        return try self.encrypt(Swift.ArraySlice(arg0))
+    public func _sbw_encrypt_7FB8985E(_ bytes: Array<UInt8>) throws -> Array<UInt8> {
+        return try self.encrypt(Swift.ArraySlice(bytes))
     }
 }
 
 extension CryptoSwift.RSA {
     @_silgen_name("SBW_RSA_decrypt_2180AEB6")
-    public func _sbw_decrypt_2180AEB6(_ arg0: Array<UInt8>) throws -> Array<UInt8> {
-        return try self.decrypt(Swift.ArraySlice(arg0))
+    public func _sbw_decrypt_2180AEB6(_ bytes: Array<UInt8>) throws -> Array<UInt8> {
+        return try self.decrypt(Swift.ArraySlice(bytes))
+    }
+}
+
+extension CryptoSwift.CFB {
+    @_silgen_name("DBW_CFB_init_9186A1F1_1")
+    public static func _dbw_init_9186A1F1_1(_ iv: Array<UInt8>) -> CryptoSwift.CFB {
+        return CryptoSwift.CFB(iv: iv)
+    }
+}
+
+extension CryptoSwift.GCM {
+    @_silgen_name("DBW_GCM_init_425CAEFB_3")
+    public static func _dbw_init_425CAEFB_3(_ iv: Array<UInt8>) -> CryptoSwift.GCM {
+        return CryptoSwift.GCM(iv: iv)
+    }
+}
+
+extension CryptoSwift.GCM {
+    @_silgen_name("DBW_GCM_init_425CAEFB_2")
+    public static func _dbw_init_425CAEFB_2(_ iv: Array<UInt8>, _ additionalAuthenticatedData: Optional<Array<UInt8>>) -> CryptoSwift.GCM {
+        return CryptoSwift.GCM(iv: iv, additionalAuthenticatedData: additionalAuthenticatedData)
+    }
+}
+
+extension CryptoSwift.GCM {
+    @_silgen_name("DBW_GCM_init_425CAEFB_1")
+    public static func _dbw_init_425CAEFB_1(_ iv: Array<UInt8>, _ additionalAuthenticatedData: Optional<Array<UInt8>>, _ tagLength: Int) -> CryptoSwift.GCM {
+        return CryptoSwift.GCM(iv: iv, additionalAuthenticatedData: additionalAuthenticatedData, tagLength: tagLength)
+    }
+}
+
+extension CryptoSwift.GCM {
+    @_silgen_name("DBW_GCM_init_025257F8_2")
+    public static func _dbw_init_025257F8_2(_ iv: Array<UInt8>, _ authenticationTag: Array<UInt8>) -> CryptoSwift.GCM {
+        return CryptoSwift.GCM(iv: iv, authenticationTag: authenticationTag)
+    }
+}
+
+extension CryptoSwift.GCM {
+    @_silgen_name("DBW_GCM_init_025257F8_1")
+    public static func _dbw_init_025257F8_1(_ iv: Array<UInt8>, _ authenticationTag: Array<UInt8>, _ additionalAuthenticatedData: Optional<Array<UInt8>>) -> CryptoSwift.GCM {
+        return CryptoSwift.GCM(iv: iv, authenticationTag: authenticationTag, additionalAuthenticatedData: additionalAuthenticatedData)
+    }
+}
+
+extension CryptoSwift.HKDF {
+    @_silgen_name("DBW_HKDF_init_0D046DEE_4")
+    public static func _dbw_init_0D046DEE_4(_ password: Array<UInt8>) throws -> CryptoSwift.HKDF {
+        return try CryptoSwift.HKDF(password: password)
+    }
+}
+
+extension CryptoSwift.HKDF {
+    @_silgen_name("DBW_HKDF_init_0D046DEE_3")
+    public static func _dbw_init_0D046DEE_3(_ password: Array<UInt8>, _ salt: Optional<Array<UInt8>>) throws -> CryptoSwift.HKDF {
+        return try CryptoSwift.HKDF(password: password, salt: salt)
+    }
+}
+
+extension CryptoSwift.HKDF {
+    @_silgen_name("DBW_HKDF_init_0D046DEE_2")
+    public static func _dbw_init_0D046DEE_2(_ password: Array<UInt8>, _ salt: Optional<Array<UInt8>>, _ info: Optional<Array<UInt8>>) throws -> CryptoSwift.HKDF {
+        return try CryptoSwift.HKDF(password: password, salt: salt, info: info)
+    }
+}
+
+extension CryptoSwift.HKDF {
+    @_silgen_name("DBW_HKDF_init_0D046DEE_1")
+    public static func _dbw_init_0D046DEE_1(_ password: Array<UInt8>, _ salt: Optional<Array<UInt8>>, _ info: Optional<Array<UInt8>>, _ keyLength: Optional<Int>) throws -> CryptoSwift.HKDF {
+        return try CryptoSwift.HKDF(password: password, salt: salt, info: info, keyLength: keyLength)
+    }
+}
+
+extension CryptoSwift.HMAC {
+    @_silgen_name("DBW_HMAC_init_33BF9BB0_1")
+    public static func _dbw_init_33BF9BB0_1(_ key: Array<UInt8>) -> CryptoSwift.HMAC {
+        return CryptoSwift.HMAC(key: key)
+    }
+}
+
+extension CryptoSwift.HMAC {
+    @_silgen_name("DBW_HMAC_init_BA8004BB_1")
+    public static func _dbw_init_BA8004BB_1(_ key: String) throws -> CryptoSwift.HMAC {
+        return try CryptoSwift.HMAC(key: key)
     }
 }
 
 extension CryptoSwift.SHA2 {
     @_silgen_name("SBW_SHA2_update_0F871E93")
-    public func _sbw_update_0F871E93(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
-        return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
+    public func _sbw_update_0F871E93(_ bytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
+        return try self.update(withBytes: Swift.ArraySlice(bytes), isLast: isLast)
     }
 }
 
 extension CryptoSwift.SHA1 {
     @_silgen_name("SBW_SHA1_update_5174E2D0")
-    public func _sbw_update_5174E2D0(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
-        return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
+    public func _sbw_update_5174E2D0(_ bytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
+        return try self.update(withBytes: Swift.ArraySlice(bytes), isLast: isLast)
+    }
+}
+
+extension CryptoSwift.CCM {
+    @_silgen_name("DBW_CCM_init_7B045693_1")
+    public static func _dbw_init_7B045693_1(_ iv: Array<UInt8>, _ tagLength: Int, _ messageLength: Int) -> CryptoSwift.CCM {
+        return CryptoSwift.CCM(iv: iv, tagLength: tagLength, messageLength: messageLength)
+    }
+}
+
+extension CryptoSwift.CTR {
+    @_silgen_name("DBW_CTR_init_2C3D107B_1")
+    public static func _dbw_init_2C3D107B_1(_ iv: Array<UInt8>) -> CryptoSwift.CTR {
+        return CryptoSwift.CTR(iv: iv)
     }
 }
 
 extension CryptoSwift.MD5 {
     @_silgen_name("SBW_MD5_update_1E4EF80A")
-    public func _sbw_update_1E4EF80A(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
-        return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
+    public func _sbw_update_1E4EF80A(_ bytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
+        return try self.update(withBytes: Swift.ArraySlice(bytes), isLast: isLast)
+    }
+}
+
+extension CryptoSwift.AES {
+    @_silgen_name("DBW_AES_init_2D550C3A_1")
+    public static func _dbw_init_2D550C3A_1(_ key: Array<UInt8>, _ blockMode: BlockMode) throws -> CryptoSwift.AES {
+        return try CryptoSwift.AES(key: key, blockMode: blockMode)
+    }
+}
+
+extension CryptoSwift.AES {
+    @_silgen_name("DBW_AES_init_830F3331_1")
+    public static func _dbw_init_830F3331_1(_ key: String, _ iv: String) throws -> CryptoSwift.AES {
+        return try CryptoSwift.AES(key: key, iv: iv)
+    }
+}
+
+extension CryptoSwift.Blowfish {
+    @_silgen_name("DBW_Blowfish_init_18CB40CF_1")
+    public static func _dbw_init_18CB40CF_1(_ key: String, _ iv: String) throws -> CryptoSwift.Blowfish {
+        return try CryptoSwift.Blowfish(key: key, iv: iv)
+    }
+}
+
+extension CryptoSwift.CS.BigUInt {
+    @_silgen_name("DBW_BigUInt_multiplyAndAdd_1FB718E6_1")
+    public func _dbw_multiplyAndAdd_1FB718E6_1(_ x: CS.BigUInt, _ y: UInt) -> () {
+        return self.multiplyAndAdd(x, y)
+    }
+}
+
+extension CryptoSwift.CS.BigUInt {
+    @_silgen_name("DBW_BigUInt_isPrime_4D99C1D9_1")
+    public func _dbw_isPrime_4D99C1D9_1() -> Bool {
+        return self.isPrime()
+    }
+}
+
+extension CryptoSwift.CS.BigUInt {
+    @_silgen_name("DBW_BigUInt_subtractReportingOverflow_04307E15_1")
+    public func _dbw_subtractReportingOverflow_04307E15_1(_ b: CS.BigUInt) -> Bool {
+        return self.subtractReportingOverflow(b)
+    }
+}
+
+extension CryptoSwift.CS.BigUInt {
+    @_silgen_name("DBW_BigUInt_subtract_79E83190_1")
+    public func _dbw_subtract_79E83190_1(_ other: CS.BigUInt) -> () {
+        return self.subtract(other)
+    }
+}
+
+extension CryptoSwift.CS.BigUInt {
+    @_silgen_name("DBW_BigUInt_subtracting_36A2B09B_1")
+    public func _dbw_subtracting_36A2B09B_1(_ other: CS.BigUInt) -> CS.BigUInt {
+        return self.subtracting(other)
+    }
+}
+
+extension CryptoSwift.CS.BigUInt {
+    @_silgen_name("DBW_BigUInt_decrement_559E786F_1")
+    public func _dbw_decrement_559E786F_1() -> () {
+        return self.decrement()
+    }
+}
+
+extension CryptoSwift.CS.BigInt {
+    @_silgen_name("DBW_BigInt_isPrime_52FCC06F_1")
+    public func _dbw_isPrime_52FCC06F_1() -> Bool {
+        return self.isPrime()
+    }
+}
+
+extension CryptoSwift.PKCS5.PBKDF1 {
+    @_silgen_name("DBW_PBKDF1_init_7BE41FE2_3")
+    public static func _dbw_init_7BE41FE2_3(_ password: Array<UInt8>, _ salt: Array<UInt8>) throws -> CryptoSwift.PKCS5.PBKDF1 {
+        return try CryptoSwift.PKCS5.PBKDF1(password: password, salt: salt)
+    }
+}
+
+extension CryptoSwift.PKCS5.PBKDF1 {
+    @_silgen_name("DBW_PBKDF1_init_7BE41FE2_2")
+    public static func _dbw_init_7BE41FE2_2(_ password: Array<UInt8>, _ salt: Array<UInt8>, _ variant: PKCS5.PBKDF1.Variant) throws -> CryptoSwift.PKCS5.PBKDF1 {
+        return try CryptoSwift.PKCS5.PBKDF1(password: password, salt: salt, variant: variant)
+    }
+}
+
+extension CryptoSwift.PKCS5.PBKDF1 {
+    @_silgen_name("DBW_PBKDF1_init_7BE41FE2_1")
+    public static func _dbw_init_7BE41FE2_1(_ password: Array<UInt8>, _ salt: Array<UInt8>, _ variant: PKCS5.PBKDF1.Variant, _ iterations: Int) throws -> CryptoSwift.PKCS5.PBKDF1 {
+        return try CryptoSwift.PKCS5.PBKDF1(password: password, salt: salt, variant: variant, iterations: iterations)
+    }
+}
+
+extension CryptoSwift.PKCS5.PBKDF2 {
+    @_silgen_name("DBW_PBKDF2_init_7F982646_3")
+    public static func _dbw_init_7F982646_3(_ password: Array<UInt8>, _ salt: Array<UInt8>) throws -> CryptoSwift.PKCS5.PBKDF2 {
+        return try CryptoSwift.PKCS5.PBKDF2(password: password, salt: salt)
+    }
+}
+
+extension CryptoSwift.PKCS5.PBKDF2 {
+    @_silgen_name("DBW_PBKDF2_init_7F982646_2")
+    public static func _dbw_init_7F982646_2(_ password: Array<UInt8>, _ salt: Array<UInt8>, _ iterations: Int) throws -> CryptoSwift.PKCS5.PBKDF2 {
+        return try CryptoSwift.PKCS5.PBKDF2(password: password, salt: salt, iterations: iterations)
+    }
+}
+
+extension CryptoSwift.PKCS5.PBKDF2 {
+    @_silgen_name("DBW_PBKDF2_init_7F982646_1")
+    public static func _dbw_init_7F982646_1(_ password: Array<UInt8>, _ salt: Array<UInt8>, _ iterations: Int, _ keyLength: Optional<Int>) throws -> CryptoSwift.PKCS5.PBKDF2 {
+        return try CryptoSwift.PKCS5.PBKDF2(password: password, salt: salt, iterations: iterations, keyLength: keyLength)
+    }
+}
+
+extension CryptoSwift.OCB {
+    @_silgen_name("DBW_OCB_init_0ECB1569_3")
+    public static func _dbw_init_0ECB1569_3(_ N: Array<UInt8>) -> CryptoSwift.OCB {
+        return CryptoSwift.OCB(nonce: N)
+    }
+}
+
+extension CryptoSwift.OCB {
+    @_silgen_name("DBW_OCB_init_0ECB1569_2")
+    public static func _dbw_init_0ECB1569_2(_ N: Array<UInt8>, _ additionalAuthenticatedData: Optional<Array<UInt8>>) -> CryptoSwift.OCB {
+        return CryptoSwift.OCB(nonce: N, additionalAuthenticatedData: additionalAuthenticatedData)
+    }
+}
+
+extension CryptoSwift.OCB {
+    @_silgen_name("DBW_OCB_init_0ECB1569_1")
+    public static func _dbw_init_0ECB1569_1(_ N: Array<UInt8>, _ additionalAuthenticatedData: Optional<Array<UInt8>>, _ tagLength: Int) -> CryptoSwift.OCB {
+        return CryptoSwift.OCB(nonce: N, additionalAuthenticatedData: additionalAuthenticatedData, tagLength: tagLength)
+    }
+}
+
+extension CryptoSwift.OCB {
+    @_silgen_name("DBW_OCB_init_018E626A_2")
+    public static func _dbw_init_018E626A_2(_ N: Array<UInt8>, _ authenticationTag: Array<UInt8>) -> CryptoSwift.OCB {
+        return CryptoSwift.OCB(nonce: N, authenticationTag: authenticationTag)
+    }
+}
+
+extension CryptoSwift.OCB {
+    @_silgen_name("DBW_OCB_init_018E626A_1")
+    public static func _dbw_init_018E626A_1(_ N: Array<UInt8>, _ authenticationTag: Array<UInt8>, _ additionalAuthenticatedData: Optional<Array<UInt8>>) -> CryptoSwift.OCB {
+        return CryptoSwift.OCB(nonce: N, authenticationTag: authenticationTag, additionalAuthenticatedData: additionalAuthenticatedData)
     }
 }
 
 extension CryptoSwift.ChaCha20 {
     @_silgen_name("SBW_ChaCha20_encrypt_26BBF911")
-    public func _sbw_encrypt_26BBF911(_ arg0: Array<UInt8>) throws -> Array<UInt8> {
-        return try self.encrypt(Swift.ArraySlice(arg0))
+    public func _sbw_encrypt_26BBF911(_ bytes: Array<UInt8>) throws -> Array<UInt8> {
+        return try self.encrypt(Swift.ArraySlice(bytes))
     }
 }
 
 extension CryptoSwift.ChaCha20 {
     @_silgen_name("SBW_ChaCha20_decrypt_20F04D3D")
-    public func _sbw_decrypt_20F04D3D(_ arg0: Array<UInt8>) throws -> Array<UInt8> {
-        return try self.decrypt(Swift.ArraySlice(arg0))
+    public func _sbw_decrypt_20F04D3D(_ bytes: Array<UInt8>) throws -> Array<UInt8> {
+        return try self.decrypt(Swift.ArraySlice(bytes))
     }
 }
 
 extension CryptoSwift.Rabbit {
     @_silgen_name("SBW_Rabbit_encrypt_82911D05")
-    public func _sbw_encrypt_82911D05(_ arg0: Array<UInt8>) throws -> Array<UInt8> {
-        return try self.encrypt(Swift.ArraySlice(arg0))
+    public func _sbw_encrypt_82911D05(_ bytes: Array<UInt8>) throws -> Array<UInt8> {
+        return try self.encrypt(Swift.ArraySlice(bytes))
     }
 }
 
 extension CryptoSwift.Rabbit {
     @_silgen_name("SBW_Rabbit_decrypt_3A6508F1")
-    public func _sbw_decrypt_3A6508F1(_ arg0: Array<UInt8>) throws -> Array<UInt8> {
-        return try self.decrypt(Swift.ArraySlice(arg0))
+    public func _sbw_decrypt_3A6508F1(_ bytes: Array<UInt8>) throws -> Array<UInt8> {
+        return try self.decrypt(Swift.ArraySlice(bytes))
     }
 }
 
 extension CryptoSwift.BlockDecryptor {
     @_silgen_name("SBW_BlockDecryptor_update_AF13EE4D")
-    public func _sbw_update_AF13EE4D(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
-        return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
+    public func _sbw_update_AF13EE4D(_ bytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
+        return try self.update(withBytes: Swift.ArraySlice(bytes), isLast: isLast)
     }
 }
 
 extension CryptoSwift.SHA3 {
     @_silgen_name("SBW_SHA3_update_603F8BDE")
-    public func _sbw_update_603F8BDE(_ withBytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
-        return try self.update(withBytes: Swift.ArraySlice(withBytes), isLast: isLast)
+    public func _sbw_update_603F8BDE(_ bytes: Array<UInt8>, _ isLast: Bool) throws -> Array<UInt8> {
+        return try self.update(withBytes: Swift.ArraySlice(bytes), isLast: isLast)
     }
 }

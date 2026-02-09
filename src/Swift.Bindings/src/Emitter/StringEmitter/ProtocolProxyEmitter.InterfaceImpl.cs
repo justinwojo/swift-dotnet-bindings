@@ -256,14 +256,39 @@ public partial class ProtocolProxyEmitter
 
     private void EmitSubscriptImplementation(CSharpWriter writer, SubscriptDecl subscript, ProtocolDecl protocolDecl, int index)
     {
-        var returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec);
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        string returnTypeName;
+        if (existentialHandler.IsExistential(subscript.ReturnTypeSpec))
+        {
+            var protocolList = existentialHandler.ToProtocolListTypeSpec(subscript.ReturnTypeSpec);
+            if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                returnTypeName = existentialHandler.GetPublicExistentialType(protocolList);
+            else
+                returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec);
+        }
+        else
+        {
+            returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec);
+        }
 
         // Build parameter list
         var parameters = new List<string>();
         for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
             var param = subscript.IndexParameters[i];
-            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+            string paramTypeName;
+            if (existentialHandler.IsExistential(param.SwiftTypeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(param.SwiftTypeSpec);
+                if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                    paramTypeName = existentialHandler.GetPublicExistentialType(protocolList);
+                else
+                    paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+            }
+            else
+            {
+                paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+            }
             var paramName = string.IsNullOrEmpty(param.Name) ? $"index{i}" : param.Name;
             parameters.Add($"{paramTypeName} {paramName}");
         }
@@ -334,7 +359,19 @@ public partial class ProtocolProxyEmitter
             }
             else
             {
-                returnTypeName = GetCSharpTypeName(returnType!);
+                var existentialHandler = new ExistentialHandler(_typeDatabase);
+                if (existentialHandler.IsExistential(returnType!))
+                {
+                    var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType!);
+                    if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                        returnTypeName = existentialHandler.GetPublicExistentialType(protocolList);
+                    else
+                        returnTypeName = GetCSharpTypeName(returnType!);
+                }
+                else
+                {
+                    returnTypeName = GetCSharpTypeName(returnType!);
+                }
             }
         }
         else
@@ -363,7 +400,19 @@ public partial class ProtocolProxyEmitter
             }
             else
             {
-                paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+                var existentialHandler = new ExistentialHandler(_typeDatabase);
+                if (existentialHandler.IsExistential(param.SwiftTypeSpec))
+                {
+                    var protocolList = existentialHandler.ToProtocolListTypeSpec(param.SwiftTypeSpec);
+                    if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                        paramTypeName = existentialHandler.GetPublicExistentialType(protocolList);
+                    else
+                        paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+                }
+                else
+                {
+                    paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+                }
             }
             var paramName = string.IsNullOrEmpty(param.Name) ? $"arg{argIndex}" : param.Name;
             parameters.Add($"{paramTypeName} {paramName}");

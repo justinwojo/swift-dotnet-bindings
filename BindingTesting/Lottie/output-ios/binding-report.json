@@ -1,12 +1,12 @@
 {
   "ModuleName": "Lottie",
-  "GeneratedAt": "2026-02-06T19:57:06.025728+00:00",
-  "TotalTypes": 93,
+  "GeneratedAt": "2026-02-09T03:42:39.722376+00:00",
+  "TotalTypes": 80,
   "EmittedTypes": 77,
   "SkippedTypes": 3,
-  "TotalMembers": 609,
-  "EmittedMembers": 375,
-  "SkippedMembers": 39,
+  "TotalMembers": 475,
+  "EmittedMembers": 392,
+  "SkippedMembers": 42,
   "SynthesizedMembers": 270,
   "SkippedItems": [
     {
@@ -42,6 +42,14 @@
       "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
     },
     {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.LottieAnimationLayer",
+      "Reason": "UnsupportedExistential",
+      "Details": "Constructor bound generic contains existential type argument 'any Lottie.AnimationImageProvider'.",
+      "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
+    },
+    {
       "Kind": "Type",
       "Name": "LottieButton",
       "ContainingType": null,
@@ -62,7 +70,7 @@
       "Name": "init",
       "ContainingType": "Lottie.FilepathImageProvider",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type.",
+      "Details": "Constructor signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
@@ -118,7 +126,7 @@
       "Name": "init",
       "ContainingType": "Lottie.CompatibleAnimation",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type.",
+      "Details": "Constructor signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
@@ -136,6 +144,14 @@
       "Reason": "UnsatisfiedGenericConstraint",
       "Details": "Type argument 'Lottie.LottieColor' does not satisfy constraint 'Lottie.AnyInterpolatable' on 'ValueProviderStorage'.",
       "RecommendedWorkaround": "Use a Swift wrapper that constructs the generic type internally."
+    },
+    {
+      "Kind": "Property",
+      "Name": "paused",
+      "ContainingType": "Lottie.LottiePlaybackMode",
+      "Reason": "DuplicateSignature",
+      "Details": "Enum static property 'Paused' collides with case constructor name.",
+      "RecommendedWorkaround": "Rename one member via a Swift extension to disambiguate."
     },
     {
       "Kind": "Method",
@@ -242,6 +258,14 @@
       "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
     },
     {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "Lottie.LottieAnimationView",
+      "Reason": "UnsupportedExistential",
+      "Details": "Constructor bound generic contains existential type argument 'any Lottie.AnimationImageProvider'.",
+      "RecommendedWorkaround": "Write a Swift wrapper that accepts concrete types or use a simplified constructor."
+    },
+    {
       "Kind": "Property",
       "Name": "storage",
       "ContainingType": "Lottie.FloatValueProvider",
@@ -262,7 +286,7 @@
       "Name": "init",
       "ContainingType": "Lottie.BundleImageProvider",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type.",
+      "Details": "Constructor signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
@@ -310,7 +334,7 @@
       "Name": "init",
       "ContainingType": "Lottie.LottieLogger",
       "Reason": "UnsupportedSignature",
-      "Details": "Method signature contains unsupported placeholder type.",
+      "Details": "Constructor signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {

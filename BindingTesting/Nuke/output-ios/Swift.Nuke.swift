@@ -745,8 +745,92 @@ public func SBW_ImageDecoding_free_get_isAsynchronous_0(_ ptr: UnsafeMutableRawP
     ptr.deallocate()
 }
 
+
+extension Nuke.ImageResponse {
+    @_silgen_name("DBW_ImageResponse_init_F8ACDC69_2")
+    public static func _dbw_init_F8ACDC69_2(_ container: ImageContainer, _ request: ImageRequest) -> Nuke.ImageResponse {
+        return Nuke.ImageResponse(container: container, request: request)
+    }
+}
+
+extension Nuke.ImageResponse {
+    @_silgen_name("DBW_ImageResponse_init_F8ACDC69_1")
+    public static func _dbw_init_F8ACDC69_1(_ container: ImageContainer, _ request: ImageRequest, _ urlResponse: Optional<URLResponse>) -> Nuke.ImageResponse {
+        return Nuke.ImageResponse(container: container, request: request, urlResponse: urlResponse)
+    }
+}
+
+extension Nuke.ImageCache {
+    @_silgen_name("DBW_ImageCache_init_F7E1ED79_2")
+    public static func _dbw_init_F7E1ED79_2() -> Nuke.ImageCache {
+        return Nuke.ImageCache()
+    }
+}
+
+extension Nuke.ImageCache {
+    @_silgen_name("DBW_ImageCache_init_F7E1ED79_1")
+    public static func _dbw_init_F7E1ED79_1(_ costLimit: Int) -> Nuke.ImageCache {
+        return Nuke.ImageCache(costLimit: costLimit)
+    }
+}
+
+extension Nuke.ImagePipeline.Cache {
+    @_silgen_name("DBW_Cache_cachedImage_FF81D467_1")
+    public func _dbw_cachedImage_FF81D467_1(_ _for: ImageRequest) -> Optional<ImageContainer> {
+        return self.cachedImage(for: _for)
+    }
+}
+
+extension Nuke.ImagePipeline.Cache {
+    @_silgen_name("DBW_Cache_storeCachedImage_B14B9B8A_1")
+    public func _dbw_storeCachedImage_B14B9B8A_1(_ arg0: ImageContainer, _ _for: ImageRequest) -> () {
+        return self.storeCachedImage(arg0, for: _for)
+    }
+}
+
+extension Nuke.ImagePipeline.Cache {
+    @_silgen_name("DBW_Cache_removeCachedImage_6F11C1F7_1")
+    public func _dbw_removeCachedImage_6F11C1F7_1(_ _for: ImageRequest) -> () {
+        return self.removeCachedImage(for: _for)
+    }
+}
+
+extension Nuke.ImagePipeline.Cache {
+    @_silgen_name("DBW_Cache_containsCachedImage_5B644858_1")
+    public func _dbw_containsCachedImage_5B644858_1(_ _for: ImageRequest) -> Bool {
+        return self.containsCachedImage(for: _for)
+    }
+}
+
+extension Nuke.ImagePipeline.Cache {
+    @_silgen_name("DBW_Cache_removeAll_00813104_1")
+    public func _dbw_removeAll_00813104_1() -> () {
+        return self.removeAll()
+    }
+}
+
+extension Nuke.ImagePipeline.Configuration {
+    @_silgen_name("DBW_Configuration_init_6F4D1A10_1")
+    public static func _dbw_init_6F4D1A10_1() -> Nuke.ImagePipeline.Configuration {
+        return Nuke.ImagePipeline.Configuration()
+    }
+}
+
+extension Nuke.ImagePipeline.Configuration {
+    @_silgen_name("DBW_Configuration_withDataCache_75148080_2")
+    public static func _dbw_withDataCache_75148080_2() -> ImagePipeline.Configuration {
+        return Self.withDataCache()
+    }
+}
+
+extension Nuke.ImagePipeline.Configuration {
+    @_silgen_name("DBW_Configuration_withDataCache_75148080_1")
+    public static func _dbw_withDataCache_75148080_1(_ name: String) -> ImagePipeline.Configuration {
+        return Self.withDataCache(name: name)
+    }
+}
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-public func PInvoke_image_1BCFD061(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_2EDA7BFB(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -775,7 +859,7 @@ public func PInvoke_image_1BCFD061(callback: @escaping @convention(c) (OpaquePoi
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-public func PInvoke_image_62A1603B(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_32FD4D50(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -804,7 +888,7 @@ public func PInvoke_image_62A1603B(callback: @escaping @convention(c) (OpaquePoi
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAA0B7RequestV_tYaKF_async")
-public func PInvoke_data_7CEA3D27(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_5A8C13B1(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -825,7 +909,7 @@ public func PInvoke_data_7CEA3D27(callback: @escaping @convention(c) (Foundation
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAF3URLV_tYaKF_async")
-public func PInvoke_data_367142B0(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_26FAE517(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -845,9 +929,128 @@ public func PInvoke_data_367142B0(callback: @escaping @convention(c) (Foundation
         }
     }
 }
+
+extension Nuke.ImageProcessingOptions.Border {
+    @_silgen_name("DBW_Border_init_46D2AA2C_2")
+    public static func _dbw_init_46D2AA2C_2(_ color: UIColor) -> Nuke.ImageProcessingOptions.Border {
+        return Nuke.ImageProcessingOptions.Border(color: color)
+    }
+}
+
+extension Nuke.ImageProcessingOptions.Border {
+    @_silgen_name("DBW_Border_init_46D2AA2C_1")
+    public static func _dbw_init_46D2AA2C_1(_ color: UIColor, _ width: CGFloat) -> Nuke.ImageProcessingOptions.Border {
+        return Nuke.ImageProcessingOptions.Border(color: color, width: width)
+    }
+}
+
+extension Nuke.DataCache {
+    @_silgen_name("DBW_DataCache_init_AB279AAF_1")
+    public static func _dbw_init_AB279AAF_1(_ name: String) throws -> Nuke.DataCache {
+        return try Nuke.DataCache(name: name)
+    }
+}
+
+extension Nuke.DataCache {
+    @_silgen_name("DBW_DataCache_init_CF2F43D1_1")
+    public static func _dbw_init_CF2F43D1_1(_ path: URL) throws -> Nuke.DataCache {
+        return try Nuke.DataCache(path: path)
+    }
+}
+
+extension Nuke.ImageDecodingContext {
+    @_silgen_name("DBW_ImageDecodingContext_init_6CA396CF_3")
+    public static func _dbw_init_6CA396CF_3(_ request: ImageRequest, _ data: Data) -> Nuke.ImageDecodingContext {
+        return Nuke.ImageDecodingContext(request: request, data: data)
+    }
+}
+
+extension Nuke.ImageDecodingContext {
+    @_silgen_name("DBW_ImageDecodingContext_init_6CA396CF_2")
+    public static func _dbw_init_6CA396CF_2(_ request: ImageRequest, _ data: Data, _ isCompleted: Bool) -> Nuke.ImageDecodingContext {
+        return Nuke.ImageDecodingContext(request: request, data: data, isCompleted: isCompleted)
+    }
+}
+
+extension Nuke.ImageDecodingContext {
+    @_silgen_name("DBW_ImageDecodingContext_init_6CA396CF_1")
+    public static func _dbw_init_6CA396CF_1(_ request: ImageRequest, _ data: Data, _ isCompleted: Bool, _ urlResponse: Optional<URLResponse>) -> Nuke.ImageDecodingContext {
+        return Nuke.ImageDecodingContext(request: request, data: data, isCompleted: isCompleted, urlResponse: urlResponse)
+    }
+}
+
+extension Nuke.ImageProcessors.RoundedCorners {
+    @_silgen_name("DBW_RoundedCorners_init_DD16F922_2")
+    public static func _dbw_init_DD16F922_2(_ radius: CGFloat) -> Nuke.ImageProcessors.RoundedCorners {
+        return Nuke.ImageProcessors.RoundedCorners(radius: radius)
+    }
+}
+
+extension Nuke.ImageProcessors.RoundedCorners {
+    @_silgen_name("DBW_RoundedCorners_init_DD16F922_1")
+    public static func _dbw_init_DD16F922_1(_ radius: CGFloat, _ unit: ImageProcessingOptions.Unit) -> Nuke.ImageProcessors.RoundedCorners {
+        return Nuke.ImageProcessors.RoundedCorners(radius: radius, unit: unit)
+    }
+}
+
+extension Nuke.ImageProcessors.Resize {
+    @_silgen_name("DBW_Resize_init_51CAC367_4")
+    public static func _dbw_init_51CAC367_4(_ size: CGSize) -> Nuke.ImageProcessors.Resize {
+        return Nuke.ImageProcessors.Resize(size: size)
+    }
+}
+
+extension Nuke.ImageProcessors.Resize {
+    @_silgen_name("DBW_Resize_init_51CAC367_3")
+    public static func _dbw_init_51CAC367_3(_ size: CGSize, _ unit: ImageProcessingOptions.Unit) -> Nuke.ImageProcessors.Resize {
+        return Nuke.ImageProcessors.Resize(size: size, unit: unit)
+    }
+}
+
+extension Nuke.ImageProcessors.Resize {
+    @_silgen_name("DBW_Resize_init_51CAC367_1")
+    public static func _dbw_init_51CAC367_1(_ size: CGSize, _ unit: ImageProcessingOptions.Unit, _ contentMode: ImageProcessingOptions.ContentMode, _ crop: Bool) -> Nuke.ImageProcessors.Resize {
+        return Nuke.ImageProcessors.Resize(size: size, unit: unit, contentMode: contentMode, crop: crop)
+    }
+}
+
+extension Nuke.ImageProcessors.Resize {
+    @_silgen_name("DBW_Resize_init_62C284BA_2")
+    public static func _dbw_init_62C284BA_2(_ width: CGFloat) -> Nuke.ImageProcessors.Resize {
+        return Nuke.ImageProcessors.Resize(width: width)
+    }
+}
+
+extension Nuke.ImageProcessors.Resize {
+    @_silgen_name("DBW_Resize_init_62C284BA_1")
+    public static func _dbw_init_62C284BA_1(_ width: CGFloat, _ unit: ImageProcessingOptions.Unit) -> Nuke.ImageProcessors.Resize {
+        return Nuke.ImageProcessors.Resize(width: width, unit: unit)
+    }
+}
+
+extension Nuke.ImageProcessors.GaussianBlur {
+    @_silgen_name("DBW_GaussianBlur_init_05E0C1C6_1")
+    public static func _dbw_init_05E0C1C6_1() -> Nuke.ImageProcessors.GaussianBlur {
+        return Nuke.ImageProcessors.GaussianBlur()
+    }
+}
+
+extension Nuke.ImageProcessors.Circle {
+    @_silgen_name("DBW_Circle_init_36B9D008_1")
+    public static func _dbw_init_36B9D008_1() -> Nuke.ImageProcessors.Circle {
+        return Nuke.ImageProcessors.Circle()
+    }
+}
+
+extension Nuke.ImageRequest.ThumbnailOptions {
+    @_silgen_name("DBW_ThumbnailOptions_init_3D39AF54_1")
+    public static func _dbw_init_3D39AF54_1(_ size: CGSize, _ unit: ImageProcessingOptions.Unit) -> Nuke.ImageRequest.ThumbnailOptions {
+        return Nuke.ImageRequest.ThumbnailOptions(size: size, unit: unit)
+    }
+}
 extension Nuke.ImageRequest {
     @_silgen_name("$s4Nuke12ImageRequestV2id4data10processors8priority7options8userInfoACSS_10Foundation4DataVyYaYbKcSayAA0B10Processing_pGAC8PriorityOAC7OptionsVSDyAC04UserJ3KeyVypGSgtcfC_async")
-    public func PInvoke_init_1C2C66E3(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, id: Swift.String, data: () throws -> Foundation.Data, processors: Swift.Array<any Nuke.ImageProcessing>, priority: UnsafeRawPointer, options: UnsafeRawPointer, userInfo: Swift.Optional<Swift.Dictionary<Nuke.ImageRequest.UserInfoKey, >>){
+    public func PInvoke_init_3114249B(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, id: Swift.String, data: () throws -> Foundation.Data, processors: Swift.Array<any Nuke.ImageProcessing>, priority: UnsafeRawPointer, options: UnsafeRawPointer, userInfo: Swift.Optional<Swift.Dictionary<Nuke.ImageRequest.UserInfoKey, >>){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let priorityValue = priority.assumingMemoryBound(to: Nuke.ImageRequest.Priority.self).pointee
@@ -874,6 +1077,41 @@ extension Nuke.ImageRequest {
                 errorMessage.withCString { errorCallback($0, task) }
             }
         }
+    }
+}
+
+extension Nuke.ImageRequest {
+    @_silgen_name("DBW_ImageRequest_init_18CE4E3A_4")
+    public static func _dbw_init_18CE4E3A_4(_ id: String, _ data: (()) -> Data) async -> Nuke.ImageRequest {
+        return await Nuke.ImageRequest(id: id, data: data)
+    }
+}
+
+extension Nuke.ImageRequest {
+    @_silgen_name("DBW_ImageRequest_init_18CE4E3A_3")
+    public static func _dbw_init_18CE4E3A_3(_ id: String, _ data: (()) -> Data, _ processors: Array<ImageProcessing>) async -> Nuke.ImageRequest {
+        return await Nuke.ImageRequest(id: id, data: data, processors: processors)
+    }
+}
+
+extension Nuke.ImageRequest {
+    @_silgen_name("DBW_ImageRequest_init_18CE4E3A_2")
+    public static func _dbw_init_18CE4E3A_2(_ id: String, _ data: (()) -> Data, _ processors: Array<ImageProcessing>, _ priority: ImageRequest.Priority) async -> Nuke.ImageRequest {
+        return await Nuke.ImageRequest(id: id, data: data, processors: processors, priority: priority)
+    }
+}
+
+extension Nuke.ImageDecoders.Empty {
+    @_silgen_name("DBW_Empty_init_B1B9E014_2")
+    public static func _dbw_init_B1B9E014_2() -> Nuke.ImageDecoders.Empty {
+        return Nuke.ImageDecoders.Empty()
+    }
+}
+
+extension Nuke.ImageDecoders.Empty {
+    @_silgen_name("DBW_Empty_init_B1B9E014_1")
+    public static func _dbw_init_B1B9E014_1(_ assetType: Optional<AssetType>) -> Nuke.ImageDecoders.Empty {
+        return Nuke.ImageDecoders.Empty(assetType: assetType)
     }
 }
 @_silgen_name("ImageTask_progress_AsyncStream")
@@ -922,5 +1160,40 @@ public func ImageTask_events_AsyncStream(
             if !shouldContinue { break }
         }
         completionCallback(context)
+    }
+}
+
+extension Nuke.ImageEncoders.ImageIO {
+    @_silgen_name("DBW_ImageIO_init_5E8C4DC8_1")
+    public static func _dbw_init_5E8C4DC8_1(_ type: AssetType) -> Nuke.ImageEncoders.ImageIO {
+        return Nuke.ImageEncoders.ImageIO(type: type)
+    }
+}
+
+extension Nuke.ImageEncoders.Default {
+    @_silgen_name("DBW_Default_init_42CADF88_1")
+    public static func _dbw_init_42CADF88_1() -> Nuke.ImageEncoders.Default {
+        return Nuke.ImageEncoders.Default()
+    }
+}
+
+extension Nuke.ImagePrefetcher {
+    @_silgen_name("DBW_ImagePrefetcher_init_9862FED5_3")
+    public static func _dbw_init_9862FED5_3() -> Nuke.ImagePrefetcher {
+        return Nuke.ImagePrefetcher()
+    }
+}
+
+extension Nuke.ImagePrefetcher {
+    @_silgen_name("DBW_ImagePrefetcher_init_9862FED5_2")
+    public static func _dbw_init_9862FED5_2(_ pipeline: ImagePipeline) -> Nuke.ImagePrefetcher {
+        return Nuke.ImagePrefetcher(pipeline: pipeline)
+    }
+}
+
+extension Nuke.ImagePrefetcher {
+    @_silgen_name("DBW_ImagePrefetcher_init_9862FED5_1")
+    public static func _dbw_init_9862FED5_1(_ pipeline: ImagePipeline, _ destination: ImagePrefetcher.Destination) -> Nuke.ImagePrefetcher {
+        return Nuke.ImagePrefetcher(pipeline: pipeline, destination: destination)
     }
 }

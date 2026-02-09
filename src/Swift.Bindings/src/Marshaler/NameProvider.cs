@@ -307,6 +307,8 @@ public static class NameProvider
         "Collection",     // ISwiftCollection (SwiftArray.cs)
         "DataProtocol",   // ISwiftDataProtocol (Data.cs)
         "ContiguousBytes", // ISwiftContiguousBytes (Data.cs)
+        "Encoder",        // ISwiftEncoder (ISwiftEncoder.cs)
+        "Decoder",        // ISwiftDecoder (ISwiftEncoder.cs)
     };
 
     public static string GetMetadataName(string typeName) => $"{typeName}Metadata";

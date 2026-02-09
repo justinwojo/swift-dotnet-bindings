@@ -785,13 +785,48 @@ public func getEveryProtocolAnyInterpolatableWitnessTable() -> UnsafeRawPointer 
         }
     }
 }
+
+extension Lottie.LottieAnimationLayer {
+    @_silgen_name("DBW_LottieAnimationLayer_init_B0F42190_1")
+    public static func _dbw_init_B0F42190_1(_ configuration: LottieConfiguration) -> Lottie.LottieAnimationLayer {
+        return Lottie.LottieAnimationLayer(configuration: configuration)
+    }
+}
+
+extension Lottie.LottieAnimationLayer {
+    @_silgen_name("DBW_LottieAnimationLayer_play_08706907_1")
+    public func _dbw_play_08706907_1() -> () {
+        return self.play()
+    }
+}
+
+extension Lottie.LottieAnimationLayer {
+    @_silgen_name("DBW_LottieAnimationLayer_setPlaybackMode_C8F59DE9_1")
+    public func _dbw_setPlaybackMode_C8F59DE9_1(_ arg0: LottiePlaybackMode) -> () {
+        return self.setPlaybackMode(arg0)
+    }
+}
+
+extension Lottie.LottieAnimation {
+    @_silgen_name("DBW_LottieAnimation_filepath_93C25C3D_1")
+    public static func _dbw_filepath_93C25C3D_1(_ arg0: String) -> Optional<LottieAnimation> {
+        return Self.filepath(arg0)
+    }
+}
+
+extension Lottie.LottieAnimation {
+    @_silgen_name("DBW_LottieAnimation_from_3BFA5D89_1")
+    public static func _dbw_from_3BFA5D89_1(_ data: Data) throws -> LottieAnimation {
+        return try Self.from(data: data)
+    }
+}
 extension Lottie.LottieAnimation {
     @_silgen_name("$s6Lottie0A9AnimationC10loadedFrom3url7session14animationCacheACSg10Foundation3URLV_AA0A10URLSession_pAA0bH8Provider_pSgtYaFZ_async")
-    public static func PInvoke_loadedFrom_3BF72C23(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, animationCache: Swift.Optional<any Lottie.AnimationCacheProvider>){
+    public static func PInvoke_loadedFrom_77B78D34(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, animationCache: Swift.Optional<any Lottie.AnimationCacheProvider>){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
-        let sessionValue = session.assumingMemoryBound(to: any Lottie.LottieURLSession.self).pointee
+        let sessionValue = session.load(as: (any Lottie.LottieURLSession).self)
         
 
         Task {
@@ -816,9 +851,168 @@ extension Lottie.LottieAnimation {
         }
     }
 }
+
+extension Lottie.LottieAnimation {
+    @_silgen_name("DBW_LottieAnimation_loadedFrom_4F9CA3D1_2")
+    public static func _dbw_loadedFrom_4F9CA3D1_2(_ url: URL) async -> Optional<LottieAnimation> {
+        return await Self.loadedFrom(url: url)
+    }
+}
+extension Lottie.LottieAnimation {
+    @_silgen_name("DBW_LottieAnimation_loadedFrom_4F9CA3D1_2_async")
+    public static func PInvoke_loadedFrom_499651BF(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
+        // Read non-frozen parameters via .pointee (bitwise copy)
+        // C# created copies using InitializeWithCopy (owns a proper reference)
+        let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
+        
+
+        Task {
+            do {
+                let resultloadedFrom = try await Lottie.LottieAnimation.loadedFrom(
+                    url: urlValue
+                )
+                // Marshal complex type to pointer (C# will free via SBW_Free)
+                        let _resultPtr: OpaquePointer
+                        do {
+                            let _rawPtr = UnsafeMutableRawPointer.allocate(
+                                byteCount: MemoryLayout<Swift.Optional<Lottie.LottieAnimation>>.size,
+                                alignment: MemoryLayout<Swift.Optional<Lottie.LottieAnimation>>.alignment)
+                            _rawPtr.storeBytes(of: resultloadedFrom, as: Swift.Optional<Lottie.LottieAnimation>.self)
+                            _resultPtr = OpaquePointer(_rawPtr)
+                        }
+                callback(_resultPtr, task)
+            } catch {
+                let errorMessage = String(describing: error)
+                errorMessage.withCString { errorCallback($0, task) }
+            }
+        }
+    }
+}
+
+extension Lottie.LottieAnimation {
+    @_silgen_name("DBW_LottieAnimation_loadedFrom_4F9CA3D1_1")
+    public static func _dbw_loadedFrom_4F9CA3D1_1(_ url: URL, _ session: LottieURLSession) async -> Optional<LottieAnimation> {
+        return await Self.loadedFrom(url: url, session: session)
+    }
+}
+extension Lottie.LottieAnimation {
+    @_silgen_name("DBW_LottieAnimation_loadedFrom_4F9CA3D1_1_async")
+    public static func PInvoke_loadedFrom_1F5B3CFB(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer){
+        // Read non-frozen parameters via .pointee (bitwise copy)
+        // C# created copies using InitializeWithCopy (owns a proper reference)
+        let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
+        let sessionValue = session.load(as: (any Lottie.LottieURLSession).self)
+        
+
+        Task {
+            do {
+                let resultloadedFrom = try await Lottie.LottieAnimation.loadedFrom(
+                    url: urlValue, session: sessionValue
+                )
+                // Marshal complex type to pointer (C# will free via SBW_Free)
+                        let _resultPtr: OpaquePointer
+                        do {
+                            let _rawPtr = UnsafeMutableRawPointer.allocate(
+                                byteCount: MemoryLayout<Swift.Optional<Lottie.LottieAnimation>>.size,
+                                alignment: MemoryLayout<Swift.Optional<Lottie.LottieAnimation>>.alignment)
+                            _rawPtr.storeBytes(of: resultloadedFrom, as: Swift.Optional<Lottie.LottieAnimation>.self)
+                            _resultPtr = OpaquePointer(_rawPtr)
+                        }
+                callback(_resultPtr, task)
+            } catch {
+                let errorMessage = String(describing: error)
+                errorMessage.withCString { errorCallback($0, task) }
+            }
+        }
+    }
+}
+
+extension Lottie.LottieColor {
+    @_silgen_name("DBW_LottieColor_init_5C5A3370_1")
+    public static func _dbw_init_5C5A3370_1(_ r: Double, _ g: Double, _ b: Double, _ a: Double) -> Lottie.LottieColor {
+        return Lottie.LottieColor(r: r, g: g, b: b, a: a)
+    }
+}
+
+extension Lottie.LottieConfiguration {
+    @_silgen_name("DBW_LottieConfiguration_init_4DF31073_4")
+    public static func _dbw_init_4DF31073_4() -> Lottie.LottieConfiguration {
+        return Lottie.LottieConfiguration()
+    }
+}
+
+extension Lottie.LottieConfiguration {
+    @_silgen_name("DBW_LottieConfiguration_init_4DF31073_3")
+    public static func _dbw_init_4DF31073_3(_ renderingEngine: RenderingEngineOption) -> Lottie.LottieConfiguration {
+        return Lottie.LottieConfiguration(renderingEngine: renderingEngine)
+    }
+}
+
+extension Lottie.LottieConfiguration {
+    @_silgen_name("DBW_LottieConfiguration_init_4DF31073_2")
+    public static func _dbw_init_4DF31073_2(_ renderingEngine: RenderingEngineOption, _ decodingStrategy: DecodingStrategy) -> Lottie.LottieConfiguration {
+        return Lottie.LottieConfiguration(renderingEngine: renderingEngine, decodingStrategy: decodingStrategy)
+    }
+}
+
+extension Lottie.LottieConfiguration {
+    @_silgen_name("DBW_LottieConfiguration_init_4DF31073_1")
+    public static func _dbw_init_4DF31073_1(_ renderingEngine: RenderingEngineOption, _ decodingStrategy: DecodingStrategy, _ colorSpace: CGColorSpace) -> Lottie.LottieConfiguration {
+        return Lottie.LottieConfiguration(renderingEngine: renderingEngine, decodingStrategy: decodingStrategy, colorSpace: colorSpace)
+    }
+}
+
+extension Lottie.AnimatedSwitch {
+    @_silgen_name("DBW_AnimatedSwitch_setIsOn_FECB6B7F_1")
+    public func _dbw_setIsOn_FECB6B7F_1(_ arg0: Bool, _ animated: Bool) -> () {
+        return self.setIsOn(arg0, animated: animated)
+    }
+}
+
+extension Lottie.LottieAnimationView {
+    @_silgen_name("DBW_LottieAnimationView_init_4E165D2F_2")
+    public static func _dbw_init_4E165D2F_2() -> Lottie.LottieAnimationView {
+        return Lottie.LottieAnimationView()
+    }
+}
+
+extension Lottie.LottieAnimationView {
+    @_silgen_name("DBW_LottieAnimationView_play_3438F396_1")
+    public func _dbw_play_3438F396_1() -> () {
+        return self.play()
+    }
+}
+
+extension Lottie.LottieAnimationView {
+    @_silgen_name("DBW_LottieAnimationView_setPlaybackMode_EAA5C63A_1")
+    public func _dbw_setPlaybackMode_EAA5C63A_1(_ arg0: LottiePlaybackMode) -> () {
+        return self.setPlaybackMode(arg0)
+    }
+}
+
+extension Lottie.GradientValueProvider {
+    @_silgen_name("DBW_GradientValueProvider_init_09F0DEFF_1")
+    public static func _dbw_init_09F0DEFF_1(_ block: (CGFloat) -> Array<LottieColor>) -> Lottie.GradientValueProvider {
+        return Lottie.GradientValueProvider(block: block)
+    }
+}
+
+extension Lottie.GradientValueProvider {
+    @_silgen_name("DBW_GradientValueProvider_init_75F834A4_1")
+    public static func _dbw_init_75F834A4_1(_ arg0: Array<LottieColor>) -> Lottie.GradientValueProvider {
+        return Lottie.GradientValueProvider(arg0)
+    }
+}
+
+extension Lottie.DotLottieFile.SynchronouslyBlockingCurrentThread {
+    @_silgen_name("DBW_SynchronouslyBlockingCurrentThread_loadedFrom_B39E8CDA_1")
+    public static func _dbw_loadedFrom_B39E8CDA_1(_ filepath: String) -> Result<DotLottieFile, Error> {
+        return Self.loadedFrom(filepath: filepath)
+    }
+}
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom8filepath03dotA5CacheACSS_AA0baH8Provider_pSgtYaKFZ_async")
-    public static func PInvoke_loadedFrom_35F370B5(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
+    public static func PInvoke_loadedFrom_35B973ED(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
         
         Task {
             do {
@@ -844,13 +1038,48 @@ extension Lottie.DotLottieFile {
         }
     }
 }
+
+extension Lottie.DotLottieFile {
+    @_silgen_name("DBW_DotLottieFile_loadedFrom_2E70B627_1")
+    public static func _dbw_loadedFrom_2E70B627_1(_ filepath: String) async throws -> DotLottieFile {
+        return try await Self.loadedFrom(filepath: filepath)
+    }
+}
+extension Lottie.DotLottieFile {
+    @_silgen_name("DBW_DotLottieFile_loadedFrom_2E70B627_1_async")
+    public static func PInvoke_loadedFrom_05182841(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, filepath: Swift.String){
+        
+        Task {
+            do {
+                let resultloadedFrom = try await Lottie.DotLottieFile.loadedFrom(
+                    filepath: filepath
+                )
+                // Marshal complex type to pointer (C# will free via SBW_Free)
+                        let _resultPtr: OpaquePointer
+                        do {
+                            let _rawPtr = UnsafeMutableRawPointer.allocate(
+                                byteCount: MemoryLayout<Lottie.DotLottieFile>.size,
+                                alignment: MemoryLayout<Lottie.DotLottieFile>.alignment)
+                            _rawPtr.storeBytes(of: resultloadedFrom, as: Lottie.DotLottieFile.self)
+                            // Retain class to prevent ARC deallocation before C# processes it
+                            _ = Unmanaged.passRetained(resultloadedFrom as AnyObject)
+                            _resultPtr = OpaquePointer(_rawPtr)
+                        }
+                callback(_resultPtr, task)
+            } catch {
+                let errorMessage = String(describing: error)
+                errorMessage.withCString { errorCallback($0, task) }
+            }
+        }
+    }
+}
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom3url7session03dotA5CacheAC10Foundation3URLV_AA0A10URLSession_pAA0baI8Provider_pSgtYaKFZ_async")
-    public static func PInvoke_loadedFrom_706B2369(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
+    public static func PInvoke_loadedFrom_23BFC12A(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer, session: UnsafeRawPointer, dotLottieCache: Swift.Optional<any Lottie.DotLottieCacheProvider>){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
-        let sessionValue = session.assumingMemoryBound(to: any Lottie.LottieURLSession.self).pointee
+        let sessionValue = session.load(as: (any Lottie.LottieURLSession).self)
         
 
         Task {
@@ -877,9 +1106,48 @@ extension Lottie.DotLottieFile {
         }
     }
 }
+
+extension Lottie.DotLottieFile {
+    @_silgen_name("DBW_DotLottieFile_loadedFrom_420C0542_2")
+    public static func _dbw_loadedFrom_420C0542_2(_ url: URL) async throws -> DotLottieFile {
+        return try await Self.loadedFrom(url: url)
+    }
+}
+extension Lottie.DotLottieFile {
+    @_silgen_name("DBW_DotLottieFile_loadedFrom_420C0542_2_async")
+    public static func PInvoke_loadedFrom_53524600(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, url: UnsafeRawPointer){
+        // Read non-frozen parameters via .pointee (bitwise copy)
+        // C# created copies using InitializeWithCopy (owns a proper reference)
+        let urlValue = url.assumingMemoryBound(to: Foundation.URL.self).pointee
+        
+
+        Task {
+            do {
+                let resultloadedFrom = try await Lottie.DotLottieFile.loadedFrom(
+                    url: urlValue
+                )
+                // Marshal complex type to pointer (C# will free via SBW_Free)
+                        let _resultPtr: OpaquePointer
+                        do {
+                            let _rawPtr = UnsafeMutableRawPointer.allocate(
+                                byteCount: MemoryLayout<Lottie.DotLottieFile>.size,
+                                alignment: MemoryLayout<Lottie.DotLottieFile>.alignment)
+                            _rawPtr.storeBytes(of: resultloadedFrom, as: Lottie.DotLottieFile.self)
+                            // Retain class to prevent ARC deallocation before C# processes it
+                            _ = Unmanaged.passRetained(resultloadedFrom as AnyObject)
+                            _resultPtr = OpaquePointer(_rawPtr)
+                        }
+                callback(_resultPtr, task)
+            } catch {
+                let errorMessage = String(describing: error)
+                errorMessage.withCString { errorCallback($0, task) }
+            }
+        }
+    }
+}
 extension Lottie.DotLottieFile {
     @_silgen_name("$s6Lottie03DotA4FileC10loadedFrom4data8filename13dispatchQueueAC10Foundation4DataV_SSSo03OS_H6_queueCtYaKFZ_async")
-    public static func PInvoke_loadedFrom_322E5DC6(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
+    public static func PInvoke_loadedFrom_5AC3E125(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, data: Foundation.Data, filename: Swift.String, dispatchQueue: UnsafeRawPointer){
         // Read non-frozen parameters via .pointee (bitwise copy)
         // C# created copies using InitializeWithCopy (owns a proper reference)
         let dispatchQueueValue = dispatchQueue.assumingMemoryBound(to: Dispatch.DispatchQueue.self).pointee
@@ -907,5 +1175,47 @@ extension Lottie.DotLottieFile {
                 errorMessage.withCString { errorCallback($0, task) }
             }
         }
+    }
+}
+
+extension Lottie.LottieLogger {
+    @_silgen_name("DBW_LottieLogger_info_EE85B5E7_1")
+    public func _dbw_info_EE85B5E7_1() -> () {
+        return self.info()
+    }
+}
+
+extension Lottie.Keyframe {
+    @_silgen_name("DBW_Keyframe_init_C270DA2D_2")
+    public static func _dbw_init_C270DA2D_2(_ arg0: τ_0_0) -> Lottie.Keyframe {
+        return Lottie.Keyframe(arg0)
+    }
+}
+
+extension Lottie.Keyframe {
+    @_silgen_name("DBW_Keyframe_init_C270DA2D_1")
+    public static func _dbw_init_C270DA2D_1(_ arg0: τ_0_0, _ spatialInTangent: Optional<LottieVector3D>) -> Lottie.Keyframe {
+        return Lottie.Keyframe(arg0, spatialInTangent: spatialInTangent)
+    }
+}
+
+extension Lottie.Keyframe {
+    @_silgen_name("DBW_Keyframe_init_4218F6E2_3")
+    public static func _dbw_init_4218F6E2_3(_ value: τ_0_0, _ time: CGFloat, _ isHold: Bool, _ inTangent: Optional<LottieVector2D>) -> Lottie.Keyframe {
+        return Lottie.Keyframe(value: value, time: time, isHold: isHold, inTangent: inTangent)
+    }
+}
+
+extension Lottie.Keyframe {
+    @_silgen_name("DBW_Keyframe_init_4218F6E2_2")
+    public static func _dbw_init_4218F6E2_2(_ value: τ_0_0, _ time: CGFloat, _ isHold: Bool, _ inTangent: Optional<LottieVector2D>, _ outTangent: Optional<LottieVector2D>) -> Lottie.Keyframe {
+        return Lottie.Keyframe(value: value, time: time, isHold: isHold, inTangent: inTangent, outTangent: outTangent)
+    }
+}
+
+extension Lottie.Keyframe {
+    @_silgen_name("DBW_Keyframe_init_4218F6E2_1")
+    public static func _dbw_init_4218F6E2_1(_ value: τ_0_0, _ time: CGFloat, _ isHold: Bool, _ inTangent: Optional<LottieVector2D>, _ outTangent: Optional<LottieVector2D>, _ spatialInTangent: Optional<LottieVector3D>) -> Lottie.Keyframe {
+        return Lottie.Keyframe(value: value, time: time, isHold: isHold, inTangent: inTangent, outTangent: outTangent, spatialInTangent: spatialInTangent)
     }
 }
