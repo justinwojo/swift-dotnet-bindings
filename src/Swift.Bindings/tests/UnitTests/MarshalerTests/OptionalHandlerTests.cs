@@ -299,6 +299,8 @@ public class OptionalHandlerTests
         }
 
         public string GetLibraryPath(string moduleName) => "";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
     }
 
     #endregion

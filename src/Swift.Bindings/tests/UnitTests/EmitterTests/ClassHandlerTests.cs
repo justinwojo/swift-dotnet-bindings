@@ -306,7 +306,7 @@ public class ClassHandlerTests
         var names = new HashSet<string>();
         foreach (var prop in classDecl.Properties)
         {
-            var csName = NameProvider.GetPropertyName(prop.Name, new HashSet<string>(), classDecl.Name);
+            var csName = NameProvider.GetPropertyName(prop.Name, classDecl.Name);
             if (!names.Add(csName))
             {
                 // Second add returns false — it's a duplicate.
@@ -329,7 +329,7 @@ public class ClassHandlerTests
         var hasDuplicates = false;
         foreach (var prop in classDecl.Properties)
         {
-            var csName = NameProvider.GetPropertyName(prop.Name, new HashSet<string>(), classDecl.Name);
+            var csName = NameProvider.GetPropertyName(prop.Name, classDecl.Name);
             if (!names.Add(csName))
             {
                 hasDuplicates = true;

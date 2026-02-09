@@ -97,7 +97,8 @@ namespace BindingsGeneration
             SwiftTypeInfo? swiftTypeInfo = typeRecord?.SwiftTypeInfo;
 
             // Get generic type parts if this is a generic type
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
+            // Pass conductor renames so nested types that were renamed by their parent appear with the correct name
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl, conductor.NestedTypeRenames);
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics);
@@ -106,6 +107,11 @@ namespace BindingsGeneration
             var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
             var previousContext = conductor.CurrentPInvokeHelperContext;
             conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
+
+            // Compute nested type renames to resolve property/nested-type name collisions
+            var nestedTypeRenames = ComputeAndApplyNestedTypeRenames(structDecl, env.TypeDatabase);
+            var previousRenames = conductor.NestedTypeRenames;
+            conductor.NestedTypeRenames = nestedTypeRenames;
 
             try
             {
@@ -189,7 +195,7 @@ namespace BindingsGeneration
                     csWriter.Indent -= 2;
                     csWriter.WriteLine("}");
                     csWriter.WriteLine();
-                    csWriter.WriteLine($"public unsafe PayloadBuffer<{structDecl.Name}.Buffer> PayloadBuffer => new PayloadBuffer<{structDecl.Name}.Buffer>(_payload);");
+                    csWriter.WriteLine($"public unsafe PayloadBuffer<{typeNameWithGenerics}.Buffer> PayloadBuffer => new PayloadBuffer<{typeNameWithGenerics}.Buffer>(_payload);");
                     csWriter.WriteLine();
                 }
 
@@ -232,15 +238,13 @@ namespace BindingsGeneration
                 bool hasInequality = emittedOperatorSymbols.Contains("!=");
 
                 // Add Equatable support if the struct conforms to Equatable
-                var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, hasEquality, hasInequality);
+                var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, typeNameWithGenerics, hasEquality, hasInequality);
                 SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
                 ISwiftObjectMethodWriter.WriteFrozenStructImplementation(pinvokeHelperContext, isProjectedAsClass);
 
                 // Collect property names for method/property collision detection
-                // Include nested type names and containing type name for consistent naming with PropertyHandler
-                var nestedTypeNames = new HashSet<string>(structDecl.Types.Select(t => t.Name));
                 var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
-                    NameProvider.GetPropertyName(p.Name, nestedTypeNames, structDecl.Name)));
+                    NameProvider.GetPropertyName(p.Name, structDecl.Name)));
 
                 base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase);
                 base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, propertyNames, pinvokeHelperContext);
@@ -256,7 +260,42 @@ namespace BindingsGeneration
             {
                 // Restore the previous context
                 conductor.CurrentPInvokeHelperContext = previousContext;
+                conductor.NestedTypeRenames = previousRenames;
             }
+        }
+
+        /// <summary>
+        /// Computes nested type renames to resolve property/nested-type collisions,
+        /// and updates the TypeDatabase with the renamed C# type names.
+        /// </summary>
+        private static Dictionary<string, string> ComputeAndApplyNestedTypeRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+        {
+            var propertyNames = typeDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name, typeDecl.Name));
+            var nestedTypeNames = typeDecl.Types.Select(t => t.Name);
+            var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+
+            foreach (var (originalName, renamedName) in renames)
+            {
+                var nestedType = typeDecl.Types.FirstOrDefault(t => t.Name == originalName);
+                if (nestedType != null && typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var record))
+                {
+                    // Preserve parent type path: "NetworkConfig.ContentType" → "NetworkConfig.ContentTypeInfo"
+                    var existingName = record.CSharpTypeName.Name;
+                    var lastDot = existingName.LastIndexOf('.');
+                    var qualifiedRenamedName = lastDot >= 0
+                        ? existingName.Substring(0, lastDot + 1) + renamedName
+                        : renamedName;
+
+                    var updatedRecord = record with
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
+                            record.CSharpTypeName.Namespace ?? string.Empty, qualifiedRenamedName)
+                    };
+                    typeDatabase.UpdateTypeRecord(nestedType.SwiftTypeName, updatedRecord);
+                }
+            }
+
+            return renames;
         }
     }
 }

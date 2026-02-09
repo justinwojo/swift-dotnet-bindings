@@ -180,10 +180,18 @@ namespace BindingsGeneration
             }
 
             // Get type name with generics for proper operator parameter types (fixes CS0563, CS0305)
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(parentDecl);
+            // Use resolved name from TypeDatabase to account for nested type renames
+            var resolvedSimpleName = parentDecl.Name;
+            if (typeDatabase.TryGetTypeRecord(parentDecl.SwiftTypeName, out var parentRecord))
+            {
+                var name = parentRecord.CSharpTypeName.Name;
+                var lastDot = name.LastIndexOf('.');
+                resolvedSimpleName = lastDot >= 0 ? name.Substring(lastDot + 1) : name;
+            }
+            var typeNameWithGenerics = $"{resolvedSimpleName}{GenericTypeEmitter.GetGenericParameterList(parentDecl)}";
 
             // Emit the operator wrapper and PInvoke
-            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, parentDecl.Name, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv);
+            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv);
             EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext);
             ReportCollector.RecordMemberEmitted(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl);
             csWriter.WriteLine();

@@ -49,7 +49,7 @@ namespace BindingsGeneration
         /// Emits the Tag property that returns the current case of the enum.
         /// Uses ValueWitnessTable->GetEnumTag to determine the case.
         /// </summary>
-        private void EmitTagProperty(CSharpWriter csWriter, EnumDecl enumDecl)
+        private void EmitTagProperty(CSharpWriter csWriter, EnumDecl enumDecl, string typeNameWithGenerics)
         {
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine("/// Gets the current case of this enum instance.");
@@ -67,7 +67,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
-            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl)}>.GetTypeMetadata();");
+            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
             csWriter.WriteLine("byte* payload = (byte*)_payload.DangerousGetHandle();");
             csWriter.WriteLine("return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);");
 
@@ -94,7 +94,7 @@ namespace BindingsGeneration
         /// Emits a TryGet method for an enum case with associated values.
         /// The method extracts the associated value(s) if the enum is in the specified case.
         /// </summary>
-        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase)
+        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
@@ -104,7 +104,7 @@ namespace BindingsGeneration
             if (caseDecl.AssociatedValues.Count == 1 && caseDecl.AssociatedValues[0] is TupleTypeSpec tupleSpec && tupleSpec.Elements.Count > 1)
             {
                 // Delegate to tuple-specific TryGet emission
-                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase);
+                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase, typeNameWithGenerics);
                 return;
             }
 
@@ -175,7 +175,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl)}>.GetTypeMetadata();");
+            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
             csWriter.WriteLine();
 
             // Create a copy to avoid destroying the original
@@ -255,7 +255,7 @@ namespace BindingsGeneration
         /// Generates multiple out parameters, one for each tuple element.
         /// Uses TupleTypeMetadata to get element offsets at runtime.
         /// </summary>
-        private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase)
+        private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase, string typeNameWithGenerics)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
@@ -328,7 +328,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl)}>.GetTypeMetadata();");
+            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
             csWriter.WriteLine();
 
             // Create a copy to avoid destroying the original

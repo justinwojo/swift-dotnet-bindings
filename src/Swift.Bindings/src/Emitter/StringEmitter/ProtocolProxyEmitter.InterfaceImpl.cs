@@ -123,7 +123,8 @@ public partial class ProtocolProxyEmitter
 
             if (isGetterDispatchable && isStringProperty)
             {
-                // String getter: decode SBW_Utf8Slice → SwiftString
+                // String getter: decode SBW_Utf8Slice → string (or SwiftString if interface uses that)
+                var returnExpr = csharpTypeName == "string" ? "str" : "new Swift.SwiftString(str)";
                 writer.WriteLines($$"""
                     get
                     {
@@ -138,7 +139,7 @@ public partial class ProtocolProxyEmitter
                                 var str = slice.Len > 0
                                     ? System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
                                     : string.Empty;
-                                return new Swift.SwiftString(str);
+                                return {{returnExpr}};
                             }
                             finally { NativeMethods.{{freeSymbol}}(resultPtr); }
                         }
@@ -374,7 +375,7 @@ public partial class ProtocolProxyEmitter
         var parametersString = string.Join(", ", parameters);
         var argsString = string.Join(", ", argNames);
 
-        var methodName = NameProvider.ToPascalCase(method.Name);
+        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync);
         var isDispatchable = dispatchEmitter.IsMethodDispatchable(method);
 
         // Validate that the projected return type matches the dispatch strategy.

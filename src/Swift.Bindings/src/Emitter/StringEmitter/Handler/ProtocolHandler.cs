@@ -237,7 +237,7 @@ namespace BindingsGeneration
         /// </summary>
         private static string GetInterfaceNameWithGenerics(ProtocolDecl protocolDecl)
         {
-            var baseName = NameProvider.GetInterfaceName(protocolDecl.Name);
+            var baseName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: protocolDecl.ModuleDecl?.Name ?? "");
 
             // If the protocol has associated types or Self requirement, make it generic
             if (protocolDecl.HasSelfRequirement)
@@ -267,7 +267,7 @@ namespace BindingsGeneration
                 if (inherited.Name == "AnyObject" || inherited.Name == "Swift.AnyObject")
                     continue;
 
-                inheritedInterfaces.Add(NameProvider.GetInterfaceName(inherited.NameWithoutModule));
+                inheritedInterfaces.Add(NameProvider.GetInterfaceName(inherited.NameWithoutModule, moduleName: inherited.Module));
             }
 
             return inheritedInterfaces;
@@ -295,6 +295,28 @@ namespace BindingsGeneration
                 csharpTypeName = typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
             }
 
+            // Apply idiomatic type conversion (SwiftString → string, SwiftArray → IReadOnlyList, etc.)
+            // Interface property types must match the implementing class property types
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
+                propertyDecl.SwiftTypeSpec,
+                isParameter: false,
+                typeSpec =>
+                {
+                    var rec = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+                    return rec.CSharpTypeName.FullyQualifiedName;
+                });
+            if (idiomaticType != null)
+            {
+                csharpTypeName = idiomaticType;
+            }
+            else if (typeConversionHandler.HasNativeTypeRemapping(propertyDecl.SwiftTypeSpec))
+            {
+                var nativeType = typeConversionHandler.GetNativeTypeName(propertyDecl.SwiftTypeSpec);
+                if (nativeType != null)
+                    csharpTypeName = nativeType;
+            }
+
             // Determine accessors
             var hasGetter = propertyDecl.Accessors.OfType<GetAccessorDecl>().Any();
             var hasSetter = propertyDecl.Accessors.OfType<SetAccessorDecl>().Any();
@@ -319,6 +341,14 @@ namespace BindingsGeneration
             }
 
             var propertyName = NameProvider.GetPropertyName(propertyDecl.Name);
+
+            // Emit [UnsupportedSwiftType] if the property type falls back to AnyType
+            var closureHandler = new ClosureHandler(typeDatabase);
+            if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, propertyDecl.SwiftTypeSpec, out var fallbackInfo))
+            {
+                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo);
+            }
+
             csWriter.WriteLine($"{csharpTypeName} {propertyName} {accessors}");
         }
 
@@ -387,6 +417,24 @@ namespace BindingsGeneration
             {
                 // Default to get-only if no accessors found
                 accessors = "{ get; }";
+            }
+
+            // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType
+            var closureHandler = new ClosureHandler(typeDatabase);
+            if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, subscriptDecl.ReturnTypeSpec, out var subscriptFallbackInfo))
+            {
+                UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, subscriptFallbackInfo);
+            }
+            else
+            {
+                foreach (var param in subscriptDecl.IndexParameters)
+                {
+                    if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, param.SwiftTypeSpec, out var paramFallbackInfo))
+                    {
+                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, paramFallbackInfo);
+                        break; // One attribute is enough to flag the subscript
+                    }
+                }
             }
 
             csWriter.WriteLine($"{returnTypeName} this[{string.Join(", ", parameters)}] {accessors}");
@@ -467,7 +515,34 @@ namespace BindingsGeneration
                 }
             }
 
-            var methodName = NameProvider.ToPascalCase(methodDecl.Name);
+            // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType
+            var closureHandler = new ClosureHandler(typeDatabase);
+            bool emittedAttribute = false;
+            if (methodDecl.CSSignature.Count > 0)
+            {
+                var returnArg = methodDecl.CSSignature[0];
+                if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
+                {
+                    if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, returnArg.SwiftTypeSpec, out var returnFallbackInfo))
+                    {
+                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, returnFallbackInfo);
+                        emittedAttribute = true;
+                    }
+                }
+            }
+            if (!emittedAttribute)
+            {
+                for (int j = 1; j < methodDecl.CSSignature.Count; j++)
+                {
+                    if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, methodDecl.CSSignature[j].SwiftTypeSpec, out var paramFallbackInfo))
+                    {
+                        UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, paramFallbackInfo);
+                        break; // One attribute is enough to flag the method
+                    }
+                }
+            }
+
+            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync);
             csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
         }
 

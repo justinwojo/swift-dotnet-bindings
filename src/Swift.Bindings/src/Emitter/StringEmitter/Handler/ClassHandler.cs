@@ -84,7 +84,8 @@ namespace BindingsGeneration
             ReportCollector.RecordTypeEmitted(classDecl);
 
             // Get generic type parts if this is a generic type
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
+            // Pass conductor renames so nested types that were renamed by their parent appear with the correct name
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl, conductor.NestedTypeRenames);
             var whereClause = GenericTypeEmitter.GetWhereClause(classDecl, env.TypeDatabase);
 
             // Create P/Invoke helper context for generic types (to avoid CS7042)
@@ -92,6 +93,12 @@ namespace BindingsGeneration
             var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(classDecl);
             var previousContext = conductor.CurrentPInvokeHelperContext;
             conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
+
+            // Compute nested type renames to resolve property/nested-type name collisions
+            // Instead of suffixing properties with "Value", we rename colliding nested types with "Info"
+            var nestedTypeRenames = ComputeAndApplyNestedTypeRenames(classDecl, env.TypeDatabase);
+            var previousRenames = conductor.NestedTypeRenames;
+            conductor.NestedTypeRenames = nestedTypeRenames;
 
             try
             {
@@ -118,7 +125,6 @@ namespace BindingsGeneration
                 // Swift allows a type to have both static (from protocol conformance) and instance
                 // properties with the same name, but C# does not (CS0102).
                 var emittedPropertyNames = new HashSet<string>();
-                IReadOnlySet<string>? nestedTypeNamesForProps = new HashSet<string>(classDecl.Types.Select(t => t.Name));
                 foreach (PropertyDecl propertyDecl in classDecl.Properties)
                 {
                     if (classDecl.IsActor && propertyDecl.Name == "unownedExecutor")
@@ -129,7 +135,7 @@ namespace BindingsGeneration
                     }
 
                     // Bug #9: Skip duplicate property names (static + instance with same C# name)
-                    var csPropertyName = NameProvider.GetPropertyName(propertyDecl.Name, nestedTypeNamesForProps, classDecl.Name);
+                    var csPropertyName = NameProvider.GetPropertyName(propertyDecl.Name, classDecl.Name);
                     if (!emittedPropertyNames.Add(csPropertyName))
                     {
                         _logger.LogInformation($"Skipping duplicate property '{classDecl.Name}.{csPropertyName}' (static/instance collision).");
@@ -178,16 +184,14 @@ namespace BindingsGeneration
 
                 // Emit ISwiftObject implementation
                 var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext);
-                var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, hasEquality, hasInequality);
+                var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, typeNameWithGenerics, hasEquality, hasInequality);
 
                 equatableWriter.WriteSwiftEquatableImplementation();
                 iSwiftObjectWriter.WriteClassImplementation();
 
                 // Collect property names for method/property collision detection
-                // Include nested type names and containing type name for consistent naming with PropertyHandler
-                var nestedTypeNames = new HashSet<string>(classDecl.Types.Select(t => t.Name));
                 var propertyNames = new HashSet<string>(classDecl.Properties.Select(p =>
-                    NameProvider.GetPropertyName(p.Name, nestedTypeNames, classDecl.Name)));
+                    NameProvider.GetPropertyName(p.Name, classDecl.Name)));
 
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase);
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, propertyNames, pinvokeHelperContext);
@@ -203,7 +207,43 @@ namespace BindingsGeneration
             {
                 // Restore the previous context
                 conductor.CurrentPInvokeHelperContext = previousContext;
+                conductor.NestedTypeRenames = previousRenames;
             }
+        }
+
+        /// <summary>
+        /// Computes nested type renames to resolve property/nested-type collisions,
+        /// and updates the TypeDatabase with the renamed C# type names.
+        /// </summary>
+        private static Dictionary<string, string> ComputeAndApplyNestedTypeRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+        {
+            var propertyNames = typeDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name, typeDecl.Name));
+            var nestedTypeNames = typeDecl.Types.Select(t => t.Name);
+            var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+
+            foreach (var (originalName, renamedName) in renames)
+            {
+                // Find the nested type and update its TypeRecord in the database
+                var nestedType = typeDecl.Types.FirstOrDefault(t => t.Name == originalName);
+                if (nestedType != null && typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var record))
+                {
+                    // Preserve parent type path: "NetworkConfig.ContentType" → "NetworkConfig.ContentTypeInfo"
+                    var existingName = record.CSharpTypeName.Name;
+                    var lastDot = existingName.LastIndexOf('.');
+                    var qualifiedRenamedName = lastDot >= 0
+                        ? existingName.Substring(0, lastDot + 1) + renamedName
+                        : renamedName;
+
+                    var updatedRecord = record with
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
+                            record.CSharpTypeName.Namespace ?? string.Empty, qualifiedRenamedName)
+                    };
+                    typeDatabase.UpdateTypeRecord(nestedType.SwiftTypeName, updatedRecord);
+                }
+            }
+
+            return renames;
         }
 
         /// <summary>
@@ -238,6 +278,7 @@ namespace BindingsGeneration
         private readonly ModuleDecl _moduleDecl;
         private readonly ClassDecl _classDecl;
         private readonly string _typeNameWithGenerics;
+        private readonly string _constructorName;
         private readonly PInvokeHelperContext? _pinvokeHelperContext;
 
         public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext = null)
@@ -247,6 +288,8 @@ namespace BindingsGeneration
             _moduleDecl = moduleDecl;
             _classDecl = classDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
+            var angleBracket = typeNameWithGenerics.IndexOf('<');
+            _constructorName = angleBracket >= 0 ? typeNameWithGenerics.Substring(0, angleBracket) : typeNameWithGenerics;
             _pinvokeHelperContext = pinvokeHelperContext;
         }
 
@@ -329,9 +372,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPrivateConstructor()
         {
-            // Note: Constructor name uses _classDecl.Name (not generic), but SwiftSafeHandle uses _typeNameWithGenerics
             var text = $$"""
-            {{_classDecl.Name}}(SwiftHandle handle)
+            {{_constructorName}}(SwiftHandle handle)
             {
                 _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(handle);
             }
@@ -409,7 +451,7 @@ namespace BindingsGeneration
             var text = $$"""
             private static Dictionary<Type, string> _protocolConformanceSymbols;
 
-            static {{_classDecl.Name}}()
+            static {{_constructorName}}()
             {
                 _protocolConformanceSymbols = new Dictionary<Type, string>
                 {
@@ -444,12 +486,11 @@ namespace BindingsGeneration
         private readonly bool _hasExplicitEqualityOperator;
         private readonly bool _hasExplicitInequalityOperator;
 
-        public ClassEqualityMethodsWriter(CSharpWriter csWriter, ClassDecl classDecl, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
+        public ClassEqualityMethodsWriter(CSharpWriter csWriter, ClassDecl classDecl, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
         {
             _writer = csWriter;
             _classDecl = classDecl;
-            // Use type name with generics for operators to fix CS0563/CS0305 errors on generic types
-            _typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
+            _typeNameWithGenerics = typeNameWithGenerics;
             _implementsEquatable = _classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;

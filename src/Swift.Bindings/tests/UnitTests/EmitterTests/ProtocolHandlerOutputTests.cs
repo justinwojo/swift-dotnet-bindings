@@ -57,7 +57,7 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("public interface ISwiftReader<TElement>", csOutput);
+        Assert.Contains("public interface IReader<TElement>", csOutput);
         Assert.Contains("TElement Next();", csOutput);
         Assert.DoesNotContain("class ReaderProxy", csOutput);
     }
@@ -88,7 +88,7 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("public interface ISwiftComparableLike<TSelf> where TSelf : ISwiftComparableLike<TSelf>", csOutput);
+        Assert.Contains("public interface IComparableLike<TSelf> where TSelf : IComparableLike<TSelf>", csOutput);
         Assert.DoesNotContain("class ComparableLikeProxy", csOutput);
     }
 
@@ -173,10 +173,10 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("public interface ISwiftCacheable : ISwiftHashable", csOutput);
+        Assert.Contains("public interface ICacheable : ISwiftHashable", csOutput);
         Assert.Contains("System.Int64 Count { get; }", csOutput);
-        Assert.Contains("Task<System.Int64> Fetch(System.Int64 key);", csOutput);
-        Assert.Contains("public unsafe class CacheableProxy : ISwiftCacheable, ISwiftObject", csOutput);
+        Assert.Contains("Task<System.Int64> FetchAsync(System.Int64 key);", csOutput);
+        Assert.Contains("public unsafe class CacheableProxy : ICacheable, ISwiftObject", csOutput);
     }
 
     [Fact]
@@ -680,6 +680,255 @@ public class ProtocolHandlerOutputTests
         Assert.Contains("public void Count()", proxyPart);
         // Vtable struct fields must still exist (Swift layout preservation)
         Assert.Contains("func_subscript_0_get", proxyPart);
+    }
+
+    #endregion
+
+    #region [UnsupportedSwiftType] Interface Member Tests
+
+    [Fact]
+    public void Emit_InterfacePropertyWithAnyTypeFallback_EmitsUnsupportedSwiftTypeAttribute()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var property = new PropertyDecl
+        {
+            Name = "data",
+            SwiftTypeSpec = new NamedTypeSpec("UnknownModule.Foo"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = "data_Get",
+                        MangledName = "$s10TestModule8ReadableP4dataSivg",
+                        MethodType = MethodType.Instance,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl> { CreateArgument(string.Empty, new NamedTypeSpec("UnknownModule.Foo"), moduleDecl) },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = null,
+                        ModuleDecl = moduleDecl,
+                        Throws = false,
+                        IsAsync = false,
+                        Visibility = Visibility.Public
+                    }
+                }
+            },
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Readable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Readable"),
+            MangledName = "$s10TestModule8ReadableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl> { property },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Type is missing from the type database\", \"UnknownModule.Foo\")]", csOutput);
+        Assert.Contains("Swift.AnyType Data { get; }", csOutput);
+    }
+
+    [Fact]
+    public void Emit_InterfaceMethodReturnWithAnyTypeFallback_EmitsUnsupportedSwiftTypeAttribute()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Processor",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Processor"),
+            MangledName = "$s10TestModule9ProcessorP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDeclWithReturn("process", new NamedTypeSpec("UnknownModule.Bar"), moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Type is missing from the type database\", \"UnknownModule.Bar\")]", csOutput);
+        Assert.Contains("Swift.AnyType Process();", csOutput);
+    }
+
+    [Fact]
+    public void Emit_InterfaceMethodParamWithAnyTypeFallback_EmitsUnsupportedSwiftTypeAttribute()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var method = new MethodDecl
+        {
+            Name = "transform",
+            MangledName = "$s10TestModule11TransformerP9transformyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("input", new NamedTypeSpec("UnknownModule.Baz"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Transformer",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Transformer"),
+            MangledName = "$s10TestModule11TransformerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { method },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Type is missing from the type database\", \"UnknownModule.Baz\")]", csOutput);
+        Assert.Contains("void Transform(Swift.AnyType input);", csOutput);
+    }
+
+    [Fact]
+    public void Emit_InterfaceSubscriptReturnWithAnyTypeFallback_EmitsUnsupportedSwiftTypeAttribute()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Storage",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Storage"),
+            MangledName = "$s10TestModule7StorageP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>
+            {
+                new()
+                {
+                    Name = "subscript",
+                    MangledName = "$s10TestModule7StorageP9subscriptig",
+                    ReturnTypeSpec = new NamedTypeSpec("UnknownModule.Value"),
+                    IsStatic = false,
+                    IndexParameters = new List<ArgumentDecl>
+                    {
+                        CreateArgument("key", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                    },
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl { Method = CreateMethodDecl("subscript_get", moduleDecl) }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Type is missing from the type database\", \"UnknownModule.Value\")]", csOutput);
+        Assert.Contains("this[", csOutput);
+    }
+
+    [Fact]
+    public void Emit_InterfaceSubscriptParamWithAnyTypeFallback_EmitsUnsupportedSwiftTypeAttribute()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Lookup",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Lookup"),
+            MangledName = "$s10TestModule6LookupP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>
+            {
+                new()
+                {
+                    Name = "subscript",
+                    MangledName = "$s10TestModule6LookupP9subscriptig",
+                    ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    IndexParameters = new List<ArgumentDecl>
+                    {
+                        CreateArgument("key", new NamedTypeSpec("UnknownModule.Key"), moduleDecl)
+                    },
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl { Method = CreateMethodDecl("subscript_get", moduleDecl) }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Type is missing from the type database\", \"UnknownModule.Key\")]", csOutput);
+        Assert.Contains("this[", csOutput);
     }
 
     #endregion

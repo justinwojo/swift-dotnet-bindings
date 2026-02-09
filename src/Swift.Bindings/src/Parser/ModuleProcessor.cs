@@ -458,7 +458,7 @@ namespace BindingsGeneration
 
             // Protocol types are projected as interfaces in C#
             // Use "I" prefix for interface naming convention
-            var csharpTypeIdentifier = NameProvider.GetInterfaceName(protocolDecl.Name);
+            var csharpTypeIdentifier = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: namedTypeSpec.Module);
 
             // Protocols with associated types generate generic C# interfaces
             // Mark them so we can skip them in generic constraints (can't use generic interfaces without type arguments)

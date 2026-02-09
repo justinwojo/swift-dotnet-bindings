@@ -47,13 +47,13 @@ namespace BindingsGeneration.FunctionalTests
             var myStruct = new Bindings.AsyncStruct(42);
 
             var stopwatch = Stopwatch.StartNew();
-            await myStruct.AsyncVoid();
+            await myStruct.AsyncVoidAsync();
             stopwatch.Stop();
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);
 
             stopwatch.Restart();
             ulong seconds = 2;
-            ulong result = await myStruct.AsyncNonVoid(seconds);
+            ulong result = await myStruct.AsyncNonVoidAsync(seconds);
             stopwatch.Stop();
             Assert.Equal(seconds, result);
             Assert.True(stopwatch.Elapsed.TotalSeconds >= seconds);
@@ -63,13 +63,13 @@ namespace BindingsGeneration.FunctionalTests
         public async Task TestStaticMethods()
         {
             var stopwatch = Stopwatch.StartNew();
-            await Bindings.AsyncStruct.AsyncVoidStatic();
+            await Bindings.AsyncStruct.AsyncVoidStaticAsync();
             stopwatch.Stop();
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);
 
             stopwatch.Restart();
             ulong seconds = 2;
-            ulong result = await Bindings.AsyncStruct.AsyncNonVoidStatic(seconds);
+            ulong result = await Bindings.AsyncStruct.AsyncNonVoidStaticAsync(seconds);
             stopwatch.Stop();
             Assert.Equal(seconds, result);
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);
@@ -96,7 +96,7 @@ namespace BindingsGeneration.FunctionalTests
             var input = new SwiftString[] { new SwiftString("one"), new SwiftString("two"), new SwiftString("three") };
 
             var stopwatch = Stopwatch.StartNew();
-            IReadOnlyList<SwiftString> result = await myStruct.ArrayPassThrough(input);
+            IReadOnlyList<SwiftString> result = await myStruct.ArrayPassThroughAsync(input);
             stopwatch.Stop();
 
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);
@@ -113,7 +113,7 @@ namespace BindingsGeneration.FunctionalTests
             string input = "test string";
 
             var stopwatch = Stopwatch.StartNew();
-            string result = await myStruct.StringPassThrough(input);
+            string result = await myStruct.StringPassThroughAsync(input);
             stopwatch.Stop();
 
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);

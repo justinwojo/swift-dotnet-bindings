@@ -127,7 +127,7 @@ namespace BindingsGeneration
         /// <param name="csWriter">The CSharpWriter instance.</param>
         internal void EmitFailableFactory(CSharpWriter csWriter)
         {
-            var typeName = _env.ParentDecl.Name;
+            var typeName = GetResolvedTypeName();
 
             // Support both struct and class parents
             bool isFrozenValue = false;
@@ -388,10 +388,16 @@ namespace BindingsGeneration
                     if (MarshallingHelpers.MethodIsSetter(_env.MethodDecl))
                         csWriter.WriteLine($"var self = new SwiftSelf((void*)_payload.DangerousGetHandle());");
                     else
-                        csWriter.WriteLine($"var self = new SwiftSelf<{structDecl.Name}.Buffer>(*({structDecl.Name}.Buffer*)_payload.DangerousGetHandle());");
+                    {
+                        var resolvedName = GetResolvedTypeName();
+                        csWriter.WriteLine($"var self = new SwiftSelf<{resolvedName}.Buffer>(*({resolvedName}.Buffer*)_payload.DangerousGetHandle());");
+                    }
                 }
                 else
-                    csWriter.WriteLine($"var self = new SwiftSelf<{structDecl.Name}>(this);");
+                {
+                    var resolvedName = GetResolvedTypeName();
+                    csWriter.WriteLine($"var self = new SwiftSelf<{resolvedName}>(this);");
+                }
             }
             else if (_env.ParentDecl is ClassDecl)
             {
@@ -422,7 +428,7 @@ namespace BindingsGeneration
             // Bug #7: Include generic type parameters in SwiftSafeHandle<> for generic types.
             // Without this, generic types like BatchedCollection<T0> emit SwiftSafeHandle<BatchedCollection>
             // which causes CS0305 (missing type arguments).
-            var typeName = _env.ParentDecl.Name;
+            var typeName = GetResolvedTypeName();
             if (_env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
             {
                 var genericParams = string.Join(", ", typeDecl.GenericParameters.Select(p =>
@@ -565,7 +571,7 @@ namespace BindingsGeneration
                     if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget))
                         continue;
 
-                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name);
+                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: conformance.ConformanceTarget.Module);
                     paramConstraints.Add(interfaceName);
                 }
 
@@ -605,7 +611,9 @@ namespace BindingsGeneration
             // C# does not support generic constructors — never emit <...> on a constructor.
             // Type-level generic params are already declared on the containing type.
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} unsafe {_env.ParentDecl.Name}({_wrapperSignature.ParametersString()})");
+            // Use the resolved C# type name (may be renamed for nested type collision avoidance)
+            var constructorName = GetResolvedTypeName();
+            csWriter.WriteLine($"{accessModifier} unsafe {constructorName}({_wrapperSignature.ParametersString()})");
         }
 
         /// <summary>
@@ -679,8 +687,8 @@ namespace BindingsGeneration
         {
             if (!_requiresFixedBlock) return;
 
-            var structDecl = (StructDecl)_env.ParentDecl;
-            csWriter.WriteLine($"fixed ({structDecl.Name}* __self = &this)");
+            var resolvedName = GetResolvedTypeName();
+            csWriter.WriteLine($"fixed ({resolvedName}* __self = &this)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
         }
@@ -722,6 +730,23 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Gets the resolved simple type name for the parent type, accounting for nested type renames.
+        /// Falls back to the declaration name if no TypeRecord is found.
+        /// </summary>
+        private string GetResolvedTypeName()
+        {
+            if (_env.ParentDecl is TypeDecl typeDecl &&
+                _env.TypeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record))
+            {
+                // TypeRecord Name may be qualified (e.g., "NestedOuter.InnerInfo") — take last segment
+                var name = record.CSharpTypeName.Name;
+                var lastDot = name.LastIndexOf('.');
+                return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
+            }
+            return _env.ParentDecl.Name;
         }
     }
 }

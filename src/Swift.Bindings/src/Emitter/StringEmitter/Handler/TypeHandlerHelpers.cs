@@ -17,6 +17,7 @@ namespace BindingsGeneration
         private readonly ModuleDecl _moduleDecl;
         private readonly StructDecl _structDecl;
         private readonly string _typeNameWithGenerics;
+        private readonly string _constructorName;
 
         public ISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, StructDecl structDecl, string typeNameWithGenerics)
         {
@@ -25,6 +26,9 @@ namespace BindingsGeneration
             _moduleDecl = moduleDecl;
             _structDecl = structDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
+            // Constructor name is the type name without generic parameters (e.g., "ContentTypeInfo<T>" → "ContentTypeInfo")
+            var angleBracket = typeNameWithGenerics.IndexOf('<');
+            _constructorName = angleBracket >= 0 ? typeNameWithGenerics.Substring(0, angleBracket) : typeNameWithGenerics;
         }
 
         /// <summary>
@@ -110,14 +114,14 @@ namespace BindingsGeneration
             TypeRecord typeRecord = _typeDatabase.GetTypeRecordOrThrow(_structDecl.SwiftTypeName);
             if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
             {
-                // Note: Constructor name uses _structDecl.Name (not generic), but type references use _typeNameWithGenerics
+                // Constructor name uses _constructorName (may differ from _structDecl.Name if renamed)
                 var text = $$"""
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
                     return new {{_typeNameWithGenerics}}(handle);
                 }
 
-                unsafe {{_structDecl.Name}}(IntPtr handle)
+                unsafe {{_constructorName}}(IntPtr handle)
                 {
                     IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({{_typeNameWithGenerics}}.Buffer));
                     *({{_typeNameWithGenerics}}.Buffer*)bufferPtr = *({{_typeNameWithGenerics}}.Buffer*)handle;
@@ -165,9 +169,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPrivateConstructor()
         {
-            // Note: Constructor name uses _structDecl.Name (not generic), but SwiftSafeHandle uses _typeNameWithGenerics
             var text = $$"""
-            {{_structDecl.Name}}(SwiftHandle handle)
+            {{_constructorName}}(SwiftHandle handle)
             {
                 _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(handle);
             }
@@ -309,7 +312,7 @@ namespace BindingsGeneration
             var text = $$"""
             private static Dictionary<Type, string> _protocolConformanceSymbols;
 
-            static {{_structDecl.Name}}()
+            static {{_constructorName}}()
             {
                 _protocolConformanceSymbols = new Dictionary<Type, string>
                 {
@@ -342,17 +345,16 @@ namespace BindingsGeneration
         private readonly bool _hasExplicitEqualityOperator;
         private readonly bool _hasExplicitInequalityOperator;
 
-        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType)
-            : this(csWriter, structDecl, refType, false, false)
+        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, string typeNameWithGenerics)
+            : this(csWriter, structDecl, refType, typeNameWithGenerics, false, false)
         {
         }
 
-        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
+        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
         {
             _writer = csWriter;
             _structDecl = structDecl;
-            // Use type name with generics for operators to fix CS0563/CS0305 errors on generic types
-            _typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
+            _typeNameWithGenerics = typeNameWithGenerics;
             _implementsEquatable = _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
             _isRefType = refType;
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
@@ -501,7 +503,7 @@ internal static class ProtocolConformanceHelper
                 if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
                     continue;
 
-                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics);
+                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, conformance.Protocol.Module);
                 if (emitted.Add(iface))
                     interfaces.Add(iface);
             }
@@ -528,7 +530,7 @@ internal static class ProtocolConformanceHelper
                     }
                 }
 
-                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics);
+                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, conformance.Protocol.Module);
                 if (emitted.Add(iface))
                     interfaces.Add(iface);
             }
@@ -558,7 +560,7 @@ internal static class ProtocolConformanceHelper
             if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
                 continue;
 
-            var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName);
+            var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, conformance.Protocol.Module);
             var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
 
                 entries.Add($"{{typeof({protocol}), \"{protocolConformanceSymbol}\"}}");

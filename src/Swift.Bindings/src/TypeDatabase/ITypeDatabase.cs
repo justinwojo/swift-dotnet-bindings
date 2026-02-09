@@ -43,4 +43,11 @@ public interface ITypeDatabase
     /// If null, falls back to the module's library path.
     /// </summary>
     public string? AsyncLibraryName { get; }
+
+    /// <summary>
+    /// Updates a type record in the database (e.g., to rename a nested type's C# name).
+    /// </summary>
+    /// <param name="name">The Swift type name.</param>
+    /// <param name="record">The updated type record.</param>
+    public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record);
 }

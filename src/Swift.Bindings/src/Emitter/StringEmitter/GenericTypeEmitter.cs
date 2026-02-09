@@ -40,9 +40,12 @@ public static class GenericTypeEmitter
     /// </summary>
     /// <param name="typeDecl">The type declaration.</param>
     /// <returns>The type name with generic parameters.</returns>
-    public static string GetTypeNameWithGenerics(TypeDecl typeDecl)
+    public static string GetTypeNameWithGenerics(TypeDecl typeDecl, Dictionary<string, string>? renames = null)
     {
-        return $"{typeDecl.Name}{GetGenericParameterList(typeDecl)}";
+        var name = typeDecl.Name;
+        if (renames != null && renames.TryGetValue(name, out var renamed))
+            name = renamed;
+        return $"{name}{GetGenericParameterList(typeDecl)}";
     }
 
     /// <summary>
@@ -86,7 +89,7 @@ public static class GenericTypeEmitter
                         continue;
 
                     // Convert Swift protocol name to C# interface name
-                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name);
+                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: conformance.ConformanceTarget.Module);
                     paramConstraints.Add(interfaceName);
                 }
             }

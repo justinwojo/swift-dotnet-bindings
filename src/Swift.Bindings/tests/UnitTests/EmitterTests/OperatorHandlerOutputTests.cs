@@ -379,6 +379,88 @@ public class OperatorHandlerOutputTests
         Assert.DoesNotContain("Container<T1>", output);
     }
 
+    [Fact]
+    public void EmitOperator_RenamedNestedType_UsesResolvedNameFromTypeDatabase()
+    {
+        // When a nested type is renamed (e.g., ContentType → ContentTypeInfo),
+        // the operator should use the resolved name from TypeDatabase
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        // Register with renamed CSharpTypeName (simulating rename by ComputeAndApplyNestedTypeRenames)
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ContentType"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Parent.ContentTypeInfo"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ContentType"),
+                MetadataAccessor = "$s10TestModule11ContentTypeVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = new StructDecl
+        {
+            Name = "ContentType",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ContentType"),
+            MangledName = "$s10TestModule11ContentTypeVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule11ContentTypeVMa"
+        };
+
+        var op = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool",
+            "TestModule.ContentType", "TestModule.ContentType");
+
+        var output = EmitOperator(op, typeDatabase);
+
+        // Operator parameter types should reference the renamed name (ContentTypeInfo)
+        Assert.Contains("ContentTypeInfo", output);
+        Assert.DoesNotContain("ContentType left", output);
+        Assert.DoesNotContain("ContentType right", output);
+    }
+
+    [Fact]
+    public void ValidateAndEmitPairs_RenamedNestedType_SynthesizedOperatorUsesResolvedName()
+    {
+        // Synthesized paired operators (e.g., != from ==) should use the resolved name
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("ContentType", moduleDecl);
+        var op = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool");
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+        // Pass the renamed type name (as it would be after ComputeAndApplyNestedTypeRenames)
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "ContentTypeInfo", new HashSet<string> { "==" });
+
+        var output = writer.ToString();
+        Assert.Contains("public static bool operator !=(ContentTypeInfo left, ContentTypeInfo right)", output);
+        Assert.DoesNotContain("ContentType left", output);
+    }
+
     private static OperatorDecl CreateBinaryOperator(string symbol, StructDecl parentType,
         ModuleDecl moduleDecl, string returnType, string leftType, string rightType)
     {

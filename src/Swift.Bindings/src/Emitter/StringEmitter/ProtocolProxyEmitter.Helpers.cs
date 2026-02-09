@@ -91,7 +91,27 @@ public partial class ProtocolProxyEmitter
             return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
         }
 
-        return _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+        var rawType = _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+
+        // Apply idiomatic type conversion to match interface declaration (SwiftString → string, etc.)
+        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
+        var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
+            property.SwiftTypeSpec,
+            isParameter: false,
+            typeSpec =>
+            {
+                var rec = _typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+                return rec.CSharpTypeName.FullyQualifiedName;
+            });
+        if (idiomaticType != null)
+            return idiomaticType;
+        if (typeConversionHandler.HasNativeTypeRemapping(property.SwiftTypeSpec))
+        {
+            var nativeType = typeConversionHandler.GetNativeTypeName(property.SwiftTypeSpec);
+            if (nativeType != null)
+                return nativeType;
+        }
+        return rawType;
     }
 
     /// <summary>
@@ -159,10 +179,11 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private static bool IsSwiftStringProjectedType(string csharpTypeName)
     {
-        // Swift.String projects to Swift.SwiftString when properly registered
+        // Swift.String projects to Swift.SwiftString or idiomatic string via TypeConversionHandler
         return csharpTypeName == "Swift.SwiftString"
             || csharpTypeName == "SwiftString"
-            || csharpTypeName == "Swift.Runtime.SwiftString";
+            || csharpTypeName == "Swift.Runtime.SwiftString"
+            || csharpTypeName == "string";
     }
 
     /// <summary>
@@ -200,7 +221,7 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private static string GetInterfaceNameWithGenerics(ProtocolDecl protocolDecl)
     {
-        var baseName = NameProvider.GetInterfaceName(protocolDecl.Name);
+        var baseName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: protocolDecl.ModuleDecl?.Name ?? "");
 
         if (protocolDecl.AssociatedTypes.Count > 0)
         {

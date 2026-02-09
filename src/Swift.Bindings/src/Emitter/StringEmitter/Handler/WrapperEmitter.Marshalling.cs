@@ -599,7 +599,7 @@ namespace BindingsGeneration
                         continue;
 
                     var pwtName = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ConformanceTarget.Name);
-                    var protocolName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name);
+                    var protocolName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: conformance.ConformanceTarget.Module);
                     csWriter.WriteLine($"var {pwtName} = ProtocolWitnessTable.GetOrThrow<{csTypeParamName}, {protocolName}>();");
                 }
             }

@@ -33,7 +33,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[DllImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
-        Assert.Contains("public unsafe Task<System.Int64> Fetch()", csOutput);
+        Assert.Contains("public unsafe Task<System.Int64> FetchAsync()", csOutput);
         Assert.Contains("return task.Task;", csOutput);
     }
 
@@ -127,7 +127,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("public unsafe System.Int64 Decode<T0>()", csOutput);
-        Assert.Contains("where T0 : ISwiftObject, ISwiftLoadable", csOutput);
+        Assert.Contains("where T0 : ISwiftObject, ILoadable", csOutput);
     }
 
     [Fact]

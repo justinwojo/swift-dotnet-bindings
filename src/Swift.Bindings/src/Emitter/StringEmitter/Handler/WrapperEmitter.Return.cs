@@ -19,11 +19,12 @@ namespace BindingsGeneration
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 {
+                    var resolvedName = GetResolvedTypeName();
                     csWriter.WriteLine($@"
                         unsafe {{
-                            IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({_env.ParentDecl.Name}.Buffer));
-                            *({_env.ParentDecl.Name}.Buffer*)bufferPtr = result;
-                            _payload = new SwiftSafeHandle<{structDecl.Name}>(bufferPtr);
+                            IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({resolvedName}.Buffer));
+                            *({resolvedName}.Buffer*)bufferPtr = result;
+                            _payload = new SwiftSafeHandle<{resolvedName}>(bufferPtr);
                         }}");
                     return;
                 }

@@ -1042,6 +1042,8 @@ public class PropertyHandlerTests
             return false;
         }
         public string GetLibraryPath(string moduleName) => "";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
     }
 
     #endregion

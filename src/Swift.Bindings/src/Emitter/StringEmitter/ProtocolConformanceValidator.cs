@@ -195,13 +195,34 @@ public class ProtocolConformanceValidator
     private string GetInterfacePropertyType(PropertyDecl protoProperty, ProtocolDecl protocolContext)
     {
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
+        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
 
+        string rawType;
         if (protoProperty.SwiftTypeSpec is AssociatedTypeReferenceSpec)
             return "?";  // PAT - should have been filtered earlier
         else if (boundGenericsHandler.IsBoundGeneric(protoProperty))
-            return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(protoProperty);
+            rawType = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(protoProperty);
         else
-            return _typeDatabase.GetTypeRecordOrAnyType(protoProperty.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+            rawType = _typeDatabase.GetTypeRecordOrAnyType(protoProperty.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
+
+        // Apply idiomatic type conversion to match PropertyHandler behavior
+        var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(
+            protoProperty.SwiftTypeSpec,
+            isParameter: false,
+            typeSpec =>
+            {
+                var rec = _typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+                return rec.CSharpTypeName.FullyQualifiedName;
+            });
+        if (idiomaticType != null)
+            return idiomaticType;
+        if (typeConversionHandler.HasNativeTypeRemapping(protoProperty.SwiftTypeSpec))
+        {
+            var nativeType = typeConversionHandler.GetNativeTypeName(protoProperty.SwiftTypeSpec);
+            if (nativeType != null)
+                return nativeType;
+        }
+        return rawType;
     }
 
     /// <summary>

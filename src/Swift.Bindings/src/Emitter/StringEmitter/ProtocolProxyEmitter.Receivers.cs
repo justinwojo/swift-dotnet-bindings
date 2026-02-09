@@ -229,7 +229,7 @@ public partial class ProtocolProxyEmitter
 
         var argsString = string.Join(", ", argNames);
 
-        var pascalMethodName = NameProvider.ToPascalCase(method.Name);
+        var pascalMethodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync);
 
         if (hasReturn)
         {

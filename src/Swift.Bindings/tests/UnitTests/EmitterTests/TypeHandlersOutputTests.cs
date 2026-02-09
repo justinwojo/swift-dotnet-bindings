@@ -108,9 +108,9 @@ public class TypeHandlersOutputTests
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
         // Same-module protocol conformance should appear in the interface list
-        Assert.Contains("ISwiftObject, ISwiftAnyInterpolatable", csOutput);
+        Assert.Contains("ISwiftObject, IAnyInterpolatable", csOutput);
         // And the conformance should also be in the dictionary for GetProtocolConformanceDescriptor
-        Assert.Contains("{typeof(ISwiftAnyInterpolatable)", csOutput);
+        Assert.Contains("{typeof(IAnyInterpolatable)", csOutput);
     }
 
     [Fact]
@@ -229,6 +229,124 @@ public class TypeHandlersOutputTests
         Assert.Contains("public unsafe class Blob : ISwiftObject", csOutput);
         Assert.Contains("public struct Buffer {", csOutput);
         Assert.Contains("public unsafe PayloadBuffer<Blob.Buffer> PayloadBuffer => new PayloadBuffer<Blob.Buffer>(_payload);", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_WithPropertyNestedTypeCollision_RenamesNestedType()
+    {
+        // Parent struct "NetworkConfig" has:
+        // - property "configuration" → PascalCase "Configuration"
+        // - nested frozen struct "Configuration"
+        // Expected: nested type renamed to "ConfigurationInfo" (not property to "ConfigurationValue")
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.NetworkConfig");
+        module.RegisterType(parentSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "NetworkConfig"),
+            SwiftTypeName = parentSwiftName,
+            MetadataAccessor = "$s10TestModule13NetworkConfigVMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.NetworkConfig.Configuration");
+        module.RegisterType(nestedSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "NetworkConfig.Configuration"),
+            SwiftTypeName = nestedSwiftName,
+            MetadataAccessor = "$s10TestModule13NetworkConfigV13ConfigurationVMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var nestedStructDecl = new StructDecl
+        {
+            Name = "Configuration",
+            SwiftTypeName = nestedSwiftName,
+            MangledName = "$s10TestModule13NetworkConfigV13ConfigurationVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule13NetworkConfigV13ConfigurationVMa"
+        };
+
+        var parentStructDecl = new StructDecl
+        {
+            Name = "NetworkConfig",
+            SwiftTypeName = parentSwiftName,
+            MangledName = "$s10TestModule13NetworkConfigVN",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "configuration",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { nestedStructDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule13NetworkConfigVMa"
+        };
+        nestedStructDecl.ParentDecl = parentStructDecl;
+        moduleDecl.Types.Add(parentStructDecl);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var handler = new FrozenStructHandler(new NullLogger<FrozenStructHandler>());
+        var env = handler.Marshal(parentStructDecl, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
+        handler.Emit(csWriter, swiftWriter, env, conductor);
+
+        var output = csOutput.ToString();
+
+        // Nested type should be renamed to "ConfigurationInfo"
+        Assert.Contains("ConfigurationInfo", output);
+        // TypeDatabase should reflect the rename
+        Assert.True(typeDatabase.TryGetTypeRecord(nestedSwiftName, out var updatedRecord));
+        Assert.Contains("ConfigurationInfo", updatedRecord!.CSharpTypeName.Name);
+        // Property should keep its natural PascalCase name (no Value suffix)
+        Assert.DoesNotContain("ConfigurationValue", output);
     }
 
     private static TypeDatabase CreateTypeDatabase()

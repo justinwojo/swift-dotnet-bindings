@@ -255,7 +255,7 @@ public class ExistentialHandler
     }
 
     /// <summary>
-    /// Returns the protocol interface name for public API (e.g., "ISwiftDescribable").
+    /// Returns the protocol interface name for public API (e.g., "IDescribable").
     /// For multi-protocol compositions, returns a combined interface name.
     /// </summary>
     /// <param name="protocolList">The protocol list type specification.</param>
@@ -267,8 +267,8 @@ public class ExistentialHandler
 
         if (protocolList.Protocols.Count == 1)
         {
-            var protocolName = protocolList.Protocols.Keys.First().NameWithoutModule;
-            return NameProvider.GetInterfaceName(protocolName);
+            var firstProtocol = protocolList.Protocols.Keys.First();
+            return NameProvider.GetInterfaceName(firstProtocol.NameWithoutModule, moduleName: firstProtocol.Module);
         }
 
         // Multi-protocol: generate combined interface name
@@ -276,7 +276,7 @@ public class ExistentialHandler
     }
 
     /// <summary>
-    /// Returns nullable protocol interface (e.g., "ISwiftDescribable?").
+    /// Returns nullable protocol interface (e.g., "IDescribable?").
     /// </summary>
     /// <param name="protocolList">The protocol list type specification from the inner existential.</param>
     /// <returns>The nullable public-facing interface type name.</returns>
@@ -312,13 +312,19 @@ public class ExistentialHandler
     /// Protocol names are sorted alphabetically for determinism.
     /// </summary>
     /// <param name="protocolList">The protocol list type specification.</param>
-    /// <returns>The combined interface name (e.g., "ISwiftDescribableAndTestIdentifiable").</returns>
+    /// <returns>The combined interface name (e.g., "IDescribableAndTestIdentifiable").</returns>
     public string GetCompositionInterfaceName(ProtocolListTypeSpec protocolList)
     {
-        var names = protocolList.Protocols.Keys
-            .Select(p => p.NameWithoutModule)
-            .OrderBy(n => n, StringComparer.Ordinal)
+        var protocols = protocolList.Protocols.Keys
+            .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
             .ToList();
-        return "ISwift" + string.Join("And", names);
+        var names = protocols.Select(p => p.NameWithoutModule).ToList();
+        var compositionName = "I" + string.Join("And", names);
+
+        // Collect for later emission via the per-conductor scoped collector
+        var parentInterfaces = protocols.Select(p => NameProvider.GetInterfaceName(p.NameWithoutModule, moduleName: p.Module)).ToList();
+        Conductor.CollectCompositionInterface(compositionName, parentInterfaces);
+
+        return compositionName;
     }
 }

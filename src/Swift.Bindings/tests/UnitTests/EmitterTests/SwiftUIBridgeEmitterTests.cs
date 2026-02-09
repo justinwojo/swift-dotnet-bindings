@@ -2312,6 +2312,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         }
 
         public string GetLibraryPath(string moduleName) => "";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
     }
 
     #endregion

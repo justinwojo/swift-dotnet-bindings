@@ -70,7 +70,7 @@ public partial class ProtocolProxyEmitter
             return;
         }
 
-        var interfaceName = NameProvider.GetInterfaceName(protocolDecl.Name);
+        var interfaceName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: protocolDecl.ModuleDecl?.Name ?? "");
         var proxyClassName = GetProxyClassName(protocolDecl);
         var proxyClassNameWithGenerics = GetProxyClassNameWithGenerics(protocolDecl);
         var interfaceNameWithGenerics = GetInterfaceNameWithGenerics(protocolDecl);

@@ -218,6 +218,19 @@ namespace BindingsGeneration
             return false;
         }
 
+        /// <inheritdoc/>
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record)
+        {
+            var moduleName = name.Module;
+            if (_modules.TryGetValue(moduleName, out var moduleDb))
+            {
+                moduleDb.RegisterType(name, record);
+                return;
+            }
+            // Fall back to out-of-module types
+            _outOfModuleTypes.AddOrUpdate(name, record, (_, _) => record);
+        }
+
         /// <summary>
         /// Determines whether the specified module has been processed.
         /// </summary>

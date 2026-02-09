@@ -16,6 +16,7 @@ namespace BindingsGeneration
         private readonly ModuleDecl _moduleDecl;
         private readonly EnumDecl _enumDecl;
         private readonly string _typeNameWithGenerics;
+        private readonly string _constructorName;
         private readonly PInvokeHelperContext? _pinvokeHelperContext;
 
         public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext)
@@ -25,6 +26,8 @@ namespace BindingsGeneration
             _moduleDecl = moduleDecl;
             _enumDecl = enumDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
+            var angleBracket = typeNameWithGenerics.IndexOf('<');
+            _constructorName = angleBracket >= 0 ? typeNameWithGenerics.Substring(0, angleBracket) : typeNameWithGenerics;
             _pinvokeHelperContext = pinvokeHelperContext;
         }
 
@@ -101,7 +104,7 @@ namespace BindingsGeneration
         private void EmitDefaultConstructor()
         {
             var text = $$"""
-            {{_enumDecl.Name}}()
+            {{_constructorName}}()
             {
             }
             """;
@@ -116,7 +119,7 @@ namespace BindingsGeneration
         private void EmitPrivateConstructor()
         {
             var text = $$"""
-            {{_enumDecl.Name}}(SwiftHandle handle)
+            {{_constructorName}}(SwiftHandle handle)
             {
                 _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(handle);
             }
@@ -194,7 +197,7 @@ namespace BindingsGeneration
             var text = $$"""
             private static Dictionary<Type, string> _protocolConformanceSymbols;
 
-            static {{_enumDecl.Name}}()
+            static {{_constructorName}}()
             {
                 _protocolConformanceSymbols = new Dictionary<Type, string>
                 {

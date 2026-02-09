@@ -42,38 +42,38 @@ namespace BindingsGeneration.FunctionalTests
         public void ProtocolIsProjected()
         {
             // Verify protocol interfaces exist
-            Assert.True(typeof(ISwiftPrintable).IsInterface);
-            Assert.True(typeof(ISwiftHasInt32Value).IsInterface);
-            Assert.True(typeof(ISwiftComputable).IsInterface);
-            Assert.True(typeof(ISwiftCounter).IsInterface);
-            Assert.True(typeof(ISwiftResettableCounter).IsInterface);
+            Assert.True(typeof(IPrintable).IsInterface);
+            Assert.True(typeof(IHasInt32Value).IsInterface);
+            Assert.True(typeof(IComputable).IsInterface);
+            Assert.True(typeof(ICounter).IsInterface);
+            Assert.True(typeof(IResettableCounter).IsInterface);
         }
 
         [Fact]
         public void ConformingTypesImplementInterfaces()
         {
             // Verify concrete types implement protocol interfaces
-            Assert.True(typeof(ISwiftHasInt32Value).IsAssignableFrom(typeof(IntHolder)));
-            Assert.True(typeof(ISwiftComputable).IsAssignableFrom(typeof(Doubler)));
-            Assert.True(typeof(ISwiftCounter).IsAssignableFrom(typeof(SimpleCounter)));
-            Assert.True(typeof(ISwiftResettableCounter).IsAssignableFrom(typeof(AdvancedCounter)));
+            Assert.True(typeof(IHasInt32Value).IsAssignableFrom(typeof(IntHolder)));
+            Assert.True(typeof(IComputable).IsAssignableFrom(typeof(Doubler)));
+            Assert.True(typeof(ICounter).IsAssignableFrom(typeof(SimpleCounter)));
+            Assert.True(typeof(IResettableCounter).IsAssignableFrom(typeof(AdvancedCounter)));
         }
 
         [Fact]
         public void MultiConformerImplementsAllInterfaces()
         {
             // Verify multi-conforming type implements all three interfaces
-            Assert.True(typeof(ISwiftHasInt32Value).IsAssignableFrom(typeof(MultiConformer)));
-            Assert.True(typeof(ISwiftComputable).IsAssignableFrom(typeof(MultiConformer)));
-            Assert.True(typeof(ISwiftCounter).IsAssignableFrom(typeof(MultiConformer)));
+            Assert.True(typeof(IHasInt32Value).IsAssignableFrom(typeof(MultiConformer)));
+            Assert.True(typeof(IComputable).IsAssignableFrom(typeof(MultiConformer)));
+            Assert.True(typeof(ICounter).IsAssignableFrom(typeof(MultiConformer)));
         }
 
         [Fact]
         public void InheritedProtocolIncludesBaseInterface()
         {
             // AdvancedCounter implements both Counter and ResettableCounter protocols
-            Assert.True(typeof(ISwiftCounter).IsAssignableFrom(typeof(AdvancedCounter)));
-            Assert.True(typeof(ISwiftResettableCounter).IsAssignableFrom(typeof(AdvancedCounter)));
+            Assert.True(typeof(ICounter).IsAssignableFrom(typeof(AdvancedCounter)));
+            Assert.True(typeof(IResettableCounter).IsAssignableFrom(typeof(AdvancedCounter)));
         }
 
         #endregion
@@ -136,13 +136,13 @@ namespace BindingsGeneration.FunctionalTests
             // Create Swift type conforming to multiple protocols
             var multi = SwiftProtocols.CreateMultiConformer(100, 50);
 
-            // Test ISwiftHasInt32Value
+            // Test IHasInt32Value
             Assert.Equal(100, multi.IntValue);
 
-            // Test ISwiftComputable
+            // Test IComputable
             Assert.Equal(110, multi.Compute(10)); // 100 + 10 = 110
 
-            // Test ISwiftCounter
+            // Test ICounter
             Assert.Equal(50, multi.Count);
             Assert.Equal(55, multi.Increment(5)); // 50 + 5 = 55
         }
@@ -195,7 +195,7 @@ namespace BindingsGeneration.FunctionalTests
             var holder = new IntHolder(77);
 
             // Cast to interface
-            ISwiftHasInt32Value asInterface = holder;
+            IHasInt32Value asInterface = holder;
 
             // Access property via interface
             Assert.Equal(77, asInterface.IntValue);
@@ -208,7 +208,7 @@ namespace BindingsGeneration.FunctionalTests
             var doubler = new Doubler(5);
 
             // Cast to interface
-            ISwiftComputable asInterface = doubler;
+            IComputable asInterface = doubler;
 
             // Call method via interface
             int result = asInterface.Compute(9);
@@ -222,7 +222,7 @@ namespace BindingsGeneration.FunctionalTests
             var counter = new SimpleCounter(100);
 
             // Cast to interface
-            ISwiftCounter asInterface = counter;
+            ICounter asInterface = counter;
 
             // Access property and call method via interface
             Assert.Equal(100, asInterface.Count);
@@ -236,13 +236,13 @@ namespace BindingsGeneration.FunctionalTests
             var multi = new MultiConformer(300, 400);
 
             // Cast to each interface and verify behavior
-            ISwiftHasInt32Value asHasValue = multi;
+            IHasInt32Value asHasValue = multi;
             Assert.Equal(300, asHasValue.IntValue);
 
-            ISwiftComputable asComputable = multi;
+            IComputable asComputable = multi;
             Assert.Equal(350, asComputable.Compute(50)); // 300 + 50 = 350
 
-            ISwiftCounter asCounter = multi;
+            ICounter asCounter = multi;
             Assert.Equal(400, asCounter.Count);
             Assert.Equal(410, asCounter.Increment(10)); // 400 + 10 = 410
         }
@@ -254,7 +254,7 @@ namespace BindingsGeneration.FunctionalTests
             var advanced = new AdvancedCounter(500);
 
             // Cast to base interface (Counter)
-            ISwiftCounter asCounter = advanced;
+            ICounter asCounter = advanced;
             Assert.Equal(500, asCounter.Count);
             Assert.Equal(520, asCounter.Increment(20));
         }
@@ -266,7 +266,7 @@ namespace BindingsGeneration.FunctionalTests
             var advanced = new AdvancedCounter(500);
 
             // Cast to derived interface (ResettableCounter)
-            ISwiftResettableCounter asResettable = advanced;
+            IResettableCounter asResettable = advanced;
             Assert.Equal(0, asResettable.Reset());
         }
 
@@ -282,7 +282,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(123, result);
         }
 
-        private static int GetValueFromHolder<T>(T holder) where T : ISwiftHasInt32Value
+        private static int GetValueFromHolder<T>(T holder) where T : IHasInt32Value
         {
             return holder.IntValue;
         }
@@ -306,7 +306,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(42, result3);
         }
 
-        private static int IncrementCounter<T>(T counter, int by) where T : ISwiftCounter
+        private static int IncrementCounter<T>(T counter, int by) where T : ICounter
         {
             return counter.Increment(by);
         }

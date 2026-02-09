@@ -37,26 +37,26 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestSimpleItemConformance()
     {
         var item = new SimpleItem(id: "c1", label: "Check");
-        AssertTrue(item is ISwiftDescribable, "SimpleItem is ISwiftDescribable");
-        AssertTrue(item is ISwiftTestIdentifiable, "SimpleItem is ISwiftTestIdentifiable");
-        TestLogger.Info("SimpleItem conforms to ISwiftDescribable + ISwiftTestIdentifiable");
+        AssertTrue(item is IDescribable, "SimpleItem is IDescribable");
+        AssertTrue(item is ITestIdentifiable, "SimpleItem is ITestIdentifiable");
+        TestLogger.Info("SimpleItem conforms to IDescribable + ITestIdentifiable");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemConformance()
     {
         var item = new MutableItem(value: 0);
-        AssertTrue(item is ISwiftHasValue, "MutableItem is ISwiftHasValue");
-        TestLogger.Info("MutableItem conforms to ISwiftHasValue");
+        AssertTrue(item is IHasValue, "MutableItem is IHasValue");
+        TestLogger.Info("MutableItem conforms to IHasValue");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestDisplayItemConformance()
     {
         var item = new DisplayItem(text: "Hi");
-        AssertTrue(item is ISwiftDisplayable, "DisplayItem is ISwiftDisplayable");
-        AssertTrue(item is ISwiftDescribable, "DisplayItem is ISwiftDescribable");
-        TestLogger.Info("DisplayItem conforms to ISwiftDisplayable + ISwiftDescribable");
+        AssertTrue(item is IDisplayable, "DisplayItem is IDisplayable");
+        AssertTrue(item is IDescribable, "DisplayItem is IDescribable");
+        TestLogger.Info("DisplayItem conforms to IDisplayable + IDescribable");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -64,14 +64,14 @@ public class BasicProtocolDispatchTests : TestBase
     {
         // MultiConformingValue is a frozen struct that implements all 4 arithmetic protocols.
         // Use typeof() check since struct `is` interface is always true at compile time (CS0183).
-        AssertTrue(typeof(ISwiftAddable).IsAssignableFrom(typeof(MultiConformingValue)),
-            "MultiConformingValue implements ISwiftAddable");
-        AssertTrue(typeof(ISwiftSubtractable).IsAssignableFrom(typeof(MultiConformingValue)),
-            "MultiConformingValue implements ISwiftSubtractable");
-        AssertTrue(typeof(ISwiftMultipliable).IsAssignableFrom(typeof(MultiConformingValue)),
-            "MultiConformingValue implements ISwiftMultipliable");
-        AssertTrue(typeof(ISwiftDividable).IsAssignableFrom(typeof(MultiConformingValue)),
-            "MultiConformingValue implements ISwiftDividable");
+        AssertTrue(typeof(IAddable).IsAssignableFrom(typeof(MultiConformingValue)),
+            "MultiConformingValue implements IAddable");
+        AssertTrue(typeof(ISubtractable).IsAssignableFrom(typeof(MultiConformingValue)),
+            "MultiConformingValue implements ISubtractable");
+        AssertTrue(typeof(IMultipliable).IsAssignableFrom(typeof(MultiConformingValue)),
+            "MultiConformingValue implements IMultipliable");
+        AssertTrue(typeof(IDividable).IsAssignableFrom(typeof(MultiConformingValue)),
+            "MultiConformingValue implements IDividable");
         TestLogger.Info("MultiConformingValue conforms to 4 arithmetic protocols");
     }
 
@@ -79,9 +79,9 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestPersonConformance()
     {
         var person = new Person(name: "Alice", age: 30);
-        AssertTrue(person is ISwiftNameable, "Person is ISwiftNameable");
-        AssertTrue(person is ISwiftAgeable, "Person is ISwiftAgeable");
-        TestLogger.Info("Person conforms to ISwiftNameable + ISwiftAgeable");
+        AssertTrue(person is INameable, "Person is INameable");
+        AssertTrue(person is IAgeable, "Person is IAgeable");
+        TestLogger.Info("Person conforms to INameable + IAgeable");
     }
 
     #endregion
@@ -92,83 +92,83 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestHasValueGetThroughInterface()
     {
         var item = new MutableItem(value: 42);
-        var iface = (ISwiftHasValue)item;
-        AssertEqual(42, iface.Value, "ISwiftHasValue.Value get");
-        TestLogger.Info($"((ISwiftHasValue)MutableItem).Value = {iface.Value}");
+        var iface = (IHasValue)item;
+        AssertEqual(42, iface.Value, "IHasValue.Value get");
+        TestLogger.Info($"((IHasValue)MutableItem).Value = {iface.Value}");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestHasValueSetThroughInterface()
     {
         var item = new MutableItem(value: 10);
-        var iface = (ISwiftHasValue)item;
+        var iface = (IHasValue)item;
         iface.Value = 99;
-        AssertEqual(99, iface.Value, "ISwiftHasValue.Value after set");
-        TestLogger.Info($"ISwiftHasValue.Value = 99, get => {iface.Value}");
+        AssertEqual(99, iface.Value, "IHasValue.Value after set");
+        TestLogger.Info($"IHasValue.Value = 99, get => {iface.Value}");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestGetValueMethodThroughInterface()
     {
         var item = new MutableItem(value: 77);
-        var iface = (ISwiftHasValue)item;
-        AssertEqual(77, iface.GetValue(), "ISwiftHasValue.GetValue()");
-        TestLogger.Info($"((ISwiftHasValue)MutableItem).GetValue() = {iface.GetValue()}");
+        var iface = (IHasValue)item;
+        AssertEqual(77, iface.GetValue(), "IHasValue.GetValue()");
+        TestLogger.Info($"((IHasValue)MutableItem).GetValue() = {iface.GetValue()}");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestSetValueMethodThroughInterface()
     {
         var item = new MutableItem(value: 0);
-        var iface = (ISwiftHasValue)item;
+        var iface = (IHasValue)item;
         iface.SetValue(55);
-        AssertEqual(55, iface.GetValue(), "ISwiftHasValue after SetValue(55)");
-        TestLogger.Info($"ISwiftHasValue.SetValue(55), GetValue() => {iface.GetValue()}");
+        AssertEqual(55, iface.GetValue(), "IHasValue after SetValue(55)");
+        TestLogger.Info($"IHasValue.SetValue(55), GetValue() => {iface.GetValue()}");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestMultiConformingAddThroughInterface()
     {
         var val = new MultiConformingValue(value: 10);
-        var iface = (ISwiftAddable)val;
-        AssertEqual(15, iface.Add(5), "ISwiftAddable.Add(5) on value=10");
-        TestLogger.Info($"((ISwiftAddable)MultiConformingValue(10)).Add(5) = {iface.Add(5)}");
+        var iface = (IAddable)val;
+        AssertEqual(15, iface.Add(5), "IAddable.Add(5) on value=10");
+        TestLogger.Info($"((IAddable)MultiConformingValue(10)).Add(5) = {iface.Add(5)}");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestMultiConformingSubtractThroughInterface()
     {
         var val = new MultiConformingValue(value: 20);
-        var iface = (ISwiftSubtractable)val;
-        AssertEqual(15, iface.Subtract(5), "ISwiftSubtractable.Subtract(5) on value=20");
-        TestLogger.Info($"((ISwiftSubtractable)MultiConformingValue(20)).Subtract(5) = {iface.Subtract(5)}");
+        var iface = (ISubtractable)val;
+        AssertEqual(15, iface.Subtract(5), "ISubtractable.Subtract(5) on value=20");
+        TestLogger.Info($"((ISubtractable)MultiConformingValue(20)).Subtract(5) = {iface.Subtract(5)}");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestMultiConformingMultiplyThroughInterface()
     {
         var val = new MultiConformingValue(value: 7);
-        var iface = (ISwiftMultipliable)val;
-        AssertEqual(21, iface.Multiply(3), "ISwiftMultipliable.Multiply(3) on value=7");
-        TestLogger.Info($"((ISwiftMultipliable)MultiConformingValue(7)).Multiply(3) = {iface.Multiply(3)}");
+        var iface = (IMultipliable)val;
+        AssertEqual(21, iface.Multiply(3), "IMultipliable.Multiply(3) on value=7");
+        TestLogger.Info($"((IMultipliable)MultiConformingValue(7)).Multiply(3) = {iface.Multiply(3)}");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestMultiConformingDivideThroughInterface()
     {
         var val = new MultiConformingValue(value: 100);
-        var iface = (ISwiftDividable)val;
-        AssertEqual(25, iface.Divide(4), "ISwiftDividable.Divide(4) on value=100");
-        TestLogger.Info($"((ISwiftDividable)MultiConformingValue(100)).Divide(4) = {iface.Divide(4)}");
+        var iface = (IDividable)val;
+        AssertEqual(25, iface.Divide(4), "IDividable.Divide(4) on value=100");
+        TestLogger.Info($"((IDividable)MultiConformingValue(100)).Divide(4) = {iface.Divide(4)}");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestPersonAgeThroughInterface()
     {
         var person = new Person(name: "Bob", age: 25);
-        var iface = (ISwiftAgeable)person;
-        AssertEqual(25, iface.Age, "ISwiftAgeable.Age");
-        TestLogger.Info($"((ISwiftAgeable)Person).Age = {iface.Age}");
+        var iface = (IAgeable)person;
+        AssertEqual(25, iface.Age, "IAgeable.Age");
+        TestLogger.Info($"((IAgeable)Person).Age = {iface.Age}");
     }
 
     #endregion
@@ -179,50 +179,50 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestDescribeMethodThroughInterface()
     {
         var item = new SimpleItem(id: "s1", label: "Widget");
-        var iface = (ISwiftDescribable)item;
+        var iface = (IDescribable)item;
         var desc = iface.Describe();
         AssertTrue(desc.Contains("s1"), "Describe() contains id");
         AssertTrue(desc.Contains("Widget"), "Describe() contains label");
-        TestLogger.Info($"((ISwiftDescribable)SimpleItem).Describe() = \"{desc}\"");
+        TestLogger.Info($"((IDescribable)SimpleItem).Describe() = \"{desc}\"");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestDisplayMethodThroughInterface()
     {
         var item = new DisplayItem(text: "Hello");
-        var iface = (ISwiftDisplayable)item;
-        AssertEqual("Display: Hello", iface.Display(), "ISwiftDisplayable.Display()");
-        TestLogger.Info($"((ISwiftDisplayable)DisplayItem).Display() = \"{iface.Display()}\"");
+        var iface = (IDisplayable)item;
+        AssertEqual("Display: Hello", iface.Display(), "IDisplayable.Display()");
+        TestLogger.Info($"((IDisplayable)DisplayItem).Display() = \"{iface.Display()}\"");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestInheritedDescribeThroughDisplayable()
     {
         var item = new DisplayItem(text: "World");
-        // DisplayItem implements ISwiftDisplayable which inherits ISwiftDescribable
-        var iface = (ISwiftDescribable)item;
+        // DisplayItem implements IDisplayable which inherits IDescribable
+        var iface = (IDescribable)item;
         AssertEqual("Describe: World", iface.Describe(), "Inherited Describe() through Displayable");
-        TestLogger.Info($"((ISwiftDescribable)DisplayItem).Describe() = \"{iface.Describe()}\"");
+        TestLogger.Info($"((IDescribable)DisplayItem).Describe() = \"{iface.Describe()}\"");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestEchoProcessorProcessThroughInterface()
     {
         var proc = new EchoProcessor(prefix: "Echo");
-        var iface = (ISwiftStringProcessor)proc;
+        var iface = (IStringProcessor)proc;
         var result = iface.Process(input: "test");
-        AssertEqual("Echo: test", result, "ISwiftStringProcessor.Process()");
-        TestLogger.Info($"((ISwiftStringProcessor)EchoProcessor).Process(\"test\") = \"{result}\"");
+        AssertEqual("Echo: test", result, "IStringProcessor.Process()");
+        TestLogger.Info($"((IStringProcessor)EchoProcessor).Process(\"test\") = \"{result}\"");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestEchoProcessorGetOutputThroughInterface()
     {
         var proc = new EchoProcessor(prefix: "Proc");
-        var iface = (ISwiftStringProcessor)proc;
+        var iface = (IStringProcessor)proc;
         var output = iface.GetOutput();
-        AssertEqual("Proc: ready", output, "ISwiftStringProcessor.GetOutput()");
-        TestLogger.Info($"((ISwiftStringProcessor)EchoProcessor).GetOutput() = \"{output}\"");
+        AssertEqual("Proc: ready", output, "IStringProcessor.GetOutput()");
+        TestLogger.Info($"((IStringProcessor)EchoProcessor).GetOutput() = \"{output}\"");
     }
 
     #endregion
@@ -233,17 +233,17 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestStatusHandlerGetCurrentStatus()
     {
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
-        var iface = (ISwiftStatusHandler)handler;
+        var iface = (IStatusHandler)handler;
         var status = iface.GetCurrentStatus();
         AssertEqual(SwiftTaskStatus.CaseTag.Pending, status.Tag, "Initial status should be Pending");
-        TestLogger.Info($"((ISwiftStatusHandler)handler).GetCurrentStatus().Tag = {status.Tag}");
+        TestLogger.Info($"((IStatusHandler)handler).GetCurrentStatus().Tag = {status.Tag}");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestStatusHandlerTransitionStatus()
     {
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
-        var iface = (ISwiftStatusHandler)handler;
+        var iface = (IStatusHandler)handler;
         var next = iface.TransitionStatus(from: SwiftTaskStatus.Pending);
         AssertEqual(SwiftTaskStatus.CaseTag.Running, next.Tag, "Transition from Pending should be Running");
         TestLogger.Info($"TransitionStatus(Pending).Tag = {next.Tag}");
@@ -253,7 +253,7 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestStatusHandlerHandleStatus()
     {
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
-        var iface = (ISwiftStatusHandler)handler;
+        var iface = (IStatusHandler)handler;
         iface.HandleStatus(SwiftTaskStatus.Running);
         var current = iface.GetCurrentStatus();
         AssertEqual(SwiftTaskStatus.CaseTag.Running, current.Tag, "After HandleStatus(Running)");
@@ -267,17 +267,17 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestPriorityHandlerGetPriority()
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.High);
-        var iface = (ISwiftPriorityHandler)handler;
+        var iface = (IPriorityHandler)handler;
         var priority = iface.GetPriority();
         AssertEqual(TaskPriority.CaseTag.High, priority.Tag, "Initial priority should be High");
-        TestLogger.Info($"((ISwiftPriorityHandler)handler).GetPriority().Tag = {priority.Tag}");
+        TestLogger.Info($"((IPriorityHandler)handler).GetPriority().Tag = {priority.Tag}");
     }
 
     [TestTier(TestTier.Tier3)]
     public void TestPriorityHandlerSetPriority()
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.Low);
-        var iface = (ISwiftPriorityHandler)handler;
+        var iface = (IPriorityHandler)handler;
         iface.SetPriority(TaskPriority.Critical);
         var priority = iface.GetPriority();
         AssertEqual(TaskPriority.CaseTag.Critical, priority.Tag, "After SetPriority(Critical)");
@@ -288,7 +288,7 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestPriorityHandlerIsHigherPriority()
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.High);
-        var iface = (ISwiftPriorityHandler)handler;
+        var iface = (IPriorityHandler)handler;
         AssertTrue(iface.IsHigherPriority(than: TaskPriority.Low), "High > Low");
         AssertFalse(iface.IsHigherPriority(than: TaskPriority.Critical), "High < Critical");
         TestLogger.Info("IsHigherPriority: High > Low = true, High < Critical = false");
@@ -302,20 +302,20 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestPrioritizedPropertyGetThroughInterface()
     {
         var item = new PrioritizedItem(priority: TaskPriority.Medium);
-        var iface = (ISwiftPrioritized)item;
-        AssertEqual(TaskPriority.CaseTag.Medium, iface.Priority.Tag, "ISwiftPrioritized.Priority");
-        TestLogger.Info($"((ISwiftPrioritized)PrioritizedItem).Priority.Tag = {iface.Priority.Tag}");
+        var iface = (IPrioritized)item;
+        AssertEqual(TaskPriority.CaseTag.Medium, iface.Priority.Tag, "IPrioritized.Priority");
+        TestLogger.Info($"((IPrioritized)PrioritizedItem).Priority.Tag = {iface.Priority.Tag}");
     }
 
     [TestTier(TestTier.Tier3)]
     public void TestMutablePrioritizedPropertySetThroughInterface()
     {
         var item = new MutablePrioritizedItem(priority: TaskPriority.Low);
-        var iface = (ISwiftMutablePrioritized)item;
+        var iface = (IMutablePrioritized)item;
         AssertEqual(TaskPriority.CaseTag.Low, iface.Priority.Tag, "Initial priority Low");
         iface.Priority = TaskPriority.High;
         AssertEqual(TaskPriority.CaseTag.High, iface.Priority.Tag, "After set to High");
-        TestLogger.Info($"ISwiftMutablePrioritized: Low -> High, Tag = {iface.Priority.Tag}");
+        TestLogger.Info($"IMutablePrioritized: Low -> High, Tag = {iface.Priority.Tag}");
     }
 
     [TestTier(TestTier.Tier2)]
@@ -334,53 +334,53 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestDescriptionPropertyThroughInterface()
     {
         var item = new SimpleItem(id: "p1", label: "Proto");
-        var iface = (ISwiftDescribable)item;
+        var iface = (IDescribable)item;
         var desc = iface.Description.ToString();
         AssertTrue(desc.Contains("p1"), "Description contains id");
-        TestLogger.Info($"ISwiftDescribable.Description = \"{desc}\"");
+        TestLogger.Info($"IDescribable.Description = \"{desc}\"");
     }
 
     [TestTier(TestTier.Tier3)]
     public void TestIdPropertyThroughInterface()
     {
         var item = new SimpleItem(id: "id-42", label: "Test");
-        var iface = (ISwiftTestIdentifiable)item;
+        var iface = (ITestIdentifiable)item;
         var id = iface.Id.ToString();
-        AssertEqual("id-42", id, "ISwiftTestIdentifiable.Id");
-        TestLogger.Info($"ISwiftTestIdentifiable.Id = \"{id}\"");
+        AssertEqual("id-42", id, "ITestIdentifiable.Id");
+        TestLogger.Info($"ITestIdentifiable.Id = \"{id}\"");
     }
 
     [TestTier(TestTier.Tier3)]
     public void TestNameablePropertyThroughInterface()
     {
         var person = new Person(name: "Charlie", age: 40);
-        var iface = (ISwiftNameable)person;
+        var iface = (INameable)person;
         var name = iface.Name.ToString();
-        AssertEqual("Charlie", name, "ISwiftNameable.Name");
-        TestLogger.Info($"ISwiftNameable.Name = \"{name}\"");
+        AssertEqual("Charlie", name, "INameable.Name");
+        TestLogger.Info($"INameable.Name = \"{name}\"");
     }
 
     [TestTier(TestTier.Tier3)]
     public void TestNamedPropertyGetThroughInterface()
     {
         var item = new NamedItem(name: "TestItem");
-        var iface = (ISwiftNamed)item;
+        var iface = (INamed)item;
         var name = iface.Name.ToString();
-        AssertEqual("TestItem", name, "ISwiftNamed.Name");
-        TestLogger.Info($"ISwiftNamed.Name = \"{name}\"");
+        AssertEqual("TestItem", name, "INamed.Name");
+        TestLogger.Info($"INamed.Name = \"{name}\"");
     }
 
     [TestTier(TestTier.Tier3)]
     public void TestMutableNamedPropertySetThroughInterface()
     {
         var item = new MutableNamedItem(name: "Original");
-        var iface = (ISwiftMutableNamed)item;
+        var iface = (IMutableNamed)item;
         var origName = iface.Name.ToString();
         AssertEqual("Original", origName, "Initial name");
         iface.Name = new Swift.SwiftString("Updated");
         var newName = iface.Name.ToString();
         AssertEqual("Updated", newName, "After name set");
-        TestLogger.Info($"ISwiftMutableNamed.Name: \"{origName}\" -> \"{newName}\"");
+        TestLogger.Info($"IMutableNamed.Name: \"{origName}\" -> \"{newName}\"");
     }
 
     #endregion

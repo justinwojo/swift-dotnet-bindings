@@ -26,7 +26,7 @@ public class AsyncComplexTypeTests : TestBase
     public async Task TestAsyncGetResult()
     {
         var worker = new AsyncComplexWorker("worker-1");
-        var result = await WithTimeout(worker.AsyncGetResult(), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.AsyncGetResultAsync(), DefaultAsyncTimeout);
         AssertNotNull(result, "AsyncGetResult not null");
         AssertEqual(42, result.Id, "AsyncResult.Id");
         AssertEqual("Completed by worker-1", result.Message.ToString(), "AsyncResult.Message");
@@ -36,12 +36,12 @@ public class AsyncComplexTypeTests : TestBase
 
     public async Task TestAsyncStaticResult()
     {
-        var result = await WithTimeout(AsyncComplexWorker.AsyncStaticResult(), DefaultAsyncTimeout);
+        var result = await WithTimeout(AsyncComplexWorker.AsyncStaticResultAsync(), DefaultAsyncTimeout);
         AssertNotNull(result, "AsyncStaticResult not null");
         AssertEqual(0, result.Id, "Static AsyncResult.Id");
         AssertEqual("Static result", result.Message.ToString(), "Static AsyncResult.Message");
         AssertEqual(true, result.Success, "Static AsyncResult.Success");
-        TestLogger.Info($"AsyncComplexWorker.AsyncStaticResult() = id={result.Id}");
+        TestLogger.Info($"AsyncComplexWorker.AsyncStaticResultAsync() = id={result.Id}");
     }
 
     #endregion
@@ -51,7 +51,7 @@ public class AsyncComplexTypeTests : TestBase
     public async Task TestAsyncGetStatus()
     {
         var worker = new AsyncComplexWorker("status-worker");
-        var status = await WithTimeout(worker.AsyncGetStatus(), DefaultAsyncTimeout);
+        var status = await WithTimeout(worker.AsyncGetStatusAsync(), DefaultAsyncTimeout);
         AssertNotNull(status, "AsyncGetStatus not null");
         // Swift returns .completed(message: "Task finished")
         AssertEqual(AsyncStatus.CaseTag.Completed, status.Tag, "AsyncStatus.Tag == Completed");
@@ -63,7 +63,7 @@ public class AsyncComplexTypeTests : TestBase
     public async Task TestAsyncGetPendingStatus()
     {
         var worker = new AsyncComplexWorker("pending-worker");
-        var status = await WithTimeout(worker.AsyncGetPendingStatus(), DefaultAsyncTimeout);
+        var status = await WithTimeout(worker.AsyncGetPendingStatusAsync(), DefaultAsyncTimeout);
         AssertNotNull(status, "AsyncGetPendingStatus not null");
         AssertEqual(AsyncStatus.CaseTag.Pending, status.Tag, "AsyncStatus.Tag == Pending");
         TestLogger.Info("AsyncComplexWorker.AsyncGetPendingStatus() = Pending");
@@ -76,7 +76,7 @@ public class AsyncComplexTypeTests : TestBase
     public async Task TestAsyncGetTask()
     {
         var worker = new AsyncComplexWorker("task-worker");
-        var task = await WithTimeout(worker.AsyncGetTask(), DefaultAsyncTimeout);
+        var task = await WithTimeout(worker.AsyncGetTaskAsync(), DefaultAsyncTimeout);
         AssertNotNull(task, "AsyncGetTask not null");
         // Swift: AsyncTask(taskId: workerId, status: "completed async")
         AssertEqual("task-worker", task.TaskId.ToString(), "AsyncTask.TaskId");
@@ -86,11 +86,11 @@ public class AsyncComplexTypeTests : TestBase
 
     public async Task TestAsyncStaticTask()
     {
-        var task = await WithTimeout(AsyncComplexWorker.AsyncStaticTask(), DefaultAsyncTimeout);
+        var task = await WithTimeout(AsyncComplexWorker.AsyncStaticTaskAsync(), DefaultAsyncTimeout);
         AssertNotNull(task, "AsyncStaticTask not null");
         AssertEqual("static-task", task.TaskId.ToString(), "Static AsyncTask.TaskId");
         AssertEqual("created", task.StatusProperty.ToString(), "Static AsyncTask.Status");
-        TestLogger.Info($"AsyncComplexWorker.AsyncStaticTask() = Task[{task.TaskId}]: {task.StatusProperty}");
+        TestLogger.Info($"AsyncComplexWorker.AsyncStaticTaskAsync() = Task[{task.TaskId}]: {task.StatusProperty}");
     }
 
     #endregion
@@ -100,7 +100,7 @@ public class AsyncComplexTypeTests : TestBase
     public async Task TestAsyncGetOptionalResultSome()
     {
         var worker = new AsyncComplexWorker("optional-worker");
-        var result = await WithTimeout(worker.AsyncGetOptionalResult(), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.AsyncGetOptionalResultAsync(), DefaultAsyncTimeout);
         // Swift returns AsyncResult(id: 100, message: "Optional result", success: true)
         AssertNotNull(result, "AsyncGetOptionalResult should return Some");
         AssertEqual(100, result!.Id, "Optional AsyncResult.Id");
@@ -112,7 +112,7 @@ public class AsyncComplexTypeTests : TestBase
     public async Task TestAsyncGetNilResult()
     {
         var worker = new AsyncComplexWorker("nil-worker");
-        var result = await WithTimeout(worker.AsyncGetNilResult(), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.AsyncGetNilResultAsync(), DefaultAsyncTimeout);
         // Swift returns nil
         AssertNull(result, "AsyncGetNilResult should return null");
         TestLogger.Info("AsyncComplexWorker.AsyncGetNilResult() = null");

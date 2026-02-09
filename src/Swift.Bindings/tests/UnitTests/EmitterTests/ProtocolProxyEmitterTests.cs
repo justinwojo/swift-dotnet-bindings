@@ -39,7 +39,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains(": ISwiftTestProtocol, ISwiftObject", output);
+        Assert.Contains(": ITestProtocol, ISwiftObject", output);
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("private readonly ISwiftTestProtocol? _csharpImpl;", output);
+        Assert.Contains("private readonly ITestProtocol? _csharpImpl;", output);
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public TestProtocolProxy(ISwiftTestProtocol implementation)", output);
+        Assert.Contains("public TestProtocolProxy(ITestProtocol implementation)", output);
     }
 
     [Fact]
@@ -728,7 +728,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         // Async methods should NOT be dispatched, even with blittable types
-        Assert.Contains("Cannot call method 'FetchValue'", output);
+        Assert.Contains("Cannot call method 'FetchValueAsync'", output);
         Assert.DoesNotContain("SBW_TestProtocol_method_fetchValue", output);
     }
 
@@ -742,20 +742,20 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("NativeMethods.SBW_TestProtocol_get_name_0", output);
         Assert.Contains("Utf8Slice", output);
         Assert.Contains("Encoding.UTF8.GetString", output);
-        Assert.Contains("new Swift.SwiftString(str)", output);
+        Assert.Contains("return str;", output);
         Assert.DoesNotContain("Cannot get property 'Name'", output);
     }
 
     [Fact]
-    public void EmitProxyClass_StringPropertyGetter_NoTypeDB_FallsBackToNotSupported()
+    public void EmitProxyClass_StringPropertyGetter_NoTypeDB_StillUsesIdiomaticDispatch()
     {
-        // Without TypeDB registration, Swift.String projects to Swift.AnyType
-        // which is incompatible with SwiftString dispatch. Must fall back.
+        // TypeConversionHandler recognizes Swift.String by name (not via TypeDB registration),
+        // so idiomatic string dispatch is used even without explicit TypeDB registration.
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "name", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.String"));
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("Cannot get property 'Name'", output);
-        Assert.DoesNotContain("Encoding.UTF8.GetString", output);
+        Assert.Contains("Encoding.UTF8.GetString", output);
+        Assert.Contains("return str;", output);
     }
 
     [Fact]

@@ -408,6 +408,8 @@ public class TypeConversionHandlerTests
             record = null;
             return false;
         }
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
     }
 
     #endregion

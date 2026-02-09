@@ -115,11 +115,11 @@ public class GenericMethodEmitterTests
     #region NameProvider.GetInterfaceName Tests
 
     [Fact]
-    public void GetInterfaceName_StandardProtocol_ReturnsISwiftPrefixedName()
+    public void GetInterfaceName_StandardProtocol_ReturnsIPrefixedName()
     {
         var result = NameProvider.GetInterfaceName("ImageProcessing");
 
-        Assert.Equal("ISwiftImageProcessing", result);
+        Assert.Equal("IImageProcessing", result);
     }
 
     [Fact]
@@ -131,11 +131,45 @@ public class GenericMethodEmitterTests
     }
 
     [Fact]
-    public void GetInterfaceName_SwiftProtocol_ReturnsISwiftPrefixed()
+    public void GetInterfaceName_SwiftProtocol_ReturnsIPrefixed()
     {
         var result = NameProvider.GetInterfaceName("Sendable");
 
-        Assert.Equal("ISwiftSendable", result);
+        Assert.Equal("ISendable", result);
+    }
+
+    [Fact]
+    public void GetInterfaceName_RuntimeProtocol_FromSwiftModule_ReturnsISwiftPrefixed()
+    {
+        var result = NameProvider.GetInterfaceName("Hashable", moduleName: "Swift");
+
+        Assert.Equal("ISwiftHashable", result);
+    }
+
+    [Fact]
+    public void GetInterfaceName_RuntimeProtocol_FromSwiftModule_Collection_ReturnsISwiftPrefixed()
+    {
+        var result = NameProvider.GetInterfaceName("Collection", moduleName: "Swift");
+
+        Assert.Equal("ISwiftCollection", result);
+    }
+
+    [Fact]
+    public void GetInterfaceName_UserDefinedProtocol_SameNameAsRuntime_ReturnsIPrefixed()
+    {
+        // A user-defined "Collection" protocol in a custom module should get "ICollection",
+        // not "ISwiftCollection" which is reserved for the Swift stdlib protocol.
+        var result = NameProvider.GetInterfaceName("Collection", moduleName: "MyModule");
+
+        Assert.Equal("ICollection", result);
+    }
+
+    [Fact]
+    public void GetInterfaceName_UserDefinedProtocol_DataProtocol_NonSwift_ReturnsIPrefixed()
+    {
+        var result = NameProvider.GetInterfaceName("DataProtocol", moduleName: "NetworkLib");
+
+        Assert.Equal("IDataProtocol", result);
     }
 
     #endregion

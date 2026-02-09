@@ -447,11 +447,13 @@ namespace BindingsGeneration
                     else
                     {
                         // Getters can use value semantics for frozen structs
+                        // Use resolved type name (may be renamed for nested type collision avoidance)
                         var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                        var resolvedName = GetResolvedParentTypeName();
                         if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
-                            AddParameter($"SwiftSelf<{_env.ParentDecl.Name}.Buffer>", "self");
+                            AddParameter($"SwiftSelf<{resolvedName}.Buffer>", "self");
                         else
-                            AddParameter($"SwiftSelf<{_env.ParentDecl.Name}>", "self");
+                            AddParameter($"SwiftSelf<{resolvedName}>", "self");
                     }
                 }
                 else
@@ -501,6 +503,21 @@ namespace BindingsGeneration
 
             // Insert ", IntPtr" after the last comma
             return funcPtrType.Insert(lastComma + 1, " IntPtr,");
+        }
+
+        /// <summary>
+        /// Gets the resolved simple type name for the parent type, accounting for nested type renames.
+        /// </summary>
+        private string GetResolvedParentTypeName()
+        {
+            if (_env.ParentDecl is TypeDecl typeDecl &&
+                _env.TypeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record))
+            {
+                var name = record.CSharpTypeName.Name;
+                var lastDot = name.LastIndexOf('.');
+                return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
+            }
+            return _env.ParentDecl.Name;
         }
     }
 

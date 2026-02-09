@@ -168,8 +168,27 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
-            // Emit top-level types
-            base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase);
+            // Emit top-level types with scoped composition interface collection
+            conductor.SetActiveCompositionCollector();
+            try
+            {
+                base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase);
+
+                // Emit composition interfaces (e.g., IAgeableAndNameable : IAgeable, INameable)
+                // These are collected during method/property emission when multi-protocol existentials are encountered.
+                // SortedDictionary ensures deterministic emission order regardless of encounter order.
+                foreach (var (compositionName, parentInterfaces) in conductor.CompositionInterfaces)
+                {
+                    csWriter.WriteLine();
+                    csWriter.WriteLine($"public interface {compositionName} : {string.Join(", ", parentInterfaces)}");
+                    csWriter.WriteLine("{");
+                    csWriter.WriteLine("}");
+                }
+            }
+            finally
+            {
+                Conductor.ClearActiveCompositionCollector();
+            }
 
             csWriter.Indent--;
             csWriter.WriteLine("}");

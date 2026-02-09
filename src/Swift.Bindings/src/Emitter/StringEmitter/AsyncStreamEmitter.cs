@@ -128,7 +128,6 @@ public static class AsyncStreamEmitter
     /// <param name="asyncStreamHandler">The AsyncStream handler.</param>
     /// <param name="swiftWrapperName">The Swift wrapper function name.</param>
     /// <param name="callbackName">The callback function name prefix.</param>
-    /// <param name="siblingNestedTypeNames">Optional set of nested type names for collision detection.</param>
     /// <param name="containingTypeName">Optional containing type name for collision detection (CS0542).</param>
     public static void EmitPropertyGetter(
         CSharpWriter csWriter,
@@ -136,14 +135,13 @@ public static class AsyncStreamEmitter
         AsyncStreamHandler asyncStreamHandler,
         string swiftWrapperName,
         string callbackName,
-        IReadOnlySet<string>? siblingNestedTypeNames = null,
         string? containingTypeName = null)
     {
         var elementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
         var asyncEnumerableType = $"IAsyncEnumerable<{elementType}>";
         var isStatic = propertyDecl.IsStatic;
         var staticModifier = isStatic ? "static " : "";
-        var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, siblingNestedTypeNames, containingTypeName);
+        var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, containingTypeName);
         var selfArg = isStatic ? "" : "(void*)_payload.DangerousGetHandle(), ";
 
         csWriter.WriteLines($$"""

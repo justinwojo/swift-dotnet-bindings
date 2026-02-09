@@ -97,13 +97,18 @@ namespace BindingsGeneration
                 return;
             }
 
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl);
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, conductor.NestedTypeRenames);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
 
             // Create P/Invoke helper context for generic enums (to avoid CS7042).
             var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(enumDecl);
             var previousContext = conductor.CurrentPInvokeHelperContext;
             conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
+
+            // Compute nested type renames to resolve property/nested-type name collisions
+            var nestedTypeRenames = ComputeAndApplyNestedTypeRenames(enumDecl, env.TypeDatabase);
+            var previousRenames = conductor.NestedTypeRenames;
+            conductor.NestedTypeRenames = nestedTypeRenames;
 
             try
             {
@@ -150,9 +155,6 @@ namespace BindingsGeneration
                 }
             }
 
-            // Precompute naming-collision context for enum properties.
-            var nestedTypeNames = new HashSet<string>(enumDecl.Types.Select(t => t.Name));
-
             // Handle simple cases via RawRepresentable if available, otherwise via enum-tag construction.
             // Enum element symbols from ABI JSON are often not exported callable functions.
             if (simpleCases.Count > 0)
@@ -175,13 +177,13 @@ namespace BindingsGeneration
             if (enumDecl.Cases.Any())
             {
                 EmitCaseTagEnum(csWriter, enumDecl);
-                EmitTagProperty(csWriter, enumDecl);
+                EmitTagProperty(csWriter, enumDecl, typeNameWithGenerics);
             }
 
             // Emit TryGet methods for cases with associated values
             foreach (var caseDecl in enumDecl.Cases.Where(c => c.HasAssociatedValues))
             {
-                EmitTryGetMethod(csWriter, enumDecl, caseDecl, env.TypeDatabase);
+                EmitTryGetMethod(csWriter, enumDecl, caseDecl, env.TypeDatabase, typeNameWithGenerics);
             }
 
             // Add a blank line between cases and other members
@@ -193,7 +195,7 @@ namespace BindingsGeneration
             // Emit properties using the same pattern as other handlers
             foreach (var propertyDecl in enumDecl.Properties)
             {
-                var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, nestedTypeNames, enumDecl.Name);
+                var propertyName = NameProvider.GetPropertyName(propertyDecl.Name, enumDecl.Name);
                 if (propertyDecl.IsStatic && emittedCaseConstructorNames.Contains(propertyName))
                 {
                     _logger.LogInformation($"Skipping enum static property '{enumDecl.Name}.{propertyName}' because a case constructor with the same C# name is already emitted.");
@@ -219,7 +221,7 @@ namespace BindingsGeneration
             // Collect property names for method/property collision detection
             // Include nested type names and containing type name for consistent naming with PropertyHandler
             var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p =>
-                NameProvider.GetPropertyName(p.Name, nestedTypeNames, enumDecl.Name)));
+                NameProvider.GetPropertyName(p.Name, enumDecl.Name)));
 
             // Record enum operators — equality operators are handled by C# enum semantics
             // (RawValue comparison), other operators are unsupported on enum types.
@@ -249,7 +251,42 @@ namespace BindingsGeneration
             finally
             {
                 conductor.CurrentPInvokeHelperContext = previousContext;
+                conductor.NestedTypeRenames = previousRenames;
             }
+        }
+
+        /// <summary>
+        /// Computes nested type renames to resolve property/nested-type collisions,
+        /// and updates the TypeDatabase with the renamed C# type names.
+        /// </summary>
+        private static Dictionary<string, string> ComputeAndApplyNestedTypeRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+        {
+            var propertyNames = typeDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name, typeDecl.Name));
+            var nestedTypeNames = typeDecl.Types.Select(t => t.Name);
+            var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+
+            foreach (var (originalName, renamedName) in renames)
+            {
+                var nestedType = typeDecl.Types.FirstOrDefault(t => t.Name == originalName);
+                if (nestedType != null && typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var record))
+                {
+                    // Preserve parent type path: "Outer.Inner" → "Outer.InnerInfo"
+                    var existingName = record.CSharpTypeName.Name;
+                    var lastDot = existingName.LastIndexOf('.');
+                    var qualifiedRenamedName = lastDot >= 0
+                        ? existingName.Substring(0, lastDot + 1) + renamedName
+                        : renamedName;
+
+                    var updatedRecord = record with
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
+                            record.CSharpTypeName.Namespace ?? string.Empty, qualifiedRenamedName)
+                    };
+                    typeDatabase.UpdateTypeRecord(nestedType.SwiftTypeName, updatedRecord);
+                }
+            }
+
+            return renames;
         }
 
         /// <summary>

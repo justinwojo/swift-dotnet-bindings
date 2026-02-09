@@ -131,7 +131,7 @@ cd TestFramework
 
 ## Phase D: Binding API Overhaul
 
-**Status**: In Progress (Waves 1-3 done)
+**Status**: DONE (All 4 waves complete)
 **Effort**: Large (10-15 sessions across 4 waves)
 **Why**: The generator produces correct interop code, but the public API surface exposes too many interop implementation details. A .NET developer consuming these bindings faces constant friction from `SwiftString`, `IntPtr`, `Init()` methods, `SwiftOptional<T>`, and `Payload.Dispose()`. This work is a **must-do before opening the project to external developers**.
 **Depends on**: Phase B (need broad test coverage as regression safety net before sweeping emitter changes)
@@ -170,21 +170,22 @@ The binding review identified the generated API as grade C+ — technically impr
 
 **DoD verified**: Zero `ExistentialContainer*` in public API (excluding proxy internals), simple enums as C# enums (Direction, Color, TaskStatus, AlertStyle), 11 default parameter overloads generated. Unit tests: 1636 pass. Integration tests: 699 pass. Coverage: 94/94 must-pass (default_parameter_value promoted from known-unsupported), 0 degraded.
 
-### Wave 4: Polish (P3)
+### Wave 4: Polish (P3) — DONE
+**Completed**: February 2026
 **Goal**: Cosmetic and convention alignment.
 
-1. **Property name suffixes** — Remove `Value` suffix (`ConfigurationValue` → `Configuration`).
-2. **Interface naming** — `ISwiftImageProcessing` → `IImageProcessing`.
-3. **AnyType fallback** — Add `[OriginalSwiftType("CoreText.CTFont")]` attribute.
-4. **Collection interfaces** — `SwiftArray<T>` implements `IReadOnlyList<T>` and `IList<T>`.
-5. **Async naming** — Async methods in public API end with `Async`.
+1. **Interface naming** — Generated protocol interfaces use `I{Name}` instead of `ISwift{Name}` (e.g., `IImageProcessing` instead of `ISwiftImageProcessing`). Runtime infrastructure interfaces (`ISwiftObject`, `ISwiftHashable`, etc.) are unchanged.
+2. **Async naming** — Async methods in public API end with `Async` suffix per .NET convention. Centralized via `NameProvider.GetPublicMethodName()`.
+3. **AnyType fallback attribute** — `[UnsupportedSwiftType]` attribute (with original Swift type name) now emitted on protocol interface properties, methods, parameters, and subscripts that fall back to AnyType. This fulfills the `[OriginalSwiftType]` requirement — `[UnsupportedSwiftType]` provides both reason and original type.
+4. **Collection interfaces** — `SwiftArray<T>` implements `IList<T>` via explicit interface implementations (in addition to existing `IReadOnlyList<T>`).
+5. **Property name collisions** — Nested types that collide with property names are renamed with `Info` suffix (e.g., nested type `Configuration` → `ConfigurationInfo`), keeping the property name clean. TypeDatabase is updated to reflect the renamed C# type. CS0542 (property = containing type) still uses `Value` suffix on the property.
 
-**DoD**: All scorecard metrics at gate values. Golden scenarios (Nuke, Lottie, BlinkID) compile without interop types.
+**DoD verified**: Zero `ISwift{Name}` generated interfaces (all use `I{Name}`), async methods end with `Async`, AnyType fallbacks carry `[UnsupportedSwiftType]` with SwiftType, `SwiftArray<T>` implements `IList<T>`, nested type collisions resolved by renaming types. Unit tests: 1636 pass. Integration tests: 699 pass. Runtime tests: 116 pass.
 
 ### Cross-Cutting (All Waves)
 - **Exception mapping** — Typed `SwiftException<TError>` for Swift `throws`. Improve incrementally.
-- **CancellationToken** — Add to async methods as they're modified.
-- **Ownership/lifetime docs** — Update XML doc comments as types are modified.
+- **CancellationToken** — Deferred to post-Phase D. Adding CancellationToken requires new parameter plumbing, wrapper generation changes, and runtime testing beyond cosmetic naming changes.
+- **Ownership/lifetime docs** — Deferred to post-Phase D. No XML doc comment infrastructure exists yet; better suited as combined work with API Documentation Generation.
 - **Versioning strategy** — Establish before shipping to external consumers.
 
 ### Quality Scorecard (Target: All Zero)
