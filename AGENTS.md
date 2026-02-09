@@ -13,6 +13,21 @@ Instructions for Codex in this repository.
 - Follow project conventions and workflows documented in `CLAUDE.md`.
 - If guidance conflicts, this file takes precedence for Codex execution constraints.
 
+## Scoped Rules Loading (`.claude/rules`)
+- Scoped rules live in `.claude/rules/*.md` and use frontmatter `globs` to define applicability.
+- Always read `AGENTS.md` and `CLAUDE.md` first, then load only scoped rule files whose `globs` match the current task scope.
+- Task scope is the union of:
+  - Files explicitly mentioned by the user
+  - Files being edited
+  - Files being reviewed
+  - File types implied by the request (for example, C# or Swift changes should include matching `**/*.cs` / `**/*.swift` scoped rules when present)
+- If no concrete files are known yet, defer scoped rule loading until file scope is identified.
+- If multiple scoped rules match, apply all of them.
+- Precedence for Codex:
+  1. `AGENTS.md`
+  2. Matching `.claude/rules/*.md`
+  3. `CLAUDE.md`
+
 ## Codex execution notes (macOS)
 - Codex runs on macOS but still inside a sandbox by default. For simulator/process operations, rerun with escalated permissions if needed (for example: `xcrun simctl ...`, `dotnet build` for iOS app packaging, `ps`).
 - The default command timeout can be too short for iOS builds; use a longer timeout before assuming a hang.
