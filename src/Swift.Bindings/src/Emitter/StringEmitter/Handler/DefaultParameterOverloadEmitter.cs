@@ -101,7 +101,7 @@ public static class DefaultParameterOverloadEmitter
             }
 
             var wrapperEmitter = new WrapperEmitter(overloadEnv, signatureHandler, fallbackInfo);
-            if (overloadDecl.IsConstructor && !overloadDecl.IsFailable)
+            if (overloadDecl.IsConstructor && !overloadDecl.IsFailable && !overloadDecl.IsAsync)
             {
                 wrapperEmitter.EmitConstructor(csWriter);
             }

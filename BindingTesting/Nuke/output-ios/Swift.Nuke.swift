@@ -817,7 +817,7 @@ extension Nuke.ImagePipeline.Configuration {
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")
-public func PInvoke_image_74B00DE0(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_6B90EC1B(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -846,7 +846,7 @@ public func PInvoke_image_74B00DE0(callback: @escaping @convention(c) (OpaquePoi
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")
-public func PInvoke_image_5E954AAA(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_image_734A8A76(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -875,7 +875,7 @@ public func PInvoke_image_5E954AAA(callback: @escaping @convention(c) (OpaquePoi
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAA0B7RequestV_tYaKF_async")
-public func PInvoke_data_1AFEAFBA(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_20CF2ACE(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Nuke.ImageRequest.self).pointee
@@ -896,7 +896,7 @@ public func PInvoke_data_1AFEAFBA(callback: @escaping @convention(c) (Foundation
     }
 }
 @_silgen_name("$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAF3URLV_tYaKF_async")
-public func PInvoke_data_1446F669(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
+public func PInvoke_data_1166B2DF(callback: @escaping @convention(c) (Foundation.Data, Swift.Optional<Foundation.URLResponse>, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, _for: UnsafeRawPointer){
     // Read non-frozen parameters via .pointee (bitwise copy)
     // C# created copies using InitializeWithCopy (owns a proper reference)
     let _forValue = _for.assumingMemoryBound(to: Foundation.URL.self).pointee
@@ -1033,58 +1033,6 @@ extension Nuke.ImageRequest.ThumbnailOptions {
     @_silgen_name("DBW_ThumbnailOptions_init_3D39AF54_1")
     public static func _dbw_init_3D39AF54_1(_ size: CGSize, _ unit: ImageProcessingOptions.Unit) -> Nuke.ImageRequest.ThumbnailOptions {
         return Nuke.ImageRequest.ThumbnailOptions(size: size, unit: unit)
-    }
-}
-extension Nuke.ImageRequest {
-    @_silgen_name("$s4Nuke12ImageRequestV2id4data10processors8priority7options8userInfoACSS_10Foundation4DataVyYaYbKcSayAA0B10Processing_pGAC8PriorityOAC7OptionsVSDyAC04UserJ3KeyVypGSgtcfC_async")
-    public static func PInvoke_init_74393EC6(callback: @escaping @convention(c) (OpaquePointer, Int64) -> Void, errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void, task: Int64, id: Swift.String, data: @escaping @Sendable () async throws -> Data, processors: Swift.Array<any Nuke.ImageProcessing>, priority: UnsafeRawPointer, options: UnsafeRawPointer, userInfo: Swift.Optional<Swift.Dictionary<Nuke.ImageRequest.UserInfoKey, Any>>){
-        // Read non-frozen parameters via .pointee (bitwise copy)
-        // C# created copies using InitializeWithCopy (owns a proper reference)
-        let priorityValue = priority.assumingMemoryBound(to: Nuke.ImageRequest.Priority.self).pointee
-        let optionsValue = options.assumingMemoryBound(to: Nuke.ImageRequest.Options.self).pointee
-        
-
-        Task {
-            do {
-                let resultinit = try await Nuke.ImageRequest.init(
-                    id: id, data: data, processors: processors, priority: priorityValue, options: optionsValue, userInfo: userInfo
-                )
-                // Marshal complex type to pointer (C# will free via SBW_Free)
-                        let _resultPtr: OpaquePointer
-                        do {
-                            let _rawPtr = UnsafeMutableRawPointer.allocate(
-                                byteCount: MemoryLayout<Nuke.ImageRequest>.size,
-                                alignment: MemoryLayout<Nuke.ImageRequest>.alignment)
-                            _rawPtr.storeBytes(of: resultinit, as: Nuke.ImageRequest.self)
-                            _resultPtr = OpaquePointer(_rawPtr)
-                        }
-                callback(_resultPtr, task)
-            } catch {
-                let errorMessage = String(describing: error)
-                errorMessage.withCString { errorCallback($0, task) }
-            }
-        }
-    }
-}
-
-extension Nuke.ImageRequest {
-    @_silgen_name("DBW_ImageRequest_init_18CE4E3A_4")
-    public static func _dbw_init_18CE4E3A_4(_ id: String, _ data: @escaping @Sendable () async throws -> Data) async -> Nuke.ImageRequest {
-        return await Nuke.ImageRequest(id: id, data: data)
-    }
-}
-
-extension Nuke.ImageRequest {
-    @_silgen_name("DBW_ImageRequest_init_18CE4E3A_3")
-    public static func _dbw_init_18CE4E3A_3(_ id: String, _ data: @escaping @Sendable () async throws -> Data, _ processors: Array<ImageProcessing>) async -> Nuke.ImageRequest {
-        return await Nuke.ImageRequest(id: id, data: data, processors: processors)
-    }
-}
-
-extension Nuke.ImageRequest {
-    @_silgen_name("DBW_ImageRequest_init_18CE4E3A_2")
-    public static func _dbw_init_18CE4E3A_2(_ id: String, _ data: @escaping @Sendable () async throws -> Data, _ processors: Array<ImageProcessing>, _ priority: ImageRequest.Priority) async -> Nuke.ImageRequest {
-        return await Nuke.ImageRequest(id: id, data: data, processors: processors, priority: priority)
     }
 }
 

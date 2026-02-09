@@ -140,44 +140,45 @@ namespace BindingsGeneration
 
                 """);
 
-            // Emit top-level methods
-            if (moduleDecl.Methods.Any())
-            {
-                // Use unsafe class since methods may use function pointers for closure parameters
-                csWriter.WriteLine($"public unsafe class {moduleDecl.Name}");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                csWriter.WriteLine();
-                foreach (MethodDecl methodDecl in moduleDecl.Methods)
-                {
-                    if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
-                    {
-                        var methodEnv = methodHandler.Marshal(methodDecl, env.TypeDatabase);
-                        methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor);
-                    }
-                    else
-                    {
-                        _logger.LogWarning($"No handler found for method {methodDecl.Name}");
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.MissingHandler, "No method handler found for top-level method.");
-                    }
-                    // EmitMethod(csWriter, swiftWriter, moduleDecl, moduleDecl, methodDecl);
-                    csWriter.WriteLine();
-                }
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
-                csWriter.WriteLine();
-            }
-
             // Pre-compute all nested type renames before emitting any types.
             // This ensures cross-type references to renamed nested types resolve correctly
             // regardless of emission order (e.g., type B referencing A.Cache which was
             // renamed to A.CacheInfo won't fail if B is emitted before A).
             NameProvider.PrecomputeAllNestedTypeRenames(moduleDecl.Types, env.TypeDatabase);
 
-            // Emit top-level types with scoped composition interface collection
+            // Scope composition interface collection across BOTH top-level methods and types.
+            // Free functions can reference composition existentials (e.g., any Describable & TestIdentifiable),
+            // so the collector must be active before emitting top-level methods.
             conductor.SetActiveCompositionCollector();
             try
             {
+                // Emit top-level methods
+                if (moduleDecl.Methods.Any())
+                {
+                    // Use unsafe class since methods may use function pointers for closure parameters
+                    csWriter.WriteLine($"public unsafe class {moduleDecl.Name}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine();
+                    foreach (MethodDecl methodDecl in moduleDecl.Methods)
+                    {
+                        if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
+                        {
+                            var methodEnv = methodHandler.Marshal(methodDecl, env.TypeDatabase);
+                            methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor);
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"No handler found for method {methodDecl.Name}");
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.MissingHandler, "No method handler found for top-level method.");
+                        }
+                        csWriter.WriteLine();
+                    }
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.WriteLine();
+                }
+
                 base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase);
 
                 // Emit composition interfaces (e.g., IAgeableAndNameable : IAgeable, INameable)

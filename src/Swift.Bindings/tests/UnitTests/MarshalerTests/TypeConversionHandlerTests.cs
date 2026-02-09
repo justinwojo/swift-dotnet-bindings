@@ -223,12 +223,12 @@ public class TypeConversionHandlerTests
     }
 
     [Fact]
-    public void GetParameterConversion_SwiftOptional_ReturnsFromNullable()
+    public void GetParameterConversion_SwiftOptional_ReturnsPatternMatch()
     {
         var typeSpec = new NamedTypeSpec("Swift.Optional");
         typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
         var result = _handler.GetParameterConversion("value", typeSpec, _ => "long");
-        Assert.Equal("SwiftOptional<long>.FromNullable(value)", result);
+        Assert.Equal("(value is {} valueVal ? SwiftOptional<long>.NewSome(valueVal) : SwiftOptional<long>.NewNone())", result);
     }
 
     [Fact]

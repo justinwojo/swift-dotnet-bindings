@@ -462,7 +462,16 @@ namespace BindingsGeneration
             {
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(typeSpec);
                 if (protocolList != null && _env.ExistentialHandler.IsSupportedExistential(protocolList))
-                    return _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                {
+                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                    // "object" fallback means the protocol has no C# interface (Any, unknown protocols).
+                    // In bound generic contexts (e.g., Dictionary<K, Any>), "object" can't be used because
+                    // there's no ISwiftExistentialConvertible to extract the ExistentialContainer.
+                    // Use AnyType placeholder so ContainsPlaceholder skips the method.
+                    if (publicType == "object")
+                        return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                    return publicType;
+                }
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
             }
 

@@ -1,13 +1,13 @@
 {
   "ModuleName": "Nuke",
-  "GeneratedAt": "2026-02-09T05:45:20.689673+00:00",
+  "GeneratedAt": "2026-02-09T06:55:50.778556+00:00",
   "TotalTypes": 60,
   "EmittedTypes": 60,
   "SkippedTypes": 0,
   "TotalMembers": 352,
-  "EmittedMembers": 331,
-  "SkippedMembers": 21,
-  "SynthesizedMembers": 248,
+  "EmittedMembers": 328,
+  "SkippedMembers": 24,
+  "SynthesizedMembers": 245,
   "SkippedItems": [
     {
       "Kind": "Method",
@@ -51,6 +51,14 @@
     },
     {
       "Kind": "Property",
+      "Name": "dataLoadingError",
+      "ContainingType": "Nuke.ImagePipeline.Error",
+      "Reason": "AnyTypeFallback",
+      "Details": "Optional existential inner protocol not in TypeDatabase.",
+      "RecommendedWorkaround": "Use concrete bound generic types instead of Any where possible."
+    },
+    {
+      "Kind": "Property",
       "Name": "makeImageDecoder",
       "ContainingType": "Nuke.ImagePipeline.Configuration",
       "Reason": "UnsupportedClosure",
@@ -74,11 +82,27 @@
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {
+      "Kind": "Property",
+      "Name": "delegate",
+      "ContainingType": "Nuke.DataLoader",
+      "Reason": "AnyTypeFallback",
+      "Details": "Optional existential inner protocol not in TypeDatabase.",
+      "RecommendedWorkaround": "Use concrete bound generic types instead of Any where possible."
+    },
+    {
       "Kind": "Method",
       "Name": "init",
       "ContainingType": "Nuke.DataLoader",
       "Reason": "UnsupportedSignature",
       "Details": "Constructor signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "validate",
+      "ContainingType": "Nuke.DataLoader",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
       "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
     },
     {

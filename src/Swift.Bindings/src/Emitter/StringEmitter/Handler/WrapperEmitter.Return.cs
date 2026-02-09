@@ -313,13 +313,28 @@ namespace BindingsGeneration
             }
             else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
             {
-                // SwiftOptional<T> -> T?
-                // Marshal to SwiftOptional, then convert to nullable
                 var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-                csWriter.WriteLines($$"""
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
-                    return swiftResult.ToNullable();
-                    """);
+
+                // Check if the Optional wraps an existential — needs proxy wrapping
+                if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
+                {
+                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
+                    var proxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
+                        if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                        return new {{proxyClassName}}(swiftResult.Some);
+                        """);
+                }
+                else
+                {
+                    // SwiftOptional<T> -> T?
+                    // Marshal to SwiftOptional, then convert to nullable
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
+                        return swiftResult.ToNullable();
+                        """);
+                }
             }
         }
 
@@ -345,12 +360,27 @@ namespace BindingsGeneration
             }
             else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
             {
-                // SwiftOptional<T> -> T? via indirect result
                 var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-                csWriter.WriteLines($$"""
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(swiftIndirectResult.Value));
-                    return swiftResult.ToNullable();
-                    """);
+
+                // Check if the Optional wraps an existential — needs proxy wrapping
+                if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
+                {
+                    var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
+                    var proxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                    csWriter.WriteLines($"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(swiftIndirectResult.Value));
+                        if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                        return new {proxyClassName}(swiftResult.Some);
+                        """);
+                }
+                else
+                {
+                    // SwiftOptional<T> -> T? via indirect result
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(swiftIndirectResult.Value));
+                        return swiftResult.ToNullable();
+                        """);
+                }
             }
         }
 

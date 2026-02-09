@@ -749,18 +749,18 @@ public class MainViewController : UIViewController
             }
 
             // Get metadata information for diagnostics
-            var configMetadata = SwiftObjectHelper<ImagePipeline.Configuration>.GetTypeMetadata();
+            var configMetadata = SwiftObjectHelper<ImagePipeline.ConfigurationInfo>.GetTypeMetadata();
             TestLogger.Info($"Configuration metadata size: {configMetadata.Size}");
             TestLogger.Info($"Configuration metadata stride: {configMetadata.Stride}");
             TestLogger.Info($"Configuration metadata alignment: {configMetadata.Alignment}");
 
             // Also get Cache metadata for comparison (Cache works, Configuration crashes)
-            var cacheMetadata = SwiftObjectHelper<ImagePipeline.Cache>.GetTypeMetadata();
+            var cacheMetadata = SwiftObjectHelper<ImagePipeline.CacheInfo>.GetTypeMetadata();
             TestLogger.Info($"Cache metadata size: {cacheMetadata.Size} (comparison)");
 
             // Now attempt the actual ConfigurationValue access
             TestLogger.Info("Attempting ConfigurationValue access...");
-            var config = pipeline.ConfigurationValue;
+            var config = pipeline.Configuration;
             TestLogger.Info("ConfigurationValue access succeeded!");
             results.Pass("Configuration property access");
         }
@@ -786,7 +786,7 @@ public class MainViewController : UIViewController
             TestLogger.Info("Loading image from picsum.photos...");
 
             using var timer = new PerfTimer("Image download");
-            var image = await pipeline.Image(request);
+            var image = await pipeline.LoadImageAsync(request);
 
             TestLogger.Info($"Image loaded: {image.Size.Width}x{image.Size.Height}");
 
@@ -809,7 +809,7 @@ public class MainViewController : UIViewController
             foreach (var url in urls)
             {
                 var request = new ImageRequest(url);
-                var image = await pipeline.Image(request);
+                var image = await pipeline.LoadImageAsync(request);
                 loadCount++;
                 TestLogger.Info($"Sequential load {loadCount}: {image.Size.Width}x{image.Size.Height}");
             }
@@ -825,7 +825,7 @@ public class MainViewController : UIViewController
         try
         {
             var request = new ImageRequest("https://picsum.photos/50/50");
-            var image = await pipeline.Image(request);
+            var image = await pipeline.LoadImageAsync(request);
 
             if (image != null && image.Size.Width > 0 && image.Size.Height > 0)
             {
@@ -854,7 +854,7 @@ public class MainViewController : UIViewController
         // Wrapping in try-catch to prevent test suite crash
         try
         {
-            var cache = pipeline.CacheValue;
+            var cache = pipeline.Cache;
             TestLogger.Info("ImagePipeline.Cache accessed successfully");
             results.Pass("ImagePipeline.CacheValue access");
         }
@@ -871,7 +871,7 @@ public class MainViewController : UIViewController
             var request = new ImageRequest(uniqueUrl);
 
             TestLogger.Info($"Loading image to populate cache...");
-            var image = await pipeline.Image(request);
+            var image = await pipeline.LoadImageAsync(request);
             TestLogger.Info($"Image loaded: {image.Size.Width}x{image.Size.Height}");
 
             results.Pass("Cache population via load");
@@ -889,8 +889,8 @@ public class MainViewController : UIViewController
             TestLogger.Info("Testing ImageRequest.Options types...");
 
             // Verify the options type exists and can be accessed
-            var disableMemory = ImageRequest.Options.DisableMemoryCache;
-            var disableDisk = ImageRequest.Options.DisableDiskCache;
+            var disableMemory = ImageRequest.OptionsInfo.DisableMemoryCache;
+            var disableDisk = ImageRequest.OptionsInfo.DisableDiskCache;
             TestLogger.Info($"DisableMemoryCache: {disableMemory.GetType().Name}");
             TestLogger.Info($"DisableDiskCache: {disableDisk.GetType().Name}");
 
@@ -915,23 +915,23 @@ public class MainViewController : UIViewController
             TestLogger.Info("Testing Priority enum cases...");
 
             // Access each priority case - these are static properties using FromRawValue()
-            var veryLow = ImageRequest.Priority.VeryLow;
+            var veryLow = ImageRequest.PriorityInfo.VeryLow;
             TestLogger.Info($"  Priority.VeryLow: {veryLow.GetType().Name} (payload: 0x{veryLow.Payload.DangerousGetHandle():X})");
 
-            var low = ImageRequest.Priority.Low;
+            var low = ImageRequest.PriorityInfo.Low;
             TestLogger.Info($"  Priority.Low: {low.GetType().Name}");
 
-            var normal = ImageRequest.Priority.Normal;
+            var normal = ImageRequest.PriorityInfo.Normal;
             TestLogger.Info($"  Priority.Normal: {normal.GetType().Name}");
 
-            var high = ImageRequest.Priority.High;
+            var high = ImageRequest.PriorityInfo.High;
             TestLogger.Info($"  Priority.High: {high.GetType().Name}");
 
-            var veryHigh = ImageRequest.Priority.VeryHigh;
+            var veryHigh = ImageRequest.PriorityInfo.VeryHigh;
             TestLogger.Info($"  Priority.VeryHigh: {veryHigh.GetType().Name}");
 
             // Test FromRawValue with invalid value returns null
-            var invalid = ImageRequest.Priority.FromRawValue(999);
+            var invalid = ImageRequest.PriorityInfo.FromRawValue(999);
             if (invalid != null)
             {
                 results.Fail("Priority invalid raw value", "FromRawValue(999) should return null");
@@ -961,16 +961,16 @@ public class MainViewController : UIViewController
             TestLogger.Info("Testing Options types...");
 
             // Access each option - these are static properties returning Options instances
-            var disableMemoryReads = ImageRequest.Options.DisableMemoryCacheReads;
+            var disableMemoryReads = ImageRequest.OptionsInfo.DisableMemoryCacheReads;
             TestLogger.Info($"  Options.DisableMemoryCacheReads: {disableMemoryReads.GetType().Name}");
 
-            var disableMemoryWrites = ImageRequest.Options.DisableMemoryCacheWrites;
+            var disableMemoryWrites = ImageRequest.OptionsInfo.DisableMemoryCacheWrites;
             TestLogger.Info($"  Options.DisableMemoryCacheWrites: {disableMemoryWrites.GetType().Name}");
 
-            var disableDiskReads = ImageRequest.Options.DisableDiskCacheReads;
+            var disableDiskReads = ImageRequest.OptionsInfo.DisableDiskCacheReads;
             TestLogger.Info($"  Options.DisableDiskCacheReads: {disableDiskReads.GetType().Name}");
 
-            var disableDiskWrites = ImageRequest.Options.DisableDiskCacheWrites;
+            var disableDiskWrites = ImageRequest.OptionsInfo.DisableDiskCacheWrites;
             TestLogger.Info($"  Options.DisableDiskCacheWrites: {disableDiskWrites.GetType().Name}");
 
             results.Pass("Options type access");
@@ -1044,7 +1044,7 @@ public class MainViewController : UIViewController
 
             try
             {
-                var image = await errorTestPipeline.Image(request);
+                var image = await errorTestPipeline.LoadImageAsync(request);
                 // If we get here, error handling didn't work
                 results.Fail("Error propagation (non-existent domain)", "Expected SwiftException but succeeded");
             }
@@ -1172,7 +1172,7 @@ public class MainViewController : UIViewController
             var beforeLoadCount = Arc.RetainCount(pipelinePtr);
 
             var request = new ImageRequest("https://picsum.photos/50/50");
-            var image = await pipeline.Image(request);
+            var image = await pipeline.LoadImageAsync(request);
             TestLogger.Info($"Image loaded: {image.Size.Width}x{image.Size.Height}");
 
             GC.Collect();
@@ -1317,7 +1317,7 @@ public class MainViewController : UIViewController
             var sw = Stopwatch.StartNew();
 
             var request = new ImageRequest("https://picsum.photos/100/100");
-            var image = await pipeline.Image(request);
+            var image = await pipeline.LoadImageAsync(request);
 
             sw.Stop();
             TestLogger.Perf($"Image load (100x100): {sw.ElapsedMilliseconds} ms");
@@ -1486,11 +1486,11 @@ public class MainViewController : UIViewController
             TestLogger.Info("  ✓ Constructor binding is present in generated code");
 
             // Verify priority and options can be created
-            var priority = ImageRequest.Priority.Normal;
-            TestLogger.Info("  ✓ ImageRequest.Priority.Normal created");
+            var priority = ImageRequest.PriorityInfo.Normal;
+            TestLogger.Info("  ✓ ImageRequest.PriorityInfo.Normal created");
 
-            var options = new ImageRequest.Options(0);
-            TestLogger.Info("  ✓ ImageRequest.Options(0) created");
+            var options = new ImageRequest.OptionsInfo(0);
+            TestLogger.Info("  ✓ ImageRequest.OptionsInfo(0) created");
 
             // Clean up
             priority.Payload.Dispose();
@@ -1517,7 +1517,7 @@ public class MainViewController : UIViewController
             // Verify we can actually use the wrapper-created request with ImagePipeline
             TestLogger.Info("Testing image load with wrapper-created request...");
             var pipeline = ImagePipeline.Shared;
-            var image = await pipeline.Image(wrapperRequest);
+            var image = await pipeline.LoadImageAsync(wrapperRequest);
             TestLogger.Info($"  Image loaded via wrapper: {image.Size.Width}x{image.Size.Height}");
 
             wrapperRequest.Payload.Dispose();
@@ -1608,6 +1608,36 @@ public class MainViewController : UIViewController
     }
 
     #endregion
+}
+
+#endregion
+
+#region ImagePipeline Async Helper
+
+/// <summary>
+/// Extension that wraps Nuke's callback-based LoadImage into async/await.
+/// </summary>
+public static class ImagePipelineExtensions
+{
+    public static Task<UIKit.UIImage> LoadImageAsync(this ImagePipeline pipeline, ImageRequest request)
+    {
+        var tcs = new TaskCompletionSource<UIKit.UIImage>();
+        pipeline.LoadImage(request, result =>
+        {
+            // SwiftResult<ImageResponse, ImagePipeline.Error>
+            // Check if success (.Success case) or failure (.Failure case)
+            try
+            {
+                var response = result.Success;
+                tcs.TrySetResult(response.Image);
+            }
+            catch
+            {
+                tcs.TrySetException(new Swift.Runtime.SwiftException("Image load failed"));
+            }
+        });
+        return tcs.Task;
+    }
 }
 
 #endregion

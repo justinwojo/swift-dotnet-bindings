@@ -198,12 +198,23 @@ public class TypeConversionHandler
 
         if (IsSwiftOptional(namedTypeSpec))
         {
+            // Don't handle Optional<Closure> here - let ClosureHandler deal with it
+            if (namedTypeSpec.GenericParameters.Count > 0 &&
+                namedTypeSpec.GenericParameters[0] is ClosureTypeSpec)
+            {
+                return null;
+            }
+
             var innerType = GetElementType(namedTypeSpec, typeTranslator);
             if (innerType == null)
                 return null;
 
             // T? -> SwiftOptional<T>
-            return $"SwiftOptional<{innerType}>.FromNullable({paramName})";
+            // Use pattern matching to handle both value types (Nullable<T>) and reference types (T?).
+            // SwiftOptional<T>.FromNullable(T?) with unconstrained T doesn't accept Nullable<T>
+            // for value types, so we use `is {} val` to unwrap nullables universally.
+            var patternVar = $"{paramName}Val";
+            return $"({paramName} is {{}} {patternVar} ? SwiftOptional<{innerType}>.NewSome({patternVar}) : SwiftOptional<{innerType}>.NewNone())";
         }
 
         return null;

@@ -373,7 +373,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_request_Get_1A93F6CD(swiftIndirectResult, self);
+                PInvoke_request_Get_5D6DB1F8(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -388,7 +388,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingContextV7requestAA0B7RequestVvg")]
-        private static extern void PInvoke_request_Get_1A93F6CD( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_request_Get_5D6DB1F8( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Request_Set( Swift.Nuke.ImageRequest value)
         {
@@ -400,7 +400,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_request_Set_7D8C7BC3(value.Payload, self);
+                PInvoke_request_Set_62CE9651(value.Payload, self);
                 
                 return;
             }
@@ -415,7 +415,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingContextV7requestAA0B7RequestVvs")]
-        private static extern void PInvoke_request_Set_7D8C7BC3( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_request_Set_62CE9651( SafeHandle value,  SwiftSelf self);
         
         public Swift.Nuke.ImageRequest Request
         {
@@ -437,7 +437,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_response_Get_407DF1DF(swiftIndirectResult, self);
+                PInvoke_response_Get_34F522E6(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageResponse>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -452,7 +452,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingContextV8responseAA0B8ResponseVvg")]
-        private static extern void PInvoke_response_Get_407DF1DF( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_response_Get_34F522E6( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Response_Set( Swift.Nuke.ImageResponse value)
         {
@@ -464,7 +464,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_response_Set_3AA9CF46(value.Payload, self);
+                PInvoke_response_Set_17B2D048(value.Payload, self);
                 
                 return;
             }
@@ -479,7 +479,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingContextV8responseAA0B8ResponseVvs")]
-        private static extern void PInvoke_response_Set_3AA9CF46( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_response_Set_17B2D048( SafeHandle value,  SwiftSelf self);
         
         public Swift.Nuke.ImageResponse Response
         {
@@ -497,7 +497,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_isCompleted_Get_0F85F4A7(self);
+                var result = PInvoke_isCompleted_Get_5734A31C(self);
                 
                 return result;
             }
@@ -512,7 +512,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingContextV11isCompletedSbvg")]
-        private static extern System.Boolean PInvoke_isCompleted_Get_0F85F4A7( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isCompleted_Get_5734A31C( SwiftSelf self);
         
         private unsafe void IsCompleted_Set( System.Boolean value)
         {
@@ -524,7 +524,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_isCompleted_Set_301F2068(value, self);
+                PInvoke_isCompleted_Set_16E0A398(value, self);
                 
                 return;
             }
@@ -539,7 +539,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingContextV11isCompletedSbvs")]
-        private static extern void PInvoke_isCompleted_Set_301F2068( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_isCompleted_Set_16E0A398( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean IsCompleted
         {
@@ -620,13 +620,13 @@ namespace Swift.Nuke
             _payload = new SwiftSafeHandle<ImageProcessingContext>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_4D31C7E3(swiftIndirectResult, request.Payload, response.Payload, isCompleted);
+            PInvoke_init_4E7F4C9E(swiftIndirectResult, request.Payload, response.Payload, isCompleted);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingContextV7request8response11isCompletedAcA0B7RequestV_AA0B8ResponseVSbtcfC")]
-        private static extern void PInvoke_init_4D31C7E3( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  SafeHandle response,  System.Boolean isCompleted);
+        private static extern void PInvoke_init_4E7F4C9E( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  SafeHandle response,  System.Boolean isCompleted);
         
         
     }
@@ -697,7 +697,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_description_Get_341E1FBF(self);
+                var result = PInvoke_description_Get_65E0C537(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -712,7 +712,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageProcessingErrorO11descriptionSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_341E1FBF( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_65E0C537( SwiftSelf self);
         
         public string Description
         {
@@ -727,7 +727,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_hashValue_Get_241948FD(self);
+                var result = PInvoke_hashValue_Get_0AD9CD7C(self);
                 
                 return result;
             }
@@ -740,7 +740,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageProcessingErrorO9hashValueSivg")]
-        private static extern nint PInvoke_hashValue_Get_241948FD( SwiftSelf self);
+        private static extern nint PInvoke_hashValue_Get_0AD9CD7C( SwiftSelf self);
         
         public nint HashValue
         {
@@ -819,7 +819,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_hash_2DD007B5(into.Payload, self);
+                PInvoke_hash_06B2375A(into.Payload, self);
                 
                 return;
             }
@@ -832,7 +832,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageProcessingErrorO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_2DD007B5( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_06B2375A( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -854,7 +854,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_container_Get_6E7DE3BD(swiftIndirectResult, self);
+                PInvoke_container_Get_3E6A2C0F(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageContainer>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -869,7 +869,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV9containerAA0B9ContainerVvg")]
-        private static extern void PInvoke_container_Get_6E7DE3BD( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_container_Get_3E6A2C0F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Container_Set( Swift.Nuke.ImageContainer value)
         {
@@ -881,7 +881,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_container_Set_6ACE91B2(value.Payload, self);
+                PInvoke_container_Set_5FE6AE64(value.Payload, self);
                 
                 return;
             }
@@ -896,7 +896,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV9containerAA0B9ContainerVvs")]
-        private static extern void PInvoke_container_Set_6ACE91B2( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_container_Set_5FE6AE64( SafeHandle value,  SwiftSelf self);
         
         public Swift.Nuke.ImageContainer Container
         {
@@ -918,7 +918,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_image_Get_40DE76B8(swiftIndirectResult, self);
+                PInvoke_image_Get_524C46CE(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<UIKit.UIImage>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -933,7 +933,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV5imageSo7UIImageCvg")]
-        private static extern void PInvoke_image_Get_40DE76B8( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_image_Get_524C46CE( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public UIKit.UIImage Image
         {
@@ -950,7 +950,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_isPreview_Get_38689874(self);
+                var result = PInvoke_isPreview_Get_18557C50(self);
                 
                 return result;
             }
@@ -965,7 +965,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV9isPreviewSbvg")]
-        private static extern System.Boolean PInvoke_isPreview_Get_38689874( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isPreview_Get_18557C50( SwiftSelf self);
         
         public System.Boolean IsPreview
         {
@@ -986,7 +986,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_request_Get_2E3643A7(swiftIndirectResult, self);
+                PInvoke_request_Get_12B3C69B(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -1001,7 +1001,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV7requestAA0B7RequestVvg")]
-        private static extern void PInvoke_request_Get_2E3643A7( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_request_Get_12B3C69B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Request_Set( Swift.Nuke.ImageRequest value)
         {
@@ -1013,7 +1013,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_request_Set_5CBB51DB(value.Payload, self);
+                PInvoke_request_Set_39E5FD95(value.Payload, self);
                 
                 return;
             }
@@ -1028,7 +1028,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV7requestAA0B7RequestVvs")]
-        private static extern void PInvoke_request_Set_5CBB51DB( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_request_Set_39E5FD95( SafeHandle value,  SwiftSelf self);
         
         public Swift.Nuke.ImageRequest Request
         {
@@ -1046,7 +1046,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_urlResponse_Get_1CBB4346(self);
+                var result = PInvoke_urlResponse_Get_2CB2C9BA(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Foundation.NSUrlResponse>>(new IntPtr(&result));
             }
@@ -1061,7 +1061,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV03urlC0So13NSURLResponseCSgvg")]
-        private static extern IntPtr PInvoke_urlResponse_Get_1CBB4346( SwiftSelf self);
+        private static extern IntPtr PInvoke_urlResponse_Get_2CB2C9BA( SwiftSelf self);
         
         private unsafe void UrlResponse_Set( Swift.SwiftOptional<Foundation.NSUrlResponse> value)
         {
@@ -1075,7 +1075,7 @@ namespace Swift.Nuke
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_urlResponse_Set_0CFBC0B6(valueBuffer, self);
+                PInvoke_urlResponse_Set_4BD894EA(valueBuffer, self);
                 
                 return;
             }
@@ -1090,12 +1090,12 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV03urlC0So13NSURLResponseCSgvs")]
-        private static extern void PInvoke_urlResponse_Set_0CFBC0B6( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_urlResponse_Set_4BD894EA( IntPtr valueBuffer,  SwiftSelf self);
         
         public Foundation.NSUrlResponse? UrlResponse
         {
             get => ((Foundation.NSUrlResponse?)UrlResponse_Get());
-            set => UrlResponse_Set(SwiftOptional<Foundation.NSUrlResponse>.FromNullable(value));
+            set => UrlResponse_Set((value is {} valueVal ? SwiftOptional<Foundation.NSUrlResponse>.NewSome(valueVal) : SwiftOptional<Foundation.NSUrlResponse>.NewNone()));
         }
         
         private unsafe Swift.SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo> CacheType_Get()
@@ -1108,7 +1108,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_cacheType_Get_1F4EE9DB(self);
+                var result = PInvoke_cacheType_Get_3C8A493F(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>>(new IntPtr(&result));
             }
@@ -1123,7 +1123,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV9cacheTypeAC05CacheE0OSgvg")]
-        private static extern IntPtr PInvoke_cacheType_Get_1F4EE9DB( SwiftSelf self);
+        private static extern IntPtr PInvoke_cacheType_Get_3C8A493F( SwiftSelf self);
         
         private unsafe void CacheType_Set( Swift.SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo> value)
         {
@@ -1137,7 +1137,7 @@ namespace Swift.Nuke
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_cacheType_Set_49DA099C(valueBuffer, self);
+                PInvoke_cacheType_Set_0FE29AD1(valueBuffer, self);
                 
                 return;
             }
@@ -1152,12 +1152,12 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV9cacheTypeAC05CacheE0OSgvs")]
-        private static extern void PInvoke_cacheType_Set_49DA099C( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_cacheType_Set_0FE29AD1( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.Nuke.ImageResponse.CacheTypeInfo? CacheType
         {
             get => ((Swift.Nuke.ImageResponse.CacheTypeInfo?)CacheType_Get());
-            set => CacheType_Set(SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.FromNullable(value));
+            set => CacheType_Set((value is {} valueVal ? SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.NewSome(valueVal) : SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.NewNone()));
         }
         
         static nuint _payloadSize = SwiftObjectHelper<ImageResponse>.GetTypeMetadata().Size;
@@ -1310,7 +1310,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_703945D8(self);
+                    var result = PInvoke_hashValue_Get_5757ECED(self);
                     
                     return result;
                 }
@@ -1323,7 +1323,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV9CacheTypeO9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_703945D8( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_5757ECED( SwiftSelf self);
             
             public nint HashValue
             {
@@ -1402,7 +1402,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_hash_32D5DBCC(into.Payload, self);
+                    PInvoke_hash_384B2444(into.Payload, self);
                     
                     return;
                 }
@@ -1415,7 +1415,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV9CacheTypeO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_32D5DBCC( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_384B2444( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -1432,25 +1432,25 @@ namespace Swift.Nuke
             using var cacheTypeSwift = cacheType is {} cacheTypeValue ? SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.NewSome(cacheTypeValue) : SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.NewNone();
             using PayloadBuffer<IntPtr> cacheTypeDisposable = cacheTypeSwift.PayloadBuffer;
             IntPtr cacheTypeBuffer = cacheTypeDisposable.Buffer;
-            PInvoke_init_1CBB5547(swiftIndirectResult, container.Payload, request.Payload, urlResponseBuffer, cacheTypeBuffer);
+            PInvoke_init_685BA25C(swiftIndirectResult, container.Payload, request.Payload, urlResponseBuffer, cacheTypeBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageResponseV9container7request03urlC09cacheTypeAcA0B9ContainerV_AA0B7RequestVSo13NSURLResponseCSgAC05CacheH0OSgtcfC")]
-        private static extern void PInvoke_init_1CBB5547( SwiftIndirectResult swiftIndirectResult,  SafeHandle container,  SafeHandle request,  IntPtr urlResponseBuffer,  IntPtr cacheTypeBuffer);
+        private static extern void PInvoke_init_685BA25C( SwiftIndirectResult swiftIndirectResult,  SafeHandle container,  SafeHandle request,  IntPtr urlResponseBuffer,  IntPtr cacheTypeBuffer);
         public unsafe ImageResponse( Swift.Nuke.ImageContainer container,  Swift.Nuke.ImageRequest request)
         {
             _payload = new SwiftSafeHandle<ImageResponse>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_7643201C(swiftIndirectResult, container.Payload, request.Payload);
+            PInvoke_init_60EB73F8(swiftIndirectResult, container.Payload, request.Payload);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImageResponse_init_F8ACDC69_2")]
-        private static extern void PInvoke_init_7643201C( SwiftIndirectResult swiftIndirectResult,  SafeHandle container,  SafeHandle request);
+        private static extern void PInvoke_init_60EB73F8( SwiftIndirectResult swiftIndirectResult,  SafeHandle container,  SafeHandle request);
         public unsafe ImageResponse( Swift.Nuke.ImageContainer container,  Swift.Nuke.ImageRequest request,  Foundation.NSUrlResponse? urlResponse)
         {
             _payload = new SwiftSafeHandle<ImageResponse>((IntPtr)NativeMemory.Alloc(_payloadSize));
@@ -1459,13 +1459,13 @@ namespace Swift.Nuke
             using var urlResponseSwift = urlResponse is {} urlResponseValue ? SwiftOptional<Foundation.NSUrlResponse>.NewSome(urlResponseValue) : SwiftOptional<Foundation.NSUrlResponse>.NewNone();
             using PayloadBuffer<IntPtr> urlResponseDisposable = urlResponseSwift.PayloadBuffer;
             IntPtr urlResponseBuffer = urlResponseDisposable.Buffer;
-            PInvoke_init_2B72DBE0(swiftIndirectResult, container.Payload, request.Payload, urlResponseBuffer);
+            PInvoke_init_16202F0A(swiftIndirectResult, container.Payload, request.Payload, urlResponseBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImageResponse_init_F8ACDC69_1")]
-        private static extern void PInvoke_init_2B72DBE0( SwiftIndirectResult swiftIndirectResult,  SafeHandle container,  SafeHandle request,  IntPtr urlResponseBuffer);
+        private static extern void PInvoke_init_16202F0A( SwiftIndirectResult swiftIndirectResult,  SafeHandle container,  SafeHandle request,  IntPtr urlResponseBuffer);
         
         
     }
@@ -1483,7 +1483,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_costLimit_Get_7AB592BA(self);
+                var result = PInvoke_costLimit_Get_72C2CC9D(self);
                 
                 return result;
             }
@@ -1498,7 +1498,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC9costLimitSivg")]
-        private static extern nint PInvoke_costLimit_Get_7AB592BA( SwiftSelf self);
+        private static extern nint PInvoke_costLimit_Get_72C2CC9D( SwiftSelf self);
         
         private unsafe void CostLimit_Set( nint value)
         {
@@ -1510,7 +1510,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_costLimit_Set_236C3566(value, self);
+                PInvoke_costLimit_Set_1F470CE4(value, self);
                 
                 return;
             }
@@ -1525,7 +1525,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC9costLimitSivs")]
-        private static extern void PInvoke_costLimit_Set_236C3566( nint value,  SwiftSelf self);
+        private static extern void PInvoke_costLimit_Set_1F470CE4( nint value,  SwiftSelf self);
         
         public nint CostLimit
         {
@@ -1543,7 +1543,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_countLimit_Get_1825F99B(self);
+                var result = PInvoke_countLimit_Get_17362758(self);
                 
                 return result;
             }
@@ -1558,7 +1558,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC10countLimitSivg")]
-        private static extern nint PInvoke_countLimit_Get_1825F99B( SwiftSelf self);
+        private static extern nint PInvoke_countLimit_Get_17362758( SwiftSelf self);
         
         private unsafe void CountLimit_Set( nint value)
         {
@@ -1570,7 +1570,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_countLimit_Set_24954C8C(value, self);
+                PInvoke_countLimit_Set_47DE0BB6(value, self);
                 
                 return;
             }
@@ -1585,7 +1585,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC10countLimitSivs")]
-        private static extern void PInvoke_countLimit_Set_24954C8C( nint value,  SwiftSelf self);
+        private static extern void PInvoke_countLimit_Set_47DE0BB6( nint value,  SwiftSelf self);
         
         public nint CountLimit
         {
@@ -1603,7 +1603,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_ttl_Get_7B9600C4(self);
+                var result = PInvoke_ttl_Get_0DD4133D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<System.Double>>(new IntPtr(&result));
             }
@@ -1618,7 +1618,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC3ttlSdSgvg")]
-        private static extern IntPtr PInvoke_ttl_Get_7B9600C4( SwiftSelf self);
+        private static extern IntPtr PInvoke_ttl_Get_0DD4133D( SwiftSelf self);
         
         private unsafe void Ttl_Set( Swift.SwiftOptional<System.Double> value)
         {
@@ -1632,7 +1632,7 @@ namespace Swift.Nuke
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_ttl_Set_10CD4417(valueBuffer, self);
+                PInvoke_ttl_Set_098483CD(valueBuffer, self);
                 
                 return;
             }
@@ -1647,12 +1647,12 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC3ttlSdSgvs")]
-        private static extern void PInvoke_ttl_Set_10CD4417( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_ttl_Set_098483CD( IntPtr valueBuffer,  SwiftSelf self);
         
         public System.Double? Ttl
         {
             get => ((System.Double?)Ttl_Get());
-            set => Ttl_Set(SwiftOptional<System.Double>.FromNullable(value));
+            set => Ttl_Set((value is {} valueVal ? SwiftOptional<System.Double>.NewSome(valueVal) : SwiftOptional<System.Double>.NewNone()));
         }
         
         private unsafe System.Double EntryCostLimit_Get()
@@ -1665,7 +1665,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_entryCostLimit_Get_46CC5C9E(self);
+                var result = PInvoke_entryCostLimit_Get_16D56ABF(self);
                 
                 return result;
             }
@@ -1680,7 +1680,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC14entryCostLimitSdvg")]
-        private static extern System.Double PInvoke_entryCostLimit_Get_46CC5C9E( SwiftSelf self);
+        private static extern System.Double PInvoke_entryCostLimit_Get_16D56ABF( SwiftSelf self);
         
         private unsafe void EntryCostLimit_Set( System.Double value)
         {
@@ -1692,7 +1692,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_entryCostLimit_Set_1733A112(value, self);
+                PInvoke_entryCostLimit_Set_61F5EFB3(value, self);
                 
                 return;
             }
@@ -1707,7 +1707,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC14entryCostLimitSdvs")]
-        private static extern void PInvoke_entryCostLimit_Set_1733A112( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_entryCostLimit_Set_61F5EFB3( System.Double value,  SwiftSelf self);
         
         public System.Double EntryCostLimit
         {
@@ -1725,7 +1725,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_totalCount_Get_25F5A511(self);
+                var result = PInvoke_totalCount_Get_6B907494(self);
                 
                 return result;
             }
@@ -1740,7 +1740,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC10totalCountSivg")]
-        private static extern nint PInvoke_totalCount_Get_25F5A511( SwiftSelf self);
+        private static extern nint PInvoke_totalCount_Get_6B907494( SwiftSelf self);
         
         public nint TotalCount
         {
@@ -1757,7 +1757,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_totalCost_Get_10575105(self);
+                var result = PInvoke_totalCost_Get_4AFA4E6A(self);
                 
                 return result;
             }
@@ -1772,7 +1772,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC9totalCostSivg")]
-        private static extern nint PInvoke_totalCost_Get_10575105( SwiftSelf self);
+        private static extern nint PInvoke_totalCost_Get_4AFA4E6A( SwiftSelf self);
         
         public nint TotalCost
         {
@@ -1785,7 +1785,7 @@ namespace Swift.Nuke
             {
                 
                 
-                var result = PInvoke_shared_Get_092F1F69();
+                var result = PInvoke_shared_Get_6A25B412();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -1800,7 +1800,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC6sharedACvgZ")]
-        private static extern IntPtr PInvoke_shared_Get_092F1F69();
+        private static extern IntPtr PInvoke_shared_Get_6A25B412();
         
         public static Swift.Nuke.ImageCache Shared
         {
@@ -1879,37 +1879,37 @@ namespace Swift.Nuke
             _payload = new SwiftSafeHandle<ImageCache>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_0D4DFFC1(swiftIndirectResult, costLimit, countLimit);
+            PInvoke_init_7B275410(swiftIndirectResult, costLimit, countLimit);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC9costLimit05countE0ACSi_SitcfC")]
-        private static extern void PInvoke_init_0D4DFFC1( SwiftIndirectResult swiftIndirectResult,  nint costLimit,  nint countLimit);
+        private static extern void PInvoke_init_7B275410( SwiftIndirectResult swiftIndirectResult,  nint costLimit,  nint countLimit);
         public unsafe ImageCache()
         {
             _payload = new SwiftSafeHandle<ImageCache>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_157CCD50(swiftIndirectResult);
+            PInvoke_init_28068D51(swiftIndirectResult);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImageCache_init_F7E1ED79_2")]
-        private static extern void PInvoke_init_157CCD50( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_28068D51( SwiftIndirectResult swiftIndirectResult);
         public unsafe ImageCache( nint costLimit)
         {
             _payload = new SwiftSafeHandle<ImageCache>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_240E13E6(swiftIndirectResult, costLimit);
+            PInvoke_init_2BAB9C5C(swiftIndirectResult, costLimit);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImageCache_init_F7E1ED79_1")]
-        private static extern void PInvoke_init_240E13E6( SwiftIndirectResult swiftIndirectResult,  nint costLimit);
+        private static extern void PInvoke_init_2BAB9C5C( SwiftIndirectResult swiftIndirectResult,  nint costLimit);
         
         
         public static nint DefaultCostLimit()
@@ -1918,7 +1918,7 @@ namespace Swift.Nuke
             {
                 
                 
-                var result = PInvoke_defaultCostLimit_2964B54D();
+                var result = PInvoke_defaultCostLimit_75C3568D();
                 
                 return result;
             }
@@ -1931,7 +1931,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC16defaultCostLimitSiyFZ")]
-        private static extern nint PInvoke_defaultCostLimit_2964B54D();
+        private static extern nint PInvoke_defaultCostLimit_75C3568D();
         
         
         public unsafe void RemoveAll()
@@ -1944,7 +1944,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_removeAll_41BB7E47(self);
+                PInvoke_removeAll_62BEF9CE(self);
                 
                 return;
             }
@@ -1959,7 +1959,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC9removeAllyyF")]
-        private static extern void PInvoke_removeAll_41BB7E47( SwiftSelf self);
+        private static extern void PInvoke_removeAll_62BEF9CE( SwiftSelf self);
         
         
         public unsafe void Trim( nint toCost)
@@ -1972,7 +1972,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_trim_1F4A479E(toCost, self);
+                PInvoke_trim_10A28ED5(toCost, self);
                 
                 return;
             }
@@ -1987,7 +1987,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10ImageCacheC4trim6toCostySi_tF")]
-        private static extern void PInvoke_trim_1F4A479E( nint toCost,  SwiftSelf self);
+        private static extern void PInvoke_trim_10A28ED5( nint toCost,  SwiftSelf self);
         
         
     }
@@ -2001,7 +2001,7 @@ namespace Swift.Nuke
             {
                 
                 
-                var result = PInvoke_shared_Get_39332BF3();
+                var result = PInvoke_shared_Get_39AAE043();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -2016,7 +2016,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC6sharedACvgZ")]
-        private static extern IntPtr PInvoke_shared_Get_39332BF3();
+        private static extern IntPtr PInvoke_shared_Get_39AAE043();
         
         private static void Shared_Set( Swift.Nuke.ImagePipeline value)
         {
@@ -2024,7 +2024,7 @@ namespace Swift.Nuke
             {
                 
                 
-                PInvoke_shared_Set_539FE87D(value.Payload);
+                PInvoke_shared_Set_0EA3FC9B(value.Payload);
                 
                 return;
             }
@@ -2037,7 +2037,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC6sharedACvsZ")]
-        private static extern void PInvoke_shared_Set_539FE87D( SafeHandle value);
+        private static extern void PInvoke_shared_Set_0EA3FC9B( SafeHandle value);
         
         public static Swift.Nuke.ImagePipeline Shared
         {
@@ -2059,7 +2059,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_configuration_Get_7A2A3AA0(swiftIndirectResult, self);
+                PInvoke_configuration_Get_0143FCD3(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.ConfigurationInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -2074,7 +2074,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13configurationAC13ConfigurationVvg")]
-        private static extern void PInvoke_configuration_Get_7A2A3AA0( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_configuration_Get_0143FCD3( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Nuke.ImagePipeline.ConfigurationInfo Configuration
         {
@@ -2095,7 +2095,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_cache_Get_2D17C917(swiftIndirectResult, self);
+                PInvoke_cache_Get_7BE3D376(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.CacheInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -2110,7 +2110,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5cacheAC5CacheVvg")]
-        private static extern void PInvoke_cache_Get_2D17C917( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_cache_Get_7BE3D376( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Nuke.ImagePipeline.CacheInfo Cache
         {
@@ -2582,35 +2582,6 @@ namespace Swift.Nuke
             }
             
             
-            private unsafe Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1> DataLoadingError_Get()
-            {
-                try
-                {
-                    var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
-                    
-                    
-                    
-                    var result = PInvoke_dataLoadingError_Get_383313A0(self);
-                    
-                    return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
-                }
-                
-                finally
-                {
-                }
-                
-            }
-            
-            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5ErrorO011dataLoadingD0sAD_pSgvg")]
-            private static extern IntPtr PInvoke_dataLoadingError_Get_383313A0( SwiftSelf self);
-            
-            [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Error")]
-            public Swift.AnyType? DataLoadingError
-            {
-                get => ((Swift.AnyType?)DataLoadingError_Get());
-            }
-            
             private unsafe Swift.SwiftString Description_Get()
             {
                 try
@@ -2619,7 +2590,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_description_Get_692F6588(self);
+                    var result = PInvoke_description_Get_08E29031(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -2634,7 +2605,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5ErrorO11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_692F6588( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_08E29031( SwiftSelf self);
             
             public string Description
             {
@@ -2790,7 +2761,7 @@ namespace Swift.Nuke
                         
                         
                         
-                        var result = PInvoke_rawValue_Get_5169D50B(self);
+                        var result = PInvoke_rawValue_Get_5DA69036(self);
                         
                         return result;
                     }
@@ -2805,7 +2776,7 @@ namespace Swift.Nuke
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV6CachesV8rawValueSivg")]
-                private static extern nint PInvoke_rawValue_Get_5169D50B( SwiftSelf self);
+                private static extern nint PInvoke_rawValue_Get_5DA69036( SwiftSelf self);
                 
                 public nint RawValue
                 {
@@ -2822,7 +2793,7 @@ namespace Swift.Nuke
                         
                         
                         
-                        PInvoke_memory_Get_60A69F5E(swiftIndirectResult);
+                        PInvoke_memory_Get_7CA33BF4(swiftIndirectResult);
                         
                         return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.CacheInfo.Caches>(new IntPtr(swiftIndirectResult.Value));
                     }
@@ -2835,7 +2806,7 @@ namespace Swift.Nuke
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV6CachesV6memoryAGvgZ")]
-                private static extern void PInvoke_memory_Get_60A69F5E( SwiftIndirectResult swiftIndirectResult);
+                private static extern void PInvoke_memory_Get_7CA33BF4( SwiftIndirectResult swiftIndirectResult);
                 
                 public static Swift.Nuke.ImagePipeline.CacheInfo.Caches Memory
                 {
@@ -2852,7 +2823,7 @@ namespace Swift.Nuke
                         
                         
                         
-                        PInvoke_disk_Get_7BCD4FD5(swiftIndirectResult);
+                        PInvoke_disk_Get_64131BEA(swiftIndirectResult);
                         
                         return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.CacheInfo.Caches>(new IntPtr(swiftIndirectResult.Value));
                     }
@@ -2865,7 +2836,7 @@ namespace Swift.Nuke
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV6CachesV4diskAGvgZ")]
-                private static extern void PInvoke_disk_Get_7BCD4FD5( SwiftIndirectResult swiftIndirectResult);
+                private static extern void PInvoke_disk_Get_64131BEA( SwiftIndirectResult swiftIndirectResult);
                 
                 public static Swift.Nuke.ImagePipeline.CacheInfo.Caches Disk
                 {
@@ -2882,7 +2853,7 @@ namespace Swift.Nuke
                         
                         
                         
-                        PInvoke_all_Get_20264A80(swiftIndirectResult);
+                        PInvoke_all_Get_1035551C(swiftIndirectResult);
                         
                         return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.CacheInfo.Caches>(new IntPtr(swiftIndirectResult.Value));
                     }
@@ -2895,7 +2866,7 @@ namespace Swift.Nuke
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV6CachesV3allAGvgZ")]
-                private static extern void PInvoke_all_Get_20264A80( SwiftIndirectResult swiftIndirectResult);
+                private static extern void PInvoke_all_Get_1035551C( SwiftIndirectResult swiftIndirectResult);
                 
                 public static Swift.Nuke.ImagePipeline.CacheInfo.Caches All
                 {
@@ -3003,13 +2974,13 @@ namespace Swift.Nuke
                     _payload = new SwiftSafeHandle<Caches>((IntPtr)NativeMemory.Alloc(_payloadSize));
                     var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     
-                    PInvoke_init_4890DDFA(swiftIndirectResult, rawValue);
+                    PInvoke_init_7CE1F9B2(swiftIndirectResult, rawValue);
                     
                 }
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV6CachesV8rawValueAGSi_tcfC")]
-                private static extern void PInvoke_init_4890DDFA( SwiftIndirectResult swiftIndirectResult,  nint rawValue);
+                private static extern void PInvoke_init_7CE1F9B2( SwiftIndirectResult swiftIndirectResult,  nint rawValue);
                 
                 
             }
@@ -3025,7 +2996,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_cachedImage_6E770DA8(_for.Payload, caches.Payload, self);
+                    var result = PInvoke_cachedImage_3D8CF64C(_for.Payload, caches.Payload, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Nuke.ImageContainer>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -3041,7 +3012,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV06cachedB03for6cachesAA0B9ContainerVSgAA0B7RequestV_AE6CachesVtF")]
-            private static extern IntPtr PInvoke_cachedImage_6E770DA8( SafeHandle _for,  SafeHandle caches,  SwiftSelf self);
+            private static extern IntPtr PInvoke_cachedImage_3D8CF64C( SafeHandle _for,  SafeHandle caches,  SwiftSelf self);
             public unsafe Swift.Nuke.ImageContainer? CachedImage( Swift.Nuke.ImageRequest _for)
             {
                 var success = false;
@@ -3052,7 +3023,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_cachedImage_68BD11BD(_for.Payload, self);
+                    var result = PInvoke_cachedImage_5B094894(_for.Payload, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Nuke.ImageContainer>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -3068,7 +3039,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Cache_cachedImage_FF81D467_1")]
-            private static extern IntPtr PInvoke_cachedImage_68BD11BD( SafeHandle _for,  SwiftSelf self);
+            private static extern IntPtr PInvoke_cachedImage_5B094894( SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe void StoreCachedImage( Swift.Nuke.ImageContainer arg0,  Swift.Nuke.ImageRequest _for,  Swift.Nuke.ImagePipeline.CacheInfo.Caches caches)
@@ -3081,7 +3052,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_storeCachedImage_2ABE8D5F(arg0.Payload, _for.Payload, caches.Payload, self);
+                    PInvoke_storeCachedImage_48907A65(arg0.Payload, _for.Payload, caches.Payload, self);
                     
                     return;
                 }
@@ -3096,7 +3067,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV011storeCachedB0_3for6cachesyAA0B9ContainerV_AA0B7RequestVAE6CachesVtF")]
-            private static extern void PInvoke_storeCachedImage_2ABE8D5F( SafeHandle arg0,  SafeHandle _for,  SafeHandle caches,  SwiftSelf self);
+            private static extern void PInvoke_storeCachedImage_48907A65( SafeHandle arg0,  SafeHandle _for,  SafeHandle caches,  SwiftSelf self);
             public unsafe void StoreCachedImage( Swift.Nuke.ImageContainer arg0,  Swift.Nuke.ImageRequest _for)
             {
                 var success = false;
@@ -3107,7 +3078,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_storeCachedImage_1DF243A8(arg0.Payload, _for.Payload, self);
+                    PInvoke_storeCachedImage_48583EE8(arg0.Payload, _for.Payload, self);
                     
                     return;
                 }
@@ -3122,7 +3093,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Cache_storeCachedImage_B14B9B8A_1")]
-            private static extern void PInvoke_storeCachedImage_1DF243A8( SafeHandle arg0,  SafeHandle _for,  SwiftSelf self);
+            private static extern void PInvoke_storeCachedImage_48583EE8( SafeHandle arg0,  SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe void RemoveCachedImage( Swift.Nuke.ImageRequest _for,  Swift.Nuke.ImagePipeline.CacheInfo.Caches caches)
@@ -3135,7 +3106,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_removeCachedImage_6EE328B8(_for.Payload, caches.Payload, self);
+                    PInvoke_removeCachedImage_36A45D0B(_for.Payload, caches.Payload, self);
                     
                     return;
                 }
@@ -3150,7 +3121,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV012removeCachedB03for6cachesyAA0B7RequestV_AE6CachesVtF")]
-            private static extern void PInvoke_removeCachedImage_6EE328B8( SafeHandle _for,  SafeHandle caches,  SwiftSelf self);
+            private static extern void PInvoke_removeCachedImage_36A45D0B( SafeHandle _for,  SafeHandle caches,  SwiftSelf self);
             public unsafe void RemoveCachedImage( Swift.Nuke.ImageRequest _for)
             {
                 var success = false;
@@ -3161,7 +3132,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_removeCachedImage_2697BCA0(_for.Payload, self);
+                    PInvoke_removeCachedImage_43D5F6D8(_for.Payload, self);
                     
                     return;
                 }
@@ -3176,7 +3147,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Cache_removeCachedImage_6F11C1F7_1")]
-            private static extern void PInvoke_removeCachedImage_2697BCA0( SafeHandle _for,  SwiftSelf self);
+            private static extern void PInvoke_removeCachedImage_43D5F6D8( SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe System.Boolean ContainsCachedImage( Swift.Nuke.ImageRequest _for,  Swift.Nuke.ImagePipeline.CacheInfo.Caches caches)
@@ -3189,7 +3160,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_containsCachedImage_6302284E(_for.Payload, caches.Payload, self);
+                    var result = PInvoke_containsCachedImage_61B2A81B(_for.Payload, caches.Payload, self);
                     
                     return result;
                 }
@@ -3204,7 +3175,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV014containsCachedB03for6cachesSbAA0B7RequestV_AE6CachesVtF")]
-            private static extern System.Boolean PInvoke_containsCachedImage_6302284E( SafeHandle _for,  SafeHandle caches,  SwiftSelf self);
+            private static extern System.Boolean PInvoke_containsCachedImage_61B2A81B( SafeHandle _for,  SafeHandle caches,  SwiftSelf self);
             public unsafe System.Boolean ContainsCachedImage( Swift.Nuke.ImageRequest _for)
             {
                 var success = false;
@@ -3215,7 +3186,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_containsCachedImage_3443A94B(_for.Payload, self);
+                    var result = PInvoke_containsCachedImage_0038C30C(_for.Payload, self);
                     
                     return result;
                 }
@@ -3230,7 +3201,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Cache_containsCachedImage_5B644858_1")]
-            private static extern System.Boolean PInvoke_containsCachedImage_3443A94B( SafeHandle _for,  SwiftSelf self);
+            private static extern System.Boolean PInvoke_containsCachedImage_0038C30C( SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe Swift.Data? CachedData( Swift.Nuke.ImageRequest _for)
@@ -3243,7 +3214,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_cachedData_2340E19F(_for.Payload, self);
+                    var result = PInvoke_cachedData_16B12179(_for.Payload, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Data>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -3259,7 +3230,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV10cachedData3for10Foundation0F0VSgAA0B7RequestV_tF")]
-            private static extern IntPtr PInvoke_cachedData_2340E19F( SafeHandle _for,  SwiftSelf self);
+            private static extern IntPtr PInvoke_cachedData_16B12179( SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe void StoreCachedData( Foundation.NSData arg0,  Swift.Nuke.ImageRequest _for)
@@ -3273,7 +3244,7 @@ namespace Swift.Nuke
                     
                     var arg0Swift = Swift.Data.FromNSData(arg0);
                     
-                    PInvoke_storeCachedData_51E74DF2(arg0Swift, _for.Payload, self);
+                    PInvoke_storeCachedData_63130A01(arg0Swift, _for.Payload, self);
                     
                     return;
                 }
@@ -3288,7 +3259,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV15storeCachedData_3fory10Foundation0G0V_AA0B7RequestVtF")]
-            private static extern void PInvoke_storeCachedData_51E74DF2( Swift.Data arg0,  SafeHandle _for,  SwiftSelf self);
+            private static extern void PInvoke_storeCachedData_63130A01( Swift.Data arg0,  SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe System.Boolean ContainsData( Swift.Nuke.ImageRequest _for)
@@ -3301,7 +3272,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_containsData_5DD10D7A(_for.Payload, self);
+                    var result = PInvoke_containsData_06D3B3A7(_for.Payload, self);
                     
                     return result;
                 }
@@ -3316,7 +3287,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV12containsData3forSbAA0B7RequestV_tF")]
-            private static extern System.Boolean PInvoke_containsData_5DD10D7A( SafeHandle _for,  SwiftSelf self);
+            private static extern System.Boolean PInvoke_containsData_06D3B3A7( SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe void RemoveCachedData( Swift.Nuke.ImageRequest _for)
@@ -3329,7 +3300,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_removeCachedData_63216907(_for.Payload, self);
+                    PInvoke_removeCachedData_52FFF490(_for.Payload, self);
                     
                     return;
                 }
@@ -3344,7 +3315,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV16removeCachedData3foryAA0B7RequestV_tF")]
-            private static extern void PInvoke_removeCachedData_63216907( SafeHandle _for,  SwiftSelf self);
+            private static extern void PInvoke_removeCachedData_52FFF490( SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe Swift.Nuke.ImageCacheKey MakeImageCacheKey( Swift.Nuke.ImageRequest _for)
@@ -3361,7 +3332,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_makeImageCacheKey_23CA534D(swiftIndirectResult, _for.Payload, self);
+                    PInvoke_makeImageCacheKey_4C23CC08(swiftIndirectResult, _for.Payload, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageCacheKey>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -3376,7 +3347,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV04makebD3Key3forAA0bdF0VAA0B7RequestV_tF")]
-            private static extern void PInvoke_makeImageCacheKey_23CA534D( SwiftIndirectResult swiftIndirectResult,  SafeHandle _for,  SwiftSelf self);
+            private static extern void PInvoke_makeImageCacheKey_4C23CC08( SwiftIndirectResult swiftIndirectResult,  SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe string MakeDataCacheKey( Swift.Nuke.ImageRequest _for)
@@ -3389,7 +3360,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_makeDataCacheKey_78E84AD4(_for.Payload, self);
+                    var result = PInvoke_makeDataCacheKey_6D35BEAF(_for.Payload, self);
                     
                     unsafe {
                         var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
@@ -3407,7 +3378,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV08makeDataD3Key3forSSAA0B7RequestV_tF")]
-            private static extern Swift.SwiftString.Buffer PInvoke_makeDataCacheKey_78E84AD4( SafeHandle _for,  SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_makeDataCacheKey_6D35BEAF( SafeHandle _for,  SwiftSelf self);
             
             
             public unsafe void RemoveAll( Swift.Nuke.ImagePipeline.CacheInfo.Caches caches)
@@ -3420,7 +3391,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_removeAll_7BB57F1E(caches.Payload, self);
+                    PInvoke_removeAll_41C92FE6(caches.Payload, self);
                     
                     return;
                 }
@@ -3435,7 +3406,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC5CacheV9removeAll6cachesyAE6CachesV_tF")]
-            private static extern void PInvoke_removeAll_7BB57F1E( SafeHandle caches,  SwiftSelf self);
+            private static extern void PInvoke_removeAll_41C92FE6( SafeHandle caches,  SwiftSelf self);
             public unsafe void RemoveAll()
             {
                 var success = false;
@@ -3446,7 +3417,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_removeAll_4B23AF39(self);
+                    PInvoke_removeAll_7E0D55C6(self);
                     
                     return;
                 }
@@ -3461,7 +3432,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Cache_removeAll_00813104_1")]
-            private static extern void PInvoke_removeAll_4B23AF39( SwiftSelf self);
+            private static extern void PInvoke_removeAll_7E0D55C6( SwiftSelf self);
             
             
         }
@@ -3479,7 +3450,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_dataLoader_Get_48B4EFE1(self);
+                    var result = PInvoke_dataLoader_Get_3CE3F073(self);
                     
                     return new DataLoadingProxy(result);
                 }
@@ -3494,7 +3465,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV10dataLoaderAA11DataLoading_pvg")]
-            private static extern Swift.Runtime.ExistentialContainer1 PInvoke_dataLoader_Get_48B4EFE1( SwiftSelf self);
+            private static extern Swift.Runtime.ExistentialContainer1 PInvoke_dataLoader_Get_3CE3F073( SwiftSelf self);
             
             private unsafe void DataLoader_Set( IDataLoading value)
             {
@@ -3506,7 +3477,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_dataLoader_Set_614D5D51(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)value).GetExistentialContainer(), self);
+                    PInvoke_dataLoader_Set_2D29EEA0(((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)value).GetExistentialContainer(), self);
                     
                     return;
                 }
@@ -3521,7 +3492,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV10dataLoaderAA11DataLoading_pvs")]
-            private static extern void PInvoke_dataLoader_Set_614D5D51( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
+            private static extern void PInvoke_dataLoader_Set_2D29EEA0( Swift.Runtime.ExistentialContainer1 value,  SwiftSelf self);
             
             [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Nuke.DataLoading")]
             public IDataLoading DataLoader
@@ -3540,7 +3511,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_dataCache_Get_7B084154(self);
+                    var result = PInvoke_dataCache_Get_37B95912(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
                 }
@@ -3555,7 +3526,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV9dataCacheAA11DataCaching_pSgvg")]
-            private static extern IntPtr PInvoke_dataCache_Get_7B084154( SwiftSelf self);
+            private static extern IntPtr PInvoke_dataCache_Get_37B95912( SwiftSelf self);
             
             private unsafe void DataCache_Set( Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1> value)
             {
@@ -3569,7 +3540,7 @@ namespace Swift.Nuke
                     using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                     IntPtr valueBuffer = valueDisposable.Buffer;
                     
-                    PInvoke_dataCache_Set_2ECA7996(valueBuffer, self);
+                    PInvoke_dataCache_Set_1AF17499(valueBuffer, self);
                     
                     return;
                 }
@@ -3584,13 +3555,13 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV9dataCacheAA11DataCaching_pSgvs")]
-            private static extern void PInvoke_dataCache_Set_2ECA7996( IntPtr valueBuffer,  SwiftSelf self);
+            private static extern void PInvoke_dataCache_Set_1AF17499( IntPtr valueBuffer,  SwiftSelf self);
             
             [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Nuke.DataCaching")]
-            public Swift.AnyType? DataCache
+            public IDataCaching? DataCache
             {
                 get => ((Swift.AnyType?)DataCache_Get());
-                set => DataCache_Set(SwiftOptional<Swift.AnyType>.FromNullable(value));
+                set => DataCache_Set((value is {} valueVal ? SwiftOptional<Swift.AnyType>.NewSome(valueVal) : SwiftOptional<Swift.AnyType>.NewNone()));
             }
             
             private unsafe Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1> ImageCache_Get()
@@ -3603,7 +3574,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_imageCache_Get_36AEA9A7(self);
+                    var result = PInvoke_imageCache_Get_5602987F(self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
                 }
@@ -3618,7 +3589,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV10imageCacheAA0B7Caching_pSgvg")]
-            private static extern IntPtr PInvoke_imageCache_Get_36AEA9A7( SwiftSelf self);
+            private static extern IntPtr PInvoke_imageCache_Get_5602987F( SwiftSelf self);
             
             private unsafe void ImageCache_Set( Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1> value)
             {
@@ -3632,7 +3603,7 @@ namespace Swift.Nuke
                     using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                     IntPtr valueBuffer = valueDisposable.Buffer;
                     
-                    PInvoke_imageCache_Set_7A867792(valueBuffer, self);
+                    PInvoke_imageCache_Set_5793886F(valueBuffer, self);
                     
                     return;
                 }
@@ -3647,13 +3618,13 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV10imageCacheAA0B7Caching_pSgvs")]
-            private static extern void PInvoke_imageCache_Set_7A867792( IntPtr valueBuffer,  SwiftSelf self);
+            private static extern void PInvoke_imageCache_Set_5793886F( IntPtr valueBuffer,  SwiftSelf self);
             
             [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Nuke.ImageCaching")]
-            public Swift.AnyType? ImageCache
+            public IImageCaching? ImageCache
             {
                 get => ((Swift.AnyType?)ImageCache_Get());
-                set => ImageCache_Set(SwiftOptional<Swift.AnyType>.FromNullable(value));
+                set => ImageCache_Set((value is {} valueVal ? SwiftOptional<Swift.AnyType>.NewSome(valueVal) : SwiftOptional<Swift.AnyType>.NewNone()));
             }
             
             private unsafe Func<Swift.Nuke.ImageEncodingContext, Swift.Runtime.ExistentialContainer1> MakeImageEncoder_Get()
@@ -3666,7 +3637,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_makeImageEncoder_Get_1806C5F1(self);
+                    var result = PInvoke_makeImageEncoder_Get_333C81FD(self);
                     
                     // Wrap Swift closure in SwiftEscapingClosure for ARC management
                     var _closureWrapper = SwiftEscapingClosure<Func<Swift.Nuke.ImageEncodingContext, Swift.Runtime.ExistentialContainer1>>.FromSwift(result.FunctionPointer, result.Context);
@@ -3708,11 +3679,11 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV04makeB7EncoderyAA0B8Encoding_pAA0bG7ContextVYbcvg")]
-            private static extern SwiftClosureData PInvoke_makeImageEncoder_Get_1806C5F1( SwiftSelf self);
+            private static extern SwiftClosureData PInvoke_makeImageEncoder_Get_333C81FD( SwiftSelf self);
             
-            private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, Swift.Runtime.ExistentialContainer1> s_makeImageEncoder_Set_value_407EB8B5_Callback = &makeImageEncoder_Set_value_407EB8B5_Callback;
+            private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, Swift.Runtime.ExistentialContainer1> s_makeImageEncoder_Set_value_0C5AFB01_Callback = &makeImageEncoder_Set_value_0C5AFB01_Callback;
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-            private static Swift.Runtime.ExistentialContainer1 makeImageEncoder_Set_value_407EB8B5_Callback(void* arg0, SwiftSelf context)
+            private static Swift.Runtime.ExistentialContainer1 makeImageEncoder_Set_value_0C5AFB01_Callback(void* arg0, SwiftSelf context)
             {
                 var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<Swift.Nuke.ImageEncodingContext, Swift.Runtime.ExistentialContainer1>>(new IntPtr(context.Value));
                 return del(SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageEncodingContext>(new IntPtr(arg0)));
@@ -3729,9 +3700,9 @@ namespace Swift.Nuke
                     
                     
                     valueHandle = GCHandle.Alloc(value);
-                    var valueClosure = new SwiftClosureData((IntPtr)s_makeImageEncoder_Set_value_407EB8B5_Callback, GCHandle.ToIntPtr(valueHandle));
+                    var valueClosure = new SwiftClosureData((IntPtr)s_makeImageEncoder_Set_value_0C5AFB01_Callback, GCHandle.ToIntPtr(valueHandle));
                     
-                    PInvoke_makeImageEncoder_Set_407EB8B5(valueClosure, self);
+                    PInvoke_makeImageEncoder_Set_0C5AFB01(valueClosure, self);
                     
                     return;
                 }
@@ -3747,7 +3718,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV04makeB7EncoderyAA0B8Encoding_pAA0bG7ContextVYbcvs")]
-            private static extern void PInvoke_makeImageEncoder_Set_407EB8B5( SwiftClosureData value,  SwiftSelf self);
+            private static extern void PInvoke_makeImageEncoder_Set_0C5AFB01( SwiftClosureData value,  SwiftSelf self);
             
             [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Nuke.ImageEncoding")]
             public Func<Swift.Nuke.ImageEncodingContext, Swift.Runtime.ExistentialContainer1> MakeImageEncoder
@@ -3766,7 +3737,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_isDecompressionEnabled_Get_73651EF2(self);
+                    var result = PInvoke_isDecompressionEnabled_Get_51DA4B98(self);
                     
                     return result;
                 }
@@ -3781,7 +3752,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV22isDecompressionEnabledSbvg")]
-            private static extern System.Boolean PInvoke_isDecompressionEnabled_Get_73651EF2( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isDecompressionEnabled_Get_51DA4B98( SwiftSelf self);
             
             private unsafe void IsDecompressionEnabled_Set( System.Boolean value)
             {
@@ -3793,7 +3764,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_isDecompressionEnabled_Set_2FCEA853(value, self);
+                    PInvoke_isDecompressionEnabled_Set_21BDF081(value, self);
                     
                     return;
                 }
@@ -3808,7 +3779,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV22isDecompressionEnabledSbvs")]
-            private static extern void PInvoke_isDecompressionEnabled_Set_2FCEA853( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_isDecompressionEnabled_Set_21BDF081( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean IsDecompressionEnabled
             {
@@ -3826,7 +3797,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_isUsingPrepareForDisplay_Get_3F0CC798(self);
+                    var result = PInvoke_isUsingPrepareForDisplay_Get_5729245A(self);
                     
                     return result;
                 }
@@ -3841,7 +3812,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV24isUsingPrepareForDisplaySbvg")]
-            private static extern System.Boolean PInvoke_isUsingPrepareForDisplay_Get_3F0CC798( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isUsingPrepareForDisplay_Get_5729245A( SwiftSelf self);
             
             private unsafe void IsUsingPrepareForDisplay_Set( System.Boolean value)
             {
@@ -3853,7 +3824,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_isUsingPrepareForDisplay_Set_457AED98(value, self);
+                    PInvoke_isUsingPrepareForDisplay_Set_5E4B5AA4(value, self);
                     
                     return;
                 }
@@ -3868,7 +3839,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV24isUsingPrepareForDisplaySbvs")]
-            private static extern void PInvoke_isUsingPrepareForDisplay_Set_457AED98( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_isUsingPrepareForDisplay_Set_5E4B5AA4( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean IsUsingPrepareForDisplay
             {
@@ -3890,7 +3861,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_dataCachePolicy_Get_36B63691(swiftIndirectResult, self);
+                    PInvoke_dataCachePolicy_Get_58280C39(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.DataCachePolicy>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -3905,7 +3876,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV15dataCachePolicyAC04DatafG0Ovg")]
-            private static extern void PInvoke_dataCachePolicy_Get_36B63691( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_dataCachePolicy_Get_58280C39( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             private unsafe void DataCachePolicy_Set( Swift.Nuke.ImagePipeline.DataCachePolicy value)
             {
@@ -3917,7 +3888,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_dataCachePolicy_Set_0C4CF609(value.Payload.DangerousGetHandle(), self);
+                    PInvoke_dataCachePolicy_Set_1ED4ECE2(value.Payload.DangerousGetHandle(), self);
                     
                     return;
                 }
@@ -3932,7 +3903,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV15dataCachePolicyAC04DatafG0Ovs")]
-            private static extern void PInvoke_dataCachePolicy_Set_0C4CF609( IntPtr value,  SwiftSelf self);
+            private static extern void PInvoke_dataCachePolicy_Set_1ED4ECE2( IntPtr value,  SwiftSelf self);
             
             public Swift.Nuke.ImagePipeline.DataCachePolicy DataCachePolicy
             {
@@ -3950,7 +3921,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_isTaskCoalescingEnabled_Get_79A4DD9C(self);
+                    var result = PInvoke_isTaskCoalescingEnabled_Get_23C12C66(self);
                     
                     return result;
                 }
@@ -3965,7 +3936,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV23isTaskCoalescingEnabledSbvg")]
-            private static extern System.Boolean PInvoke_isTaskCoalescingEnabled_Get_79A4DD9C( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isTaskCoalescingEnabled_Get_23C12C66( SwiftSelf self);
             
             private unsafe void IsTaskCoalescingEnabled_Set( System.Boolean value)
             {
@@ -3977,7 +3948,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_isTaskCoalescingEnabled_Set_1F9A6BA9(value, self);
+                    PInvoke_isTaskCoalescingEnabled_Set_182784EE(value, self);
                     
                     return;
                 }
@@ -3992,7 +3963,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV23isTaskCoalescingEnabledSbvs")]
-            private static extern void PInvoke_isTaskCoalescingEnabled_Set_1F9A6BA9( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_isTaskCoalescingEnabled_Set_182784EE( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean IsTaskCoalescingEnabled
             {
@@ -4010,7 +3981,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_isRateLimiterEnabled_Get_61E6DEC4(self);
+                    var result = PInvoke_isRateLimiterEnabled_Get_3BCBEFC6(self);
                     
                     return result;
                 }
@@ -4025,7 +3996,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV20isRateLimiterEnabledSbvg")]
-            private static extern System.Boolean PInvoke_isRateLimiterEnabled_Get_61E6DEC4( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isRateLimiterEnabled_Get_3BCBEFC6( SwiftSelf self);
             
             private unsafe void IsRateLimiterEnabled_Set( System.Boolean value)
             {
@@ -4037,7 +4008,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_isRateLimiterEnabled_Set_733EBA46(value, self);
+                    PInvoke_isRateLimiterEnabled_Set_22237F3E(value, self);
                     
                     return;
                 }
@@ -4052,7 +4023,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV20isRateLimiterEnabledSbvs")]
-            private static extern void PInvoke_isRateLimiterEnabled_Set_733EBA46( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_isRateLimiterEnabled_Set_22237F3E( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean IsRateLimiterEnabled
             {
@@ -4070,7 +4041,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_isProgressiveDecodingEnabled_Get_4010C22F(self);
+                    var result = PInvoke_isProgressiveDecodingEnabled_Get_75DE74E6(self);
                     
                     return result;
                 }
@@ -4085,7 +4056,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV28isProgressiveDecodingEnabledSbvg")]
-            private static extern System.Boolean PInvoke_isProgressiveDecodingEnabled_Get_4010C22F( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isProgressiveDecodingEnabled_Get_75DE74E6( SwiftSelf self);
             
             private unsafe void IsProgressiveDecodingEnabled_Set( System.Boolean value)
             {
@@ -4097,7 +4068,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_isProgressiveDecodingEnabled_Set_78C4853E(value, self);
+                    PInvoke_isProgressiveDecodingEnabled_Set_2A0E7FA8(value, self);
                     
                     return;
                 }
@@ -4112,7 +4083,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV28isProgressiveDecodingEnabledSbvs")]
-            private static extern void PInvoke_isProgressiveDecodingEnabled_Set_78C4853E( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_isProgressiveDecodingEnabled_Set_2A0E7FA8( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean IsProgressiveDecodingEnabled
             {
@@ -4130,7 +4101,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_isStoringPreviewsInMemoryCache_Get_4DD5B7FF(self);
+                    var result = PInvoke_isStoringPreviewsInMemoryCache_Get_0B571575(self);
                     
                     return result;
                 }
@@ -4145,7 +4116,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV30isStoringPreviewsInMemoryCacheSbvg")]
-            private static extern System.Boolean PInvoke_isStoringPreviewsInMemoryCache_Get_4DD5B7FF( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isStoringPreviewsInMemoryCache_Get_0B571575( SwiftSelf self);
             
             private unsafe void IsStoringPreviewsInMemoryCache_Set( System.Boolean value)
             {
@@ -4157,7 +4128,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_isStoringPreviewsInMemoryCache_Set_2633181C(value, self);
+                    PInvoke_isStoringPreviewsInMemoryCache_Set_3D456A0A(value, self);
                     
                     return;
                 }
@@ -4172,7 +4143,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV30isStoringPreviewsInMemoryCacheSbvs")]
-            private static extern void PInvoke_isStoringPreviewsInMemoryCache_Set_2633181C( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_isStoringPreviewsInMemoryCache_Set_3D456A0A( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean IsStoringPreviewsInMemoryCache
             {
@@ -4190,7 +4161,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_isResumableDataEnabled_Get_271AA775(self);
+                    var result = PInvoke_isResumableDataEnabled_Get_5AB47380(self);
                     
                     return result;
                 }
@@ -4205,7 +4176,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV22isResumableDataEnabledSbvg")]
-            private static extern System.Boolean PInvoke_isResumableDataEnabled_Get_271AA775( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isResumableDataEnabled_Get_5AB47380( SwiftSelf self);
             
             private unsafe void IsResumableDataEnabled_Set( System.Boolean value)
             {
@@ -4217,7 +4188,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_isResumableDataEnabled_Set_107B32FB(value, self);
+                    PInvoke_isResumableDataEnabled_Set_0A74A9DC(value, self);
                     
                     return;
                 }
@@ -4232,7 +4203,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV22isResumableDataEnabledSbvs")]
-            private static extern void PInvoke_isResumableDataEnabled_Set_107B32FB( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_isResumableDataEnabled_Set_0A74A9DC( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean IsResumableDataEnabled
             {
@@ -4250,7 +4221,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_isLocalResourcesSupportEnabled_Get_65239033(self);
+                    var result = PInvoke_isLocalResourcesSupportEnabled_Get_15A51F32(self);
                     
                     return result;
                 }
@@ -4265,7 +4236,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV30isLocalResourcesSupportEnabledSbvg")]
-            private static extern System.Boolean PInvoke_isLocalResourcesSupportEnabled_Get_65239033( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isLocalResourcesSupportEnabled_Get_15A51F32( SwiftSelf self);
             
             private unsafe void IsLocalResourcesSupportEnabled_Set( System.Boolean value)
             {
@@ -4277,7 +4248,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_isLocalResourcesSupportEnabled_Set_26C994A4(value, self);
+                    PInvoke_isLocalResourcesSupportEnabled_Set_7DE1038F(value, self);
                     
                     return;
                 }
@@ -4292,7 +4263,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV30isLocalResourcesSupportEnabledSbvs")]
-            private static extern void PInvoke_isLocalResourcesSupportEnabled_Set_26C994A4( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_isLocalResourcesSupportEnabled_Set_7DE1038F( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean IsLocalResourcesSupportEnabled
             {
@@ -4314,7 +4285,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_callbackQueue_Get_22EF685C(swiftIndirectResult, self);
+                    PInvoke_callbackQueue_Get_7A200945(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.DispatchQueue>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4329,7 +4300,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV13callbackQueueSo17OS_dispatch_queueCvg")]
-            private static extern void PInvoke_callbackQueue_Get_22EF685C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_callbackQueue_Get_7A200945( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             private unsafe void CallbackQueue_Set( Swift.DispatchQueue value)
             {
@@ -4341,7 +4312,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_callbackQueue_Set_29BE527D(value.Payload, self);
+                    PInvoke_callbackQueue_Set_0F13F650(value.Payload, self);
                     
                     return;
                 }
@@ -4356,7 +4327,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV13callbackQueueSo17OS_dispatch_queueCvs")]
-            private static extern void PInvoke_callbackQueue_Set_29BE527D( SafeHandle value,  SwiftSelf self);
+            private static extern void PInvoke_callbackQueue_Set_0F13F650( SafeHandle value,  SwiftSelf self);
             
             public Swift.DispatchQueue CallbackQueue
             {
@@ -4370,7 +4341,7 @@ namespace Swift.Nuke
                 {
                     
                     
-                    var result = PInvoke_isSignpostLoggingEnabled_Get_63BEE520();
+                    var result = PInvoke_isSignpostLoggingEnabled_Get_5C452987();
                     
                     return result;
                 }
@@ -4383,7 +4354,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV24isSignpostLoggingEnabledSbvgZ")]
-            private static extern System.Boolean PInvoke_isSignpostLoggingEnabled_Get_63BEE520();
+            private static extern System.Boolean PInvoke_isSignpostLoggingEnabled_Get_5C452987();
             
             private static void IsSignpostLoggingEnabled_Set( System.Boolean value)
             {
@@ -4391,7 +4362,7 @@ namespace Swift.Nuke
                 {
                     
                     
-                    PInvoke_isSignpostLoggingEnabled_Set_11D3745A(value);
+                    PInvoke_isSignpostLoggingEnabled_Set_0968DBD9(value);
                     
                     return;
                 }
@@ -4404,7 +4375,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV24isSignpostLoggingEnabledSbvsZ")]
-            private static extern void PInvoke_isSignpostLoggingEnabled_Set_11D3745A( System.Boolean value);
+            private static extern void PInvoke_isSignpostLoggingEnabled_Set_0968DBD9( System.Boolean value);
             
             public static System.Boolean IsSignpostLoggingEnabled
             {
@@ -4426,7 +4397,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_dataLoadingQueue_Get_26CBD6A7(swiftIndirectResult, self);
+                    PInvoke_dataLoadingQueue_Get_55258BEF(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Foundation.NSOperationQueue>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4441,7 +4412,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV16dataLoadingQueueSo011NSOperationG0Cvg")]
-            private static extern void PInvoke_dataLoadingQueue_Get_26CBD6A7( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_dataLoadingQueue_Get_55258BEF( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             private unsafe void DataLoadingQueue_Set( Foundation.NSOperationQueue value)
             {
@@ -4454,7 +4425,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_dataLoadingQueue_Set_5B2F08FC(valueHandle, self);
+                    PInvoke_dataLoadingQueue_Set_47C5E236(valueHandle, self);
                     
                     return;
                 }
@@ -4469,7 +4440,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV16dataLoadingQueueSo011NSOperationG0Cvs")]
-            private static extern void PInvoke_dataLoadingQueue_Set_5B2F08FC( IntPtr value,  SwiftSelf self);
+            private static extern void PInvoke_dataLoadingQueue_Set_47C5E236( IntPtr value,  SwiftSelf self);
             
             public Foundation.NSOperationQueue DataLoadingQueue
             {
@@ -4491,7 +4462,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_dataCachingQueue_Get_635E4EC7(swiftIndirectResult, self);
+                    PInvoke_dataCachingQueue_Get_2785E8C9(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Foundation.NSOperationQueue>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4506,7 +4477,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV16dataCachingQueueSo011NSOperationG0Cvg")]
-            private static extern void PInvoke_dataCachingQueue_Get_635E4EC7( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_dataCachingQueue_Get_2785E8C9( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             private unsafe void DataCachingQueue_Set( Foundation.NSOperationQueue value)
             {
@@ -4519,7 +4490,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_dataCachingQueue_Set_16405319(valueHandle, self);
+                    PInvoke_dataCachingQueue_Set_65B9E446(valueHandle, self);
                     
                     return;
                 }
@@ -4534,7 +4505,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV16dataCachingQueueSo011NSOperationG0Cvs")]
-            private static extern void PInvoke_dataCachingQueue_Set_16405319( IntPtr value,  SwiftSelf self);
+            private static extern void PInvoke_dataCachingQueue_Set_65B9E446( IntPtr value,  SwiftSelf self);
             
             public Foundation.NSOperationQueue DataCachingQueue
             {
@@ -4556,7 +4527,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_imageDecodingQueue_Get_386882DD(swiftIndirectResult, self);
+                    PInvoke_imageDecodingQueue_Get_7E974101(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Foundation.NSOperationQueue>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4571,7 +4542,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV18imageDecodingQueueSo011NSOperationG0Cvg")]
-            private static extern void PInvoke_imageDecodingQueue_Get_386882DD( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_imageDecodingQueue_Get_7E974101( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             private unsafe void ImageDecodingQueue_Set( Foundation.NSOperationQueue value)
             {
@@ -4584,7 +4555,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_imageDecodingQueue_Set_33C652F0(valueHandle, self);
+                    PInvoke_imageDecodingQueue_Set_4D184674(valueHandle, self);
                     
                     return;
                 }
@@ -4599,7 +4570,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV18imageDecodingQueueSo011NSOperationG0Cvs")]
-            private static extern void PInvoke_imageDecodingQueue_Set_33C652F0( IntPtr value,  SwiftSelf self);
+            private static extern void PInvoke_imageDecodingQueue_Set_4D184674( IntPtr value,  SwiftSelf self);
             
             public Foundation.NSOperationQueue ImageDecodingQueue
             {
@@ -4621,7 +4592,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_imageEncodingQueue_Get_72D5BCB8(swiftIndirectResult, self);
+                    PInvoke_imageEncodingQueue_Get_13BE95F5(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Foundation.NSOperationQueue>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4636,7 +4607,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV18imageEncodingQueueSo011NSOperationG0Cvg")]
-            private static extern void PInvoke_imageEncodingQueue_Get_72D5BCB8( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_imageEncodingQueue_Get_13BE95F5( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             private unsafe void ImageEncodingQueue_Set( Foundation.NSOperationQueue value)
             {
@@ -4649,7 +4620,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_imageEncodingQueue_Set_1A7CB845(valueHandle, self);
+                    PInvoke_imageEncodingQueue_Set_7D73F639(valueHandle, self);
                     
                     return;
                 }
@@ -4664,7 +4635,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV18imageEncodingQueueSo011NSOperationG0Cvs")]
-            private static extern void PInvoke_imageEncodingQueue_Set_1A7CB845( IntPtr value,  SwiftSelf self);
+            private static extern void PInvoke_imageEncodingQueue_Set_7D73F639( IntPtr value,  SwiftSelf self);
             
             public Foundation.NSOperationQueue ImageEncodingQueue
             {
@@ -4686,7 +4657,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_imageProcessingQueue_Get_770B47A0(swiftIndirectResult, self);
+                    PInvoke_imageProcessingQueue_Get_42FA4505(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Foundation.NSOperationQueue>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4701,7 +4672,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV20imageProcessingQueueSo011NSOperationG0Cvg")]
-            private static extern void PInvoke_imageProcessingQueue_Get_770B47A0( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_imageProcessingQueue_Get_42FA4505( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             private unsafe void ImageProcessingQueue_Set( Foundation.NSOperationQueue value)
             {
@@ -4714,7 +4685,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_imageProcessingQueue_Set_75C1C07A(valueHandle, self);
+                    PInvoke_imageProcessingQueue_Set_186D4A83(valueHandle, self);
                     
                     return;
                 }
@@ -4729,7 +4700,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV20imageProcessingQueueSo011NSOperationG0Cvs")]
-            private static extern void PInvoke_imageProcessingQueue_Set_75C1C07A( IntPtr value,  SwiftSelf self);
+            private static extern void PInvoke_imageProcessingQueue_Set_186D4A83( IntPtr value,  SwiftSelf self);
             
             public Foundation.NSOperationQueue ImageProcessingQueue
             {
@@ -4751,7 +4722,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_imageDecompressingQueue_Get_5F5B3EF8(swiftIndirectResult, self);
+                    PInvoke_imageDecompressingQueue_Get_4249BCD1(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Foundation.NSOperationQueue>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4766,7 +4737,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV23imageDecompressingQueueSo011NSOperationG0Cvg")]
-            private static extern void PInvoke_imageDecompressingQueue_Get_5F5B3EF8( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_imageDecompressingQueue_Get_4249BCD1( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             private unsafe void ImageDecompressingQueue_Set( Foundation.NSOperationQueue value)
             {
@@ -4779,7 +4750,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_imageDecompressingQueue_Set_412E27A1(valueHandle, self);
+                    PInvoke_imageDecompressingQueue_Set_78797DC4(valueHandle, self);
                     
                     return;
                 }
@@ -4794,7 +4765,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV23imageDecompressingQueueSo011NSOperationG0Cvs")]
-            private static extern void PInvoke_imageDecompressingQueue_Set_412E27A1( IntPtr value,  SwiftSelf self);
+            private static extern void PInvoke_imageDecompressingQueue_Set_78797DC4( IntPtr value,  SwiftSelf self);
             
             public Foundation.NSOperationQueue ImageDecompressingQueue
             {
@@ -4812,7 +4783,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_withURLCache_Get_0A0A5335(swiftIndirectResult);
+                    PInvoke_withURLCache_Get_46CF31D7(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.ConfigurationInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4825,7 +4796,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV12withURLCacheAEvgZ")]
-            private static extern void PInvoke_withURLCache_Get_0A0A5335( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_withURLCache_Get_46CF31D7( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImagePipeline.ConfigurationInfo WithURLCache
             {
@@ -4842,7 +4813,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_withDataCache_Get_7F2879E3(swiftIndirectResult);
+                    PInvoke_withDataCache_Get_3D0B03E8(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.ConfigurationInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4855,7 +4826,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV13withDataCacheAEvgZ")]
-            private static extern void PInvoke_withDataCache_Get_7F2879E3( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_withDataCache_Get_3D0B03E8( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImagePipeline.ConfigurationInfo WithDataCache
             {
@@ -4935,25 +4906,25 @@ namespace Swift.Nuke
                 _payload = new SwiftSafeHandle<ConfigurationInfo>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_39697D07(swiftIndirectResult, ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)dataLoader).GetExistentialContainer());
+                PInvoke_init_473092CD(swiftIndirectResult, ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)dataLoader).GetExistentialContainer());
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV10dataLoaderAeA11DataLoading_p_tcfC")]
-            private static extern void PInvoke_init_39697D07( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 dataLoader);
+            private static extern void PInvoke_init_473092CD( SwiftIndirectResult swiftIndirectResult,  Swift.Runtime.ExistentialContainer1 dataLoader);
             public unsafe ConfigurationInfo()
             {
                 _payload = new SwiftSafeHandle<ConfigurationInfo>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_6E9E0A05(swiftIndirectResult);
+                PInvoke_init_15532545(swiftIndirectResult);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Configuration_init_6F4D1A10_1")]
-            private static extern void PInvoke_init_6E9E0A05( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_init_15532545( SwiftIndirectResult swiftIndirectResult);
             
             
             public static unsafe Swift.Nuke.ImagePipeline.ConfigurationInfo WithDataCacheMethod( string name,  nint? sizeLimit)
@@ -4971,7 +4942,7 @@ namespace Swift.Nuke
                     using PayloadBuffer<IntPtr> sizeLimitDisposable = sizeLimitSwift.PayloadBuffer;
                     IntPtr sizeLimitBuffer = sizeLimitDisposable.Buffer;
                     
-                    PInvoke_withDataCache_6AF0E512(swiftIndirectResult, nameDisposable.Buffer, sizeLimitBuffer);
+                    PInvoke_withDataCache_53810356(swiftIndirectResult, nameDisposable.Buffer, sizeLimitBuffer);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.ConfigurationInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -4984,7 +4955,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC13ConfigurationV13withDataCache4name9sizeLimitAESS_SiSgtFZ")]
-            private static extern void PInvoke_withDataCache_6AF0E512( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  IntPtr sizeLimitBuffer);
+            private static extern void PInvoke_withDataCache_53810356( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  IntPtr sizeLimitBuffer);
             public static unsafe Swift.Nuke.ImagePipeline.ConfigurationInfo WithDataCacheMethod()
             {
                 try
@@ -4995,7 +4966,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_withDataCache_50705DDF(swiftIndirectResult);
+                    PInvoke_withDataCache_69490A47(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.ConfigurationInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -5008,7 +4979,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Configuration_withDataCache_75148080_2")]
-            private static extern void PInvoke_withDataCache_50705DDF( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_withDataCache_69490A47( SwiftIndirectResult swiftIndirectResult);
             public static unsafe Swift.Nuke.ImagePipeline.ConfigurationInfo WithDataCacheMethod( string name)
             {
                 try
@@ -5021,7 +4992,7 @@ namespace Swift.Nuke
                     using var nameSwift = new SwiftString(name);
                     using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
                     
-                    PInvoke_withDataCache_3A7C7E48(swiftIndirectResult, nameDisposable.Buffer);
+                    PInvoke_withDataCache_2F523812(swiftIndirectResult, nameDisposable.Buffer);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImagePipeline.ConfigurationInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -5034,7 +5005,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Configuration_withDataCache_75148080_1")]
-            private static extern void PInvoke_withDataCache_3A7C7E48( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name);
+            private static extern void PInvoke_withDataCache_2F523812( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name);
             
             
         }
@@ -5156,7 +5127,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_7A0F6325(self);
+                    var result = PInvoke_hashValue_Get_76B899AC(self);
                     
                     return result;
                 }
@@ -5169,7 +5140,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC15DataCachePolicyO9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_7A0F6325( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_76B899AC( SwiftSelf self);
             
             public nint HashValue
             {
@@ -5248,7 +5219,7 @@ namespace Swift.Nuke
                     
                     
                     
-                    PInvoke_hash_77F71D42(into.Payload, self);
+                    PInvoke_hash_41B88456(into.Payload, self);
                     
                     return;
                 }
@@ -5261,7 +5232,7 @@ namespace Swift.Nuke
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC15DataCachePolicyO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_77F71D42( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_41B88456( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -5279,7 +5250,7 @@ namespace Swift.Nuke
                 
                 
                 
-                PInvoke_invalidate_2E1316DB(self);
+                PInvoke_invalidate_6577AA35(self);
                 
                 return;
             }
@@ -5294,7 +5265,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC10invalidateyyF")]
-        private static extern void PInvoke_invalidate_2E1316DB( SwiftSelf self);
+        private static extern void PInvoke_invalidate_6577AA35( SwiftSelf self);
         
         
         public unsafe Swift.Nuke.ImageTask ImageTask( Foundation.NSUrl with)
@@ -5308,7 +5279,7 @@ namespace Swift.Nuke
                 
                 using var withSwift = Swift.URL.FromNSUrl(with);
                 
-                var result = PInvoke_imageTask_29489645(withSwift.Payload, self);
+                var result = PInvoke_imageTask_0287878E(withSwift.Payload, self);
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -5325,7 +5296,7 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC9imageTask4withAA0bE0C10Foundation3URLV_tF")]
-        private static extern IntPtr PInvoke_imageTask_29489645( SafeHandle with,  SwiftSelf self);
+        private static extern IntPtr PInvoke_imageTask_0287878E( SafeHandle with,  SwiftSelf self);
         
         
         public unsafe Swift.Nuke.ImageTask ImageTask( Swift.Nuke.ImageRequest with)
@@ -5338,7 +5309,7 @@ namespace Swift.Nuke
                 
                 
                 
-                var result = PInvoke_imageTask_16E8AFA8(with.Payload, self);
+                var result = PInvoke_imageTask_5E9E5777(with.Payload, self);
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -5355,14 +5326,14 @@ namespace Swift.Nuke
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC9imageTask4withAA0bE0CAA0B7RequestV_tF")]
-        private static extern IntPtr PInvoke_imageTask_16E8AFA8( SafeHandle with,  SwiftSelf self);
+        private static extern IntPtr PInvoke_imageTask_5E9E5777( SafeHandle with,  SwiftSelf self);
         
         
                         [System.Runtime.InteropServices.DllImport("SwiftBindings", EntryPoint = "SBW_Free_Nuke")]
         private static extern void SBW_Free(IntPtr ptr);
-private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCallback_74B00DE0 = &imageOnComplete_74B00DE0;
+private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCallback_6B90EC1B = &imageOnComplete_6B90EC1B;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void imageOnComplete_74B00DE0(IntPtr resultPtr, IntPtr task)
+        private static void imageOnComplete_6B90EC1B(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -5405,9 +5376,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageErrorCallback_74B00DE0 = &imageOnError_74B00DE0;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageErrorCallback_6B90EC1B = &imageOnError_6B90EC1B;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void imageOnError_74B00DE0(IntPtr errorMessagePtr, IntPtr task)
+        private static void imageOnError_6B90EC1B(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -5470,7 +5441,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 using var _forSwift = Swift.URL.FromNSUrl(_for);
                 
-                PInvoke_image_74B00DE0(s_imageCallback_74B00DE0, s_imageErrorCallback_74B00DE0, GCHandle.ToIntPtr(handle), _forSwift.Payload);
+                PInvoke_image_6B90EC1B(s_imageCallback_6B90EC1B, s_imageErrorCallback_6B90EC1B, GCHandle.ToIntPtr(handle), _forSwift.Payload);
                 
                 return task.Task;
             }
@@ -5483,12 +5454,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s4Nuke13ImagePipelineC5image3forSo7UIImageC10Foundation3URLV_tYaKF_async")]
-        private static extern void PInvoke_image_74B00DE0( void* s_imageCallback_74B00DE0,  void* s_imageErrorCallback_74B00DE0,  IntPtr handle,  SafeHandle _for);
+        private static extern void PInvoke_image_6B90EC1B( void* s_imageCallback_6B90EC1B,  void* s_imageErrorCallback_6B90EC1B,  IntPtr handle,  SafeHandle _for);
         
         
-                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCallback_5E954AAA = &imageOnComplete_5E954AAA;
+                private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCallback_734A8A76 = &imageOnComplete_734A8A76;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void imageOnComplete_5E954AAA(IntPtr resultPtr, IntPtr task)
+        private static void imageOnComplete_734A8A76(IntPtr resultPtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -5531,9 +5502,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageErrorCallback_5E954AAA = &imageOnError_5E954AAA;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageErrorCallback_734A8A76 = &imageOnError_734A8A76;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void imageOnError_5E954AAA(IntPtr errorMessagePtr, IntPtr task)
+        private static void imageOnError_734A8A76(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -5594,7 +5565,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             {
                 
                 
-                PInvoke_image_5E954AAA(s_imageCallback_5E954AAA, s_imageErrorCallback_5E954AAA, GCHandle.ToIntPtr(handle), _forHandle);
+                PInvoke_image_734A8A76(s_imageCallback_734A8A76, s_imageErrorCallback_734A8A76, GCHandle.ToIntPtr(handle), _forHandle);
                 
                 return task.Task;
             }
@@ -5607,12 +5578,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s4Nuke13ImagePipelineC5image3forSo7UIImageCAA0B7RequestV_tYaKF_async")]
-        private static extern void PInvoke_image_5E954AAA( void* s_imageCallback_5E954AAA,  void* s_imageErrorCallback_5E954AAA,  IntPtr handle,  IntPtr _for);
+        private static extern void PInvoke_image_734A8A76( void* s_imageCallback_734A8A76,  void* s_imageErrorCallback_734A8A76,  IntPtr handle,  IntPtr _for);
         
         
-                private static unsafe delegate* unmanaged[Cdecl]<Swift.Data, IntPtr, IntPtr, void> s_dataCallback_1AFEAFBA = &dataOnComplete_1AFEAFBA;
+                private static unsafe delegate* unmanaged[Cdecl]<Swift.Data, IntPtr, IntPtr, void> s_dataCallback_20CF2ACE = &dataOnComplete_20CF2ACE;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void dataOnComplete_1AFEAFBA(Swift.Data rawItem0, IntPtr rawItem1, IntPtr task)
+        private static void dataOnComplete_20CF2ACE(Swift.Data rawItem0, IntPtr rawItem1, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -5655,9 +5626,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_dataErrorCallback_1AFEAFBA = &dataOnError_1AFEAFBA;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_dataErrorCallback_20CF2ACE = &dataOnError_20CF2ACE;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void dataOnError_1AFEAFBA(IntPtr errorMessagePtr, IntPtr task)
+        private static void dataOnError_20CF2ACE(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -5720,7 +5691,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             {
                 
                 
-                PInvoke_data_1AFEAFBA(s_dataCallback_1AFEAFBA, s_dataErrorCallback_1AFEAFBA, GCHandle.ToIntPtr(handle), _forHandle);
+                PInvoke_data_20CF2ACE(s_dataCallback_20CF2ACE, s_dataErrorCallback_20CF2ACE, GCHandle.ToIntPtr(handle), _forHandle);
                 
                 return task.Task;
             }
@@ -5733,12 +5704,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAA0B7RequestV_tYaKF_async")]
-        private static extern void PInvoke_data_1AFEAFBA( void* s_dataCallback_1AFEAFBA,  void* s_dataErrorCallback_1AFEAFBA,  IntPtr handle,  IntPtr _for);
+        private static extern void PInvoke_data_20CF2ACE( void* s_dataCallback_20CF2ACE,  void* s_dataErrorCallback_20CF2ACE,  IntPtr handle,  IntPtr _for);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadImage_completion_24863C1E_Callback = &loadImage_completion_24863C1E_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadImage_completion_2A84F030_Callback = &loadImage_completion_2A84F030_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadImage_completion_24863C1E_Callback(void* arg0, SwiftSelf context)
+        private static void loadImage_completion_2A84F030_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftResult<Swift.Nuke.ImageResponse, Swift.Nuke.ImagePipeline.Error>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<Swift.Nuke.ImageResponse, Swift.Nuke.ImagePipeline.Error>>(new IntPtr(arg0)));
@@ -5755,10 +5726,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 completionHandle = GCHandle.Alloc(completion);
-                var completionClosure = new SwiftClosureData((IntPtr)s_loadImage_completion_24863C1E_Callback, GCHandle.ToIntPtr(completionHandle));
+                var completionClosure = new SwiftClosureData((IntPtr)s_loadImage_completion_2A84F030_Callback, GCHandle.ToIntPtr(completionHandle));
                 using var withSwift = Swift.URL.FromNSUrl(with);
                 
-                var result = PInvoke_loadImage_24863C1E(withSwift.Payload, completionClosure, self);
+                var result = PInvoke_loadImage_2A84F030(withSwift.Payload, completionClosure, self);
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -5776,12 +5747,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC04loadB04with10completionAA0B4TaskC10Foundation3URLV_ys6ResultOyAA0B8ResponseVAC5ErrorOGctF")]
-        private static extern IntPtr PInvoke_loadImage_24863C1E( SafeHandle with,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern IntPtr PInvoke_loadImage_2A84F030( SafeHandle with,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadImage_completion_6145055B_Callback = &loadImage_completion_6145055B_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadImage_completion_1A35AAD2_Callback = &loadImage_completion_1A35AAD2_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadImage_completion_6145055B_Callback(void* arg0, SwiftSelf context)
+        private static void loadImage_completion_1A35AAD2_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftResult<Swift.Nuke.ImageResponse, Swift.Nuke.ImagePipeline.Error>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<Swift.Nuke.ImageResponse, Swift.Nuke.ImagePipeline.Error>>(new IntPtr(arg0)));
@@ -5798,9 +5769,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 completionHandle = GCHandle.Alloc(completion);
-                var completionClosure = new SwiftClosureData((IntPtr)s_loadImage_completion_6145055B_Callback, GCHandle.ToIntPtr(completionHandle));
+                var completionClosure = new SwiftClosureData((IntPtr)s_loadImage_completion_1A35AAD2_Callback, GCHandle.ToIntPtr(completionHandle));
                 
-                var result = PInvoke_loadImage_6145055B(with.Payload, completionClosure, self);
+                var result = PInvoke_loadImage_1A35AAD2(with.Payload, completionClosure, self);
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -5818,20 +5789,20 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC04loadB04with10completionAA0B4TaskCAA0B7RequestV_ys6ResultOyAA0B8ResponseVAC5ErrorOGctF")]
-        private static extern IntPtr PInvoke_loadImage_6145055B( SafeHandle with,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern IntPtr PInvoke_loadImage_1A35AAD2( SafeHandle with,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, long, long, SwiftSelf, void> s_loadImage_progress_4195FA50_Callback = &loadImage_progress_4195FA50_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, long, long, SwiftSelf, void> s_loadImage_progress_3916B679_Callback = &loadImage_progress_3916B679_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadImage_progress_4195FA50_Callback(void* arg0, long arg1, long arg2, SwiftSelf context)
+        private static void loadImage_progress_3916B679_Callback(void* arg0, long arg1, long arg2, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftOptional<Swift.Nuke.ImageResponse>, System.Int64, System.Int64>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Nuke.ImageResponse>>(new IntPtr(arg0)), arg1, arg2);
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadImage_completion_4195FA50_Callback = &loadImage_completion_4195FA50_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadImage_completion_3916B679_Callback = &loadImage_completion_3916B679_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadImage_completion_4195FA50_Callback(void* arg0, SwiftSelf context)
+        private static void loadImage_completion_3916B679_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftResult<Swift.Nuke.ImageResponse, Swift.Nuke.ImagePipeline.Error>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<Swift.Nuke.ImageResponse, Swift.Nuke.ImagePipeline.Error>>(new IntPtr(arg0)));
@@ -5852,19 +5823,19 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 if (progress != null)
                 {
                     progressHandle = GCHandle.Alloc(progress);
-                    progressClosure = new SwiftClosureData((IntPtr)s_loadImage_progress_4195FA50_Callback, GCHandle.ToIntPtr(progressHandle));
+                    progressClosure = new SwiftClosureData((IntPtr)s_loadImage_progress_3916B679_Callback, GCHandle.ToIntPtr(progressHandle));
                 }
                 else
                 {
                     progressClosure = default; // Zero-initialized = nil in Swift
                 }
                 completionHandle = GCHandle.Alloc(completion);
-                var completionClosure = new SwiftClosureData((IntPtr)s_loadImage_completion_4195FA50_Callback, GCHandle.ToIntPtr(completionHandle));
+                var completionClosure = new SwiftClosureData((IntPtr)s_loadImage_completion_3916B679_Callback, GCHandle.ToIntPtr(completionHandle));
                 using var queueSwift = queue is {} queueValue ? SwiftOptional<Swift.DispatchQueue>.NewSome(queueValue) : SwiftOptional<Swift.DispatchQueue>.NewNone();
                 using PayloadBuffer<IntPtr> queueDisposable = queueSwift.PayloadBuffer;
                 IntPtr queueBuffer = queueDisposable.Buffer;
                 
-                var result = PInvoke_loadImage_4195FA50(with.Payload, queueBuffer, progressClosure, completionClosure, self);
+                var result = PInvoke_loadImage_3916B679(with.Payload, queueBuffer, progressClosure, completionClosure, self);
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -5883,12 +5854,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC04loadB04with5queue8progress10completionAA0B4TaskCAA0B7RequestV_So012OS_dispatch_F0CSgyAA0B8ResponseVSg_s5Int64VATtcSgys6ResultOyAqC5ErrorOGctF")]
-        private static extern IntPtr PInvoke_loadImage_4195FA50( SafeHandle with,  IntPtr queueBuffer,  SwiftClosureData progress,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern IntPtr PInvoke_loadImage_3916B679( SafeHandle with,  IntPtr queueBuffer,  SwiftClosureData progress,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadData_completion_5CA886BF_Callback = &loadData_completion_5CA886BF_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadData_completion_21705F83_Callback = &loadData_completion_21705F83_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadData_completion_5CA886BF_Callback(void* arg0, SwiftSelf context)
+        private static void loadData_completion_21705F83_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftResult<(Swift.Data data, Swift.SwiftOptional<Foundation.NSUrlResponse> response), Swift.Nuke.ImagePipeline.Error>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<(Swift.Data data, Swift.SwiftOptional<Foundation.NSUrlResponse> response), Swift.Nuke.ImagePipeline.Error>>(new IntPtr(arg0)));
@@ -5905,9 +5876,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 completionHandle = GCHandle.Alloc(completion);
-                var completionClosure = new SwiftClosureData((IntPtr)s_loadData_completion_5CA886BF_Callback, GCHandle.ToIntPtr(completionHandle));
+                var completionClosure = new SwiftClosureData((IntPtr)s_loadData_completion_21705F83_Callback, GCHandle.ToIntPtr(completionHandle));
                 
-                var result = PInvoke_loadData_5CA886BF(with.Payload, completionClosure, self);
+                var result = PInvoke_loadData_21705F83(with.Payload, completionClosure, self);
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -5925,20 +5896,20 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC8loadData4with10completionAA0B4TaskCAA0B7RequestV_ys6ResultOy10Foundation0E0V4data_So13NSURLResponseCSg8responsetAC5ErrorOGctF")]
-        private static extern IntPtr PInvoke_loadData_5CA886BF( SafeHandle with,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern IntPtr PInvoke_loadData_21705F83( SafeHandle with,  SwiftClosureData completion,  SwiftSelf self);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<long, long, SwiftSelf, void> s_loadData_progress_4B64A10B_Callback = &loadData_progress_4B64A10B_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<long, long, SwiftSelf, void> s_loadData_progress_3928EBD9_Callback = &loadData_progress_3928EBD9_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadData_progress_4B64A10B_Callback(long arg0, long arg1, SwiftSelf context)
+        private static void loadData_progress_3928EBD9_Callback(long arg0, long arg1, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<System.Int64, System.Int64>>(new IntPtr(context.Value));
             del(arg0, arg1);
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadData_completion_4B64A10B_Callback = &loadData_completion_4B64A10B_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadData_completion_3928EBD9_Callback = &loadData_completion_3928EBD9_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadData_completion_4B64A10B_Callback(void* arg0, SwiftSelf context)
+        private static void loadData_completion_3928EBD9_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftResult<(Swift.Data data, Swift.SwiftOptional<Foundation.NSUrlResponse> response), Swift.Nuke.ImagePipeline.Error>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<(Swift.Data data, Swift.SwiftOptional<Foundation.NSUrlResponse> response), Swift.Nuke.ImagePipeline.Error>>(new IntPtr(arg0)));
@@ -5959,19 +5930,19 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 if (progress != null)
                 {
                     progressHandle = GCHandle.Alloc(progress);
-                    progressClosure = new SwiftClosureData((IntPtr)s_loadData_progress_4B64A10B_Callback, GCHandle.ToIntPtr(progressHandle));
+                    progressClosure = new SwiftClosureData((IntPtr)s_loadData_progress_3928EBD9_Callback, GCHandle.ToIntPtr(progressHandle));
                 }
                 else
                 {
                     progressClosure = default; // Zero-initialized = nil in Swift
                 }
                 completionHandle = GCHandle.Alloc(completion);
-                var completionClosure = new SwiftClosureData((IntPtr)s_loadData_completion_4B64A10B_Callback, GCHandle.ToIntPtr(completionHandle));
+                var completionClosure = new SwiftClosureData((IntPtr)s_loadData_completion_3928EBD9_Callback, GCHandle.ToIntPtr(completionHandle));
                 using var queueSwift = queue is {} queueValue ? SwiftOptional<Swift.DispatchQueue>.NewSome(queueValue) : SwiftOptional<Swift.DispatchQueue>.NewNone();
                 using PayloadBuffer<IntPtr> queueDisposable = queueSwift.PayloadBuffer;
                 IntPtr queueBuffer = queueDisposable.Buffer;
                 
-                var result = PInvoke_loadData_4B64A10B(with.Payload, queueBuffer, progressClosure, completionClosure, self);
+                var result = PInvoke_loadData_3928EBD9(with.Payload, queueBuffer, progressClosure, completionClosure, self);
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -5990,14 +5961,14 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC8loadData4with5queue8progress10completionAA0B4TaskCAA0B7RequestV_So012OS_dispatch_G0CSgys5Int64V_AQtcSgys6ResultOy10Foundation0E0V4data_So13NSURLResponseCSg8responsetAC5ErrorOGctF")]
-        private static extern IntPtr PInvoke_loadData_4B64A10B( SafeHandle with,  IntPtr queueBuffer,  SwiftClosureData progress,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern IntPtr PInvoke_loadData_3928EBD9( SafeHandle with,  IntPtr queueBuffer,  SwiftClosureData progress,  SwiftClosureData completion,  SwiftSelf self);
         
         
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadData_completion_396678AB_Callback = &loadData_completion_396678AB_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadData_completion_2CE27590_Callback = &loadData_completion_2CE27590_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadData_completion_396678AB_Callback(void* arg0, SwiftSelf context)
+        private static void loadData_completion_2CE27590_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftResult<(Swift.Data data, Swift.SwiftOptional<Foundation.NSUrlResponse> response), Swift.Nuke.ImagePipeline.Error>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftResult<(Swift.Data data, Swift.SwiftOptional<Foundation.NSUrlResponse> response), Swift.Nuke.ImagePipeline.Error>>(new IntPtr(arg0)));
@@ -6014,10 +5985,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 completionHandle = GCHandle.Alloc(completion);
-                var completionClosure = new SwiftClosureData((IntPtr)s_loadData_completion_396678AB_Callback, GCHandle.ToIntPtr(completionHandle));
+                var completionClosure = new SwiftClosureData((IntPtr)s_loadData_completion_2CE27590_Callback, GCHandle.ToIntPtr(completionHandle));
                 using var withSwift = Swift.URL.FromNSUrl(with);
                 
-                var result = PInvoke_loadData_396678AB(withSwift.Payload, completionClosure, self);
+                var result = PInvoke_loadData_2CE27590(withSwift.Payload, completionClosure, self);
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -6035,12 +6006,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImagePipelineC8loadData4with10completionAA0B4TaskC10Foundation3URLV_ys6ResultOyAI0E0V4data_So13NSURLResponseCSg8responsetAC5ErrorOGctF")]
-        private static extern IntPtr PInvoke_loadData_396678AB( SafeHandle with,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern IntPtr PInvoke_loadData_2CE27590( SafeHandle with,  SwiftClosureData completion,  SwiftSelf self);
         
         
-                private static unsafe delegate* unmanaged[Cdecl]<Swift.Data, IntPtr, IntPtr, void> s_dataCallback_1446F669 = &dataOnComplete_1446F669;
+                private static unsafe delegate* unmanaged[Cdecl]<Swift.Data, IntPtr, IntPtr, void> s_dataCallback_1166B2DF = &dataOnComplete_1166B2DF;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void dataOnComplete_1446F669(Swift.Data rawItem0, IntPtr rawItem1, IntPtr task)
+        private static void dataOnComplete_1166B2DF(Swift.Data rawItem0, IntPtr rawItem1, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -6083,9 +6054,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             }
         }
 
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_dataErrorCallback_1446F669 = &dataOnError_1446F669;
+        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_dataErrorCallback_1166B2DF = &dataOnError_1166B2DF;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void dataOnError_1446F669(IntPtr errorMessagePtr, IntPtr task)
+        private static void dataOnError_1166B2DF(IntPtr errorMessagePtr, IntPtr task)
         {
             GCHandle handle = GCHandle.FromIntPtr(task);
             try
@@ -6150,7 +6121,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 using var _forSwift = Swift.URL.FromNSUrl(_for);
                 
-                PInvoke_data_1446F669(s_dataCallback_1446F669, s_dataErrorCallback_1446F669, GCHandle.ToIntPtr(handle), _forSwift.Payload);
+                PInvoke_data_1166B2DF(s_dataCallback_1166B2DF, s_dataErrorCallback_1166B2DF, GCHandle.ToIntPtr(handle), _forSwift.Payload);
                 
                 return task.Task;
             }
@@ -6163,7 +6134,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "$s4Nuke13ImagePipelineC4data3for10Foundation4DataV_So13NSURLResponseCSgtAF3URLV_tYaKF_async")]
-        private static extern void PInvoke_data_1446F669( void* s_dataCallback_1446F669,  void* s_dataErrorCallback_1446F669,  IntPtr handle,  SafeHandle _for);
+        private static extern void PInvoke_data_1166B2DF( void* s_dataCallback_1166B2DF,  void* s_dataErrorCallback_1166B2DF,  IntPtr handle,  SafeHandle _for);
         
         
     }
@@ -6185,7 +6156,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_session_Get_5E843A7D(swiftIndirectResult, self);
+                PInvoke_session_Get_29551193(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Foundation.NSUrlSession>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -6200,7 +6171,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC7sessionSo12NSURLSessionCvg")]
-        private static extern void PInvoke_session_Get_5E843A7D( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_session_Get_29551193( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Foundation.NSUrlSession Session
         {
@@ -6217,7 +6188,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_prefersIncrementalDelivery_Get_6D61742E(self);
+                var result = PInvoke_prefersIncrementalDelivery_Get_4FFDE4AD(self);
                 
                 return result;
             }
@@ -6232,7 +6203,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC26prefersIncrementalDeliverySbvg")]
-        private static extern System.Boolean PInvoke_prefersIncrementalDelivery_Get_6D61742E( SwiftSelf self);
+        private static extern System.Boolean PInvoke_prefersIncrementalDelivery_Get_4FFDE4AD( SwiftSelf self);
         
         private unsafe void PrefersIncrementalDelivery_Set( System.Boolean value)
         {
@@ -6244,7 +6215,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_prefersIncrementalDelivery_Set_0A2B11E9(value, self);
+                PInvoke_prefersIncrementalDelivery_Set_20B88BA7(value, self);
                 
                 return;
             }
@@ -6259,75 +6230,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC26prefersIncrementalDeliverySbvs")]
-        private static extern void PInvoke_prefersIncrementalDelivery_Set_0A2B11E9( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_prefersIncrementalDelivery_Set_20B88BA7( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean PrefersIncrementalDelivery
         {
             get => PrefersIncrementalDelivery_Get();
             set => PrefersIncrementalDelivery_Set(value);
-        }
-        
-        private unsafe Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1> Delegate_Get()
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
-                
-                
-                
-                var result = PInvoke_delegate_Get_1F095B45(self);
-                
-                return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC8delegateSo20NSURLSessionDelegate_pSgvg")]
-        private static extern IntPtr PInvoke_delegate_Get_1F095B45( SwiftSelf self);
-        
-        private unsafe void Delegate_Set( Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1> value)
-        {
-            var success = false;
-            _payload.DangerousAddRef(ref success);
-            try
-            {
-                var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());
-                
-                
-                using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
-                IntPtr valueBuffer = valueDisposable.Buffer;
-                
-                PInvoke_delegate_Set_637AC139(valueBuffer, self);
-                
-                return;
-            }
-            
-            finally
-            {
-                if (success)
-                   _payload.DangerousRelease();
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC8delegateSo20NSURLSessionDelegate_pSgvs")]
-        private static extern void PInvoke_delegate_Set_637AC139( IntPtr valueBuffer,  SwiftSelf self);
-        
-        [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Foundation.URLSessionDelegate")]
-        public Swift.AnyType? Delegate
-        {
-            get => ((Swift.AnyType?)Delegate_Get());
-            set => Delegate_Set(SwiftOptional<Swift.AnyType>.FromNullable(value));
         }
         
         private static unsafe Foundation.NSUrlSessionConfiguration DefaultConfiguration_Get()
@@ -6340,7 +6248,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_defaultConfiguration_Get_30E38DEF(swiftIndirectResult);
+                PInvoke_defaultConfiguration_Get_69044A9F(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Foundation.NSUrlSessionConfiguration>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -6353,7 +6261,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC20defaultConfigurationSo012NSURLSessionE0CvgZ")]
-        private static extern void PInvoke_defaultConfiguration_Get_30E38DEF( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_defaultConfiguration_Get_69044A9F( SwiftIndirectResult swiftIndirectResult);
         
         public static Foundation.NSUrlSessionConfiguration DefaultConfiguration
         {
@@ -6370,7 +6278,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_sharedUrlCache_Get_36E04A0E(swiftIndirectResult);
+                PInvoke_sharedUrlCache_Get_39E90D6F(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Foundation.NSUrlCache>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -6383,7 +6291,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC14sharedUrlCacheSo10NSURLCacheCvgZ")]
-        private static extern void PInvoke_sharedUrlCache_Get_36E04A0E( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_sharedUrlCache_Get_39E90D6F( SwiftIndirectResult swiftIndirectResult);
         
         public static Foundation.NSUrlCache SharedUrlCache
         {
@@ -6561,7 +6469,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_5102D018(self);
+                    var result = PInvoke_description_Get_37CB5CC5(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -6576,7 +6484,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC5ErrorO11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_5102D018( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_37CB5CC5( SwiftSelf self);
             
             public string Description
             {
@@ -6651,42 +6559,18 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         
         
-        [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Swift.Error")]
-        public static unsafe object? Validate( Foundation.NSUrlResponse response)
-        {
-            IntPtr responseHandle = response?.Handle ?? IntPtr.Zero;
-            try
-            {
-                
-                
-                var result = PInvoke_validate_27B1C1FD(responseHandle);
-                
-                var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
-                return swiftResult.ToNullable();
-            }
-            
-            finally
-            {
-            }
-            
-        }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC8validate8responses5Error_pSgSo13NSURLResponseC_tYbFZ")]
-        private static extern IntPtr PInvoke_validate_27B1C1FD( IntPtr response);
-        
-        
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_loadData_didReceiveData_128E3256_Callback = &loadData_didReceiveData_128E3256_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_loadData_didReceiveData_1B7FD515_Callback = &loadData_didReceiveData_1B7FD515_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadData_didReceiveData_128E3256_Callback(void* arg0, void* arg1, SwiftSelf context)
+        private static void loadData_didReceiveData_1B7FD515_Callback(void* arg0, void* arg1, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.Data, Foundation.NSUrlResponse>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.Data>(new IntPtr(arg0)), SwiftMarshal.MarshalFromSwift<Foundation.NSUrlResponse>(new IntPtr(arg1)));
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadData_completion_128E3256_Callback = &loadData_completion_128E3256_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_loadData_completion_1B7FD515_Callback = &loadData_completion_1B7FD515_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void loadData_completion_128E3256_Callback(void* arg0, SwiftSelf context)
+        private static void loadData_completion_1B7FD515_Callback(void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>>(new IntPtr(context.Value));
             del(SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(arg0)));
@@ -6705,11 +6589,11 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 didReceiveDataHandle = GCHandle.Alloc(didReceiveData);
-                var didReceiveDataClosure = new SwiftClosureData((IntPtr)s_loadData_didReceiveData_128E3256_Callback, GCHandle.ToIntPtr(didReceiveDataHandle));
+                var didReceiveDataClosure = new SwiftClosureData((IntPtr)s_loadData_didReceiveData_1B7FD515_Callback, GCHandle.ToIntPtr(didReceiveDataHandle));
                 completionHandle = GCHandle.Alloc(completion);
-                var completionClosure = new SwiftClosureData((IntPtr)s_loadData_completion_128E3256_Callback, GCHandle.ToIntPtr(completionHandle));
+                var completionClosure = new SwiftClosureData((IntPtr)s_loadData_completion_1B7FD515_Callback, GCHandle.ToIntPtr(completionHandle));
                 
-                var result = PInvoke_loadData_128E3256(with.Payload, didReceiveDataClosure, completionClosure, self);
+                var result = PInvoke_loadData_1B7FD515(with.Payload, didReceiveDataClosure, completionClosure, self);
                 
                 return new CancellableProxy(result);
             }
@@ -6726,7 +6610,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke10DataLoaderC04loadB04with010didReceiveB010completionAA11Cancellable_p10Foundation10URLRequestV_yAI0B0V_So13NSURLResponseCtcys5Error_pSgctF")]
-        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_loadData_128E3256( SafeHandle with,  SwiftClosureData didReceiveData,  SwiftClosureData completion,  SwiftSelf self);
+        private static extern Swift.Runtime.ExistentialContainer1 PInvoke_loadData_1B7FD515( SafeHandle with,  SwiftClosureData didReceiveData,  SwiftClosureData completion,  SwiftSelf self);
         
         
     }
@@ -6991,7 +6875,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_request_Get_3F848A8A(swiftIndirectResult, self);
+                PInvoke_request_Get_638AE36B(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -7006,7 +6890,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageEncodingContextV7requestAA0B7RequestVvg")]
-        private static extern void PInvoke_request_Get_3F848A8A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_request_Get_638AE36B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Nuke.ImageRequest Request
         {
@@ -7027,7 +6911,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_image_Get_5A6C2968(swiftIndirectResult, self);
+                PInvoke_image_Get_7F8E9650(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<UIKit.UIImage>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -7042,7 +6926,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageEncodingContextV5imageSo7UIImageCvg")]
-        private static extern void PInvoke_image_Get_5A6C2968( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_image_Get_7F8E9650( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public UIKit.UIImage Image
         {
@@ -7059,7 +6943,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_urlResponse_Get_1A5D5E36(self);
+                var result = PInvoke_urlResponse_Get_47AE6450(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Foundation.NSUrlResponse>>(new IntPtr(&result));
             }
@@ -7074,7 +6958,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageEncodingContextV11urlResponseSo13NSURLResponseCSgvg")]
-        private static extern IntPtr PInvoke_urlResponse_Get_1A5D5E36( SwiftSelf self);
+        private static extern IntPtr PInvoke_urlResponse_Get_47AE6450( SwiftSelf self);
         
         public Foundation.NSUrlResponse? UrlResponse
         {
@@ -7612,7 +7496,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_image_Get_29DE5A9B(swiftIndirectResult, self);
+                PInvoke_image_Get_003349C9(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<UIKit.UIImage>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -7627,7 +7511,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV5imageSo7UIImageCvg")]
-        private static extern void PInvoke_image_Get_29DE5A9B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_image_Get_003349C9( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Image_Set( UIKit.UIImage value)
         {
@@ -7640,7 +7524,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_image_Set_11C01720(valueHandle, self);
+                PInvoke_image_Set_40BC01C6(valueHandle, self);
                 
                 return;
             }
@@ -7655,7 +7539,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV5imageSo7UIImageCvs")]
-        private static extern void PInvoke_image_Set_11C01720( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_image_Set_40BC01C6( IntPtr value,  SwiftSelf self);
         
         public UIKit.UIImage Image
         {
@@ -7673,7 +7557,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_type_Get_631B40A4(self);
+                var result = PInvoke_type_Get_5FE0669D(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Nuke.AssetType>>(new IntPtr(&result));
             }
@@ -7688,7 +7572,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV4typeAA9AssetTypeVSgvg")]
-        private static extern IntPtr PInvoke_type_Get_631B40A4( SwiftSelf self);
+        private static extern IntPtr PInvoke_type_Get_5FE0669D( SwiftSelf self);
         
         private unsafe void Type_Set( Swift.SwiftOptional<Swift.Nuke.AssetType> value)
         {
@@ -7702,7 +7586,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_type_Set_69CD2379(valueBuffer, self);
+                PInvoke_type_Set_770D8B05(valueBuffer, self);
                 
                 return;
             }
@@ -7717,12 +7601,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV4typeAA9AssetTypeVSgvs")]
-        private static extern void PInvoke_type_Set_69CD2379( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_type_Set_770D8B05( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.Nuke.AssetType? Type
         {
             get => ((Swift.Nuke.AssetType?)Type_Get());
-            set => Type_Set(SwiftOptional<Swift.Nuke.AssetType>.FromNullable(value));
+            set => Type_Set((value is {} valueVal ? SwiftOptional<Swift.Nuke.AssetType>.NewSome(valueVal) : SwiftOptional<Swift.Nuke.AssetType>.NewNone()));
         }
         
         private unsafe System.Boolean IsPreview_Get()
@@ -7735,7 +7619,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_isPreview_Get_12A2DC6A(self);
+                var result = PInvoke_isPreview_Get_04553A83(self);
                 
                 return result;
             }
@@ -7750,7 +7634,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV9isPreviewSbvg")]
-        private static extern System.Boolean PInvoke_isPreview_Get_12A2DC6A( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isPreview_Get_04553A83( SwiftSelf self);
         
         private unsafe void IsPreview_Set( System.Boolean value)
         {
@@ -7762,7 +7646,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_isPreview_Set_7878F271(value, self);
+                PInvoke_isPreview_Set_5586DB75(value, self);
                 
                 return;
             }
@@ -7777,7 +7661,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV9isPreviewSbvs")]
-        private static extern void PInvoke_isPreview_Set_7878F271( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_isPreview_Set_5586DB75( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean IsPreview
         {
@@ -7795,7 +7679,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_data_Get_28F552AC(self);
+                var result = PInvoke_data_Get_4DE9D2A1(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Data>>(new IntPtr(&result));
             }
@@ -7810,7 +7694,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV4data10Foundation4DataVSgvg")]
-        private static extern IntPtr PInvoke_data_Get_28F552AC( SwiftSelf self);
+        private static extern IntPtr PInvoke_data_Get_4DE9D2A1( SwiftSelf self);
         
         private unsafe void Data_Set( Swift.SwiftOptional<Swift.Data> value)
         {
@@ -7824,7 +7708,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_data_Set_5AD7F9AA(valueBuffer, self);
+                PInvoke_data_Set_1D93FB10(valueBuffer, self);
                 
                 return;
             }
@@ -7839,12 +7723,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV4data10Foundation4DataVSgvs")]
-        private static extern void PInvoke_data_Set_5AD7F9AA( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_data_Set_1D93FB10( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.Data? Data
         {
             get => ((Swift.Data?)Data_Get());
-            set => Data_Set(SwiftOptional<Swift.Data>.FromNullable(value));
+            set => Data_Set((value is {} valueVal ? SwiftOptional<Swift.Data>.NewSome(valueVal) : SwiftOptional<Swift.Data>.NewNone()));
         }
         
         static nuint _payloadSize = SwiftObjectHelper<ImageContainer>.GetTypeMetadata().Size;
@@ -7927,7 +7811,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_38C4F4AA(self);
+                    var result = PInvoke_rawValue_Get_0B76C865(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -7944,7 +7828,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV11UserInfoKeyV8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_38C4F4AA( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_0B76C865( SwiftSelf self);
             
             public string RawValue
             {
@@ -7961,7 +7845,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_scanNumberKey_Get_76DAB964(swiftIndirectResult);
+                    PInvoke_scanNumberKey_Get_04DC267C(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageContainer.UserInfoKey>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -7974,7 +7858,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV11UserInfoKeyV010scanNumberF0AEvgZ")]
-            private static extern void PInvoke_scanNumberKey_Get_76DAB964( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_scanNumberKey_Get_04DC267C( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageContainer.UserInfoKey ScanNumberKey
             {
@@ -7991,7 +7875,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_1C32766D(self);
+                    var result = PInvoke_hashValue_Get_6966B378(self);
                     
                     return result;
                 }
@@ -8006,7 +7890,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV11UserInfoKeyV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_1C32766D( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_6966B378( SwiftSelf self);
             
             public nint HashValue
             {
@@ -8123,13 +8007,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 using var arg0Swift = new SwiftString(arg0);
                 using PayloadBuffer<SwiftString.Buffer> arg0Disposable = arg0Swift.PayloadBuffer;
-                PInvoke_init_1747D937(swiftIndirectResult, arg0Disposable.Buffer);
+                PInvoke_init_7560907C(swiftIndirectResult, arg0Disposable.Buffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV11UserInfoKeyVyAESScfC")]
-            private static extern void PInvoke_init_1747D937( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer arg0);
+            private static extern void PInvoke_init_7560907C( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer arg0);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -8142,7 +8026,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_15F1B5DB(into.Payload, self);
+                    PInvoke_hash_7A7FD264(into.Payload, self);
                     
                     return;
                 }
@@ -8157,7 +8041,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke14ImageContainerV11UserInfoKeyV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_15F1B5DB( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_7A7FD264( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -8682,7 +8566,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_04F0B755(self);
+                    var result = PInvoke_description_Get_0098DC3D(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -8697,7 +8581,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO4UnitO11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_04F0B755( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_0098DC3D( SwiftSelf self);
             
             public string Description
             {
@@ -8712,7 +8596,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_7F90CF3D(self);
+                    var result = PInvoke_hashValue_Get_53EE39C6(self);
                     
                     return result;
                 }
@@ -8725,7 +8609,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO4UnitO9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_7F90CF3D( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_53EE39C6( SwiftSelf self);
             
             public nint HashValue
             {
@@ -8804,7 +8688,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_70584FAE(into.Payload, self);
+                    PInvoke_hash_40CEDFED(into.Payload, self);
                     
                     return;
                 }
@@ -8817,7 +8701,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO4UnitO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_70584FAE( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_40CEDFED( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -8835,7 +8719,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_width_Get_35D79A91(self);
+                    var result = PInvoke_width_Get_4D98B5E5(self);
                     
                     return result;
                 }
@@ -8850,7 +8734,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO6BorderV5width12CoreGraphics7CGFloatVvg")]
-            private static extern System.Double PInvoke_width_Get_35D79A91( SwiftSelf self);
+            private static extern System.Double PInvoke_width_Get_4D98B5E5( SwiftSelf self);
             
             public System.Double Width
             {
@@ -8871,7 +8755,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_color_Get_1338B5D6(swiftIndirectResult, self);
+                    PInvoke_color_Get_14B80F9A(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<UIKit.UIColor>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -8886,7 +8770,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO6BorderV5colorSo7UIColorCvg")]
-            private static extern void PInvoke_color_Get_1338B5D6( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_color_Get_14B80F9A( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public UIKit.UIColor Color
             {
@@ -8903,7 +8787,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_3F3D6AD1(self);
+                    var result = PInvoke_description_Get_41EEB81A(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -8920,7 +8804,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO6BorderV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_3F3D6AD1( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_41EEB81A( SwiftSelf self);
             
             public string Description
             {
@@ -8937,7 +8821,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_65EC74DA(self);
+                    var result = PInvoke_hashValue_Get_55CAC8D8(self);
                     
                     return result;
                 }
@@ -8952,7 +8836,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO6BorderV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_65EC74DA( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_55CAC8D8( SwiftSelf self);
             
             public nint HashValue
             {
@@ -9068,39 +8952,39 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 _payload = new SwiftSafeHandle<Border>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_5D57727F(swiftIndirectResult, colorHandle, width, unit.Payload.DangerousGetHandle());
+                PInvoke_init_795C4E46(swiftIndirectResult, colorHandle, width, unit.Payload.DangerousGetHandle());
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO6BorderV5color5width4unitAESo7UIColorC_12CoreGraphics7CGFloatVAC4UnitOtcfC")]
-            private static extern void PInvoke_init_5D57727F( SwiftIndirectResult swiftIndirectResult,  IntPtr color,  System.Double width,  IntPtr unit);
+            private static extern void PInvoke_init_795C4E46( SwiftIndirectResult swiftIndirectResult,  IntPtr color,  System.Double width,  IntPtr unit);
             public unsafe Border( UIKit.UIColor color)
             {
                 IntPtr colorHandle = color?.Handle ?? IntPtr.Zero;
                 _payload = new SwiftSafeHandle<Border>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_340FCB50(swiftIndirectResult, colorHandle);
+                PInvoke_init_31D566D6(swiftIndirectResult, colorHandle);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Border_init_46D2AA2C_2")]
-            private static extern void PInvoke_init_340FCB50( SwiftIndirectResult swiftIndirectResult,  IntPtr color);
+            private static extern void PInvoke_init_31D566D6( SwiftIndirectResult swiftIndirectResult,  IntPtr color);
             public unsafe Border( UIKit.UIColor color,  System.Double width)
             {
                 IntPtr colorHandle = color?.Handle ?? IntPtr.Zero;
                 _payload = new SwiftSafeHandle<Border>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_7ACFABFB(swiftIndirectResult, colorHandle, width);
+                PInvoke_init_213194F2(swiftIndirectResult, colorHandle, width);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Border_init_46D2AA2C_1")]
-            private static extern void PInvoke_init_7ACFABFB( SwiftIndirectResult swiftIndirectResult,  IntPtr color,  System.Double width);
+            private static extern void PInvoke_init_213194F2( SwiftIndirectResult swiftIndirectResult,  IntPtr color,  System.Double width);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -9113,7 +8997,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_53A7A1DF(into.Payload, self);
+                    PInvoke_hash_3781540D(into.Payload, self);
                     
                     return;
                 }
@@ -9128,7 +9012,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO6BorderV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_53A7A1DF( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_3781540D( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -9216,7 +9100,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_02B5D046(self);
+                    var result = PInvoke_description_Get_63A3723F(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -9231,7 +9115,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO11ContentModeO11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_02B5D046( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_63A3723F( SwiftSelf self);
             
             public string Description
             {
@@ -9246,7 +9130,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_380E7E4B(self);
+                    var result = PInvoke_hashValue_Get_79DF55FC(self);
                     
                     return result;
                 }
@@ -9259,7 +9143,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO11ContentModeO9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_380E7E4B( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_79DF55FC( SwiftSelf self);
             
             public nint HashValue
             {
@@ -9338,7 +9222,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_42D6624F(into.Payload, self);
+                    PInvoke_hash_6C5C3BE4(into.Payload, self);
                     
                     return;
                 }
@@ -9351,7 +9235,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke22ImageProcessingOptionsO11ContentModeO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_42D6624F( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_6C5C3BE4( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -10271,7 +10155,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_hashValue_Get_63B254D6(self);
+                var result = PInvoke_hashValue_Get_3886E187(self);
                 
                 return result;
             }
@@ -10286,7 +10170,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageCacheKeyV9hashValueSivg")]
-        private static extern nint PInvoke_hashValue_Get_63B254D6( SwiftSelf self);
+        private static extern nint PInvoke_hashValue_Get_3886E187( SwiftSelf self);
         
         public nint HashValue
         {
@@ -10403,13 +10287,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             using var keySwift = new SwiftString(key);
             using PayloadBuffer<SwiftString.Buffer> keyDisposable = keySwift.PayloadBuffer;
-            PInvoke_init_4EBADAAC(swiftIndirectResult, keyDisposable.Buffer);
+            PInvoke_init_1299D4E3(swiftIndirectResult, keyDisposable.Buffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageCacheKeyV3keyACSS_tcfC")]
-        private static extern void PInvoke_init_4EBADAAC( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key);
+        private static extern void PInvoke_init_1299D4E3( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer key);
         
         
         public unsafe ImageCacheKey( Swift.Nuke.ImageRequest request)
@@ -10417,13 +10301,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             _payload = new SwiftSafeHandle<ImageCacheKey>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_53F6F147(swiftIndirectResult, request.Payload);
+            PInvoke_init_7A81961D(swiftIndirectResult, request.Payload);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageCacheKeyV7requestAcA0B7RequestV_tcfC")]
-        private static extern void PInvoke_init_53F6F147( SwiftIndirectResult swiftIndirectResult,  SafeHandle request);
+        private static extern void PInvoke_init_7A81961D( SwiftIndirectResult swiftIndirectResult,  SafeHandle request);
         
         
         public unsafe void Hash(ref Swift.Hasher into)
@@ -10436,7 +10320,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_hash_136E9977(into.Payload, self);
+                PInvoke_hash_6848CE3F(into.Payload, self);
                 
                 return;
             }
@@ -10451,7 +10335,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageCacheKeyV4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_136E9977( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_6848CE3F( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -10469,7 +10353,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_sizeLimit_Get_398020C7(self);
+                var result = PInvoke_sizeLimit_Get_5F5BED5C(self);
                 
                 return result;
             }
@@ -10484,7 +10368,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC9sizeLimitSivg")]
-        private static extern nint PInvoke_sizeLimit_Get_398020C7( SwiftSelf self);
+        private static extern nint PInvoke_sizeLimit_Get_5F5BED5C( SwiftSelf self);
         
         private unsafe void SizeLimit_Set( nint value)
         {
@@ -10496,7 +10380,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_sizeLimit_Set_10B1FEEF(value, self);
+                PInvoke_sizeLimit_Set_175FEC9B(value, self);
                 
                 return;
             }
@@ -10511,7 +10395,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC9sizeLimitSivs")]
-        private static extern void PInvoke_sizeLimit_Set_10B1FEEF( nint value,  SwiftSelf self);
+        private static extern void PInvoke_sizeLimit_Set_175FEC9B( nint value,  SwiftSelf self);
         
         public nint SizeLimit
         {
@@ -10533,7 +10417,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_path_Get_67AE0588(swiftIndirectResult, self);
+                PInvoke_path_Get_1FED4147(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.URL>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10548,9 +10432,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC4path10Foundation3URLVvg")]
-        private static extern void PInvoke_path_Get_67AE0588( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_path_Get_1FED4147( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
-        public Foundation.NSUrl Path
+        public Swift.URL Path
         {
             get => Path_Get();
         }
@@ -10565,7 +10449,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_sweepInterval_Get_7787AB63(self);
+                var result = PInvoke_sweepInterval_Get_6112B799(self);
                 
                 return result;
             }
@@ -10580,7 +10464,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC13sweepIntervalSdvg")]
-        private static extern System.Double PInvoke_sweepInterval_Get_7787AB63( SwiftSelf self);
+        private static extern System.Double PInvoke_sweepInterval_Get_6112B799( SwiftSelf self);
         
         private unsafe void SweepInterval_Set( System.Double value)
         {
@@ -10592,7 +10476,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_sweepInterval_Set_757FF80E(value, self);
+                PInvoke_sweepInterval_Set_634160A9(value, self);
                 
                 return;
             }
@@ -10607,7 +10491,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC13sweepIntervalSdvs")]
-        private static extern void PInvoke_sweepInterval_Set_757FF80E( System.Double value,  SwiftSelf self);
+        private static extern void PInvoke_sweepInterval_Set_634160A9( System.Double value,  SwiftSelf self);
         
         public System.Double SweepInterval
         {
@@ -10625,7 +10509,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_isCompressionEnabled_Get_21B78198(self);
+                var result = PInvoke_isCompressionEnabled_Get_1AA662DB(self);
                 
                 return result;
             }
@@ -10640,7 +10524,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC20isCompressionEnabledSbvg")]
-        private static extern System.Boolean PInvoke_isCompressionEnabled_Get_21B78198( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isCompressionEnabled_Get_1AA662DB( SwiftSelf self);
         
         private unsafe void IsCompressionEnabled_Set( System.Boolean value)
         {
@@ -10652,7 +10536,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_isCompressionEnabled_Set_7E64DD66(value, self);
+                PInvoke_isCompressionEnabled_Set_3A109A7A(value, self);
                 
                 return;
             }
@@ -10667,7 +10551,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC20isCompressionEnabledSbvs")]
-        private static extern void PInvoke_isCompressionEnabled_Set_7E64DD66( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_isCompressionEnabled_Set_3A109A7A( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean IsCompressionEnabled
         {
@@ -10689,7 +10573,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_queue_Get_4D657C65(swiftIndirectResult, self);
+                PInvoke_queue_Get_2F71560B(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.DispatchQueue>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -10704,7 +10588,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC5queueSo012OS_dispatch_D0Cvg")]
-        private static extern void PInvoke_queue_Get_4D657C65( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_queue_Get_2F71560B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.DispatchQueue Queue
         {
@@ -10721,7 +10605,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_totalCount_Get_14F402A2(self);
+                var result = PInvoke_totalCount_Get_21FB3E52(self);
                 
                 return result;
             }
@@ -10736,7 +10620,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC10totalCountSivg")]
-        private static extern nint PInvoke_totalCount_Get_14F402A2( SwiftSelf self);
+        private static extern nint PInvoke_totalCount_Get_21FB3E52( SwiftSelf self);
         
         public nint TotalCount
         {
@@ -10753,7 +10637,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_totalSize_Get_72CDE59E(self);
+                var result = PInvoke_totalSize_Get_5815789D(self);
                 
                 return result;
             }
@@ -10768,7 +10652,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC9totalSizeSivg")]
-        private static extern nint PInvoke_totalSize_Get_72CDE59E( SwiftSelf self);
+        private static extern nint PInvoke_totalSize_Get_5815789D( SwiftSelf self);
         
         public nint TotalSize
         {
@@ -10785,7 +10669,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_totalAllocatedSize_Get_44983592(self);
+                var result = PInvoke_totalAllocatedSize_Get_138D357F(self);
                 
                 return result;
             }
@@ -10800,7 +10684,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC18totalAllocatedSizeSivg")]
-        private static extern nint PInvoke_totalAllocatedSize_Get_44983592( SwiftSelf self);
+        private static extern nint PInvoke_totalAllocatedSize_Get_138D357F( SwiftSelf self);
         
         public nint TotalAllocatedSize
         {
@@ -10874,9 +10758,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             return ProtocolConformanceDescriptor.LoadFromSymbol("Nuke", symbolName);
         }
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_filenameGenerator_6CE549E9_Callback = &init_filenameGenerator_6CE549E9_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_filenameGenerator_66A8801C_Callback = &init_filenameGenerator_66A8801C_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void init_filenameGenerator_6CE549E9_Callback(void* indirectResult, void* arg0, SwiftSelf context)
+        private static void init_filenameGenerator_66A8801C_Callback(void* indirectResult, void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<Swift.SwiftString, Swift.SwiftOptional<Swift.SwiftString>>>(new IntPtr(context.Value));
             var result = del(SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(arg0)));
@@ -10895,10 +10779,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
                 filenameGeneratorHandle = GCHandle.Alloc(filenameGenerator);
-                var filenameGeneratorClosure = new SwiftClosureData((IntPtr)s_init_filenameGenerator_6CE549E9_Callback, GCHandle.ToIntPtr(filenameGeneratorHandle));
+                var filenameGeneratorClosure = new SwiftClosureData((IntPtr)s_init_filenameGenerator_66A8801C_Callback, GCHandle.ToIntPtr(filenameGeneratorHandle));
                 using var nameSwift = new SwiftString(name);
                 using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
-                PInvoke_init_6CE549E9(swiftIndirectResult, nameDisposable.Buffer, filenameGeneratorClosure, out var error);
+                PInvoke_init_66A8801C(swiftIndirectResult, nameDisposable.Buffer, filenameGeneratorClosure, out var error);
                 
                 if (error.Value != null)
                 {
@@ -10916,7 +10800,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC4name17filenameGeneratorACSS_SSSgSSctKcfC")]
-        private static extern void PInvoke_init_6CE549E9( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  SwiftClosureData filenameGenerator, out SwiftError error);
+        private static extern void PInvoke_init_66A8801C( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name,  SwiftClosureData filenameGenerator, out SwiftError error);
         public unsafe DataCache( string name)
         {
             _payload = new SwiftSafeHandle<DataCache>((IntPtr)NativeMemory.Alloc(_payloadSize));
@@ -10924,7 +10808,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             using var nameSwift = new SwiftString(name);
             using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
-            PInvoke_init_28D90835(swiftIndirectResult, nameDisposable.Buffer, out var error);
+            PInvoke_init_270C604E(swiftIndirectResult, nameDisposable.Buffer, out var error);
             
             if (error.Value != null)
             {
@@ -10935,12 +10819,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_DataCache_init_AB279AAF_1")]
-        private static extern void PInvoke_init_28D90835( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name, out SwiftError error);
+        private static extern void PInvoke_init_270C604E( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name, out SwiftError error);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_filenameGenerator_41B76459_Callback = &init_filenameGenerator_41B76459_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_filenameGenerator_7FBBC767_Callback = &init_filenameGenerator_7FBBC767_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void init_filenameGenerator_41B76459_Callback(void* indirectResult, void* arg0, SwiftSelf context)
+        private static void init_filenameGenerator_7FBBC767_Callback(void* indirectResult, void* arg0, SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<Swift.SwiftString, Swift.SwiftOptional<Swift.SwiftString>>>(new IntPtr(context.Value));
             var result = del(SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(arg0)));
@@ -10959,9 +10843,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
                 filenameGeneratorHandle = GCHandle.Alloc(filenameGenerator);
-                var filenameGeneratorClosure = new SwiftClosureData((IntPtr)s_init_filenameGenerator_41B76459_Callback, GCHandle.ToIntPtr(filenameGeneratorHandle));
+                var filenameGeneratorClosure = new SwiftClosureData((IntPtr)s_init_filenameGenerator_7FBBC767_Callback, GCHandle.ToIntPtr(filenameGeneratorHandle));
                 using var pathSwift = Swift.URL.FromNSUrl(path);
-                PInvoke_init_41B76459(swiftIndirectResult, pathSwift.Payload, filenameGeneratorClosure, out var error);
+                PInvoke_init_7FBBC767(swiftIndirectResult, pathSwift.Payload, filenameGeneratorClosure, out var error);
                 
                 if (error.Value != null)
                 {
@@ -10979,14 +10863,14 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC4path17filenameGeneratorAC10Foundation3URLV_SSSgSSctKcfC")]
-        private static extern void PInvoke_init_41B76459( SwiftIndirectResult swiftIndirectResult,  SafeHandle path,  SwiftClosureData filenameGenerator, out SwiftError error);
+        private static extern void PInvoke_init_7FBBC767( SwiftIndirectResult swiftIndirectResult,  SafeHandle path,  SwiftClosureData filenameGenerator, out SwiftError error);
         public unsafe DataCache( Foundation.NSUrl path)
         {
             _payload = new SwiftSafeHandle<DataCache>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             using var pathSwift = Swift.URL.FromNSUrl(path);
-            PInvoke_init_68A1F921(swiftIndirectResult, pathSwift.Payload, out var error);
+            PInvoke_init_779E5F73(swiftIndirectResult, pathSwift.Payload, out var error);
             
             if (error.Value != null)
             {
@@ -10997,7 +10881,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_DataCache_init_CF2F43D1_1")]
-        private static extern void PInvoke_init_68A1F921( SwiftIndirectResult swiftIndirectResult,  SafeHandle path, out SwiftError error);
+        private static extern void PInvoke_init_779E5F73( SwiftIndirectResult swiftIndirectResult,  SafeHandle path, out SwiftError error);
         
         
         public static unsafe Swift.SwiftString? Filename( string _for)
@@ -11008,7 +10892,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using var _forSwift = new SwiftString(_for);
                 using PayloadBuffer<SwiftString.Buffer> _forDisposable = _forSwift.PayloadBuffer;
                 
-                var result = PInvoke_filename_5A74BB8D(_forDisposable.Buffer);
+                var result = PInvoke_filename_79720EE4(_forDisposable.Buffer);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -11022,7 +10906,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC8filename3forSSSgSS_tFZ")]
-        private static extern IntPtr PInvoke_filename_5A74BB8D( Swift.SwiftString.Buffer _for);
+        private static extern IntPtr PInvoke_filename_79720EE4( Swift.SwiftString.Buffer _for);
         
         
         public unsafe Swift.Data? CachedData( string _for)
@@ -11037,7 +10921,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using var _forSwift = new SwiftString(_for);
                 using PayloadBuffer<SwiftString.Buffer> _forDisposable = _forSwift.PayloadBuffer;
                 
-                var result = PInvoke_cachedData_7E30BFD0(_forDisposable.Buffer, self);
+                var result = PInvoke_cachedData_2897E8AD(_forDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Data>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -11053,7 +10937,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC06cachedB03for10Foundation0B0VSgSS_tF")]
-        private static extern IntPtr PInvoke_cachedData_7E30BFD0( Swift.SwiftString.Buffer _for,  SwiftSelf self);
+        private static extern IntPtr PInvoke_cachedData_2897E8AD( Swift.SwiftString.Buffer _for,  SwiftSelf self);
         
         
         public unsafe System.Boolean ContainsData( string _for)
@@ -11068,7 +10952,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using var _forSwift = new SwiftString(_for);
                 using PayloadBuffer<SwiftString.Buffer> _forDisposable = _forSwift.PayloadBuffer;
                 
-                var result = PInvoke_containsData_4C3BD8B5(_forDisposable.Buffer, self);
+                var result = PInvoke_containsData_5467AC91(_forDisposable.Buffer, self);
                 
                 return result;
             }
@@ -11083,7 +10967,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC08containsB03forSbSS_tF")]
-        private static extern System.Boolean PInvoke_containsData_4C3BD8B5( Swift.SwiftString.Buffer _for,  SwiftSelf self);
+        private static extern System.Boolean PInvoke_containsData_5467AC91( Swift.SwiftString.Buffer _for,  SwiftSelf self);
         
         
         public unsafe void StoreData( Foundation.NSData arg0,  string _for)
@@ -11099,7 +10983,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using var _forSwift = new SwiftString(_for);
                 using PayloadBuffer<SwiftString.Buffer> _forDisposable = _forSwift.PayloadBuffer;
                 
-                PInvoke_storeData_710261AD(arg0Swift, _forDisposable.Buffer, self);
+                PInvoke_storeData_5074DD3A(arg0Swift, _forDisposable.Buffer, self);
                 
                 return;
             }
@@ -11114,7 +10998,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC05storeB0_3fory10Foundation0B0V_SStF")]
-        private static extern void PInvoke_storeData_710261AD( Swift.Data arg0,  Swift.SwiftString.Buffer _for,  SwiftSelf self);
+        private static extern void PInvoke_storeData_5074DD3A( Swift.Data arg0,  Swift.SwiftString.Buffer _for,  SwiftSelf self);
         
         
         public unsafe void RemoveData( string _for)
@@ -11129,7 +11013,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using var _forSwift = new SwiftString(_for);
                 using PayloadBuffer<SwiftString.Buffer> _forDisposable = _forSwift.PayloadBuffer;
                 
-                PInvoke_removeData_47BE170B(_forDisposable.Buffer, self);
+                PInvoke_removeData_057538E9(_forDisposable.Buffer, self);
                 
                 return;
             }
@@ -11144,7 +11028,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC06removeB03forySS_tF")]
-        private static extern void PInvoke_removeData_47BE170B( Swift.SwiftString.Buffer _for,  SwiftSelf self);
+        private static extern void PInvoke_removeData_057538E9( Swift.SwiftString.Buffer _for,  SwiftSelf self);
         
         
         public unsafe void RemoveAll()
@@ -11157,7 +11041,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_removeAll_640280FE(self);
+                PInvoke_removeAll_46E3AE6F(self);
                 
                 return;
             }
@@ -11172,7 +11056,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC9removeAllyyF")]
-        private static extern void PInvoke_removeAll_640280FE( SwiftSelf self);
+        private static extern void PInvoke_removeAll_46E3AE6F( SwiftSelf self);
         
         
         public unsafe Swift.URL? Url( string _for)
@@ -11187,7 +11071,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using var _forSwift = new SwiftString(_for);
                 using PayloadBuffer<SwiftString.Buffer> _forDisposable = _forSwift.PayloadBuffer;
                 
-                var result = PInvoke_url_76B443D2(_forDisposable.Buffer, self);
+                var result = PInvoke_url_1C69C5DD(_forDisposable.Buffer, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.URL>>(new IntPtr(&result));
                 return swiftResult.ToNullable();
@@ -11203,7 +11087,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC3url3for10Foundation3URLVSgSS_tF")]
-        private static extern IntPtr PInvoke_url_76B443D2( Swift.SwiftString.Buffer _for,  SwiftSelf self);
+        private static extern IntPtr PInvoke_url_1C69C5DD( Swift.SwiftString.Buffer _for,  SwiftSelf self);
         
         
         public unsafe void Flush()
@@ -11216,7 +11100,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_flush_54B5F980(self);
+                PInvoke_flush_5AA14AC8(self);
                 
                 return;
             }
@@ -11231,7 +11115,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC5flushyyF")]
-        private static extern void PInvoke_flush_54B5F980( SwiftSelf self);
+        private static extern void PInvoke_flush_5AA14AC8( SwiftSelf self);
         
         
         public unsafe void Flush( string _for)
@@ -11246,7 +11130,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using var _forSwift = new SwiftString(_for);
                 using PayloadBuffer<SwiftString.Buffer> _forDisposable = _forSwift.PayloadBuffer;
                 
-                PInvoke_flush_13E393B7(_forDisposable.Buffer, self);
+                PInvoke_flush_3FB1711B(_forDisposable.Buffer, self);
                 
                 return;
             }
@@ -11261,7 +11145,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC5flush3forySS_tF")]
-        private static extern void PInvoke_flush_13E393B7( Swift.SwiftString.Buffer _for,  SwiftSelf self);
+        private static extern void PInvoke_flush_3FB1711B( Swift.SwiftString.Buffer _for,  SwiftSelf self);
         
         
         public unsafe void Sweep()
@@ -11274,7 +11158,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_sweep_0FF35168(self);
+                PInvoke_sweep_747616F3(self);
                 
                 return;
             }
@@ -11289,7 +11173,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9DataCacheC5sweepyyF")]
-        private static extern void PInvoke_sweep_0FF35168( SwiftSelf self);
+        private static extern void PInvoke_sweep_747616F3( SwiftSelf self);
         
         
     }
@@ -11303,7 +11187,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             {
                 
                 
-                var result = PInvoke_shared_Get_55708A7F();
+                var result = PInvoke_shared_Get_01C4DCB5();
                 
                 var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
                 *(IntPtr*)classPayload = result;
@@ -11318,7 +11202,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecoderRegistryC6sharedACvgZ")]
-        private static extern IntPtr PInvoke_shared_Get_55708A7F();
+        private static extern IntPtr PInvoke_shared_Get_01C4DCB5();
         
         public static Swift.Nuke.ImageDecoderRegistry Shared
         {
@@ -11397,13 +11281,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             _payload = new SwiftSafeHandle<ImageDecoderRegistry>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_249EAB0E(swiftIndirectResult);
+            PInvoke_init_44443242(swiftIndirectResult);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecoderRegistryCACycfC")]
-        private static extern void PInvoke_init_249EAB0E( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_44443242( SwiftIndirectResult swiftIndirectResult);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Nuke.ImageDecoding")]
@@ -11417,10 +11301,11 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_decoder_06C69E3E(_for.Payload, self);
+                var result = PInvoke_decoder_39343C8D(_for.Payload, self);
                 
                 var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Runtime.ExistentialContainer1>>(new IntPtr(&result));
-                return swiftResult.ToNullable();
+                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                return new ImageDecodingProxy(swiftResult.Some);
             }
             
             finally
@@ -11433,7 +11318,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecoderRegistryC7decoder3forAA0B8Decoding_pSgAA0bG7ContextV_tF")]
-        private static extern IntPtr PInvoke_decoder_06C69E3E( SafeHandle _for,  SwiftSelf self);
+        private static extern IntPtr PInvoke_decoder_39343C8D( SafeHandle _for,  SwiftSelf self);
         
         
         
@@ -11447,7 +11332,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_clear_325C8C19(self);
+                PInvoke_clear_60F2588A(self);
                 
                 return;
             }
@@ -11462,7 +11347,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecoderRegistryC5clearyyF")]
-        private static extern void PInvoke_clear_325C8C19( SwiftSelf self);
+        private static extern void PInvoke_clear_60F2588A( SwiftSelf self);
         
         
     }
@@ -11484,7 +11369,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_request_Get_1731755E(swiftIndirectResult, self);
+                PInvoke_request_Get_0FE7E4BF(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -11499,7 +11384,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV7requestAA0B7RequestVvg")]
-        private static extern void PInvoke_request_Get_1731755E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_request_Get_0FE7E4BF( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Request_Set( Swift.Nuke.ImageRequest value)
         {
@@ -11511,7 +11396,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_request_Set_1CB58242(value.Payload, self);
+                PInvoke_request_Set_71F2DD2F(value.Payload, self);
                 
                 return;
             }
@@ -11526,7 +11411,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV7requestAA0B7RequestVvs")]
-        private static extern void PInvoke_request_Set_1CB58242( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_request_Set_71F2DD2F( SafeHandle value,  SwiftSelf self);
         
         public Swift.Nuke.ImageRequest Request
         {
@@ -11544,7 +11429,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_data_Get_1A4FA326(self);
+                var result = PInvoke_data_Get_4709A6F1(self);
                 
                 return result;
             }
@@ -11559,7 +11444,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV4data10Foundation4DataVvg")]
-        private static extern Swift.Data PInvoke_data_Get_1A4FA326( SwiftSelf self);
+        private static extern Swift.Data PInvoke_data_Get_4709A6F1( SwiftSelf self);
         
         private unsafe void Data_Set( Swift.Data value)
         {
@@ -11571,7 +11456,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_data_Set_11DEB4A4(value, self);
+                PInvoke_data_Set_6CCA62E6(value, self);
                 
                 return;
             }
@@ -11586,9 +11471,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV4data10Foundation4DataVvs")]
-        private static extern void PInvoke_data_Set_11DEB4A4( Swift.Data value,  SwiftSelf self);
+        private static extern void PInvoke_data_Set_6CCA62E6( Swift.Data value,  SwiftSelf self);
         
-        public Foundation.NSData Data
+        public Swift.Data Data
         {
             get => Data_Get();
             set => Data_Set(value);
@@ -11604,7 +11489,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_isCompleted_Get_38A2F22C(self);
+                var result = PInvoke_isCompleted_Get_3117C4F2(self);
                 
                 return result;
             }
@@ -11619,7 +11504,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV11isCompletedSbvg")]
-        private static extern System.Boolean PInvoke_isCompleted_Get_38A2F22C( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isCompleted_Get_3117C4F2( SwiftSelf self);
         
         private unsafe void IsCompleted_Set( System.Boolean value)
         {
@@ -11631,7 +11516,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_isCompleted_Set_615223B7(value, self);
+                PInvoke_isCompleted_Set_3B929A8D(value, self);
                 
                 return;
             }
@@ -11646,7 +11531,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV11isCompletedSbvs")]
-        private static extern void PInvoke_isCompleted_Set_615223B7( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_isCompleted_Set_3B929A8D( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean IsCompleted
         {
@@ -11664,7 +11549,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_urlResponse_Get_6115731A(self);
+                var result = PInvoke_urlResponse_Get_75F95D71(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Foundation.NSUrlResponse>>(new IntPtr(&result));
             }
@@ -11679,7 +11564,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV11urlResponseSo13NSURLResponseCSgvg")]
-        private static extern IntPtr PInvoke_urlResponse_Get_6115731A( SwiftSelf self);
+        private static extern IntPtr PInvoke_urlResponse_Get_75F95D71( SwiftSelf self);
         
         private unsafe void UrlResponse_Set( Swift.SwiftOptional<Foundation.NSUrlResponse> value)
         {
@@ -11693,7 +11578,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_urlResponse_Set_6FC12D9D(valueBuffer, self);
+                PInvoke_urlResponse_Set_5FC707E4(valueBuffer, self);
                 
                 return;
             }
@@ -11708,12 +11593,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV11urlResponseSo13NSURLResponseCSgvs")]
-        private static extern void PInvoke_urlResponse_Set_6FC12D9D( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_urlResponse_Set_5FC707E4( IntPtr valueBuffer,  SwiftSelf self);
         
         public Foundation.NSUrlResponse? UrlResponse
         {
             get => ((Foundation.NSUrlResponse?)UrlResponse_Get());
-            set => UrlResponse_Set(SwiftOptional<Foundation.NSUrlResponse>.FromNullable(value));
+            set => UrlResponse_Set((value is {} valueVal ? SwiftOptional<Foundation.NSUrlResponse>.NewSome(valueVal) : SwiftOptional<Foundation.NSUrlResponse>.NewNone()));
         }
         
         private unsafe Swift.SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo> CacheType_Get()
@@ -11726,7 +11611,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_cacheType_Get_747FC17D(self);
+                var result = PInvoke_cacheType_Get_3861FAAD(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>>(new IntPtr(&result));
             }
@@ -11741,7 +11626,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV9cacheTypeAA0B8ResponseV05CacheF0OSgvg")]
-        private static extern IntPtr PInvoke_cacheType_Get_747FC17D( SwiftSelf self);
+        private static extern IntPtr PInvoke_cacheType_Get_3861FAAD( SwiftSelf self);
         
         private unsafe void CacheType_Set( Swift.SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo> value)
         {
@@ -11755,7 +11640,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
                 IntPtr valueBuffer = valueDisposable.Buffer;
                 
-                PInvoke_cacheType_Set_261B4F6F(valueBuffer, self);
+                PInvoke_cacheType_Set_534D7D3A(valueBuffer, self);
                 
                 return;
             }
@@ -11770,12 +11655,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV9cacheTypeAA0B8ResponseV05CacheF0OSgvs")]
-        private static extern void PInvoke_cacheType_Set_261B4F6F( IntPtr valueBuffer,  SwiftSelf self);
+        private static extern void PInvoke_cacheType_Set_534D7D3A( IntPtr valueBuffer,  SwiftSelf self);
         
         public Swift.Nuke.ImageResponse.CacheTypeInfo? CacheType
         {
             get => ((Swift.Nuke.ImageResponse.CacheTypeInfo?)CacheType_Get());
-            set => CacheType_Set(SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.FromNullable(value));
+            set => CacheType_Set((value is {} valueVal ? SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.NewSome(valueVal) : SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.NewNone()));
         }
         
         static nuint _payloadSize = SwiftObjectHelper<ImageDecodingContext>.GetTypeMetadata().Size;
@@ -11858,39 +11743,39 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             using var cacheTypeSwift = cacheType is {} cacheTypeValue ? SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.NewSome(cacheTypeValue) : SwiftOptional<Swift.Nuke.ImageResponse.CacheTypeInfo>.NewNone();
             using PayloadBuffer<IntPtr> cacheTypeDisposable = cacheTypeSwift.PayloadBuffer;
             IntPtr cacheTypeBuffer = cacheTypeDisposable.Buffer;
-            PInvoke_init_0E10087D(swiftIndirectResult, request.Payload, dataSwift, isCompleted, urlResponseBuffer, cacheTypeBuffer);
+            PInvoke_init_2C188F45(swiftIndirectResult, request.Payload, dataSwift, isCompleted, urlResponseBuffer, cacheTypeBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke20ImageDecodingContextV7request4data11isCompleted11urlResponse9cacheTypeAcA0B7RequestV_10Foundation4DataVSbSo13NSURLResponseCSgAA0bJ0V05CacheL0OSgtcfC")]
-        private static extern void PInvoke_init_0E10087D( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  Swift.Data data,  System.Boolean isCompleted,  IntPtr urlResponseBuffer,  IntPtr cacheTypeBuffer);
+        private static extern void PInvoke_init_2C188F45( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  Swift.Data data,  System.Boolean isCompleted,  IntPtr urlResponseBuffer,  IntPtr cacheTypeBuffer);
         public unsafe ImageDecodingContext( Swift.Nuke.ImageRequest request,  Foundation.NSData data)
         {
             _payload = new SwiftSafeHandle<ImageDecodingContext>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             var dataSwift = Swift.Data.FromNSData(data);
-            PInvoke_init_34FB922F(swiftIndirectResult, request.Payload, dataSwift);
+            PInvoke_init_72123399(swiftIndirectResult, request.Payload, dataSwift);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImageDecodingContext_init_6CA396CF_3")]
-        private static extern void PInvoke_init_34FB922F( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  Swift.Data data);
+        private static extern void PInvoke_init_72123399( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  Swift.Data data);
         public unsafe ImageDecodingContext( Swift.Nuke.ImageRequest request,  Foundation.NSData data,  System.Boolean isCompleted)
         {
             _payload = new SwiftSafeHandle<ImageDecodingContext>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
             var dataSwift = Swift.Data.FromNSData(data);
-            PInvoke_init_092B5DD6(swiftIndirectResult, request.Payload, dataSwift, isCompleted);
+            PInvoke_init_437DDB5A(swiftIndirectResult, request.Payload, dataSwift, isCompleted);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImageDecodingContext_init_6CA396CF_2")]
-        private static extern void PInvoke_init_092B5DD6( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  Swift.Data data,  System.Boolean isCompleted);
+        private static extern void PInvoke_init_437DDB5A( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  Swift.Data data,  System.Boolean isCompleted);
         public unsafe ImageDecodingContext( Swift.Nuke.ImageRequest request,  Foundation.NSData data,  System.Boolean isCompleted,  Foundation.NSUrlResponse? urlResponse)
         {
             _payload = new SwiftSafeHandle<ImageDecodingContext>((IntPtr)NativeMemory.Alloc(_payloadSize));
@@ -11900,13 +11785,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             using var urlResponseSwift = urlResponse is {} urlResponseValue ? SwiftOptional<Foundation.NSUrlResponse>.NewSome(urlResponseValue) : SwiftOptional<Foundation.NSUrlResponse>.NewNone();
             using PayloadBuffer<IntPtr> urlResponseDisposable = urlResponseSwift.PayloadBuffer;
             IntPtr urlResponseBuffer = urlResponseDisposable.Buffer;
-            PInvoke_init_101C58FA(swiftIndirectResult, request.Payload, dataSwift, isCompleted, urlResponseBuffer);
+            PInvoke_init_7A820DD7(swiftIndirectResult, request.Payload, dataSwift, isCompleted, urlResponseBuffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImageDecodingContext_init_6CA396CF_1")]
-        private static extern void PInvoke_init_101C58FA( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  Swift.Data data,  System.Boolean isCompleted,  IntPtr urlResponseBuffer);
+        private static extern void PInvoke_init_7A820DD7( SwiftIndirectResult swiftIndirectResult,  SafeHandle request,  Swift.Data data,  System.Boolean isCompleted,  IntPtr urlResponseBuffer);
         
         
     }
@@ -11996,7 +11881,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_identifier_Get_3631A3F0(self);
+                    var result = PInvoke_identifier_Get_59BB98FB(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12013,7 +11898,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO9AnonymousV10identifierSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_3631A3F0( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_59BB98FB( SwiftSelf self);
             
             public string Identifier
             {
@@ -12030,7 +11915,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_6BB1F0CF(self);
+                    var result = PInvoke_description_Get_22D9E31D(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12047,7 +11932,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO9AnonymousV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_6BB1F0CF( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_22D9E31D( SwiftSelf self);
             
             public string Description
             {
@@ -12122,9 +12007,9 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             }
             
             
-            private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_arg1_5BE65172_Callback = &init_arg1_5BE65172_Callback;
+            private static unsafe readonly delegate* unmanaged[Swift]<void*, void*, SwiftSelf, void> s_init_arg1_0E450586_Callback = &init_arg1_0E450586_Callback;
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-            private static void init_arg1_5BE65172_Callback(void* indirectResult, void* arg0, SwiftSelf context)
+            private static void init_arg1_0E450586_Callback(void* indirectResult, void* arg0, SwiftSelf context)
             {
                 var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<UIKit.UIImage, Swift.SwiftOptional<UIKit.UIImage>>>(new IntPtr(context.Value));
                 var result = del(SwiftMarshal.MarshalFromSwift<UIKit.UIImage>(new IntPtr(arg0)));
@@ -12143,10 +12028,10 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                     
                     arg1Handle = GCHandle.Alloc(arg1);
-                    var arg1Closure = new SwiftClosureData((IntPtr)s_init_arg1_5BE65172_Callback, GCHandle.ToIntPtr(arg1Handle));
+                    var arg1Closure = new SwiftClosureData((IntPtr)s_init_arg1_0E450586_Callback, GCHandle.ToIntPtr(arg1Handle));
                     using var idSwift = new SwiftString(id);
                     using PayloadBuffer<SwiftString.Buffer> idDisposable = idSwift.PayloadBuffer;
-                    PInvoke_init_5BE65172(swiftIndirectResult, idDisposable.Buffer, arg1Closure);
+                    PInvoke_init_0E450586(swiftIndirectResult, idDisposable.Buffer, arg1Closure);
                     
                 }
                 
@@ -12159,7 +12044,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO9AnonymousV2id_AESS_So7UIImageCSgAHYbctcfC")]
-            private static extern void PInvoke_init_5BE65172( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer id,  SwiftClosureData arg1);
+            private static extern void PInvoke_init_0E450586( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer id,  SwiftClosureData arg1);
             
             
             public unsafe UIKit.UIImage? Process( UIKit.UIImage arg0)
@@ -12173,7 +12058,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_process_2279D1DD(arg0Handle, self);
+                    var result = PInvoke_process_200B4E5C(arg0Handle, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -12189,7 +12074,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO9AnonymousV7processySo7UIImageCSgAHF")]
-            private static extern IntPtr PInvoke_process_2279D1DD( IntPtr arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_process_200B4E5C( IntPtr arg0,  SwiftSelf self);
             
             
         }
@@ -12207,7 +12092,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_identifier_Get_12A99F6B(self);
+                    var result = PInvoke_identifier_Get_42FA2445(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12224,7 +12109,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO14RoundedCornersV10identifierSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_12A99F6B( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_42FA2445( SwiftSelf self);
             
             public string Identifier
             {
@@ -12241,7 +12126,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_265078FB(self);
+                    var result = PInvoke_description_Get_74BD1ED5(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12258,7 +12143,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO14RoundedCornersV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_265078FB( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_74BD1ED5( SwiftSelf self);
             
             public string Description
             {
@@ -12275,7 +12160,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_45E8080D(self);
+                    var result = PInvoke_hashValue_Get_3A97B955(self);
                     
                     return result;
                 }
@@ -12290,7 +12175,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO14RoundedCornersV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_45E8080D( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_3A97B955( SwiftSelf self);
             
             public nint HashValue
             {
@@ -12409,37 +12294,37 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using var borderSwift = border is {} borderValue ? SwiftOptional<Swift.Nuke.ImageProcessingOptions.Border>.NewSome(borderValue) : SwiftOptional<Swift.Nuke.ImageProcessingOptions.Border>.NewNone();
                 using PayloadBuffer<IntPtr> borderDisposable = borderSwift.PayloadBuffer;
                 IntPtr borderBuffer = borderDisposable.Buffer;
-                PInvoke_init_2FB2837E(swiftIndirectResult, radius, unit.Payload.DangerousGetHandle(), borderBuffer);
+                PInvoke_init_2B17EECD(swiftIndirectResult, radius, unit.Payload.DangerousGetHandle(), borderBuffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO14RoundedCornersV6radius4unit6borderAE12CoreGraphics7CGFloatV_AA0B17ProcessingOptionsO4UnitOAM6BorderVSgtcfC")]
-            private static extern void PInvoke_init_2FB2837E( SwiftIndirectResult swiftIndirectResult,  System.Double radius,  IntPtr unit,  IntPtr borderBuffer);
+            private static extern void PInvoke_init_2B17EECD( SwiftIndirectResult swiftIndirectResult,  System.Double radius,  IntPtr unit,  IntPtr borderBuffer);
             public unsafe RoundedCorners( System.Double radius)
             {
                 _payload = new SwiftSafeHandle<RoundedCorners>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_2EDDCA4E(swiftIndirectResult, radius);
+                PInvoke_init_3EF382E7(swiftIndirectResult, radius);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_RoundedCorners_init_DD16F922_2")]
-            private static extern void PInvoke_init_2EDDCA4E( SwiftIndirectResult swiftIndirectResult,  System.Double radius);
+            private static extern void PInvoke_init_3EF382E7( SwiftIndirectResult swiftIndirectResult,  System.Double radius);
             public unsafe RoundedCorners( System.Double radius,  Swift.Nuke.ImageProcessingOptions.Unit unit)
             {
                 _payload = new SwiftSafeHandle<RoundedCorners>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_34AC7937(swiftIndirectResult, radius, unit.Payload.DangerousGetHandle());
+                PInvoke_init_71B5A2D4(swiftIndirectResult, radius, unit.Payload.DangerousGetHandle());
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_RoundedCorners_init_DD16F922_1")]
-            private static extern void PInvoke_init_34AC7937( SwiftIndirectResult swiftIndirectResult,  System.Double radius,  IntPtr unit);
+            private static extern void PInvoke_init_71B5A2D4( SwiftIndirectResult swiftIndirectResult,  System.Double radius,  IntPtr unit);
             
             
             public unsafe UIKit.UIImage? Process( UIKit.UIImage arg0)
@@ -12453,7 +12338,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_process_1BC17D0E(arg0Handle, self);
+                    var result = PInvoke_process_3F7F4D4D(arg0Handle, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -12469,7 +12354,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO14RoundedCornersV7processySo7UIImageCSgAHF")]
-            private static extern IntPtr PInvoke_process_1BC17D0E( IntPtr arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_process_3F7F4D4D( IntPtr arg0,  SwiftSelf self);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -12482,7 +12367,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_01784CAE(into.Payload, self);
+                    PInvoke_hash_73D884A0(into.Payload, self);
                     
                     return;
                 }
@@ -12497,7 +12382,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO14RoundedCornersV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_01784CAE( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_73D884A0( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -12515,7 +12400,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_identifier_Get_5FA31971(self);
+                    var result = PInvoke_identifier_Get_3E4D5804(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12532,7 +12417,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6ResizeV10identifierSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_5FA31971( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_3E4D5804( SwiftSelf self);
             
             public string Identifier
             {
@@ -12549,7 +12434,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_6D81966C(self);
+                    var result = PInvoke_description_Get_533FD9CA(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12566,7 +12451,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6ResizeV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_6D81966C( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_533FD9CA( SwiftSelf self);
             
             public string Description
             {
@@ -12583,7 +12468,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_471674E8(self);
+                    var result = PInvoke_hashValue_Get_31B8193C(self);
                     
                     return result;
                 }
@@ -12598,7 +12483,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6ResizeV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_471674E8( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_31B8193C( SwiftSelf self);
             
             public nint HashValue
             {
@@ -12714,49 +12599,49 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 _payload = new SwiftSafeHandle<Resize>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_54E72FDE(swiftIndirectResult, size, unit.Payload.DangerousGetHandle(), contentMode.Payload.DangerousGetHandle(), crop, upscale);
+                PInvoke_init_252DD655(swiftIndirectResult, size, unit.Payload.DangerousGetHandle(), contentMode.Payload.DangerousGetHandle(), crop, upscale);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6ResizeV4size4unit11contentMode4crop7upscaleAESo6CGSizeV_AA0B17ProcessingOptionsO4UnitOAN07ContentH0OS2btcfC")]
-            private static extern void PInvoke_init_54E72FDE( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit,  IntPtr contentMode,  System.Boolean crop,  System.Boolean upscale);
+            private static extern void PInvoke_init_252DD655( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit,  IntPtr contentMode,  System.Boolean crop,  System.Boolean upscale);
             public unsafe Resize( Swift.CGSize size)
             {
                 _payload = new SwiftSafeHandle<Resize>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_3817F134(swiftIndirectResult, size);
+                PInvoke_init_632FD6C6(swiftIndirectResult, size);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Resize_init_51CAC367_4")]
-            private static extern void PInvoke_init_3817F134( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size);
+            private static extern void PInvoke_init_632FD6C6( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size);
             public unsafe Resize( Swift.CGSize size,  Swift.Nuke.ImageProcessingOptions.Unit unit)
             {
                 _payload = new SwiftSafeHandle<Resize>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_69772161(swiftIndirectResult, size, unit.Payload.DangerousGetHandle());
+                PInvoke_init_4DD6F4E6(swiftIndirectResult, size, unit.Payload.DangerousGetHandle());
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Resize_init_51CAC367_3")]
-            private static extern void PInvoke_init_69772161( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit);
+            private static extern void PInvoke_init_4DD6F4E6( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit);
             public unsafe Resize( Swift.CGSize size,  Swift.Nuke.ImageProcessingOptions.Unit unit,  Swift.Nuke.ImageProcessingOptions.ContentMode contentMode,  System.Boolean crop)
             {
                 _payload = new SwiftSafeHandle<Resize>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_360EF7DC(swiftIndirectResult, size, unit.Payload.DangerousGetHandle(), contentMode.Payload.DangerousGetHandle(), crop);
+                PInvoke_init_51FCA0F5(swiftIndirectResult, size, unit.Payload.DangerousGetHandle(), contentMode.Payload.DangerousGetHandle(), crop);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Resize_init_51CAC367_1")]
-            private static extern void PInvoke_init_360EF7DC( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit,  IntPtr contentMode,  System.Boolean crop);
+            private static extern void PInvoke_init_51FCA0F5( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit,  IntPtr contentMode,  System.Boolean crop);
             
             
             public unsafe Resize( System.Double width,  Swift.Nuke.ImageProcessingOptions.Unit unit,  System.Boolean upscale)
@@ -12764,37 +12649,37 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 _payload = new SwiftSafeHandle<Resize>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_3297EBB5(swiftIndirectResult, width, unit.Payload.DangerousGetHandle(), upscale);
+                PInvoke_init_67AFC0BB(swiftIndirectResult, width, unit.Payload.DangerousGetHandle(), upscale);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6ResizeV5width4unit7upscaleAE12CoreGraphics7CGFloatV_AA0B17ProcessingOptionsO4UnitOSbtcfC")]
-            private static extern void PInvoke_init_3297EBB5( SwiftIndirectResult swiftIndirectResult,  System.Double width,  IntPtr unit,  System.Boolean upscale);
+            private static extern void PInvoke_init_67AFC0BB( SwiftIndirectResult swiftIndirectResult,  System.Double width,  IntPtr unit,  System.Boolean upscale);
             public unsafe Resize( System.Double width)
             {
                 _payload = new SwiftSafeHandle<Resize>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_7559E4BE(swiftIndirectResult, width);
+                PInvoke_init_517E59D1(swiftIndirectResult, width);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Resize_init_62C284BA_2")]
-            private static extern void PInvoke_init_7559E4BE( SwiftIndirectResult swiftIndirectResult,  System.Double width);
+            private static extern void PInvoke_init_517E59D1( SwiftIndirectResult swiftIndirectResult,  System.Double width);
             public unsafe Resize( System.Double width,  Swift.Nuke.ImageProcessingOptions.Unit unit)
             {
                 _payload = new SwiftSafeHandle<Resize>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_3C984D29(swiftIndirectResult, width, unit.Payload.DangerousGetHandle());
+                PInvoke_init_52879F14(swiftIndirectResult, width, unit.Payload.DangerousGetHandle());
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Resize_init_62C284BA_1")]
-            private static extern void PInvoke_init_3C984D29( SwiftIndirectResult swiftIndirectResult,  System.Double width,  IntPtr unit);
+            private static extern void PInvoke_init_52879F14( SwiftIndirectResult swiftIndirectResult,  System.Double width,  IntPtr unit);
             
             
             public unsafe UIKit.UIImage? Process( UIKit.UIImage arg0)
@@ -12808,7 +12693,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_process_693B6C7C(arg0Handle, self);
+                    var result = PInvoke_process_552455D9(arg0Handle, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -12824,7 +12709,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6ResizeV7processySo7UIImageCSgAHF")]
-            private static extern IntPtr PInvoke_process_693B6C7C( IntPtr arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_process_552455D9( IntPtr arg0,  SwiftSelf self);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -12837,7 +12722,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_1D7A3580(into.Payload, self);
+                    PInvoke_hash_368F85DB(into.Payload, self);
                     
                     return;
                 }
@@ -12852,7 +12737,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6ResizeV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_1D7A3580( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_368F85DB( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -12870,7 +12755,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_identifier_Get_63A3EB60(self);
+                    var result = PInvoke_identifier_Get_0561EA1B(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12887,7 +12772,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO12GaussianBlurV10identifierSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_63A3EB60( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_0561EA1B( SwiftSelf self);
             
             public string Identifier
             {
@@ -12904,7 +12789,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_1E134CFB(self);
+                    var result = PInvoke_description_Get_181865D5(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -12921,7 +12806,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO12GaussianBlurV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_1E134CFB( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_181865D5( SwiftSelf self);
             
             public string Description
             {
@@ -12938,7 +12823,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_32EE0AEA(self);
+                    var result = PInvoke_hashValue_Get_1159FE91(self);
                     
                     return result;
                 }
@@ -12953,7 +12838,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO12GaussianBlurV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_32EE0AEA( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_1159FE91( SwiftSelf self);
             
             public nint HashValue
             {
@@ -13069,25 +12954,25 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 _payload = new SwiftSafeHandle<GaussianBlur>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_2C4A2A62(swiftIndirectResult, radius);
+                PInvoke_init_033EF042(swiftIndirectResult, radius);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO12GaussianBlurV6radiusAESi_tcfC")]
-            private static extern void PInvoke_init_2C4A2A62( SwiftIndirectResult swiftIndirectResult,  nint radius);
+            private static extern void PInvoke_init_033EF042( SwiftIndirectResult swiftIndirectResult,  nint radius);
             public unsafe GaussianBlur()
             {
                 _payload = new SwiftSafeHandle<GaussianBlur>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_69BE158C(swiftIndirectResult);
+                PInvoke_init_56BAB0E6(swiftIndirectResult);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_GaussianBlur_init_05E0C1C6_1")]
-            private static extern void PInvoke_init_69BE158C( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_init_56BAB0E6( SwiftIndirectResult swiftIndirectResult);
             
             
             public unsafe UIKit.UIImage? Process( UIKit.UIImage arg0)
@@ -13101,7 +12986,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_process_7ECD7112(arg0Handle, self);
+                    var result = PInvoke_process_2B56482A(arg0Handle, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -13117,7 +13002,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO12GaussianBlurV7processySo7UIImageCSgAHF")]
-            private static extern IntPtr PInvoke_process_7ECD7112( IntPtr arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_process_2B56482A( IntPtr arg0,  SwiftSelf self);
             
             
             public unsafe Swift.Nuke.ImageContainer Process( Swift.Nuke.ImageContainer arg0,  Swift.Nuke.ImageProcessingContext context)
@@ -13134,7 +13019,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_process_30187282(swiftIndirectResult, arg0.Payload, context.Payload, self, out var error);
+                    PInvoke_process_4999B414(swiftIndirectResult, arg0.Payload, context.Payload, self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -13154,7 +13039,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO12GaussianBlurV7process_7contextAA0B9ContainerVAI_AA0B17ProcessingContextVtKF")]
-            private static extern void PInvoke_process_30187282( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SafeHandle context,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_process_4999B414( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SafeHandle context,  SwiftSelf self, out SwiftError error);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -13167,7 +13052,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_7A61D1F1(into.Payload, self);
+                    PInvoke_hash_19400196(into.Payload, self);
                     
                     return;
                 }
@@ -13182,7 +13067,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO12GaussianBlurV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_7A61D1F1( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_19400196( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -13200,7 +13085,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_identifier_Get_7E9680E4(self);
+                    var result = PInvoke_identifier_Get_4DB8BDEE(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13217,7 +13102,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO11CompositionV10identifierSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_7E9680E4( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_4DB8BDEE( SwiftSelf self);
             
             public string Identifier
             {
@@ -13234,7 +13119,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_525C7B9D(self);
+                    var result = PInvoke_description_Get_74B6BDC3(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13251,7 +13136,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO11CompositionV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_525C7B9D( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_74B6BDC3( SwiftSelf self);
             
             public string Description
             {
@@ -13268,7 +13153,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_13D4E55B(self);
+                    var result = PInvoke_hashValue_Get_475FF105(self);
                     
                     return result;
                 }
@@ -13283,7 +13168,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO11CompositionV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_13D4E55B( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_475FF105( SwiftSelf self);
             
             public nint HashValue
             {
@@ -13406,7 +13291,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_process_651942EC(arg0Handle, self);
+                    var result = PInvoke_process_4256B0CE(arg0Handle, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -13422,7 +13307,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO11CompositionV7processySo7UIImageCSgAHF")]
-            private static extern IntPtr PInvoke_process_651942EC( IntPtr arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_process_4256B0CE( IntPtr arg0,  SwiftSelf self);
             
             
             public unsafe Swift.Nuke.ImageContainer Process( Swift.Nuke.ImageContainer arg0,  Swift.Nuke.ImageProcessingContext context)
@@ -13439,7 +13324,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_process_6F135DAE(swiftIndirectResult, arg0.Payload, context.Payload, self, out var error);
+                    PInvoke_process_4601F899(swiftIndirectResult, arg0.Payload, context.Payload, self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -13459,7 +13344,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO11CompositionV7process_7contextAA0B9ContainerVAI_AA0B17ProcessingContextVtKF")]
-            private static extern void PInvoke_process_6F135DAE( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SafeHandle context,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_process_4601F899( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SafeHandle context,  SwiftSelf self, out SwiftError error);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -13472,7 +13357,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_63C5069C(into.Payload, self);
+                    PInvoke_hash_7AEE57D6(into.Payload, self);
                     
                     return;
                 }
@@ -13487,7 +13372,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO11CompositionV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_63C5069C( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_7AEE57D6( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -13505,7 +13390,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_identifier_Get_6232FB2D(self);
+                    var result = PInvoke_identifier_Get_6775E0D3(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13522,7 +13407,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6CircleV10identifierSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_6232FB2D( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_6775E0D3( SwiftSelf self);
             
             public string Identifier
             {
@@ -13539,7 +13424,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_468841E1(self);
+                    var result = PInvoke_description_Get_4368BC28(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13556,7 +13441,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6CircleV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_468841E1( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_4368BC28( SwiftSelf self);
             
             public string Description
             {
@@ -13573,7 +13458,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_163DCCF4(self);
+                    var result = PInvoke_hashValue_Get_0E5004DE(self);
                     
                     return result;
                 }
@@ -13588,7 +13473,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6CircleV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_163DCCF4( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_0E5004DE( SwiftSelf self);
             
             public nint HashValue
             {
@@ -13707,25 +13592,25 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 using var borderSwift = border is {} borderValue ? SwiftOptional<Swift.Nuke.ImageProcessingOptions.Border>.NewSome(borderValue) : SwiftOptional<Swift.Nuke.ImageProcessingOptions.Border>.NewNone();
                 using PayloadBuffer<IntPtr> borderDisposable = borderSwift.PayloadBuffer;
                 IntPtr borderBuffer = borderDisposable.Buffer;
-                PInvoke_init_310909F2(swiftIndirectResult, borderBuffer);
+                PInvoke_init_57724314(swiftIndirectResult, borderBuffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6CircleV6borderAeA0B17ProcessingOptionsO6BorderVSg_tcfC")]
-            private static extern void PInvoke_init_310909F2( SwiftIndirectResult swiftIndirectResult,  IntPtr borderBuffer);
+            private static extern void PInvoke_init_57724314( SwiftIndirectResult swiftIndirectResult,  IntPtr borderBuffer);
             public unsafe Circle()
             {
                 _payload = new SwiftSafeHandle<Circle>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_7EAB5A6B(swiftIndirectResult);
+                PInvoke_init_5D78B27C(swiftIndirectResult);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Circle_init_36B9D008_1")]
-            private static extern void PInvoke_init_7EAB5A6B( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_init_5D78B27C( SwiftIndirectResult swiftIndirectResult);
             
             
             public unsafe UIKit.UIImage? Process( UIKit.UIImage arg0)
@@ -13739,7 +13624,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_process_3B3533F4(arg0Handle, self);
+                    var result = PInvoke_process_0DDA789D(arg0Handle, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -13755,7 +13640,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6CircleV7processySo7UIImageCSgAHF")]
-            private static extern IntPtr PInvoke_process_3B3533F4( IntPtr arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_process_0DDA789D( IntPtr arg0,  SwiftSelf self);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -13768,7 +13653,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_6729A88B(into.Payload, self);
+                    PInvoke_hash_5A9E17CB(into.Payload, self);
                     
                     return;
                 }
@@ -13783,7 +13668,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO6CircleV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_6729A88B( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_5A9E17CB( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -13801,7 +13686,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_identifier_Get_591F6CD5(self);
+                    var result = PInvoke_identifier_Get_64934208(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13818,7 +13703,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV10identifierSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_591F6CD5( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_identifier_Get_64934208( SwiftSelf self);
             
             public string Identifier
             {
@@ -13835,7 +13720,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_context_Get_21463240(swiftIndirectResult);
+                    PInvoke_context_Get_4EF0FE1D(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.CIContext>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -13848,7 +13733,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV7contextSo9CIContextCvgZ")]
-            private static extern void PInvoke_context_Get_21463240( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_context_Get_4EF0FE1D( SwiftIndirectResult swiftIndirectResult);
             
             private static void Context_Set( Swift.CIContext value)
             {
@@ -13856,7 +13741,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 {
                     
                     
-                    PInvoke_context_Set_406B4155(value.Payload);
+                    PInvoke_context_Set_1897B870(value.Payload);
                     
                     return;
                 }
@@ -13869,7 +13754,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV7contextSo9CIContextCvsZ")]
-            private static extern void PInvoke_context_Set_406B4155( SafeHandle value);
+            private static extern void PInvoke_context_Set_1897B870( SafeHandle value);
             
             public static Swift.CIContext Context
             {
@@ -13887,7 +13772,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_description_Get_25D94167(self);
+                    var result = PInvoke_description_Get_48B699DB(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -13904,7 +13789,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV11descriptionSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_25D94167( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_description_Get_48B699DB( SwiftSelf self);
             
             public string Description
             {
@@ -14279,7 +14164,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                         
                         
                         
-                        var result = PInvoke_description_Get_7DE9A59D(self);
+                        var result = PInvoke_description_Get_15982A2C(self);
                         
                         unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -14294,7 +14179,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
                 [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV5ErrorO11descriptionSSvg")]
-                private static extern Swift.SwiftString.Buffer PInvoke_description_Get_7DE9A59D( SwiftSelf self);
+                private static extern Swift.SwiftString.Buffer PInvoke_description_Get_15982A2C( SwiftSelf self);
                 
                 public string Description
                 {
@@ -14376,13 +14261,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 using var nameSwift = new SwiftString(name);
                 using PayloadBuffer<SwiftString.Buffer> nameDisposable = nameSwift.PayloadBuffer;
-                PInvoke_init_38F8EC07(swiftIndirectResult, nameDisposable.Buffer);
+                PInvoke_init_4F21E5CB(swiftIndirectResult, nameDisposable.Buffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV4nameAESS_tcfC")]
-            private static extern void PInvoke_init_38F8EC07( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name);
+            private static extern void PInvoke_init_4F21E5CB( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer name);
             
             
             public unsafe CoreImageFilter( CoreImage.CIFilter arg0,  string identifier)
@@ -14393,13 +14278,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 using var identifierSwift = new SwiftString(identifier);
                 using PayloadBuffer<SwiftString.Buffer> identifierDisposable = identifierSwift.PayloadBuffer;
-                PInvoke_init_1F882CD0(swiftIndirectResult, arg0Handle, identifierDisposable.Buffer);
+                PInvoke_init_349A48E1(swiftIndirectResult, arg0Handle, identifierDisposable.Buffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV_10identifierAESo8CIFilterC_SStcfC")]
-            private static extern void PInvoke_init_1F882CD0( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0,  Swift.SwiftString.Buffer identifier);
+            private static extern void PInvoke_init_349A48E1( SwiftIndirectResult swiftIndirectResult,  IntPtr arg0,  Swift.SwiftString.Buffer identifier);
             
             
             public unsafe UIKit.UIImage? Process( UIKit.UIImage arg0)
@@ -14413,7 +14298,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_process_3EE22033(arg0Handle, self);
+                    var result = PInvoke_process_7B6C9288(arg0Handle, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -14429,7 +14314,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV7processySo7UIImageCSgAHF")]
-            private static extern IntPtr PInvoke_process_3EE22033( IntPtr arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_process_7B6C9288( IntPtr arg0,  SwiftSelf self);
             
             
             public unsafe Swift.Nuke.ImageContainer Process( Swift.Nuke.ImageContainer arg0,  Swift.Nuke.ImageProcessingContext context)
@@ -14446,7 +14331,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_process_19646078(swiftIndirectResult, arg0.Payload, context.Payload, self, out var error);
+                    PInvoke_process_0587D3D8(swiftIndirectResult, arg0.Payload, context.Payload, self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -14466,7 +14351,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV7process_7contextAA0B9ContainerVAI_AA0B17ProcessingContextVtKF")]
-            private static extern void PInvoke_process_19646078( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SafeHandle context,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_process_0587D3D8( SwiftIndirectResult swiftIndirectResult,  SafeHandle arg0,  SafeHandle context,  SwiftSelf self, out SwiftError error);
             
             
             public static unsafe UIKit.UIImage Apply( CoreImage.CIFilter filter,  UIKit.UIImage to)
@@ -14481,7 +14366,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_apply_6CE723FE(swiftIndirectResult, filterHandle, toHandle, out var error);
+                    PInvoke_apply_52344BBE(swiftIndirectResult, filterHandle, toHandle, out var error);
                     
                     if (error.Value != null)
                     {
@@ -14499,7 +14384,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImageProcessorsO04CoreB6FilterV5apply6filter2toSo7UIImageCSo8CIFilterC_AJtKFZ")]
-            private static extern void PInvoke_apply_6CE723FE( SwiftIndirectResult swiftIndirectResult,  IntPtr filter,  IntPtr to, out SwiftError error);
+            private static extern void PInvoke_apply_52344BBE( SwiftIndirectResult swiftIndirectResult,  IntPtr filter,  IntPtr to, out SwiftError error);
             
             
         }
@@ -14524,7 +14409,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_priority_Get_7FCFC939(swiftIndirectResult, self);
+                PInvoke_priority_Get_2F0A5CCF(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.PriorityInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -14539,7 +14424,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV8priorityAC8PriorityOvg")]
-        private static extern void PInvoke_priority_Get_7FCFC939( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_priority_Get_2F0A5CCF( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Priority_Set( Swift.Nuke.ImageRequest.PriorityInfo value)
         {
@@ -14551,7 +14436,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_priority_Set_6AE0160C(value.Payload.DangerousGetHandle(), self);
+                PInvoke_priority_Set_36F1F833(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -14566,7 +14451,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV8priorityAC8PriorityOvs")]
-        private static extern void PInvoke_priority_Set_6AE0160C( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_priority_Set_36F1F833( IntPtr value,  SwiftSelf self);
         
         public Swift.Nuke.ImageRequest.PriorityInfo Priority
         {
@@ -14588,7 +14473,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_options_Get_0BCB5CAA(swiftIndirectResult, self);
+                PInvoke_options_Get_7FE67A7C(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -14603,7 +14488,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7optionsAC7OptionsVvg")]
-        private static extern void PInvoke_options_Get_0BCB5CAA( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_options_Get_7FE67A7C( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Options_Set( Swift.Nuke.ImageRequest.OptionsInfo value)
         {
@@ -14615,7 +14500,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                PInvoke_options_Set_62A2C4DF(value.Payload, self);
+                PInvoke_options_Set_378F6EED(value.Payload, self);
                 
                 return;
             }
@@ -14630,7 +14515,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7optionsAC7OptionsVvs")]
-        private static extern void PInvoke_options_Set_62A2C4DF( SafeHandle value,  SwiftSelf self);
+        private static extern void PInvoke_options_Set_378F6EED( SafeHandle value,  SwiftSelf self);
         
         public Swift.Nuke.ImageRequest.OptionsInfo Options
         {
@@ -14648,7 +14533,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_urlRequest_Get_05E599D7(self);
+                var result = PInvoke_urlRequest_Get_21816F22(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.URLRequest>>(new IntPtr(&result));
             }
@@ -14663,7 +14548,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV03urlC010Foundation10URLRequestVSgvg")]
-        private static extern IntPtr PInvoke_urlRequest_Get_05E599D7( SwiftSelf self);
+        private static extern IntPtr PInvoke_urlRequest_Get_21816F22( SwiftSelf self);
         
         public Swift.URLRequest? UrlRequest
         {
@@ -14680,7 +14565,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_url_Get_528CA72F(self);
+                var result = PInvoke_url_Get_26E92334(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.URL>>(new IntPtr(&result));
             }
@@ -14695,7 +14580,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV3url10Foundation3URLVSgvg")]
-        private static extern IntPtr PInvoke_url_Get_528CA72F( SwiftSelf self);
+        private static extern IntPtr PInvoke_url_Get_26E92334( SwiftSelf self);
         
         public Swift.URL? Url
         {
@@ -14712,7 +14597,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_imageId_Get_616525B5(self);
+                var result = PInvoke_imageId_Get_656BE862(self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.SwiftString>>(new IntPtr(&result));
             }
@@ -14727,7 +14612,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7imageIdSSSgvg")]
-        private static extern IntPtr PInvoke_imageId_Get_616525B5( SwiftSelf self);
+        private static extern IntPtr PInvoke_imageId_Get_656BE862( SwiftSelf self);
         
         public Swift.SwiftString? ImageId
         {
@@ -14744,7 +14629,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 
                 
-                var result = PInvoke_description_Get_7065D128(self);
+                var result = PInvoke_description_Get_053929DF(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -14761,7 +14646,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV11descriptionSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_7065D128( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_053929DF( SwiftSelf self);
         
         public string Description
         {
@@ -15024,7 +14909,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_73AC40C2(self);
+                    var result = PInvoke_rawValue_Get_1DA0CA8E(self);
                     
                     return result;
                 }
@@ -15037,7 +14922,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV8PriorityO8rawValueSivg")]
-            private static extern nint PInvoke_rawValue_Get_73AC40C2( SwiftSelf self);
+            private static extern nint PInvoke_rawValue_Get_1DA0CA8E( SwiftSelf self);
             
             public nint RawValue
             {
@@ -15123,7 +15008,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_0664203F(self);
+                    var result = PInvoke_rawValue_Get_18E963D7(self);
                     
                     return result;
                 }
@@ -15138,7 +15023,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV8rawValues6UInt16Vvg")]
-            private static extern System.UInt16 PInvoke_rawValue_Get_0664203F( SwiftSelf self);
+            private static extern System.UInt16 PInvoke_rawValue_Get_18E963D7( SwiftSelf self);
             
             public System.UInt16 RawValue
             {
@@ -15155,7 +15040,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_disableMemoryCacheReads_Get_7815DFCD(swiftIndirectResult);
+                    PInvoke_disableMemoryCacheReads_Get_2CADBB48(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15168,7 +15053,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV23disableMemoryCacheReadsAEvgZ")]
-            private static extern void PInvoke_disableMemoryCacheReads_Get_7815DFCD( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_disableMemoryCacheReads_Get_2CADBB48( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo DisableMemoryCacheReads
             {
@@ -15185,7 +15070,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_disableMemoryCacheWrites_Get_46020B77(swiftIndirectResult);
+                    PInvoke_disableMemoryCacheWrites_Get_51C57767(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15198,7 +15083,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV24disableMemoryCacheWritesAEvgZ")]
-            private static extern void PInvoke_disableMemoryCacheWrites_Get_46020B77( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_disableMemoryCacheWrites_Get_51C57767( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo DisableMemoryCacheWrites
             {
@@ -15215,7 +15100,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_disableMemoryCache_Get_6D5DB383(swiftIndirectResult);
+                    PInvoke_disableMemoryCache_Get_37746B88(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15228,7 +15113,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV18disableMemoryCacheAEvgZ")]
-            private static extern void PInvoke_disableMemoryCache_Get_6D5DB383( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_disableMemoryCache_Get_37746B88( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo DisableMemoryCache
             {
@@ -15245,7 +15130,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_disableDiskCacheReads_Get_41A5DE49(swiftIndirectResult);
+                    PInvoke_disableDiskCacheReads_Get_71D66E55(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15258,7 +15143,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV21disableDiskCacheReadsAEvgZ")]
-            private static extern void PInvoke_disableDiskCacheReads_Get_41A5DE49( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_disableDiskCacheReads_Get_71D66E55( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo DisableDiskCacheReads
             {
@@ -15275,7 +15160,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_disableDiskCacheWrites_Get_13715099(swiftIndirectResult);
+                    PInvoke_disableDiskCacheWrites_Get_5664C7BE(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15288,7 +15173,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV22disableDiskCacheWritesAEvgZ")]
-            private static extern void PInvoke_disableDiskCacheWrites_Get_13715099( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_disableDiskCacheWrites_Get_5664C7BE( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo DisableDiskCacheWrites
             {
@@ -15305,7 +15190,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_disableDiskCache_Get_654E03F1(swiftIndirectResult);
+                    PInvoke_disableDiskCache_Get_0279231E(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15318,7 +15203,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV16disableDiskCacheAEvgZ")]
-            private static extern void PInvoke_disableDiskCache_Get_654E03F1( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_disableDiskCache_Get_0279231E( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo DisableDiskCache
             {
@@ -15335,7 +15220,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_reloadIgnoringCachedData_Get_6D6330A2(swiftIndirectResult);
+                    PInvoke_reloadIgnoringCachedData_Get_3D37B397(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15348,7 +15233,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV24reloadIgnoringCachedDataAEvgZ")]
-            private static extern void PInvoke_reloadIgnoringCachedData_Get_6D6330A2( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_reloadIgnoringCachedData_Get_3D37B397( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo ReloadIgnoringCachedData
             {
@@ -15365,7 +15250,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_returnCacheDataDontLoad_Get_58A45396(swiftIndirectResult);
+                    PInvoke_returnCacheDataDontLoad_Get_3723460D(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15378,7 +15263,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV23returnCacheDataDontLoadAEvgZ")]
-            private static extern void PInvoke_returnCacheDataDontLoad_Get_58A45396( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_returnCacheDataDontLoad_Get_3723460D( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo ReturnCacheDataDontLoad
             {
@@ -15395,7 +15280,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_skipDecompression_Get_7FB06525(swiftIndirectResult);
+                    PInvoke_skipDecompression_Get_765C6816(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15408,7 +15293,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV17skipDecompressionAEvgZ")]
-            private static extern void PInvoke_skipDecompression_Get_7FB06525( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_skipDecompression_Get_765C6816( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo SkipDecompression
             {
@@ -15425,7 +15310,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_skipDataLoadingQueue_Get_79138D76(swiftIndirectResult);
+                    PInvoke_skipDataLoadingQueue_Get_0A6BDCFD(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.OptionsInfo>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15438,7 +15323,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV20skipDataLoadingQueueAEvgZ")]
-            private static extern void PInvoke_skipDataLoadingQueue_Get_79138D76( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_skipDataLoadingQueue_Get_0A6BDCFD( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.OptionsInfo SkipDataLoadingQueue
             {
@@ -15546,13 +15431,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 _payload = new SwiftSafeHandle<OptionsInfo>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_40831E24(swiftIndirectResult, rawValue);
+                PInvoke_init_3A20D625(swiftIndirectResult, rawValue);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV7OptionsV8rawValueAEs6UInt16V_tcfC")]
-            private static extern void PInvoke_init_40831E24( SwiftIndirectResult swiftIndirectResult,  System.UInt16 rawValue);
+            private static extern void PInvoke_init_3A20D625( SwiftIndirectResult swiftIndirectResult,  System.UInt16 rawValue);
             
             
         }
@@ -15570,7 +15455,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_rawValue_Get_07E8C601(self);
+                    var result = PInvoke_rawValue_Get_178DBCB4(self);
                     
                     unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -15587,7 +15472,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV11UserInfoKeyV8rawValueSSvg")]
-            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_07E8C601( SwiftSelf self);
+            private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_178DBCB4( SwiftSelf self);
             
             public string RawValue
             {
@@ -15604,7 +15489,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_imageIdKey_Get_5741529D(swiftIndirectResult);
+                    PInvoke_imageIdKey_Get_53908599(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.UserInfoKey>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15617,7 +15502,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV11UserInfoKeyV07imageIdF0AEvgZ")]
-            private static extern void PInvoke_imageIdKey_Get_5741529D( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_imageIdKey_Get_53908599( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.UserInfoKey ImageIdKey
             {
@@ -15634,7 +15519,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_scaleKey_Get_3E6323FA(swiftIndirectResult);
+                    PInvoke_scaleKey_Get_0C6C6E3F(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.UserInfoKey>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15647,7 +15532,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV11UserInfoKeyV05scaleF0AEvgZ")]
-            private static extern void PInvoke_scaleKey_Get_3E6323FA( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_scaleKey_Get_0C6C6E3F( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.UserInfoKey ScaleKey
             {
@@ -15664,7 +15549,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_thumbnailKey_Get_6E1C4889(swiftIndirectResult);
+                    PInvoke_thumbnailKey_Get_048CB9B1(swiftIndirectResult);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.UserInfoKey>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -15677,7 +15562,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV11UserInfoKeyV09thumbnailF0AEvgZ")]
-            private static extern void PInvoke_thumbnailKey_Get_6E1C4889( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_thumbnailKey_Get_048CB9B1( SwiftIndirectResult swiftIndirectResult);
             
             public static Swift.Nuke.ImageRequest.UserInfoKey ThumbnailKey
             {
@@ -15694,7 +15579,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_0F7B58B8(self);
+                    var result = PInvoke_hashValue_Get_7D7C0C3F(self);
                     
                     return result;
                 }
@@ -15709,7 +15594,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV11UserInfoKeyV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_0F7B58B8( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_7D7C0C3F( SwiftSelf self);
             
             public nint HashValue
             {
@@ -15826,13 +15711,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 
                 using var arg0Swift = new SwiftString(arg0);
                 using PayloadBuffer<SwiftString.Buffer> arg0Disposable = arg0Swift.PayloadBuffer;
-                PInvoke_init_1D2806F2(swiftIndirectResult, arg0Disposable.Buffer);
+                PInvoke_init_55E9B1FE(swiftIndirectResult, arg0Disposable.Buffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV11UserInfoKeyVyAESScfC")]
-            private static extern void PInvoke_init_1D2806F2( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer arg0);
+            private static extern void PInvoke_init_55E9B1FE( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer arg0);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -15845,7 +15730,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_3684A0AB(into.Payload, self);
+                    PInvoke_hash_13E8D39B(into.Payload, self);
                     
                     return;
                 }
@@ -15860,7 +15745,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV11UserInfoKeyV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_3684A0AB( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_13E8D39B( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -15878,7 +15763,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_createThumbnailFromImageIfAbsent_Get_590522DB(self);
+                    var result = PInvoke_createThumbnailFromImageIfAbsent_Get_25CE7FE2(self);
                     
                     return result;
                 }
@@ -15893,7 +15778,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV06created4FromB8IfAbsentSbvg")]
-            private static extern System.Boolean PInvoke_createThumbnailFromImageIfAbsent_Get_590522DB( SwiftSelf self);
+            private static extern System.Boolean PInvoke_createThumbnailFromImageIfAbsent_Get_25CE7FE2( SwiftSelf self);
             
             private unsafe void CreateThumbnailFromImageIfAbsent_Set( System.Boolean value)
             {
@@ -15905,7 +15790,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_createThumbnailFromImageIfAbsent_Set_781CFCDC(value, self);
+                    PInvoke_createThumbnailFromImageIfAbsent_Set_4DF1E8E2(value, self);
                     
                     return;
                 }
@@ -15920,7 +15805,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV06created4FromB8IfAbsentSbvs")]
-            private static extern void PInvoke_createThumbnailFromImageIfAbsent_Set_781CFCDC( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_createThumbnailFromImageIfAbsent_Set_4DF1E8E2( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean CreateThumbnailFromImageIfAbsent
             {
@@ -15938,7 +15823,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_createThumbnailFromImageAlways_Get_7D03F876(self);
+                    var result = PInvoke_createThumbnailFromImageAlways_Get_62848793(self);
                     
                     return result;
                 }
@@ -15953,7 +15838,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV06created4FromB6AlwaysSbvg")]
-            private static extern System.Boolean PInvoke_createThumbnailFromImageAlways_Get_7D03F876( SwiftSelf self);
+            private static extern System.Boolean PInvoke_createThumbnailFromImageAlways_Get_62848793( SwiftSelf self);
             
             private unsafe void CreateThumbnailFromImageAlways_Set( System.Boolean value)
             {
@@ -15965,7 +15850,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_createThumbnailFromImageAlways_Set_1D569197(value, self);
+                    PInvoke_createThumbnailFromImageAlways_Set_0CB6C9F2(value, self);
                     
                     return;
                 }
@@ -15980,7 +15865,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV06created4FromB6AlwaysSbvs")]
-            private static extern void PInvoke_createThumbnailFromImageAlways_Set_1D569197( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_createThumbnailFromImageAlways_Set_0CB6C9F2( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean CreateThumbnailFromImageAlways
             {
@@ -15998,7 +15883,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_createThumbnailWithTransform_Get_64F620F5(self);
+                    var result = PInvoke_createThumbnailWithTransform_Get_11CB290F(self);
                     
                     return result;
                 }
@@ -16013,7 +15898,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV06createD13WithTransformSbvg")]
-            private static extern System.Boolean PInvoke_createThumbnailWithTransform_Get_64F620F5( SwiftSelf self);
+            private static extern System.Boolean PInvoke_createThumbnailWithTransform_Get_11CB290F( SwiftSelf self);
             
             private unsafe void CreateThumbnailWithTransform_Set( System.Boolean value)
             {
@@ -16025,7 +15910,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_createThumbnailWithTransform_Set_0FD40BDA(value, self);
+                    PInvoke_createThumbnailWithTransform_Set_74AB8EF2(value, self);
                     
                     return;
                 }
@@ -16040,7 +15925,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV06createD13WithTransformSbvs")]
-            private static extern void PInvoke_createThumbnailWithTransform_Set_0FD40BDA( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_createThumbnailWithTransform_Set_74AB8EF2( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean CreateThumbnailWithTransform
             {
@@ -16058,7 +15943,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_shouldCacheImmediately_Get_143CFE46(self);
+                    var result = PInvoke_shouldCacheImmediately_Get_153994AE(self);
                     
                     return result;
                 }
@@ -16073,7 +15958,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV22shouldCacheImmediatelySbvg")]
-            private static extern System.Boolean PInvoke_shouldCacheImmediately_Get_143CFE46( SwiftSelf self);
+            private static extern System.Boolean PInvoke_shouldCacheImmediately_Get_153994AE( SwiftSelf self);
             
             private unsafe void ShouldCacheImmediately_Set( System.Boolean value)
             {
@@ -16085,7 +15970,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_shouldCacheImmediately_Set_7620404D(value, self);
+                    PInvoke_shouldCacheImmediately_Set_79953D65(value, self);
                     
                     return;
                 }
@@ -16100,7 +15985,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV22shouldCacheImmediatelySbvs")]
-            private static extern void PInvoke_shouldCacheImmediately_Set_7620404D( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_shouldCacheImmediately_Set_79953D65( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean ShouldCacheImmediately
             {
@@ -16118,7 +16003,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_522AAF95(self);
+                    var result = PInvoke_hashValue_Get_4A040EB9(self);
                     
                     return result;
                 }
@@ -16133,7 +16018,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_522AAF95( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_4A040EB9( SwiftSelf self);
             
             public nint HashValue
             {
@@ -16248,13 +16133,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 _payload = new SwiftSafeHandle<ThumbnailOptions>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_135D74A8(swiftIndirectResult, maxPixelSize);
+                PInvoke_init_65E7637F(swiftIndirectResult, maxPixelSize);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV12maxPixelSizeAESf_tcfC")]
-            private static extern void PInvoke_init_135D74A8( SwiftIndirectResult swiftIndirectResult,  System.Single maxPixelSize);
+            private static extern void PInvoke_init_65E7637F( SwiftIndirectResult swiftIndirectResult,  System.Single maxPixelSize);
             
             
             public unsafe ThumbnailOptions( Swift.CGSize size,  Swift.Nuke.ImageProcessingOptions.Unit unit,  Swift.Nuke.ImageProcessingOptions.ContentMode contentMode)
@@ -16262,25 +16147,25 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                 _payload = new SwiftSafeHandle<ThumbnailOptions>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_552C306C(swiftIndirectResult, size, unit.Payload.DangerousGetHandle(), contentMode.Payload.DangerousGetHandle());
+                PInvoke_init_2E794388(swiftIndirectResult, size, unit.Payload.DangerousGetHandle(), contentMode.Payload.DangerousGetHandle());
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV4size4unit11contentModeAESo6CGSizeV_AA0b10ProcessingE0O4UnitOAL07ContentI0OtcfC")]
-            private static extern void PInvoke_init_552C306C( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit,  IntPtr contentMode);
+            private static extern void PInvoke_init_2E794388( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit,  IntPtr contentMode);
             public unsafe ThumbnailOptions( Swift.CGSize size,  Swift.Nuke.ImageProcessingOptions.Unit unit)
             {
                 _payload = new SwiftSafeHandle<ThumbnailOptions>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_59184674(swiftIndirectResult, size, unit.Payload.DangerousGetHandle());
+                PInvoke_init_4576E56B(swiftIndirectResult, size, unit.Payload.DangerousGetHandle());
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_ThumbnailOptions_init_3D39AF54_1")]
-            private static extern void PInvoke_init_59184674( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit);
+            private static extern void PInvoke_init_4576E56B( SwiftIndirectResult swiftIndirectResult,  Swift.CGSize size,  IntPtr unit);
             
             
             public unsafe UIKit.UIImage? MakeThumbnail( Foundation.NSData with)
@@ -16294,7 +16179,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     var withSwift = Swift.Data.FromNSData(with);
                     
-                    var result = PInvoke_makeThumbnail_536A8C12(withSwift, self);
+                    var result = PInvoke_makeThumbnail_06F3D9CA(withSwift, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<UIKit.UIImage>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -16310,7 +16195,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV04makeD04withSo7UIImageCSg10Foundation4DataV_tF")]
-            private static extern IntPtr PInvoke_makeThumbnail_536A8C12( Swift.Data with,  SwiftSelf self);
+            private static extern IntPtr PInvoke_makeThumbnail_06F3D9CA( Swift.Data with,  SwiftSelf self);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -16323,7 +16208,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
                     
                     
                     
-                    PInvoke_hash_068ED57E(into.Payload, self);
+                    PInvoke_hash_2816FF14(into.Payload, self);
                     
                     return;
                 }
@@ -16338,7 +16223,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV16ThumbnailOptionsV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_068ED57E( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_2816FF14( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -16351,359 +16236,16 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_imageCa
             
             using var stringLiteralSwift = new SwiftString(stringLiteral);
             using PayloadBuffer<SwiftString.Buffer> stringLiteralDisposable = stringLiteralSwift.PayloadBuffer;
-            PInvoke_init_39DC467C(swiftIndirectResult, stringLiteralDisposable.Buffer);
+            PInvoke_init_1EBB4A44(swiftIndirectResult, stringLiteralDisposable.Buffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke12ImageRequestV13stringLiteralACSS_tcfC")]
-        private static extern void PInvoke_init_39DC467C( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer stringLiteral);
+        private static extern void PInvoke_init_1EBB4A44( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer stringLiteral);
         
         
         
-        
-                        [System.Runtime.InteropServices.DllImport("SwiftBindings", EntryPoint = "SBW_Free_Nuke")]
-        private static extern void SBW_Free(IntPtr ptr);
-private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCallback_74393EC6 = &initOnComplete_74393EC6;
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void initOnComplete_74393EC6(IntPtr resultPtr, IntPtr task)
-        {
-            GCHandle handle = GCHandle.FromIntPtr(task);
-            try
-            {
-                // Read result from pointer (Swift allocated memory and stored the value)
-                var result = SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest>(resultPtr);
-
-                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.Nuke.ImageRequest> holderTcs)
-                {
-                    // Free copy buffer memory for non-frozen params and release retained self
-                    for (int i = 1; i < holder.Length; i++)
-                    {
-                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            Arc.Release(retained.Ptr);
-                        }
-                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            deferred.Handle.DangerousRelease();
-                        }
-                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                        {
-                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                        }
-                    }
-                    holderTcs.TrySetResult(result);
-                }
-                else if (handle.Target is TaskCompletionSource<Swift.Nuke.ImageRequest> directTcs)
-                {
-                    directTcs.TrySetResult(result);
-                }
-            }
-            finally
-            {
-                // Free Swift-allocated memory
-                SBW_Free(resultPtr);
-                handle.Free();
-            }
-        }
-
-        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initErrorCallback_74393EC6 = &initOnError_74393EC6;
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void initOnError_74393EC6(IntPtr errorMessagePtr, IntPtr task)
-        {
-            GCHandle handle = GCHandle.FromIntPtr(task);
-            try
-            {
-                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                var exception = new SwiftException(errorMessage);
-
-                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<Swift.Nuke.ImageRequest> holderTcs)
-                {
-                    // Free copy buffer memory for non-frozen params and release retained self
-                    for (int i = 1; i < holder.Length; i++)
-                    {
-                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                        {
-                            Arc.Release(retained.Ptr);
-                        }
-                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                        {
-                            deferred.Handle.DangerousRelease();
-                        }
-                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                        {
-                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                        }
-                    }
-                    holderTcs.TrySetException(exception);
-                }
-                else if (handle.Target is TaskCompletionSource<Swift.Nuke.ImageRequest> directTcs)
-                {
-                    directTcs.TrySetException(exception);
-                }
-            }
-            finally
-            {
-                handle.Free();
-            }
-        }
-        private static unsafe readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> s_init_data_74393EC6_Callback_Start = &init_data_74393EC6_Callback_Start;
-        /// <summary>
-        /// [UnmanagedCallersOnly] start function for async+throwing closure parameter 'data'.
-        /// Called synchronously by Swift, spawns Task.Run to execute the async delegate.
-        /// </summary>
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static unsafe void init_data_74393EC6_Callback_Start(
-            IntPtr contextPtr,          // GCHandle to AsyncThrowingClosureState<Swift.Data>
-            IntPtr continuationBoxPtr,  // Swift's ContinuationBox pointer
-            IntPtr successFuncPtr,      // Function pointer for success callback
-            IntPtr errorFuncPtr)        // Function pointer for error callback
-        {
-            var handle = GCHandle.FromIntPtr(contextPtr);
-            if (handle.Target is not AsyncThrowingClosureState<Swift.Data> state)
-                return;
-            // Convert function pointers to delegates while we're in the unsafe context
-            // These delegates can then be called from the async code without unsafe blocks
-            var successAction = new Action<IntPtr, IntPtr, nint>((box, dataPtr, len) =>
-            {
-                var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, nint, void>)successFuncPtr;
-                fp(box, dataPtr, len);
-            });
-            var errorAction = new Action<IntPtr, IntPtr>((box, errPtr) =>
-            {
-                var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;
-                fp(box, errPtr);
-            });
-            // Spawn async work using runtime helper (avoids async in unsafe class context)
-            AsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
-        }
-        
-        [global::Swift.UnsupportedSwiftType("Existential type fallback", "any Nuke.ImageProcessing")]
-        public static unsafe Task<Swift.Nuke.ImageRequest> CreateAsync( string id,  Func<Task<Swift.Data>> data,  IEnumerable<IImageProcessing> processors,  Swift.Nuke.ImageRequest.PriorityInfo priority,  Swift.Nuke.ImageRequest.OptionsInfo options,  Swift.SwiftDictionary<Swift.Nuke.ImageRequest.UserInfoKey, object>? userInfo)
-        {
-            var priorityMetadata = SwiftObjectHelper<Swift.Nuke.ImageRequest.PriorityInfo>.GetTypeMetadata();
-            IntPtr priorityCopyBuffer = (IntPtr)NativeMemory.Alloc(priorityMetadata.Size);
-            priorityMetadata.ValueWitnessTable->InitializeWithCopy(
-                (void*)priorityCopyBuffer,
-                (void*)priority.Payload.DangerousGetHandle(),
-                priorityMetadata);
-            IntPtr priorityHandle = priorityCopyBuffer;
-            var priorityCopyBufferWrapper = new CopyBufferWithType(priorityCopyBuffer, priorityMetadata);
-            var optionsMetadata = SwiftObjectHelper<Swift.Nuke.ImageRequest.OptionsInfo>.GetTypeMetadata();
-            IntPtr optionsCopyBuffer = (IntPtr)NativeMemory.Alloc(optionsMetadata.Size);
-            optionsMetadata.ValueWitnessTable->InitializeWithCopy(
-                (void*)optionsCopyBuffer,
-                (void*)options.Payload.DangerousGetHandle(),
-                optionsMetadata);
-            IntPtr optionsHandle = optionsCopyBuffer;
-            var optionsCopyBufferWrapper = new CopyBufferWithType(optionsCopyBuffer, optionsMetadata);
-            TaskCompletionSource<Swift.Nuke.ImageRequest> task = new TaskCompletionSource<Swift.Nuke.ImageRequest>();
-            object[] _asyncCallHolder = new object[] { task, priorityCopyBufferWrapper, optionsCopyBufferWrapper, (object)priority, (object)options };
-            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
-            try
-            {
-                
-                var dataState = new AsyncThrowingClosureState<Swift.Data> { AsyncFunc = data };
-                var dataHandle = GCHandle.Alloc(dataState);
-                var dataContextPtr = GCHandle.ToIntPtr(dataHandle);
-                using var idSwift = new SwiftString(id);
-                using PayloadBuffer<SwiftString.Buffer> idDisposable = idSwift.PayloadBuffer;
-                var processorsContainers = processors.Select(i => ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)i).GetExistentialContainer());
-                using var processorsSwift = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(processorsContainers);
-                using PayloadBuffer<IntPtr> processorsDisposable = processorsSwift.PayloadBuffer;
-                IntPtr processorsBuffer = processorsDisposable.Buffer;
-                using var userInfoSwift = userInfo is {} userInfoValue ? SwiftOptional<Swift.SwiftDictionary<Swift.Nuke.ImageRequest.UserInfoKey, Swift.Runtime.ExistentialContainer0>>.NewSome(userInfoValue) : SwiftOptional<Swift.SwiftDictionary<Swift.Nuke.ImageRequest.UserInfoKey, Swift.Runtime.ExistentialContainer0>>.NewNone();
-                using PayloadBuffer<IntPtr> userInfoDisposable = userInfoSwift.PayloadBuffer;
-                IntPtr userInfoBuffer = userInfoDisposable.Buffer;
-                
-                PInvoke_init_74393EC6(s_initCallback_74393EC6, s_initErrorCallback_74393EC6, GCHandle.ToIntPtr(handle), idDisposable.Buffer, dataContextPtr, s_init_data_74393EC6_Callback_Start, processorsBuffer, priorityHandle, optionsHandle, userInfoBuffer);
-                
-                return task.Task;
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("SwiftBindings", EntryPoint = "$s4Nuke12ImageRequestV2id4data10processors8priority7options8userInfoACSS_10Foundation4DataVyYaYbKcSayAA0B10Processing_pGAC8PriorityOAC7OptionsVSDyAC04UserJ3KeyVypGSgtcfC_async")]
-        private static extern void PInvoke_init_74393EC6( void* s_initCallback_74393EC6,  void* s_initErrorCallback_74393EC6,  IntPtr handle,  Swift.SwiftString.Buffer id,  IntPtr dataContext,  delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> dataStartFunc,  IntPtr processorsBuffer,  IntPtr priority,  IntPtr options,  IntPtr userInfoBuffer);
-        private static unsafe readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> s_init_data_08914BB8_Callback_Start = &init_data_08914BB8_Callback_Start;
-        /// <summary>
-        /// [UnmanagedCallersOnly] start function for async+throwing closure parameter 'data'.
-        /// Called synchronously by Swift, spawns Task.Run to execute the async delegate.
-        /// </summary>
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static unsafe void init_data_08914BB8_Callback_Start(
-            IntPtr contextPtr,          // GCHandle to AsyncThrowingClosureState<Swift.Data>
-            IntPtr continuationBoxPtr,  // Swift's ContinuationBox pointer
-            IntPtr successFuncPtr,      // Function pointer for success callback
-            IntPtr errorFuncPtr)        // Function pointer for error callback
-        {
-            var handle = GCHandle.FromIntPtr(contextPtr);
-            if (handle.Target is not AsyncThrowingClosureState<Swift.Data> state)
-                return;
-            // Convert function pointers to delegates while we're in the unsafe context
-            // These delegates can then be called from the async code without unsafe blocks
-            var successAction = new Action<IntPtr, IntPtr, nint>((box, dataPtr, len) =>
-            {
-                var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, nint, void>)successFuncPtr;
-                fp(box, dataPtr, len);
-            });
-            var errorAction = new Action<IntPtr, IntPtr>((box, errPtr) =>
-            {
-                var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;
-                fp(box, errPtr);
-            });
-            // Spawn async work using runtime helper (avoids async in unsafe class context)
-            AsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
-        }
-        
-        public unsafe ImageRequest( string id,  Func<Task<Swift.Data>> data)
-        {
-            try
-            {
-                var dataState = new AsyncThrowingClosureState<Swift.Data> { AsyncFunc = data };
-                var dataHandle = GCHandle.Alloc(dataState);
-                var dataContextPtr = GCHandle.ToIntPtr(dataHandle);
-                using var idSwift = new SwiftString(id);
-                using PayloadBuffer<SwiftString.Buffer> idDisposable = idSwift.PayloadBuffer;
-                PInvoke_init_08914BB8(s_initCallback_08914BB8, s_initErrorCallback_08914BB8, GCHandle.ToIntPtr(handle), idDisposable.Buffer, dataContextPtr, s_init_data_08914BB8_Callback_Start);
-                
-                this = result;
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("SwiftBindings", EntryPoint = "DBW_ImageRequest_init_18CE4E3A_4_async")]
-        private static extern void PInvoke_init_08914BB8( void* s_initCallback_08914BB8,  void* s_initErrorCallback_08914BB8,  IntPtr handle,  Swift.SwiftString.Buffer id,  IntPtr dataContext,  delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> dataStartFunc);
-        private static unsafe readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> s_init_data_6DD28839_Callback_Start = &init_data_6DD28839_Callback_Start;
-        /// <summary>
-        /// [UnmanagedCallersOnly] start function for async+throwing closure parameter 'data'.
-        /// Called synchronously by Swift, spawns Task.Run to execute the async delegate.
-        /// </summary>
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static unsafe void init_data_6DD28839_Callback_Start(
-            IntPtr contextPtr,          // GCHandle to AsyncThrowingClosureState<Swift.Data>
-            IntPtr continuationBoxPtr,  // Swift's ContinuationBox pointer
-            IntPtr successFuncPtr,      // Function pointer for success callback
-            IntPtr errorFuncPtr)        // Function pointer for error callback
-        {
-            var handle = GCHandle.FromIntPtr(contextPtr);
-            if (handle.Target is not AsyncThrowingClosureState<Swift.Data> state)
-                return;
-            // Convert function pointers to delegates while we're in the unsafe context
-            // These delegates can then be called from the async code without unsafe blocks
-            var successAction = new Action<IntPtr, IntPtr, nint>((box, dataPtr, len) =>
-            {
-                var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, nint, void>)successFuncPtr;
-                fp(box, dataPtr, len);
-            });
-            var errorAction = new Action<IntPtr, IntPtr>((box, errPtr) =>
-            {
-                var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;
-                fp(box, errPtr);
-            });
-            // Spawn async work using runtime helper (avoids async in unsafe class context)
-            AsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
-        }
-        
-        public unsafe ImageRequest( string id,  Func<Task<Swift.Data>> data,  IEnumerable<IImageProcessing> processors)
-        {
-            try
-            {
-                var dataState = new AsyncThrowingClosureState<Swift.Data> { AsyncFunc = data };
-                var dataHandle = GCHandle.Alloc(dataState);
-                var dataContextPtr = GCHandle.ToIntPtr(dataHandle);
-                using var idSwift = new SwiftString(id);
-                using PayloadBuffer<SwiftString.Buffer> idDisposable = idSwift.PayloadBuffer;
-                var processorsContainers = processors.Select(i => ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)i).GetExistentialContainer());
-                using var processorsSwift = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(processorsContainers);
-                using PayloadBuffer<IntPtr> processorsDisposable = processorsSwift.PayloadBuffer;
-                IntPtr processorsBuffer = processorsDisposable.Buffer;
-                PInvoke_init_6DD28839(s_initCallback_6DD28839, s_initErrorCallback_6DD28839, GCHandle.ToIntPtr(handle), idDisposable.Buffer, dataContextPtr, s_init_data_6DD28839_Callback_Start, processorsBuffer);
-                
-                this = result;
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("SwiftBindings", EntryPoint = "DBW_ImageRequest_init_18CE4E3A_3_async")]
-        private static extern void PInvoke_init_6DD28839( void* s_initCallback_6DD28839,  void* s_initErrorCallback_6DD28839,  IntPtr handle,  Swift.SwiftString.Buffer id,  IntPtr dataContext,  delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> dataStartFunc,  IntPtr processorsBuffer);
-        private static unsafe readonly delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> s_init_data_6DE938E4_Callback_Start = &init_data_6DE938E4_Callback_Start;
-        /// <summary>
-        /// [UnmanagedCallersOnly] start function for async+throwing closure parameter 'data'.
-        /// Called synchronously by Swift, spawns Task.Run to execute the async delegate.
-        /// </summary>
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static unsafe void init_data_6DE938E4_Callback_Start(
-            IntPtr contextPtr,          // GCHandle to AsyncThrowingClosureState<Swift.Data>
-            IntPtr continuationBoxPtr,  // Swift's ContinuationBox pointer
-            IntPtr successFuncPtr,      // Function pointer for success callback
-            IntPtr errorFuncPtr)        // Function pointer for error callback
-        {
-            var handle = GCHandle.FromIntPtr(contextPtr);
-            if (handle.Target is not AsyncThrowingClosureState<Swift.Data> state)
-                return;
-            // Convert function pointers to delegates while we're in the unsafe context
-            // These delegates can then be called from the async code without unsafe blocks
-            var successAction = new Action<IntPtr, IntPtr, nint>((box, dataPtr, len) =>
-            {
-                var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, nint, void>)successFuncPtr;
-                fp(box, dataPtr, len);
-            });
-            var errorAction = new Action<IntPtr, IntPtr>((box, errPtr) =>
-            {
-                var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;
-                fp(box, errPtr);
-            });
-            // Spawn async work using runtime helper (avoids async in unsafe class context)
-            AsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
-        }
-        
-        public unsafe ImageRequest( string id,  Func<Task<Swift.Data>> data,  IEnumerable<IImageProcessing> processors,  Swift.Nuke.ImageRequest.PriorityInfo priority)
-        {
-            try
-            {
-                var dataState = new AsyncThrowingClosureState<Swift.Data> { AsyncFunc = data };
-                var dataHandle = GCHandle.Alloc(dataState);
-                var dataContextPtr = GCHandle.ToIntPtr(dataHandle);
-                using var idSwift = new SwiftString(id);
-                using PayloadBuffer<SwiftString.Buffer> idDisposable = idSwift.PayloadBuffer;
-                var processorsContainers = processors.Select(i => ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)i).GetExistentialContainer());
-                using var processorsSwift = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(processorsContainers);
-                using PayloadBuffer<IntPtr> processorsDisposable = processorsSwift.PayloadBuffer;
-                IntPtr processorsBuffer = processorsDisposable.Buffer;
-                PInvoke_init_6DE938E4(s_initCallback_6DE938E4, s_initErrorCallback_6DE938E4, GCHandle.ToIntPtr(handle), idDisposable.Buffer, dataContextPtr, s_init_data_6DE938E4_Callback_Start, processorsBuffer, priorityHandle);
-                
-                this = result;
-            }
-            
-            finally
-            {
-            }
-            
-        }
-        
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("SwiftBindings", EntryPoint = "DBW_ImageRequest_init_18CE4E3A_2_async")]
-        private static extern void PInvoke_init_6DE938E4( void* s_initCallback_6DE938E4,  void* s_initErrorCallback_6DE938E4,  IntPtr handle,  Swift.SwiftString.Buffer id,  IntPtr dataContext,  delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> dataStartFunc,  IntPtr processorsBuffer,  IntPtr priority);
         
         
     }
@@ -16793,7 +16335,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_isProgressive_Get_500F6B2D(self);
+                    var result = PInvoke_isProgressive_Get_0A4EED27(self);
                     
                     return result;
                 }
@@ -16808,7 +16350,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO5EmptyV13isProgressiveSbvg")]
-            private static extern System.Boolean PInvoke_isProgressive_Get_500F6B2D( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isProgressive_Get_0A4EED27( SwiftSelf self);
             
             public System.Boolean IsProgressive
             {
@@ -16825,7 +16367,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_isAsynchronous_Get_5A8011F3(self);
+                    var result = PInvoke_isAsynchronous_Get_3F05FC2E(self);
                     
                     return result;
                 }
@@ -16840,7 +16382,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO5EmptyV14isAsynchronousSbvg")]
-            private static extern System.Boolean PInvoke_isAsynchronous_Get_5A8011F3( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isAsynchronous_Get_3F05FC2E( SwiftSelf self);
             
             public System.Boolean IsAsynchronous
             {
@@ -16923,25 +16465,25 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 using var assetTypeSwift = assetType is {} assetTypeValue ? SwiftOptional<Swift.Nuke.AssetType>.NewSome(assetTypeValue) : SwiftOptional<Swift.Nuke.AssetType>.NewNone();
                 using PayloadBuffer<IntPtr> assetTypeDisposable = assetTypeSwift.PayloadBuffer;
                 IntPtr assetTypeBuffer = assetTypeDisposable.Buffer;
-                PInvoke_init_21EDDFCB(swiftIndirectResult, assetTypeBuffer, isProgressive);
+                PInvoke_init_23BA4212(swiftIndirectResult, assetTypeBuffer, isProgressive);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO5EmptyV9assetType13isProgressiveAeA05AssetF0VSg_SbtcfC")]
-            private static extern void PInvoke_init_21EDDFCB( SwiftIndirectResult swiftIndirectResult,  IntPtr assetTypeBuffer,  System.Boolean isProgressive);
+            private static extern void PInvoke_init_23BA4212( SwiftIndirectResult swiftIndirectResult,  IntPtr assetTypeBuffer,  System.Boolean isProgressive);
             public unsafe Empty()
             {
                 _payload = new SwiftSafeHandle<Empty>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_6DDAD177(swiftIndirectResult);
+                PInvoke_init_6E59D481(swiftIndirectResult);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Empty_init_B1B9E014_2")]
-            private static extern void PInvoke_init_6DDAD177( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_init_6E59D481( SwiftIndirectResult swiftIndirectResult);
             public unsafe Empty( Swift.Nuke.AssetType? assetType)
             {
                 _payload = new SwiftSafeHandle<Empty>((IntPtr)NativeMemory.Alloc(_payloadSize));
@@ -16950,13 +16492,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 using var assetTypeSwift = assetType is {} assetTypeValue ? SwiftOptional<Swift.Nuke.AssetType>.NewSome(assetTypeValue) : SwiftOptional<Swift.Nuke.AssetType>.NewNone();
                 using PayloadBuffer<IntPtr> assetTypeDisposable = assetTypeSwift.PayloadBuffer;
                 IntPtr assetTypeBuffer = assetTypeDisposable.Buffer;
-                PInvoke_init_44B73F50(swiftIndirectResult, assetTypeBuffer);
+                PInvoke_init_25E6D5B1(swiftIndirectResult, assetTypeBuffer);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Empty_init_B1B9E014_1")]
-            private static extern void PInvoke_init_44B73F50( SwiftIndirectResult swiftIndirectResult,  IntPtr assetTypeBuffer);
+            private static extern void PInvoke_init_25E6D5B1( SwiftIndirectResult swiftIndirectResult,  IntPtr assetTypeBuffer);
             
             
             public unsafe Swift.Nuke.ImageContainer Decode( Foundation.NSData arg0)
@@ -16974,7 +16516,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     var arg0Swift = Swift.Data.FromNSData(arg0);
                     
-                    PInvoke_decode_53F17A0B(swiftIndirectResult, arg0Swift, self, out var error);
+                    PInvoke_decode_7E611E83(swiftIndirectResult, arg0Swift, self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -16994,7 +16536,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO5EmptyV6decodeyAA0B9ContainerV10Foundation4DataVKF")]
-            private static extern void PInvoke_decode_53F17A0B( SwiftIndirectResult swiftIndirectResult,  Swift.Data arg0,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_decode_7E611E83( SwiftIndirectResult swiftIndirectResult,  Swift.Data arg0,  SwiftSelf self, out SwiftError error);
             
             
             public unsafe Swift.Nuke.ImageContainer? DecodePartiallyDownloadedData( Foundation.NSData arg0)
@@ -17008,7 +16550,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     var arg0Swift = Swift.Data.FromNSData(arg0);
                     
-                    var result = PInvoke_decodePartiallyDownloadedData_16F3B5CB(arg0Swift, self);
+                    var result = PInvoke_decodePartiallyDownloadedData_2EE58784(arg0Swift, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Nuke.ImageContainer>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -17024,7 +16566,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO5EmptyV29decodePartiallyDownloadedDatayAA0B9ContainerVSg10Foundation0H0VF")]
-            private static extern IntPtr PInvoke_decodePartiallyDownloadedData_16F3B5CB( Swift.Data arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_decodePartiallyDownloadedData_2EE58784( Swift.Data arg0,  SwiftSelf self);
             
             
         }
@@ -17042,7 +16584,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_isAsynchronous_Get_43D181B5(self);
+                    var result = PInvoke_isAsynchronous_Get_143A653E(self);
                     
                     return result;
                 }
@@ -17057,7 +16599,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO7DefaultC14isAsynchronousSbvg")]
-            private static extern System.Boolean PInvoke_isAsynchronous_Get_43D181B5( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isAsynchronous_Get_143A653E( SwiftSelf self);
             
             public System.Boolean IsAsynchronous
             {
@@ -17136,13 +16678,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 _payload = new SwiftSafeHandle<Default>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_6E72DE19(swiftIndirectResult);
+                PInvoke_init_79BBCA22(swiftIndirectResult);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO7DefaultCAEycfC")]
-            private static extern void PInvoke_init_6E72DE19( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_init_79BBCA22( SwiftIndirectResult swiftIndirectResult);
             
             
             public static unsafe bool TryCreate( Swift.Nuke.ImageDecodingContext context, out Default result)
@@ -17159,7 +16701,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    PInvoke_init_4E0C69D2(swiftIndirectResult, context.Payload);
+                    PInvoke_init_02C85483(swiftIndirectResult, context.Payload);
                     
                     uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);
                     
@@ -17187,7 +16729,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO7DefaultC7contextAESgAA0B15DecodingContextV_tcfC")]
-            private static extern void PInvoke_init_4E0C69D2( SwiftIndirectResult swiftIndirectResult,  SafeHandle context);
+            private static extern void PInvoke_init_02C85483( SwiftIndirectResult swiftIndirectResult,  SafeHandle context);
             
             
             public unsafe Swift.Nuke.ImageContainer Decode( Foundation.NSData arg0)
@@ -17205,7 +16747,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     var arg0Swift = Swift.Data.FromNSData(arg0);
                     
-                    PInvoke_decode_448116C6(swiftIndirectResult, arg0Swift, self, out var error);
+                    PInvoke_decode_2A8BF3F2(swiftIndirectResult, arg0Swift, self, out var error);
                     
                     if (error.Value != null)
                     {
@@ -17225,7 +16767,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO7DefaultC6decodeyAA0B9ContainerV10Foundation4DataVKF")]
-            private static extern void PInvoke_decode_448116C6( SwiftIndirectResult swiftIndirectResult,  Swift.Data arg0,  SwiftSelf self, out SwiftError error);
+            private static extern void PInvoke_decode_2A8BF3F2( SwiftIndirectResult swiftIndirectResult,  Swift.Data arg0,  SwiftSelf self, out SwiftError error);
             
             
             public unsafe Swift.Nuke.ImageContainer? DecodePartiallyDownloadedData( Foundation.NSData arg0)
@@ -17239,7 +16781,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     var arg0Swift = Swift.Data.FromNSData(arg0);
                     
-                    var result = PInvoke_decodePartiallyDownloadedData_4DBCBC12(arg0Swift, self);
+                    var result = PInvoke_decodePartiallyDownloadedData_0998A854(arg0Swift, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Nuke.ImageContainer>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -17255,7 +16797,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageDecodersO7DefaultC29decodePartiallyDownloadedDatayAA0B9ContainerVSg10Foundation0H0VF")]
-            private static extern IntPtr PInvoke_decodePartiallyDownloadedData_4DBCBC12( Swift.Data arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_decodePartiallyDownloadedData_0998A854( Swift.Data arg0,  SwiftSelf self);
             
             
         }
@@ -17276,7 +16818,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                var result = PInvoke_rawValue_Get_597E319E(self);
+                var result = PInvoke_rawValue_Get_68969715(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -17293,7 +16835,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV8rawValueSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_597E319E( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_rawValue_Get_68969715( SwiftSelf self);
         
         public string RawValue
         {
@@ -17310,7 +16852,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_png_Get_49C5CD3B(swiftIndirectResult);
+                PInvoke_png_Get_31EBBFBC(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.AssetType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17323,7 +16865,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV3pngACvgZ")]
-        private static extern void PInvoke_png_Get_49C5CD3B( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_png_Get_31EBBFBC( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Nuke.AssetType Png
         {
@@ -17340,7 +16882,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_jpeg_Get_3AD2C242(swiftIndirectResult);
+                PInvoke_jpeg_Get_51876EDA(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.AssetType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17353,7 +16895,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV4jpegACvgZ")]
-        private static extern void PInvoke_jpeg_Get_3AD2C242( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_jpeg_Get_51876EDA( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Nuke.AssetType Jpeg
         {
@@ -17370,7 +16912,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_gif_Get_04310982(swiftIndirectResult);
+                PInvoke_gif_Get_0094603E(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.AssetType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17383,7 +16925,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV3gifACvgZ")]
-        private static extern void PInvoke_gif_Get_04310982( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_gif_Get_0094603E( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Nuke.AssetType Gif
         {
@@ -17400,7 +16942,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_heic_Get_1DD32679(swiftIndirectResult);
+                PInvoke_heic_Get_5479C3C2(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.AssetType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17413,7 +16955,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV4heicACvgZ")]
-        private static extern void PInvoke_heic_Get_1DD32679( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_heic_Get_5479C3C2( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Nuke.AssetType Heic
         {
@@ -17430,7 +16972,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_webp_Get_50EB3ADB(swiftIndirectResult);
+                PInvoke_webp_Get_2C5F73AA(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.AssetType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17443,7 +16985,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV4webpACvgZ")]
-        private static extern void PInvoke_webp_Get_50EB3ADB( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_webp_Get_2C5F73AA( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Nuke.AssetType Webp
         {
@@ -17460,7 +17002,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_mp4_Get_0D549A75(swiftIndirectResult);
+                PInvoke_mp4_Get_0EEA5A9C(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.AssetType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17473,7 +17015,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV3mp4ACvgZ")]
-        private static extern void PInvoke_mp4_Get_0D549A75( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_mp4_Get_0EEA5A9C( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Nuke.AssetType Mp4
         {
@@ -17490,7 +17032,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_m4v_Get_312DE4D0(swiftIndirectResult);
+                PInvoke_m4v_Get_5DB0691F(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.AssetType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17503,7 +17045,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV3m4vACvgZ")]
-        private static extern void PInvoke_m4v_Get_312DE4D0( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_m4v_Get_5DB0691F( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Nuke.AssetType M4v
         {
@@ -17520,7 +17062,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_mov_Get_48629012(swiftIndirectResult);
+                PInvoke_mov_Get_11C7496C(swiftIndirectResult);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.AssetType>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17533,7 +17075,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV3movACvgZ")]
-        private static extern void PInvoke_mov_Get_48629012( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_mov_Get_11C7496C( SwiftIndirectResult swiftIndirectResult);
         
         public static Swift.Nuke.AssetType Mov
         {
@@ -17550,7 +17092,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                var result = PInvoke_hashValue_Get_42593461(self);
+                var result = PInvoke_hashValue_Get_3C4692B7(self);
                 
                 return result;
             }
@@ -17565,7 +17107,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV9hashValueSivg")]
-        private static extern nint PInvoke_hashValue_Get_42593461( SwiftSelf self);
+        private static extern nint PInvoke_hashValue_Get_3C4692B7( SwiftSelf self);
         
         public nint HashValue
         {
@@ -17682,13 +17224,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             using var rawValueSwift = new SwiftString(rawValue);
             using PayloadBuffer<SwiftString.Buffer> rawValueDisposable = rawValueSwift.PayloadBuffer;
-            PInvoke_init_767934DD(swiftIndirectResult, rawValueDisposable.Buffer);
+            PInvoke_init_243C44BC(swiftIndirectResult, rawValueDisposable.Buffer);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV8rawValueACSS_tcfC")]
-        private static extern void PInvoke_init_767934DD( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer rawValue);
+        private static extern void PInvoke_init_243C44BC( SwiftIndirectResult swiftIndirectResult,  Swift.SwiftString.Buffer rawValue);
         
         
         public unsafe void Hash(ref Swift.Hasher into)
@@ -17701,7 +17243,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_hash_3FE8C0E9(into.Payload, self);
+                PInvoke_hash_1F63DB57(into.Payload, self);
                 
                 return;
             }
@@ -17716,7 +17258,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeV4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_3FE8C0E9( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_1F63DB57( SafeHandle into,  SwiftSelf self);
         
         
         public static unsafe bool TryCreate( Foundation.NSData arg0, out AssetType result)
@@ -17734,7 +17276,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 var arg0Swift = Swift.Data.FromNSData(arg0);
                 
-                PInvoke_init_6E0CF8AD(swiftIndirectResult, arg0Swift);
+                PInvoke_init_18F0FB88(swiftIndirectResult, arg0Swift);
                 
                 uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);
                 
@@ -17762,7 +17304,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9AssetTypeVyACSg10Foundation4DataVcfC")]
-        private static extern void PInvoke_init_6E0CF8AD( SwiftIndirectResult swiftIndirectResult,  Swift.Data arg0);
+        private static extern void PInvoke_init_18F0FB88( SwiftIndirectResult swiftIndirectResult,  Swift.Data arg0);
         
         
     }
@@ -17780,7 +17322,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                var result = PInvoke_taskId_Get_7C59426B(self);
+                var result = PInvoke_taskId_Get_5F1D9146(self);
                 
                 return result;
             }
@@ -17795,7 +17337,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC6taskIds5Int64Vvg")]
-        private static extern System.Int64 PInvoke_taskId_Get_7C59426B( SwiftSelf self);
+        private static extern System.Int64 PInvoke_taskId_Get_5F1D9146( SwiftSelf self);
         
         public System.Int64 TaskId
         {
@@ -17816,7 +17358,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_request_Get_0A82F59B(swiftIndirectResult, self);
+                PInvoke_request_Get_5848402B(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17831,7 +17373,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC7requestAA0B7RequestVvg")]
-        private static extern void PInvoke_request_Get_0A82F59B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_request_Get_5848402B( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Nuke.ImageRequest Request
         {
@@ -17852,7 +17394,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_priority_Get_66D304A6(swiftIndirectResult, self);
+                PInvoke_priority_Get_269BA429(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.PriorityInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17867,7 +17409,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC8priorityAA0B7RequestV8PriorityOvg")]
-        private static extern void PInvoke_priority_Get_66D304A6( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_priority_Get_269BA429( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Priority_Set( Swift.Nuke.ImageRequest.PriorityInfo value)
         {
@@ -17879,7 +17421,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_priority_Set_313CC482(value.Payload.DangerousGetHandle(), self);
+                PInvoke_priority_Set_19CA64C6(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -17894,7 +17436,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC8priorityAA0B7RequestV8PriorityOvs")]
-        private static extern void PInvoke_priority_Set_313CC482( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_priority_Set_19CA64C6( IntPtr value,  SwiftSelf self);
         
         public Swift.Nuke.ImageRequest.PriorityInfo Priority
         {
@@ -17916,7 +17458,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_currentProgress_Get_01E34187(swiftIndirectResult, self);
+                PInvoke_currentProgress_Get_64DED17E(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageTask.ProgressInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17931,7 +17473,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC15currentProgressAC0E0Vvg")]
-        private static extern void PInvoke_currentProgress_Get_01E34187( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_currentProgress_Get_64DED17E( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Nuke.ImageTask.ProgressInfo CurrentProgress
         {
@@ -17952,7 +17494,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_state_Get_33370EF1(swiftIndirectResult, self);
+                PInvoke_state_Get_346CDD5F(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageTask.StateInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -17967,7 +17509,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC5stateAC5StateOvg")]
-        private static extern void PInvoke_state_Get_33370EF1( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_state_Get_346CDD5F( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         public Swift.Nuke.ImageTask.StateInfo State
         {
@@ -18098,7 +17640,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                var result = PInvoke_description_Get_7A50AE77(self);
+                var result = PInvoke_description_Get_061A3BCF(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -18115,7 +17657,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC11descriptionSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_7A50AE77( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_061A3BCF( SwiftSelf self);
         
         public string Description
         {
@@ -18132,7 +17674,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                var result = PInvoke_hashValue_Get_3FDAD3E1(self);
+                var result = PInvoke_hashValue_Get_7AC78140(self);
                 
                 return result;
             }
@@ -18147,7 +17689,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC9hashValueSivg")]
-        private static extern nint PInvoke_hashValue_Get_3FDAD3E1( SwiftSelf self);
+        private static extern nint PInvoke_hashValue_Get_7AC78140( SwiftSelf self);
         
         public nint HashValue
         {
@@ -18268,7 +17810,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_completed_Get_1C02C015(self);
+                    var result = PInvoke_completed_Get_54DA5417(self);
                     
                     return result;
                 }
@@ -18283,7 +17825,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC8ProgressV9completeds5Int64Vvg")]
-            private static extern System.Int64 PInvoke_completed_Get_1C02C015( SwiftSelf self);
+            private static extern System.Int64 PInvoke_completed_Get_54DA5417( SwiftSelf self);
             
             public System.Int64 Completed
             {
@@ -18300,7 +17842,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_total_Get_643967ED(self);
+                    var result = PInvoke_total_Get_5A47C898(self);
                     
                     return result;
                 }
@@ -18315,7 +17857,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC8ProgressV5totals5Int64Vvg")]
-            private static extern System.Int64 PInvoke_total_Get_643967ED( SwiftSelf self);
+            private static extern System.Int64 PInvoke_total_Get_5A47C898( SwiftSelf self);
             
             public System.Int64 Total
             {
@@ -18332,7 +17874,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_fraction_Get_481F3289(self);
+                    var result = PInvoke_fraction_Get_5436C3FD(self);
                     
                     return result;
                 }
@@ -18347,7 +17889,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC8ProgressV8fractionSfvg")]
-            private static extern System.Single PInvoke_fraction_Get_481F3289( SwiftSelf self);
+            private static extern System.Single PInvoke_fraction_Get_5436C3FD( SwiftSelf self);
             
             public System.Single Fraction
             {
@@ -18364,7 +17906,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_54661D47(self);
+                    var result = PInvoke_hashValue_Get_68E80372(self);
                     
                     return result;
                 }
@@ -18379,7 +17921,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC8ProgressV9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_54661D47( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_68E80372( SwiftSelf self);
             
             public nint HashValue
             {
@@ -18494,13 +18036,13 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 _payload = new SwiftSafeHandle<ProgressInfo>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_06B8D812(swiftIndirectResult, completed, total);
+                PInvoke_init_60BF2E97(swiftIndirectResult, completed, total);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC8ProgressV9completed5totalAEs5Int64V_AItcfC")]
-            private static extern void PInvoke_init_06B8D812( SwiftIndirectResult swiftIndirectResult,  System.Int64 completed,  System.Int64 total);
+            private static extern void PInvoke_init_60BF2E97( SwiftIndirectResult swiftIndirectResult,  System.Int64 completed,  System.Int64 total);
             
             
             public unsafe void Hash(ref Swift.Hasher into)
@@ -18513,7 +18055,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    PInvoke_hash_36E89C7F(into.Payload, self);
+                    PInvoke_hash_4377A6F8(into.Payload, self);
                     
                     return;
                 }
@@ -18528,7 +18070,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC8ProgressV4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_36E89C7F( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_4377A6F8( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -18633,7 +18175,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_61987B80(self);
+                    var result = PInvoke_hashValue_Get_1A4FE697(self);
                     
                     return result;
                 }
@@ -18646,7 +18188,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC5StateO9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_61987B80( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_1A4FE697( SwiftSelf self);
             
             public nint HashValue
             {
@@ -18725,7 +18267,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    PInvoke_hash_4979E78A(into.Payload, self);
+                    PInvoke_hash_752D8297(into.Payload, self);
                     
                     return;
                 }
@@ -18738,7 +18280,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC5StateO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_4979E78A( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_752D8297( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -19046,7 +18588,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_cancel_4F4FA68F(self);
+                PInvoke_cancel_661376C0(self);
                 
                 return;
             }
@@ -19061,7 +18603,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC6cancelyyF")]
-        private static extern void PInvoke_cancel_4F4FA68F( SwiftSelf self);
+        private static extern void PInvoke_cancel_661376C0( SwiftSelf self);
         
         
         public unsafe void Hash(ref Swift.Hasher into)
@@ -19074,7 +18616,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_hash_635639D2(into.Payload, self);
+                PInvoke_hash_384EEEE9(into.Payload, self);
                 
                 return;
             }
@@ -19089,7 +18631,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke9ImageTaskC4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_635639D2( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_384EEEE9( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -19435,7 +18977,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                var result = PInvoke_description_Get_4CF92EA2(self);
+                var result = PInvoke_description_Get_47557816(self);
                 
                 unsafe {
     return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
@@ -19450,7 +18992,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke18ImageDecodingErrorO11descriptionSSvg")]
-        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_4CF92EA2( SwiftSelf self);
+        private static extern Swift.SwiftString.Buffer PInvoke_description_Get_47557816( SwiftSelf self);
         
         public string Description
         {
@@ -19465,7 +19007,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                var result = PInvoke_hashValue_Get_2989AEB0(self);
+                var result = PInvoke_hashValue_Get_45DB3B54(self);
                 
                 return result;
             }
@@ -19478,7 +19020,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke18ImageDecodingErrorO9hashValueSivg")]
-        private static extern nint PInvoke_hashValue_Get_2989AEB0( SwiftSelf self);
+        private static extern nint PInvoke_hashValue_Get_45DB3B54( SwiftSelf self);
         
         public nint HashValue
         {
@@ -19557,7 +19099,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_hash_68D78689(into.Payload, self);
+                PInvoke_hash_5234B170(into.Payload, self);
                 
                 return;
             }
@@ -19570,7 +19112,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke18ImageDecodingErrorO4hash4intoys6HasherVz_tF")]
-        private static extern void PInvoke_hash_68D78689( SafeHandle into,  SwiftSelf self);
+        private static extern void PInvoke_hash_5234B170( SafeHandle into,  SwiftSelf self);
         
         
     }
@@ -19664,7 +19206,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    PInvoke_type_Get_40CC0E71(swiftIndirectResult, self);
+                    PInvoke_type_Get_5FAF88AF(swiftIndirectResult, self);
                     
                     return SwiftMarshal.MarshalFromSwift<Swift.Nuke.AssetType>(new IntPtr(swiftIndirectResult.Value));
                 }
@@ -19679,7 +19221,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO0B2IOV4typeAA9AssetTypeVvg")]
-            private static extern void PInvoke_type_Get_40CC0E71( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+            private static extern void PInvoke_type_Get_5FAF88AF( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
             
             public Swift.Nuke.AssetType Type
             {
@@ -19696,7 +19238,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_compressionRatio_Get_2591D53D(self);
+                    var result = PInvoke_compressionRatio_Get_5CA8FB6D(self);
                     
                     return result;
                 }
@@ -19711,7 +19253,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO0B2IOV16compressionRatioSfvg")]
-            private static extern System.Single PInvoke_compressionRatio_Get_2591D53D( SwiftSelf self);
+            private static extern System.Single PInvoke_compressionRatio_Get_5CA8FB6D( SwiftSelf self);
             
             public System.Single CompressionRatio
             {
@@ -19791,25 +19333,25 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 _payload = new SwiftSafeHandle<ImageIO>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_7A6CB35E(swiftIndirectResult, type.Payload, compressionRatio);
+                PInvoke_init_6888C41B(swiftIndirectResult, type.Payload, compressionRatio);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO0B2IOV4type16compressionRatioAeA9AssetTypeV_SftcfC")]
-            private static extern void PInvoke_init_7A6CB35E( SwiftIndirectResult swiftIndirectResult,  SafeHandle type,  System.Single compressionRatio);
+            private static extern void PInvoke_init_6888C41B( SwiftIndirectResult swiftIndirectResult,  SafeHandle type,  System.Single compressionRatio);
             public unsafe ImageIO( Swift.Nuke.AssetType type)
             {
                 _payload = new SwiftSafeHandle<ImageIO>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_7744C655(swiftIndirectResult, type.Payload);
+                PInvoke_init_2D5384E6(swiftIndirectResult, type.Payload);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_ImageIO_init_5E8C4DC8_1")]
-            private static extern void PInvoke_init_7744C655( SwiftIndirectResult swiftIndirectResult,  SafeHandle type);
+            private static extern void PInvoke_init_2D5384E6( SwiftIndirectResult swiftIndirectResult,  SafeHandle type);
             
             
             public static System.Boolean IsSupported( Swift.Nuke.AssetType type)
@@ -19818,7 +19360,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 {
                     
                     
-                    var result = PInvoke_isSupported_06F59D53(type.Payload);
+                    var result = PInvoke_isSupported_6ED9E83D(type.Payload);
                     
                     return result;
                 }
@@ -19831,7 +19373,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO0B2IOV11isSupported4typeSbAA9AssetTypeV_tFZ")]
-            private static extern System.Boolean PInvoke_isSupported_06F59D53( SafeHandle type);
+            private static extern System.Boolean PInvoke_isSupported_6ED9E83D( SafeHandle type);
             
             
             public unsafe Swift.Data? Encode( UIKit.UIImage arg0)
@@ -19845,7 +19387,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_encode_16D6887E(arg0Handle, self);
+                    var result = PInvoke_encode_50CA4828(arg0Handle, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Data>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -19861,7 +19403,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO0B2IOV6encodey10Foundation4DataVSgSo7UIImageCF")]
-            private static extern IntPtr PInvoke_encode_16D6887E( IntPtr arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_encode_50CA4828( IntPtr arg0,  SwiftSelf self);
             
             
         }
@@ -19879,7 +19421,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_compressionQuality_Get_2EFA2C06(self);
+                    var result = PInvoke_compressionQuality_Get_5F895A31(self);
                     
                     return result;
                 }
@@ -19894,7 +19436,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO7DefaultV18compressionQualitySfvg")]
-            private static extern System.Single PInvoke_compressionQuality_Get_2EFA2C06( SwiftSelf self);
+            private static extern System.Single PInvoke_compressionQuality_Get_5F895A31( SwiftSelf self);
             
             private unsafe void CompressionQuality_Set( System.Single value)
             {
@@ -19906,7 +19448,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    PInvoke_compressionQuality_Set_525F8EA1(value, self);
+                    PInvoke_compressionQuality_Set_3F47B717(value, self);
                     
                     return;
                 }
@@ -19921,7 +19463,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO7DefaultV18compressionQualitySfvs")]
-            private static extern void PInvoke_compressionQuality_Set_525F8EA1( System.Single value,  SwiftSelf self);
+            private static extern void PInvoke_compressionQuality_Set_3F47B717( System.Single value,  SwiftSelf self);
             
             public System.Single CompressionQuality
             {
@@ -19939,7 +19481,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_isHEIFPreferred_Get_4FEB1FC3(self);
+                    var result = PInvoke_isHEIFPreferred_Get_04CAFB38(self);
                     
                     return result;
                 }
@@ -19954,7 +19496,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO7DefaultV15isHEIFPreferredSbvg")]
-            private static extern System.Boolean PInvoke_isHEIFPreferred_Get_4FEB1FC3( SwiftSelf self);
+            private static extern System.Boolean PInvoke_isHEIFPreferred_Get_04CAFB38( SwiftSelf self);
             
             private unsafe void IsHEIFPreferred_Set( System.Boolean value)
             {
@@ -19966,7 +19508,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    PInvoke_isHEIFPreferred_Set_398992AD(value, self);
+                    PInvoke_isHEIFPreferred_Set_452077AC(value, self);
                     
                     return;
                 }
@@ -19981,7 +19523,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO7DefaultV15isHEIFPreferredSbvs")]
-            private static extern void PInvoke_isHEIFPreferred_Set_398992AD( System.Boolean value,  SwiftSelf self);
+            private static extern void PInvoke_isHEIFPreferred_Set_452077AC( System.Boolean value,  SwiftSelf self);
             
             public System.Boolean IsHEIFPreferred
             {
@@ -20062,25 +19604,25 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 _payload = new SwiftSafeHandle<Default>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_3C78AB1D(swiftIndirectResult, compressionQuality);
+                PInvoke_init_4E509090(swiftIndirectResult, compressionQuality);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO7DefaultV18compressionQualityAESf_tcfC")]
-            private static extern void PInvoke_init_3C78AB1D( SwiftIndirectResult swiftIndirectResult,  System.Single compressionQuality);
+            private static extern void PInvoke_init_4E509090( SwiftIndirectResult swiftIndirectResult,  System.Single compressionQuality);
             public unsafe Default()
             {
                 _payload = new SwiftSafeHandle<Default>((IntPtr)NativeMemory.Alloc(_payloadSize));
                 var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
                 
-                PInvoke_init_6DD5B4A1(swiftIndirectResult);
+                PInvoke_init_1EB0F1FC(swiftIndirectResult);
                 
             }
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("SwiftBindings", EntryPoint = "DBW_Default_init_42CADF88_1")]
-            private static extern void PInvoke_init_6DD5B4A1( SwiftIndirectResult swiftIndirectResult);
+            private static extern void PInvoke_init_1EB0F1FC( SwiftIndirectResult swiftIndirectResult);
             
             
             public unsafe Swift.Data? Encode( UIKit.UIImage arg0)
@@ -20094,7 +19636,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_encode_4D7AD7ED(arg0Handle, self);
+                    var result = PInvoke_encode_2D24BA94(arg0Handle, self);
                     
                     var swiftResult = SwiftMarshal.MarshalFromSwift<Swift.SwiftOptional<Swift.Data>>(new IntPtr(&result));
                     return swiftResult.ToNullable();
@@ -20110,7 +19652,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke13ImageEncodersO7DefaultV6encodey10Foundation4DataVSgSo7UIImageCF")]
-            private static extern IntPtr PInvoke_encode_4D7AD7ED( IntPtr arg0,  SwiftSelf self);
+            private static extern IntPtr PInvoke_encode_2D24BA94( IntPtr arg0,  SwiftSelf self);
             
             
         }
@@ -20131,7 +19673,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                var result = PInvoke_isPaused_Get_53DCF5EE(self);
+                var result = PInvoke_isPaused_Get_4B7A784B(self);
                 
                 return result;
             }
@@ -20146,7 +19688,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC8isPausedSbvg")]
-        private static extern System.Boolean PInvoke_isPaused_Get_53DCF5EE( SwiftSelf self);
+        private static extern System.Boolean PInvoke_isPaused_Get_4B7A784B( SwiftSelf self);
         
         private unsafe void IsPaused_Set( System.Boolean value)
         {
@@ -20158,7 +19700,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_isPaused_Set_15262854(value, self);
+                PInvoke_isPaused_Set_16F57A35(value, self);
                 
                 return;
             }
@@ -20173,7 +19715,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC8isPausedSbvs")]
-        private static extern void PInvoke_isPaused_Set_15262854( System.Boolean value,  SwiftSelf self);
+        private static extern void PInvoke_isPaused_Set_16F57A35( System.Boolean value,  SwiftSelf self);
         
         public System.Boolean IsPaused
         {
@@ -20195,7 +19737,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_priority_Get_365A88DC(swiftIndirectResult, self);
+                PInvoke_priority_Get_785DB4EE(swiftIndirectResult, self);
                 
                 return SwiftMarshal.MarshalFromSwift<Swift.Nuke.ImageRequest.PriorityInfo>(new IntPtr(swiftIndirectResult.Value));
             }
@@ -20210,7 +19752,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC8priorityAA0B7RequestV8PriorityOvg")]
-        private static extern void PInvoke_priority_Get_365A88DC( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
+        private static extern void PInvoke_priority_Get_785DB4EE( SwiftIndirectResult swiftIndirectResult,  SwiftSelf self);
         
         private unsafe void Priority_Set( Swift.Nuke.ImageRequest.PriorityInfo value)
         {
@@ -20222,7 +19764,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_priority_Set_41A6FDCC(value.Payload.DangerousGetHandle(), self);
+                PInvoke_priority_Set_7416A6CE(value.Payload.DangerousGetHandle(), self);
                 
                 return;
             }
@@ -20237,7 +19779,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC8priorityAA0B7RequestV8PriorityOvs")]
-        private static extern void PInvoke_priority_Set_41A6FDCC( IntPtr value,  SwiftSelf self);
+        private static extern void PInvoke_priority_Set_7416A6CE( IntPtr value,  SwiftSelf self);
         
         public Swift.Nuke.ImageRequest.PriorityInfo Priority
         {
@@ -20255,7 +19797,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                var result = PInvoke_didComplete_Get_6F6F55D8(self);
+                var result = PInvoke_didComplete_Get_46466B47(self);
                 
                 // Wrap Swift closure in SwiftEscapingClosure for ARC management
                 var _closureWrapper = SwiftEscapingClosure<Action>.FromSwift(result.FunctionPointer, result.Context);
@@ -20282,11 +19824,11 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC11didCompleteyyYbScMYccSgvg")]
-        private static extern SwiftClosureData PInvoke_didComplete_Get_6F6F55D8( SwiftSelf self);
+        private static extern SwiftClosureData PInvoke_didComplete_Get_46466B47( SwiftSelf self);
         
-        private static unsafe readonly delegate* unmanaged[Swift]<SwiftSelf, void> s_didComplete_Set_value_2266AF38_Callback = &didComplete_Set_value_2266AF38_Callback;
+        private static unsafe readonly delegate* unmanaged[Swift]<SwiftSelf, void> s_didComplete_Set_value_33742735_Callback = &didComplete_Set_value_33742735_Callback;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
-        private static void didComplete_Set_value_2266AF38_Callback(SwiftSelf context)
+        private static void didComplete_Set_value_33742735_Callback(SwiftSelf context)
         {
             var del = SwiftClosureMarshaller.GetDelegateFromContext<Action>(new IntPtr(context.Value));
             del();
@@ -20306,14 +19848,14 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 if (value != null)
                 {
                     valueHandle = GCHandle.Alloc(value);
-                    valueClosure = new SwiftClosureData((IntPtr)s_didComplete_Set_value_2266AF38_Callback, GCHandle.ToIntPtr(valueHandle));
+                    valueClosure = new SwiftClosureData((IntPtr)s_didComplete_Set_value_33742735_Callback, GCHandle.ToIntPtr(valueHandle));
                 }
                 else
                 {
                     valueClosure = default; // Zero-initialized = nil in Swift
                 }
                 
-                PInvoke_didComplete_Set_2266AF38(valueClosure, self);
+                PInvoke_didComplete_Set_33742735(valueClosure, self);
                 
                 return;
             }
@@ -20329,12 +19871,12 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC11didCompleteyyYbScMYccSgvs")]
-        private static extern void PInvoke_didComplete_Set_2266AF38( SwiftClosureData value,  SwiftSelf self);
+        private static extern void PInvoke_didComplete_Set_33742735( SwiftClosureData value,  SwiftSelf self);
         
         public Action? DidComplete
         {
             get => DidComplete_Get();
-            set => DidComplete_Set(SwiftOptional<Swift.AnyType>.FromNullable(value));
+            set => DidComplete_Set(value);
         }
         
         static nuint _payloadSize = SwiftObjectHelper<ImagePrefetcher>.GetTypeMetadata().Size;
@@ -20486,7 +20028,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    var result = PInvoke_hashValue_Get_7D2B92E3(self);
+                    var result = PInvoke_hashValue_Get_6A917493(self);
                     
                     return result;
                 }
@@ -20499,7 +20041,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC11DestinationO9hashValueSivg")]
-            private static extern nint PInvoke_hashValue_Get_7D2B92E3( SwiftSelf self);
+            private static extern nint PInvoke_hashValue_Get_6A917493( SwiftSelf self);
             
             public nint HashValue
             {
@@ -20578,7 +20120,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                     
                     
                     
-                    PInvoke_hash_016A0E33(into.Payload, self);
+                    PInvoke_hash_283CCECA(into.Payload, self);
                     
                     return;
                 }
@@ -20591,7 +20133,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
             [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC11DestinationO4hash4intoys6HasherVz_tF")]
-            private static extern void PInvoke_hash_016A0E33( SafeHandle into,  SwiftSelf self);
+            private static extern void PInvoke_hash_283CCECA( SafeHandle into,  SwiftSelf self);
             
             
         }
@@ -20602,49 +20144,49 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
             _payload = new SwiftSafeHandle<ImagePrefetcher>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_5913EE6D(swiftIndirectResult, pipeline.Payload, destination.Payload.DangerousGetHandle(), maxConcurrentRequestCount);
+            PInvoke_init_6602364A(swiftIndirectResult, pipeline.Payload, destination.Payload.DangerousGetHandle(), maxConcurrentRequestCount);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC8pipeline11destination25maxConcurrentRequestCountAcA0B8PipelineC_AC11DestinationOSitcfC")]
-        private static extern void PInvoke_init_5913EE6D( SwiftIndirectResult swiftIndirectResult,  SafeHandle pipeline,  IntPtr destination,  nint maxConcurrentRequestCount);
+        private static extern void PInvoke_init_6602364A( SwiftIndirectResult swiftIndirectResult,  SafeHandle pipeline,  IntPtr destination,  nint maxConcurrentRequestCount);
         public unsafe ImagePrefetcher()
         {
             _payload = new SwiftSafeHandle<ImagePrefetcher>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_0C8CF1F5(swiftIndirectResult);
+            PInvoke_init_75ED5F57(swiftIndirectResult);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImagePrefetcher_init_9862FED5_3")]
-        private static extern void PInvoke_init_0C8CF1F5( SwiftIndirectResult swiftIndirectResult);
+        private static extern void PInvoke_init_75ED5F57( SwiftIndirectResult swiftIndirectResult);
         public unsafe ImagePrefetcher( Swift.Nuke.ImagePipeline pipeline)
         {
             _payload = new SwiftSafeHandle<ImagePrefetcher>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_30A0F348(swiftIndirectResult, pipeline.Payload);
+            PInvoke_init_1C589B94(swiftIndirectResult, pipeline.Payload);
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImagePrefetcher_init_9862FED5_2")]
-        private static extern void PInvoke_init_30A0F348( SwiftIndirectResult swiftIndirectResult,  SafeHandle pipeline);
+        private static extern void PInvoke_init_1C589B94( SwiftIndirectResult swiftIndirectResult,  SafeHandle pipeline);
         public unsafe ImagePrefetcher( Swift.Nuke.ImagePipeline pipeline,  Swift.Nuke.ImagePrefetcher.Destination destination)
         {
             _payload = new SwiftSafeHandle<ImagePrefetcher>((IntPtr)NativeMemory.Alloc(_payloadSize));
             var swiftIndirectResult = new SwiftIndirectResult((void*)_payload.DangerousGetHandle());
             
-            PInvoke_init_7DBA1D89(swiftIndirectResult, pipeline.Payload, destination.Payload.DangerousGetHandle());
+            PInvoke_init_2082E4EF(swiftIndirectResult, pipeline.Payload, destination.Payload.DangerousGetHandle());
             
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("SwiftBindings", EntryPoint = "DBW_ImagePrefetcher_init_9862FED5_1")]
-        private static extern void PInvoke_init_7DBA1D89( SwiftIndirectResult swiftIndirectResult,  SafeHandle pipeline,  IntPtr destination);
+        private static extern void PInvoke_init_2082E4EF( SwiftIndirectResult swiftIndirectResult,  SafeHandle pipeline,  IntPtr destination);
         
         
         public unsafe void StartPrefetching( IEnumerable<Swift.URL> with)
@@ -20660,7 +20202,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 using PayloadBuffer<IntPtr> withDisposable = withSwift.PayloadBuffer;
                 IntPtr withBuffer = withDisposable.Buffer;
                 
-                PInvoke_startPrefetching_2ED15A43(withBuffer, self);
+                PInvoke_startPrefetching_4BE61EC0(withBuffer, self);
                 
                 return;
             }
@@ -20675,7 +20217,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC16startPrefetching4withySay10Foundation3URLVG_tF")]
-        private static extern void PInvoke_startPrefetching_2ED15A43( IntPtr withBuffer,  SwiftSelf self);
+        private static extern void PInvoke_startPrefetching_4BE61EC0( IntPtr withBuffer,  SwiftSelf self);
         
         
         public unsafe void _startPrefetching( IEnumerable<Swift.Nuke.ImageRequest> with)
@@ -20691,7 +20233,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 using PayloadBuffer<IntPtr> withDisposable = withSwift.PayloadBuffer;
                 IntPtr withBuffer = withDisposable.Buffer;
                 
-                PInvoke__startPrefetching_38334C0D(withBuffer, self);
+                PInvoke__startPrefetching_6D42A9F8(withBuffer, self);
                 
                 return;
             }
@@ -20706,7 +20248,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC17_startPrefetching4withySayAA0B7RequestVG_tF")]
-        private static extern void PInvoke__startPrefetching_38334C0D( IntPtr withBuffer,  SwiftSelf self);
+        private static extern void PInvoke__startPrefetching_6D42A9F8( IntPtr withBuffer,  SwiftSelf self);
         
         
         public unsafe void StopPrefetching( IEnumerable<Swift.URL> with)
@@ -20722,7 +20264,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 using PayloadBuffer<IntPtr> withDisposable = withSwift.PayloadBuffer;
                 IntPtr withBuffer = withDisposable.Buffer;
                 
-                PInvoke_stopPrefetching_1AD50211(withBuffer, self);
+                PInvoke_stopPrefetching_2591EA43(withBuffer, self);
                 
                 return;
             }
@@ -20737,7 +20279,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC15stopPrefetching4withySay10Foundation3URLVG_tF")]
-        private static extern void PInvoke_stopPrefetching_1AD50211( IntPtr withBuffer,  SwiftSelf self);
+        private static extern void PInvoke_stopPrefetching_2591EA43( IntPtr withBuffer,  SwiftSelf self);
         
         
         public unsafe void StopPrefetching()
@@ -20750,7 +20292,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
                 
                 
                 
-                PInvoke_stopPrefetching_7D494E49(self);
+                PInvoke_stopPrefetching_0721FE1C(self);
                 
                 return;
             }
@@ -20765,7 +20307,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> s_initCal
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [DllImport("Nuke", EntryPoint = "$s4Nuke15ImagePrefetcherC15stopPrefetchingyyF")]
-        private static extern void PInvoke_stopPrefetching_7D494E49( SwiftSelf self);
+        private static extern void PInvoke_stopPrefetching_0721FE1C( SwiftSelf self);
         
         
     }

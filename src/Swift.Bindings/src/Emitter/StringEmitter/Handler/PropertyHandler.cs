@@ -166,6 +166,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         else if (isOptionalExistential)
         {
             var innerProtocolList = propertyEnv.ExistentialHandler.UnwrapOptionalExistential(propertyDecl.SwiftTypeSpec)!;
+            var publicInnerType = propertyEnv.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
+            if (publicInnerType == "object")
+            {
+                // Inner protocol not in TypeDatabase — can't properly convert
+                // SwiftOptional<ExistentialContainer> to a meaningful nullable type.
+                _logger.LogWarning($"PropertyHandler: Skipping optional existential property {propertyDecl.Name} - inner protocol resolves to fallback.");
+                SkipProperty(SkipReason.AnyTypeFallback, "Optional existential inner protocol not in TypeDatabase.");
+                return;
+            }
             csTypeName = propertyEnv.ExistentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
         }
         else if (isClosure)
@@ -236,21 +245,27 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         // Apply idiomatic type conversion (SwiftString -> string, SwiftArray -> IReadOnlyList, etc.)
-        // This unifies property types with method return types
-        var idiomaticType = propertyEnv.TypeConversionHandler.GetIdiomaticCSharpType(
-            propertyDecl.SwiftTypeSpec,
-            isParameter: false,
-            typeSpec => TranslateTypeSpecWithGenerics(typeSpec, propertyEnv.TypeDatabase));
-        if (idiomaticType != null)
+        // This unifies property types with method return types.
+        // Skip for existential/optional-existential properties — their types are already
+        // determined by ExistentialHandler and shouldn't be overridden by generic Optional handling.
+        if (!isExistential && !isOptionalExistential)
         {
-            csTypeName = idiomaticType;
-        }
-        // Apply native type remapping (URL → NSUrl, Data → NSData)
-        else if (propertyEnv.TypeConversionHandler.HasNativeTypeRemapping(propertyDecl.SwiftTypeSpec))
-        {
-            var nativeType = propertyEnv.TypeConversionHandler.GetNativeTypeName(propertyDecl.SwiftTypeSpec);
-            if (nativeType != null)
-                csTypeName = nativeType;
+            var idiomaticType = propertyEnv.TypeConversionHandler.GetIdiomaticCSharpType(
+                propertyDecl.SwiftTypeSpec,
+                isParameter: false,
+                typeSpec => TranslateTypeSpecWithGenerics(typeSpec, propertyEnv.TypeDatabase));
+            if (idiomaticType != null)
+            {
+                csTypeName = idiomaticType;
+            }
+            // Apply native type remapping (URL → NSUrl, Data → NSData)
+            // Only when idiomatic conversion doesn't apply (URL/Data are not existentials)
+            else if (propertyEnv.TypeConversionHandler.HasNativeTypeRemapping(propertyDecl.SwiftTypeSpec))
+            {
+                var nativeType = propertyEnv.TypeConversionHandler.GetNativeTypeName(propertyDecl.SwiftTypeSpec);
+                if (nativeType != null)
+                    csTypeName = nativeType;
+            }
         }
 
         // Detect and skip async properties (properties with async getters/setters are not yet supported)
