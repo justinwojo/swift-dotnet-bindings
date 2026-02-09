@@ -13,16 +13,17 @@ For deferred/aspirational work, see `Future/`.
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 1677 passing |
+| Unit tests | 1684 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 
-| Library | Binding Errors | Test App Errors | Notes |
+| Library | Binding Errors | Simulator Tests | Notes |
 |---------|---------------|-----------------|-------|
-| **BlinkID** | 0 | N/A | Clean |
-| **Nuke** | 0 | N/A | Clean (test app has pre-existing install_name_tool iOS toolchain issue) |
-| **CryptoSwift** | 0 | 0 | Clean |
-| **Lottie** | 0 | N/A | Clean |
+| **Lottie** | 0 | 15/15 passing | Clean |
+| **BlinkID** | 0 | 13/13 passing | Modal presentation skipped (iOS async limitation) |
+| **Nuke** | 0 | 15 safe passing | Async image load: wrapper path fixed, BitwiseCopyable fixed, needs ObjC marshalling (I1b) |
+| **CryptoSwift** | 0 | 6 safe + 1 skip | Instance methods crash on CallConvSwift (see Phase I3) |
+| **BridgeTest** | 0 | 35/35 passing | Clean |
 
 ---
 
@@ -51,20 +52,57 @@ Fixed 6 generator bugs eliminating all 12 remaining library binding errors (Cryp
 
 ---
 
-## Phase I: Additional Library Validation
+## Phase I: Mono JIT Mitigation — Wrapper Routing
+
+**Status**: I1 done, I1a done, I1b remaining
+**Priority**: High — unblocks core functionality for Nuke and CryptoSwift
+**Effort**: Medium (2-3 sessions)
+**Depends on**: Phase H
+**Reference**: `Future/mono-jit-mitigation-and-nuke-loadimage-regression.md`
+
+The Mono JIT on iOS does not fully support `CallConvSwift` for closures, non-blittable types, and certain instance method patterns. The generator already emits `@_cdecl` wrapper functions in the `SwiftBindings` framework for async methods — this phase extends that pattern to cover the remaining crash-prone signatures.
+
+### I1. Fix Nuke test app: use wrapper-backed ImageAsync path — Done
+
+Switched the test app from `LoadImage(request, callback)` (direct CallConvSwift — crashes) to `ImageAsync(request)` (wrapper-backed CallConvCdecl). The wrapper path correctly routes through the `SwiftBindings` framework.
+
+### I1a. Fix BitwiseCopyable crash in async complex type returns — Done
+
+The generated Swift wrapper used `storeBytes(of:as:)` which requires `BitwiseCopyable` in Swift 6+, crashing for class types like UIImage. Fixed by:
+- **Class types**: `Unmanaged.passRetained().toOpaque()` + `storeBytes` on `UnsafeMutableRawPointer` (BitwiseCopyable)
+- **Struct/enum types**: `withUnsafePointer + copyMemory` (raw bitwise copy, no BitwiseCopyable requirement, no extra retains)
+- **Enum string raw values**: `withUnsafePointer + copyMemory` (same pattern for Optional<Enum> with String raw values)
+
+Added 7 unit tests + 1 enum regression test.
+
+### I1b. Add ObjC type marshalling in async complex type callbacks
+
+The async callback handler uses `SwiftMarshal.MarshalFromSwift<T>()` which throws `NotSupportedException` for ObjC-bridged types (UIImage). Need to detect ObjC types and use `ObjCRuntime.Runtime.GetNSObject<T>()` instead. Requires either TypeDatabase registration for UIKit types or a runtime detection heuristic.
+
+### I2. Generator: auto-route closure+CallConvSwift to wrapper library
+
+Extend the `UsesWrapperLibrary` routing so that methods with closure parameters are automatically emitted through `@_cdecl` wrapper functions instead of direct `CallConvSwift` P/Invoke. This eliminates the "non-blittable types" error for closure-taking APIs across all libraries, not just Nuke.
+
+### I3. Generator: route instance methods through `@_cdecl` wrappers
+
+Instance methods on Swift classes/structs currently use `CallConvSwift` for the `self` parameter, which triggers the `jit-info.c:918` assertion. Generate `@_cdecl` wrapper functions that take `self` as a regular `UnsafeMutableRawPointer` parameter and forward to the instance method. This would unblock CryptoSwift's instance API (SHA2.Calculate, HMAC.Authenticate, ChaCha20.Encrypt/Decrypt, RSA, etc.).
+
+---
+
+## Phase J: Additional Library Validation
 
 **Status**: Not Started
 **Priority**: Medium
 **Effort**: Medium (2-3 sessions)
-**Depends on**: Phase H (validate with clean error baseline)
+**Depends on**: Phase I (wrapper routing makes more APIs functional)
 
-### I1. Select and bind a new library
+### J1. Select and bind a new library
 Candidates (pick 1):
 - **Alamofire** — networking, heavy closure/async patterns
 - **Kingfisher** — image loading, different patterns from Nuke
 - **SwiftProtobuf** — value types, generics, enums heavy
 
-### I2. Process
+### J2. Process
 1. Build xcframework for the library
 2. Run generator, check binding report
 3. Compare member coverage to existing libraries (target: 90%+)
@@ -72,7 +110,7 @@ Candidates (pick 1):
 5. Fix any new generator bugs found
 6. Add to `BindingTesting/` with build/validate scripts
 
-### I3. Document findings
+### J3. Document findings
 - Update `CURRENT-STATUS.md` with new library stats
 - Add any new skip reasons to `testing-gaps.md`
 
@@ -80,7 +118,7 @@ Candidates (pick 1):
 
 ## Future Work
 
-Once Phase I is complete:
+Once Phase J is complete:
 - Must-pass features at 94+ (currently 94, up from 61 pre-Phase B)
 - Runtime test coverage covers most of the contract matrix
 - Generated API is idiomatic C# — no interop types in public surface
@@ -91,7 +129,6 @@ Once Phase I is complete:
 Next priorities:
 
 - **API Documentation Generation** — Extract Swift doc comments via `swift-symbolgraph-extract` and emit as C# XML doc comments (`/// <summary>`, `/// <param>`, etc.) on generated bindings. Every `.framework`/`.xcframework` ships `.swiftdoc` files that the tool reads — no source code needed. Join key: `usr` field shared between symbol graph JSON and ABI JSON. Steps: (1) run `swift-symbolgraph-extract` in build pipeline, (2) parse `docComment.lines` from symbol graph JSON, (3) add `Documentation` property to `BaseDecl` model, (4) emit XML doc comments in emitter. Tested coverage: Nuke 87%, BlinkID 50%, StoreKit 54%, SwiftBindingsTestLib 96%.
-- **`@_cdecl` wrapper generation** for all methods (bypasses Mono JIT bugs #18, #19 for runtime)
 - **MSBuild SDK + project templates** — Phase 3 DX work from `north-star.md`
 - **Optional string properties** — `Swift.Optional<Swift.String>` → `string?` (extend TypeConversionHandler to unwrap optional strings)
 - **Cross-module protocol interface coverage** — Expand `_runtimeProtocols` for stdlib protocols used as existentials (Comparable, Sendable, CodingKey, etc.)

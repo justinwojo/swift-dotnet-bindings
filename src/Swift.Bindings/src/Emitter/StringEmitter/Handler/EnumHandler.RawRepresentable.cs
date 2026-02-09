@@ -430,7 +430,11 @@ namespace BindingsGeneration
                             str = ""
                         }
                         let result: {{enumFullName}}? = {{enumFullName}}(rawValue: str)
-                        resultPtr.storeBytes(of: result, as: {{enumFullName}}?.self)
+                        // Use withUnsafePointer + copyMemory instead of storeBytes to avoid
+                        // BitwiseCopyable requirement (Swift 6+) for Optional<Enum> with String raw values
+                        withUnsafePointer(to: result) { _srcPtr in
+                            resultPtr.copyMemory(from: UnsafeRawPointer(_srcPtr), byteCount: MemoryLayout<{{enumFullName}}?>.size)
+                        }
                     }
 
                     """);

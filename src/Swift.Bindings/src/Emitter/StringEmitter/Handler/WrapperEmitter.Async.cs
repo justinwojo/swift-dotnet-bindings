@@ -269,21 +269,32 @@ namespace BindingsGeneration
                     bool isClassType = complexReturnTypeRecord?.Kind == TypeRecordKind.Class;
 
                     // Allocate memory, copy result value, pass pointer through callback
-                    // For classes: the "value" is a pointer, so we're storing the pointer value
-                    // For enums/structs: we're storing the inline data
                     // C# will read from this memory and call SBW_Free to release it
+                    // Note: storeBytes(of:as:) requires BitwiseCopyable (Swift 6+), so we use
+                    // alternative patterns that work with all types including classes like UIImage.
                     stringMarshalCode =
                         $"// Marshal complex type to pointer (C# will free via SBW_Free)\n" +
                         $"                        let _resultPtr: OpaquePointer\n" +
                         $"                        do {{\n" +
-                        $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
-                        $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
-                        $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
-                        $"                            _rawPtr.storeBytes(of: {resultVar}, as: {swiftReturnType}.self)\n" +
                         (isClassType
-                            ? $"                            // Retain class to prevent ARC deallocation before C# processes it\n" +
-                              $"                            _ = Unmanaged.passRetained({resultVar} as AnyObject)\n"
-                            : "") +
+                            ? // For classes: retain and store the opaque pointer value directly.
+                              // Unmanaged.passRetained increments refcount; toOpaque() returns UnsafeMutableRawPointer
+                              // which IS BitwiseCopyable, avoiding the storeBytes restriction.
+                              $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
+                              $"                                byteCount: MemoryLayout<UnsafeMutableRawPointer>.size,\n" +
+                              $"                                alignment: MemoryLayout<UnsafeMutableRawPointer>.alignment)\n" +
+                              $"                            _rawPtr.storeBytes(of: Unmanaged.passRetained({resultVar} as AnyObject).toOpaque(), as: UnsafeMutableRawPointer.self)\n"
+                            : // For structs/enums: use withUnsafePointer + copyMemory for a raw bitwise copy
+                              // without the BitwiseCopyable constraint. This matches the old storeBytes semantics
+                              // (no extra retain/copy of internal references) so SBW_Free can safely deallocate
+                              // the buffer without needing to call Destroy. The original 'result' variable keeps
+                              // internal references alive through the synchronous callback invocation.
+                              $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
+                              $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
+                              $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
+                              $"                            withUnsafePointer(to: {resultVar}) {{ _srcPtr in\n" +
+                              $"                                _rawPtr.copyMemory(from: UnsafeRawPointer(_srcPtr), byteCount: MemoryLayout<{swiftReturnType}>.size)\n" +
+                              $"                            }}\n") +
                         $"                            _resultPtr = OpaquePointer(_rawPtr)\n" +
                         $"                        }}";
                 }

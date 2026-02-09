@@ -436,6 +436,31 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_NonFrozenStringRawValueEnum_UsesCopyMemoryInsteadOfStoreBytes()
+    {
+        // Regression test: non-frozen enums with String raw values must NOT use storeBytes
+        // because Optional<Enum> with String raw values is not BitwiseCopyable in Swift 6+.
+        // The wrapper must use withUnsafePointer + copyMemory instead.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("StatusCode", moduleDecl, isFrozen: false);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        EnumHandler.ResetUtf8SliceTracking();
+        var (_, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // Should use withUnsafePointer + copyMemory pattern
+        Assert.Contains("withUnsafePointer(to: result)", swiftOutput);
+        Assert.Contains("copyMemory(from: UnsafeRawPointer(_srcPtr)", swiftOutput);
+
+        // Should NOT use storeBytes API call (BitwiseCopyable crash in Swift 6+)
+        Assert.DoesNotContain(".storeBytes(of:", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_SameNamedNestedEnumsWithStringRawValue_ProducesDistinctWrapperSymbols()
     {
         // Regression test: same-named nested enums in different containers should
