@@ -13,7 +13,7 @@ For deferred/aspirational work, see `Future/`.
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 1684 passing |
+| Unit tests | 1723 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 
@@ -21,7 +21,7 @@ For deferred/aspirational work, see `Future/`.
 |---------|---------------|-----------------|-------|
 | **Lottie** | 0 | 15/15 passing | Clean |
 | **BlinkID** | 0 | 13/13 passing | Modal presentation skipped (iOS async limitation) |
-| **Nuke** | 0 | 15 safe passing | Async image load: wrapper path fixed, BitwiseCopyable fixed, needs ObjC marshalling (I1b) |
+| **Nuke** | 0 | 15 safe + async passing | Async image load fully working end-to-end (wrapper path, BitwiseCopyable, ObjC marshalling) |
 | **CryptoSwift** | 0 | 6 safe + 1 skip | Instance methods crash on CallConvSwift (see Phase I3) |
 | **BridgeTest** | 0 | 35/35 passing | Clean |
 
@@ -54,7 +54,7 @@ Fixed 6 generator bugs eliminating all 12 remaining library binding errors (Cryp
 
 ## Phase I: Mono JIT Mitigation — Wrapper Routing
 
-**Status**: I1 done, I1a done, I1b remaining
+**Status**: I1 done, I1a done, I1b done
 **Priority**: High — unblocks core functionality for Nuke and CryptoSwift
 **Effort**: Medium (2-3 sessions)
 **Depends on**: Phase H
@@ -75,9 +75,15 @@ The generated Swift wrapper used `storeBytes(of:as:)` which requires `BitwiseCop
 
 Added 7 unit tests + 1 enum regression test.
 
-### I1b. Add ObjC type marshalling in async complex type callbacks
+### I1b. Add ObjC type marshalling in async complex type callbacks — Done
 
-The async callback handler uses `SwiftMarshal.MarshalFromSwift<T>()` which throws `NotSupportedException` for ObjC-bridged types (UIImage). Need to detect ObjC types and use `ObjCRuntime.Runtime.GetNSObject<T>()` instead. Requires either TypeDatabase registration for UIKit types or a runtime detection heuristic.
+The async callback handler used `SwiftMarshal.MarshalFromSwift<T>()` which threw `NotSupportedException` for ObjC-bridged types (UIImage). Fixed by:
+- **TypeDatabase**: Expanded ObjC type detection from just ObjectiveC/Foundation root classes to all Apple framework modules (UIKit, AppKit, CoreImage, AVFoundation, etc.). Types from these modules get synthetic ObjCBridged records with correct C# namespace mapping.
+- **TypeDatabase XML parsing**: Fixed `ReadVersion1_0()` to parse the `kind` attribute from XML (`class`/`enum`/`struct`) — was hardcoded to `Struct`, which caused `isClassType` checks to fail for ObjC-bridged class types even when `objcBridged="true"` was set.
+- **Emitter**: `EmitAsyncWrapperForComplexType` now checks `isObjCBridged` and emits `GetNSObject<T>()` instead of `MarshalFromSwift<T>()`. For ObjC-bridged types, `Arc.Release` is skipped in the finally block — `GetNSObject<T>()` takes ownership of the `passRetained` reference (releasing would cause use-after-free).
+- **Runtime**: Added NSObject subclass fallback in `SwiftMarshal.MarshalFromSwift<T>()` as defense-in-depth (Apple platforms only).
+
+Added 20 unit tests for Apple framework type detection + 3 emitter tests for async ObjC callback generation + 3 XML Kind parsing regression tests.
 
 ### I2. Generator: auto-route closure+CallConvSwift to wrapper library
 

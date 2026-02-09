@@ -351,6 +351,86 @@ public class TypeDatabaseTests
         }
 
         [Fact]
+        public async Task LoadModuleDatabaseFromFile_KindClass_MapsToTypeRecordKindClass()
+        {
+            var xml = """
+                <swifttypedatabase version="1.0" moduleName="UIKit" modulePath="/System/Library/Frameworks/UIKit.framework/UIKit">
+                  <entities>
+                    <entity managedNameSpace="UIKit" managedTypeName="UIImage">
+                      <typedeclaration kind="class" name="UIImage" module="UIKit" mangledName="$sSo7UIImageC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+                    </entity>
+                  </entities>
+                </swifttypedatabase>
+                """;
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, xml);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(filePath);
+
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIImage");
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+                Assert.Equal(TypeRecordKind.Class, record!.Kind);
+                Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+            }
+            finally
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabaseFromFile_KindEnum_MapsToTypeRecordKindEnum()
+        {
+            var xml = """
+                <swifttypedatabase version="1.0" moduleName="Swift" modulePath="/usr/lib/swift/libswiftCore.dylib">
+                  <entities>
+                    <entity managedNameSpace="Swift" managedTypeName="Result">
+                      <typedeclaration kind="enum" name="Result" module="Swift" mangledName="$ss6ResultO" frozen="true" requiresMemoryManagement="true" />
+                    </entity>
+                  </entities>
+                </swifttypedatabase>
+                """;
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, xml);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(filePath);
+
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Result");
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+                Assert.Equal(TypeRecordKind.Enum, record!.Kind);
+            }
+            finally
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabaseFromFile_KindMissing_DefaultsToStruct()
+        {
+            // The ValidXmlDatabase fixture has no kind attribute — should default to Struct
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, ValidXmlDatabase);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(filePath);
+
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Widget");
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+                Assert.Equal(TypeRecordKind.Struct, record!.Kind);
+            }
+            finally
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        [Fact]
         public void TryGetTypeRecord_ResolvesRefSuffixAlias_BothDirections()
         {
             var typeDatabase = new TypeDatabase();

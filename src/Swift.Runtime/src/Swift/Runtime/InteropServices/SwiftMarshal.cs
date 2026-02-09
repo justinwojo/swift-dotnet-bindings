@@ -234,6 +234,18 @@ public static class SwiftMarshal
         // because the concrete type is not known at compile time. The generated bindings should
         // handle existential types with explicit container types.
 
+#if IOS || TVOS || MACCATALYST || MACOS
+        // Defense-in-depth: if T is an NSObject subclass (ObjC-bridged type like UIImage, NSImage),
+        // read the object pointer from the Swift memory and wrap with GetNSObject<T>.
+        // The generated bindings should emit GetNSObject directly, but this catches edge cases
+        // where the TypeDatabase didn't recognize the type as ObjC-bridged.
+        if (typeof(Foundation.NSObject).IsAssignableFrom(type))
+        {
+            var objPtr = Marshal.ReadIntPtr(swiftSource);
+            return (T)(object)ObjCRuntime.Runtime.GetNSObject(objPtr)!;
+        }
+#endif
+
         throw new NotSupportedException($"Cannot marshal type {type} from Swift");
     }
 

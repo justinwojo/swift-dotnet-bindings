@@ -180,6 +180,66 @@ public class AsyncSwiftWrapperTests
 
     #endregion
 
+    #region ObjC-Bridged Async Callback Tests
+
+    [Fact]
+    public void AsyncWrapper_ObjCBridgedReturnType_UsesGetNSObject()
+    {
+        // ObjC-bridged class types (like UIImage) must use GetNSObject<T> instead of
+        // SwiftMarshal.MarshalFromSwift<T> in the C# async callback.
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "UIKit.UIImage",
+            returnKind: TypeRecordKind.Class,
+            isObjCBridged: true);
+
+        // C# callback should use GetNSObject<T> for ObjC types
+        Assert.Contains("GetNSObject<", csOutput);
+
+        // Should NOT use SwiftMarshal.MarshalFromSwift (that throws for ObjC types)
+        Assert.DoesNotContain("MarshalFromSwift", csOutput);
+
+        // Should read the object pointer from buffer (isClassType=true)
+        Assert.Contains("_retainedObjPtr", csOutput);
+
+        // GetNSObject takes ownership of the passRetained reference — Arc.Release would
+        // deallocate the object while the wrapper still references it (use-after-free)
+        Assert.DoesNotContain("Arc.Release(_retainedObjPtr)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_NonObjCClassReturnType_UsesMarshalFromSwift()
+    {
+        // Non-ObjC class types (Swift classes) should use MarshalFromSwift, not GetNSObject.
+        var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "TestModule.ImageResult",
+            returnKind: TypeRecordKind.Class);
+
+        // C# callback should use SwiftMarshal.MarshalFromSwift for Swift types
+        Assert.Contains("MarshalFromSwift", csOutput);
+
+        // Should NOT use GetNSObject (that's for ObjC types only)
+        Assert.DoesNotContain("GetNSObject", csOutput);
+
+        // Non-ObjC class types still need Arc.Release to balance passRetained
+        Assert.Contains("Arc.Release(_retainedObjPtr)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_ObjCBridgedReturnType_SwiftUsesUnmanagedRetain()
+    {
+        // The Swift side must use Unmanaged.passRetained for ObjC class types
+        // (same as any class type).
+        var (_, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "UIKit.UIImage",
+            returnKind: TypeRecordKind.Class,
+            isObjCBridged: true);
+
+        // Should use Unmanaged.passRetained pattern (class type)
+        Assert.Contains("Unmanaged.passRetained(", swiftOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     /// <summary>
@@ -188,7 +248,8 @@ public class AsyncSwiftWrapperTests
     /// </summary>
     private static (string csOutput, string swiftOutput) GenerateAsyncMethodWithComplexReturn(
         string returnTypeName,
-        TypeRecordKind returnKind)
+        TypeRecordKind returnKind,
+        bool isObjCBridged = false)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -277,23 +338,36 @@ public class AsyncSwiftWrapperTests
                 Kind = TypeRecordKind.Class
             });
 
-        // Register the return type
+        // Register the return type — may be in a different module (e.g., UIKit.UIImage)
         var returnSwiftTypeName = SwiftTypeName.FromModuleQualifiedName(returnTypeName);
         var returnFlags = returnKind == TypeRecordKind.Class
             ? TypeRecordFlags.RequiresMemoryManagement
             : returnKind == TypeRecordKind.Struct
                 ? TypeRecordFlags.Frozen
                 : TypeRecordFlags.None;
-        module.RegisterType(
-            returnSwiftTypeName,
-            new TypeRecord
-            {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", returnTypeName.Split('.').Last()),
-                SwiftTypeName = returnSwiftTypeName,
-                MetadataAccessor = $"$s10TestModule{returnTypeName.Split('.').Last()}CMa",
-                Flags = returnFlags,
-                Kind = returnKind
-            });
+        if (isObjCBridged)
+            returnFlags |= TypeRecordFlags.ObjCBridged;
+        var returnNamespace = returnTypeName.Contains('.') ? returnTypeName.Substring(0, returnTypeName.IndexOf('.')) : "Swift.TestModule";
+        var returnTypeRecord = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(returnNamespace, returnTypeName.Split('.').Last()),
+            SwiftTypeName = returnSwiftTypeName,
+            MetadataAccessor = $"$s10TestModule{returnTypeName.Split('.').Last()}CMa",
+            Flags = returnFlags,
+            Kind = returnKind
+        };
+        // Register in the correct module database (UIKit.UIImage → UIKit module)
+        var returnModule = returnSwiftTypeName.Module;
+        if (returnModule == "TestModule")
+        {
+            module.RegisterType(returnSwiftTypeName, returnTypeRecord);
+        }
+        else
+        {
+            var returnModuleDb = new ModuleTypeDatabase(returnModule, $"/System/Library/Frameworks/{returnModule}.framework/{returnModule}");
+            returnModuleDb.RegisterType(returnSwiftTypeName, returnTypeRecord);
+            typeDatabase.AddModuleDatabase(returnModuleDb);
+        }
 
         typeDatabase.AddModuleDatabase(module);
 

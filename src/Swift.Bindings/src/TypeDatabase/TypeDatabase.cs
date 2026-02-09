@@ -158,6 +158,7 @@ namespace BindingsGeneration
                 string frozen = typeDeclarationNode?.Attributes?["frozen"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'frozen' attribute.");
                 string requiresMemoryManagement = typeDeclarationNode?.Attributes?["requiresMemoryManagement"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'requiresMemoryManagement' attribute.");
                 string objcBridged = typeDeclarationNode?.Attributes?["objcBridged"]?.Value ?? "false";
+                string kindStr = typeDeclarationNode?.Attributes?["kind"]?.Value ?? "struct";
                 string? nativeType = typeDeclarationNode?.Attributes?["nativeType"]?.Value;
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
@@ -189,7 +190,12 @@ namespace BindingsGeneration
                     Flags = (frozen.ToLower() == "true" ? TypeRecordFlags.Frozen : TypeRecordFlags.None) |
                             (requiresMemoryManagement.ToLower() == "true" ? TypeRecordFlags.RequiresMemoryManagement : TypeRecordFlags.None) |
                             (objcBridged.ToLower() == "true" ? TypeRecordFlags.ObjCBridged : TypeRecordFlags.None),
-                    Kind = TypeRecordKind.Struct,
+                    Kind = kindStr.ToLower() switch
+                    {
+                        "class" => TypeRecordKind.Class,
+                        "enum" => TypeRecordKind.Enum,
+                        _ => TypeRecordKind.Struct,
+                    },
                     NativeTypeName = nativeTypeName,
                 };
 

@@ -60,7 +60,7 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.IsTypeProcessed(typeName))
             return true;
 
-        // ObjC root class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
+        // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
         return IsObjCModuleType(typeSpec);
     }
 
@@ -181,7 +181,7 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.TryGetTypeRecord(typeName, out record))
             return true;
 
-        // ObjC root class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
+        // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
         if (IsObjCModuleType(typeSpec))
         {
             record = CreateObjCBridgedTypeRecord(typeName);
@@ -233,10 +233,9 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
             return record;
 
-        // ObjC root class types not in the database get synthetic ObjCBridged records.
-        // Only NSObject/NSProxy are safe — other ObjectiveC module types (Selector, ObjCBool)
-        // are structs. TypeSpecParser remaps ObjectiveC.X → Foundation.X, so check both modules.
-        if (IsObjCRootClassSwiftType(swiftTypeName))
+        // ObjC class types not in the database get synthetic ObjCBridged records.
+        // Covers ObjectiveC/Foundation root classes and Apple framework module types.
+        if (IsObjCClassSwiftType(swiftTypeName))
             return CreateObjCBridgedTypeRecord(swiftTypeName);
 
         throw new Exception($"Type {swiftTypeName.ModuleQualifiedName} not found in database.");
@@ -253,10 +252,9 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
             return record;
 
-        // ObjC root class types not in the database get synthetic ObjCBridged records.
-        // Only NSObject/NSProxy are safe — other ObjectiveC module types (Selector, ObjCBool)
-        // are structs. TypeSpecParser remaps ObjectiveC.X → Foundation.X, so check both modules.
-        if (IsObjCRootClassSwiftType(swiftTypeName))
+        // ObjC class types not in the database get synthetic ObjCBridged records.
+        // Covers ObjectiveC/Foundation root classes and Apple framework module types.
+        if (IsObjCClassSwiftType(swiftTypeName))
             return CreateObjCBridgedTypeRecord(swiftTypeName);
 
         return AnyType;
@@ -389,25 +387,80 @@ public static class TypeDatabaseExtensions
     }
 
     /// <summary>
-    /// The ObjectiveC module namespace mapping. Only the ObjectiveC module is safe for
-    /// automatic ObjCBridged fallback because every type in it is an NSObject subclass.
-    /// Other Apple framework modules (Foundation, UIKit, etc.) also contain value types
-    /// and enums that would be misclassified as classes — those types must be registered
-    /// in the type database XML explicitly.
+    /// The ObjectiveC module name in Swift ABI.
+    /// TypeSpecParser.cs remaps "ObjectiveC.X" → "Foundation.X", so both must be checked.
     /// </summary>
     private const string ObjCModuleName = "ObjectiveC";
-    private const string ObjCModuleCSharpNamespace = "Foundation";
 
     /// <summary>
-    /// Creates a synthetic ObjCBridged TypeRecord for a type from the ObjectiveC module.
+    /// Apple framework modules whose types are predominantly Objective-C classes.
+    /// Types from these modules get synthetic ObjCBridged records when not explicitly
+    /// registered in the type database XML, unless excluded by
+    /// <see cref="AppleFrameworkValueTypes"/>. The C# namespace matches the Swift module
+    /// name (e.g., UIKit.UIImage → UIKit.UIImage in C#).
+    /// Modules with many value types (Metal, CoreMotion, CoreGraphics, GameKit, simd, etc.)
+    /// are intentionally excluded — their types must be registered via XML.
+    /// KNOWN GAP: If a newly encountered struct/enum from an included module is not in
+    /// <see cref="AppleFrameworkValueTypes"/>, it will be misclassified as a class. This
+    /// produces a compile-time error in generated code (not a silent runtime bug). The
+    /// long-term fix is ABI-driven classification using the "usr" field from ABI JSON.
+    /// </summary>
+    private static readonly HashSet<string> AppleObjCFrameworkModules = new(StringComparer.Ordinal)
+    {
+        "UIKit", "AppKit", "CoreImage", "CoreData",
+        "WebKit", "SceneKit", "SpriteKit", "ARKit", "RealityKit",
+        "AVFoundation", "Photos", "PhotosUI", "Contacts", "ContactsUI",
+        "EventKit", "EventKitUI", "HealthKit", "HomeKit", "CloudKit",
+        "StoreKit", "PDFKit", "SafariServices",
+        "AuthenticationServices", "CoreBluetooth", "CoreSpotlight",
+        "CoreML", "Vision", "NaturalLanguage", "SoundAnalysis", "Speech",
+        "MultipeerConnectivity", "UserNotifications", "NetworkExtension",
+        "Intents", "IntentsUI",
+    };
+
+    /// <summary>
+    /// Known value types (structs/enums) from Apple ObjC framework modules.
+    /// These must NOT be auto-bridged as ObjC classes — they are value types
+    /// that need different marshalling (direct copy, not pointer + ARC).
+    /// Key is "Module.TypeName" (fully qualified).
+    /// </summary>
+    private static readonly HashSet<string> AppleFrameworkValueTypes = new(StringComparer.Ordinal)
+    {
+        // UIKit structs
+        "UIKit.UIEdgeInsets", "UIKit.UIOffset", "UIKit.UIFloatRange",
+        "UIKit.NSDirectionalEdgeInsets",
+        // AVFoundation structs
+        "AVFoundation.AVAudioFramePosition", "AVFoundation.AVAudioFrameCount",
+        "AVFoundation.AVAudioPacketCount", "AVFoundation.AVAudioChannelCount",
+        // CoreData structs
+        "CoreData.NSFetchRequestResultType",
+        // SceneKit structs
+        "SceneKit.SCNVector3", "SceneKit.SCNVector4", "SceneKit.SCNMatrix4",
+        // MapKit structs (module removed from auto-bridge, but kept here for safety)
+        "MapKit.MKCoordinateRegion", "MapKit.MKCoordinateSpan",
+        "MapKit.MKMapRect", "MapKit.MKMapPoint", "MapKit.MKMapSize",
+        // ARKit structs
+        "ARKit.ARRaycastQuery",
+    };
+
+    /// <summary>
+    /// Creates a synthetic ObjCBridged TypeRecord for an ObjC class type.
     /// The resulting record triggers the existing ObjCBridged marshalling pipeline
     /// (IntPtr in P/Invoke, Handle extraction in wrappers).
+    /// For ObjectiveC/Foundation root classes, the C# namespace is "Foundation".
+    /// For Apple framework types (UIKit, AppKit, etc.), the C# namespace matches the Swift module.
     /// </summary>
     private static TypeRecord CreateObjCBridgedTypeRecord(SwiftTypeName swiftTypeName)
     {
+        // ObjectiveC module types (NSObject, NSProxy) map to Foundation.* in C#
+        // Apple framework types (UIKit.UIImage, AppKit.NSImage) keep their module as namespace
+        var csharpNamespace = (swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
+            ? "Foundation"
+            : swiftTypeName.Module;
+
         return new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(ObjCModuleCSharpNamespace, swiftTypeName.Name),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csharpNamespace, swiftTypeName.Name),
             SwiftTypeName = swiftTypeName,
             MetadataAccessor = string.Empty,
             Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
@@ -416,27 +469,44 @@ public static class TypeDatabaseExtensions
     }
 
     /// <summary>
-    /// Determines whether the specified NamedTypeSpec represents a known ObjC root class.
-    /// Only NSObject and NSProxy are safe for synthetic ObjCBridged records — other
-    /// ObjectiveC module types (Selector, ObjCBool) are structs.
+    /// Determines whether the specified NamedTypeSpec represents an ObjC class type
+    /// that should get a synthetic ObjCBridged record.
+    /// Covers two categories:
+    /// 1. ObjectiveC/Foundation root classes (NSObject, NSProxy) — known safe subset
+    /// 2. Apple framework module types (UIKit.UIImage, AppKit.NSImage) — assumed to be classes
+    ///    unless listed in <see cref="AppleFrameworkValueTypes"/>
     /// TypeSpecParser.cs remaps "ObjectiveC.X" → "Foundation.X", so we check both modules.
     /// </summary>
     private static bool IsObjCModuleType(NamedTypeSpec typeSpec)
     {
         if (!typeSpec.HasModule())
             return false;
-        return (typeSpec.Module == ObjCModuleName || typeSpec.Module == "Foundation")
-            && IsKnownObjCRootClass(typeSpec.NameWithoutModule);
+
+        // ObjectiveC/Foundation root classes (conservative: only NSObject, NSProxy)
+        if ((typeSpec.Module == ObjCModuleName || typeSpec.Module == "Foundation")
+            && IsKnownObjCRootClass(typeSpec.NameWithoutModule))
+            return true;
+
+        // Apple framework module types (UIKit, AppKit, etc.) are ObjC classes by default,
+        // but exclude known value types (structs/enums) from those modules
+        return AppleObjCFrameworkModules.Contains(typeSpec.Module)
+            && !AppleFrameworkValueTypes.Contains(typeSpec.Name);
     }
 
     /// <summary>
-    /// Determines whether the specified SwiftTypeName represents a known ObjC root class.
+    /// Determines whether the specified SwiftTypeName represents an ObjC class type.
     /// Mirrors <see cref="IsObjCModuleType"/> but for the SwiftTypeName path.
     /// </summary>
-    private static bool IsObjCRootClassSwiftType(SwiftTypeName swiftTypeName)
+    private static bool IsObjCClassSwiftType(SwiftTypeName swiftTypeName)
     {
-        return (swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
-            && IsKnownObjCRootClass(swiftTypeName.Name);
+        // ObjectiveC/Foundation root classes
+        if ((swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
+            && IsKnownObjCRootClass(swiftTypeName.Name))
+            return true;
+
+        // Apple framework module types, excluding known value types
+        return AppleObjCFrameworkModules.Contains(swiftTypeName.Module)
+            && !AppleFrameworkValueTypes.Contains(swiftTypeName.ModuleQualifiedName);
     }
 
     /// <summary>

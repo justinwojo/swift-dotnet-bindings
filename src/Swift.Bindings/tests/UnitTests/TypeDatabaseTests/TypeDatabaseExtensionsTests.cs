@@ -271,41 +271,189 @@ public class TypeDatabaseExtensionsTests
             typeDatabase.GetTypeRecordOrThrow(new NamedTypeSpec("ObjectiveC.Selector")));
     }
 
-    // --- Non-ObjectiveC framework types are NOT auto-bridged ---
+    // --- Apple framework ObjC types are auto-bridged (Phase I1b) ---
 
-    [Fact]
-    public void GetTypeRecordOrAnyType_UIKitType_ReturnsAnyType()
+    [Theory]
+    [InlineData("UIKit.UIImage", "UIKit", "UIImage")]
+    [InlineData("UIKit.UIViewController", "UIKit", "UIViewController")]
+    [InlineData("UIKit.UIView", "UIKit", "UIView")]
+    [InlineData("AppKit.NSImage", "AppKit", "NSImage")]
+    [InlineData("AppKit.NSViewController", "AppKit", "NSViewController")]
+    [InlineData("CoreImage.CIImage", "CoreImage", "CIImage")]
+    [InlineData("AVFoundation.AVPlayer", "AVFoundation", "AVPlayer")]
+    [InlineData("WebKit.WKWebView", "WebKit", "WKWebView")]
+    public void GetTypeRecordOrAnyType_AppleFrameworkType_ReturnsObjCBridgedRecord(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = new TypeDatabase();
 
-        // UIKit types are not auto-bridged — they could be value types or enums
-        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("UIKit.UIViewController"));
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
 
-        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal($"{expectedNamespace}.{expectedName}", record.CSharpTypeName.FullyQualifiedName);
+        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+        Assert.True((record.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
     }
+
+    [Theory]
+    [InlineData("UIKit.UIImage")]
+    [InlineData("AppKit.NSImage")]
+    [InlineData("CoreImage.CIImage")]
+    public void GetTypeRecordOrThrow_AppleFrameworkType_ReturnsObjCBridgedRecord(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrThrow(new NamedTypeSpec(swiftType));
+
+        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIImage")]
+    [InlineData("AppKit.NSImage")]
+    [InlineData("CoreImage.CIImage")]
+    public void TryGetTypeRecord_AppleFrameworkType_ReturnsObjCBridgedRecord(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found);
+        Assert.NotNull(record);
+        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIView")]
+    [InlineData("AppKit.NSImage")]
+    [InlineData("AVFoundation.AVPlayer")]
+    public void IsTypeProcessed_AppleFrameworkType_ReturnsTrue(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var result = typeDatabase.IsTypeProcessed(new NamedTypeSpec(swiftType));
+
+        Assert.True(result);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIImage")]
+    [InlineData("AppKit.NSImage")]
+    [InlineData("CoreImage.CIImage")]
+    public void TryGetAnyTypeFallbackInfo_AppleFrameworkType_ReturnsFalse(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Apple framework types are handled via synthetic records, not a fallback
+        var found = typeDatabase.TryGetAnyTypeFallbackInfo(new NamedTypeSpec(swiftType), out var fallbackInfo);
+
+        Assert.False(found);
+        Assert.Null(fallbackInfo);
+    }
+
+    // --- Foundation non-root-class types are NOT auto-bridged ---
 
     [Fact]
     public void GetTypeRecordOrAnyType_FoundationType_ReturnsAnyType()
     {
         var typeDatabase = new TypeDatabase();
 
-        // Foundation types are not auto-bridged — they could be value types or enums
+        // Foundation.NSData is not a root class (NSObject/NSProxy), so it's not auto-bridged
+        // from the ObjectiveC/Foundation module path. Foundation types other than root classes
+        // must be registered in type database XML.
         var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.NSData"));
 
         Assert.Equal(TypeDatabaseExtensions.AnyType, record);
     }
 
+    // --- Explicit DB registration overrides synthetic records ---
+
     [Fact]
-    public void TryGetAnyTypeFallbackInfo_UIKitType_ReturnsMissing()
+    public void TryGetTypeRecord_ExplicitDbOverridesSynthetic()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("UIKit", "/System/Library/Frameworks/UIKit.framework/UIKit");
+        // Register an explicit type record for UIKit.UIImage
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIImage");
+        module.RegisterType(swiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "UIImage"),
+            SwiftTypeName = swiftTypeName,
+            MetadataAccessor = "$sSo7UIImageCMa",
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        typeDatabase.AddModuleDatabase(module);
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec("UIKit.UIImage"), out var record);
+
+        Assert.True(found);
+        Assert.NotNull(record);
+        // Explicit registration should be used (namespace "Swift", not "UIKit")
+        Assert.Equal("Swift.UIImage", record.CSharpTypeName.FullyQualifiedName);
+    }
+
+    // --- Known Apple framework value types are NOT auto-bridged ---
+
+    [Theory]
+    [InlineData("UIKit.UIEdgeInsets")]
+    [InlineData("UIKit.UIOffset")]
+    [InlineData("UIKit.UIFloatRange")]
+    [InlineData("UIKit.NSDirectionalEdgeInsets")]
+    [InlineData("SceneKit.SCNVector3")]
+    [InlineData("SceneKit.SCNVector4")]
+    public void GetTypeRecordOrAnyType_AppleFrameworkValueType_ReturnsAnyType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();
 
-        // UIKit types not in the database should report as missing (not silently suppressed)
-        var found = typeDatabase.TryGetAnyTypeFallbackInfo(new NamedTypeSpec("UIKit.UIView"), out var fallbackInfo);
+        // Known value types from Apple frameworks must NOT be auto-bridged
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIEdgeInsets")]
+    [InlineData("SceneKit.SCNVector3")]
+    public void TryGetTypeRecord_AppleFrameworkValueType_ReturnsFalse(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.False(found);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIEdgeInsets")]
+    [InlineData("SceneKit.SCNVector3")]
+    public void TryGetAnyTypeFallbackInfo_AppleFrameworkValueType_ReturnsMissing(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Known value types should report as missing (not silently suppressed)
+        var found = typeDatabase.TryGetAnyTypeFallbackInfo(new NamedTypeSpec(swiftType), out var fallbackInfo);
 
         Assert.True(found);
         Assert.NotNull(fallbackInfo);
         Assert.Equal("Type is missing from the type database", fallbackInfo.Value.Reason);
+    }
+
+    // --- Modules NOT in auto-bridge set (removed for safety) ---
+
+    [Theory]
+    [InlineData("Metal.MTLOrigin")]
+    [InlineData("CoreMotion.CMAcceleration")]
+    [InlineData("CoreLocation.CLLocationCoordinate2D")]
+    [InlineData("MapKit.MKCoordinateRegion")]
+    public void GetTypeRecordOrAnyType_ExcludedModuleType_ReturnsAnyType(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Types from modules with many value types are NOT auto-bridged
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
     }
 
     // --- Negative / boundary tests ---

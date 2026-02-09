@@ -690,7 +690,10 @@ namespace BindingsGeneration
             {
                 _env.TypeDatabase.TryGetTypeRecord(returnType.SwiftTypeSpec, out var complexTypeRecord);
                 bool isClassType = complexTypeRecord?.Kind == TypeRecordKind.Class;
-                EmitAsyncWrapperForComplexType(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType);
+                // ObjCBridged requires class type — the GetNSObject path reads _retainedObjPtr
+                // which is only declared when isClassType is true
+                bool isComplexObjCBridged = isClassType && complexTypeRecord != null && MarshallingHelpers.IsObjCBridged(complexTypeRecord);
+                EmitAsyncWrapperForComplexType(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged);
                 return;
             }
 
@@ -1296,7 +1299,7 @@ namespace BindingsGeneration
         /// allocates memory, stores the result, and passes an OpaquePointer.
         /// C# receives IntPtr, reads the value, and frees the memory.
         /// </summary>
-        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType)
+        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false)
         {
             // Determine the wrapper library path - SBW_Free is emitted in the Swift wrapper library
             var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
@@ -1328,9 +1331,18 @@ namespace BindingsGeneration
             var readObjPtrCode = isClassType
                 ? "\n                            // Read object pointer from buffer (for class types, buffer contains the object reference)\n                            IntPtr _retainedObjPtr = *(IntPtr*)resultPtr;"
                 : "";
-            var releaseObjCode = isClassType
+            // For ObjC-bridged types, GetNSObject<T> takes ownership of the passRetained reference —
+            // the NSObject wrapper will release on Dispose/finalize. Calling Arc.Release here would
+            // deallocate the object while the wrapper still references it (use-after-free → SIGSEGV).
+            var releaseObjCode = isClassType && !isObjCBridged
                 ? "\n                                // Release the retain added by Swift (must use dereferenced object pointer, not buffer pointer)\n                                Arc.Release(_retainedObjPtr);"
                 : "";
+
+            // For ObjC-bridged types, read the object pointer from the buffer and wrap with GetNSObject<T>
+            // For Swift types, marshal from Swift memory layout
+            var marshalResultCode = isObjCBridged
+                ? $"var result = ObjCRuntime.Runtime.GetNSObject<{_wrapperSignature.ReturnType}>(_retainedObjPtr);"
+                : $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
 
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
@@ -1341,7 +1353,7 @@ namespace BindingsGeneration
                             try
                             {
                                 // Read result from pointer (Swift allocated memory and stored the value)
-                                var result = SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(resultPtr);
+                                {{marshalResultCode}}
 
                                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
