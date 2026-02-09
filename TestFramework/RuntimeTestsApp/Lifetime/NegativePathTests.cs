@@ -20,13 +20,12 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestDirectionInvalidFromRawValue()
     {
-        // Direction is a simple enum (no raw value) — test that
-        // invalid tag values don't exist by verifying valid ones work
-        var north = Direction.North;
-        AssertNotNull(north, "Direction.North is valid");
+        // Direction is now a C# enum — verify valid cases are defined
+        AssertTrue(Enum.IsDefined(Direction.North), "Direction.North is valid");
+        AssertTrue(Enum.IsDefined(Direction.South), "Direction.South is valid");
 
-        var south = Direction.South;
-        AssertNotNull(south, "Direction.South is valid");
+        // Invalid int cast should not be a defined case
+        AssertFalse(Enum.IsDefined((Direction)99), "Direction(99) is not defined");
 
         TestLogger.Info("Direction valid case construction verified");
     }
@@ -34,14 +33,14 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestColorInvalidRawValue()
     {
-        // Color.FromRawValue with invalid value should return null
-        var invalid = Color.FromRawValue(999);
-        AssertNull(invalid, "Color.FromRawValue(999) returns null");
+        // Color is now a C# enum — verify invalid int casts are not defined cases
+        var invalid = (Color)999;
+        AssertFalse(Enum.IsDefined(invalid), "Color(999) is not a defined case");
 
-        var negative = Color.FromRawValue(-1);
-        AssertNull(negative, "Color.FromRawValue(-1) returns null");
+        var negative = (Color)(-1);
+        AssertFalse(Enum.IsDefined(negative), "Color(-1) is not a defined case");
 
-        TestLogger.Info("Color invalid raw values return null");
+        TestLogger.Info("Color invalid raw values are not defined");
     }
 
     [TestTier(TestTier.Tier2)]
@@ -92,7 +91,7 @@ public class NegativePathTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestContentTypeInvalidRawValue()
     {
-        var invalid = NetworkConfig.ContentType.FromRawValue("invalid/type");
+        var invalid = NetworkConfig.ContentTypeInfo.FromRawValue("invalid/type");
         AssertNull(invalid, "ContentType.FromRawValue(invalid/type) returns null");
 
         TestLogger.Info("ContentType invalid raw value returns null");
@@ -114,7 +113,7 @@ public class NegativePathTests : TestBase
 
         // GetHashCode does not throw
         var hash = animal1.GetHashCode();
-        AssertTrue(hash is int, "Animal.GetHashCode returns an int");
+        AssertTrue(hash != 0 || hash == 0, "Animal.GetHashCode returns without throwing");
 
         TestLogger.Info("Non-Equatable Animal uses reference equality");
     }

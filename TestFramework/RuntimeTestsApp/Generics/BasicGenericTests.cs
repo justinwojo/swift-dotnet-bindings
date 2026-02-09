@@ -60,7 +60,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestSummableInt32Creation()
     {
-        var s = new SummableInt32(value: 42);
+        var s = new SummableInt32(_value: 42);
         AssertEqual(42, s.Value, "SummableInt32.Value");
         TestLogger.Info($"SummableInt32(42).Value = {s.Value}");
     }
@@ -68,8 +68,8 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestSummableInt32Add()
     {
-        var a = new SummableInt32(value: 10);
-        var b = new SummableInt32(value: 20);
+        var a = new SummableInt32(_value: 10);
+        var b = new SummableInt32(_value: 20);
         var result = a.Add(b);
         AssertEqual(30, result.Value, "SummableInt32.Add()");
         TestLogger.Info($"SummableInt32(10).Add(SummableInt32(20)) = {result.Value}");
@@ -78,8 +78,8 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestSummableInt32AddZero()
     {
-        var a = new SummableInt32(value: 7);
-        var zero = new SummableInt32(value: 0);
+        var a = new SummableInt32(_value: 7);
+        var zero = new SummableInt32(_value: 0);
         var result = a.Add(zero);
         AssertEqual(7, result.Value, "Add zero identity");
     }
@@ -87,9 +87,9 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestSummableInt32ChainedAdd()
     {
-        var a = new SummableInt32(value: 1);
-        var b = new SummableInt32(value: 2);
-        var c = new SummableInt32(value: 3);
+        var a = new SummableInt32(_value: 1);
+        var b = new SummableInt32(_value: 2);
+        var c = new SummableInt32(_value: 3);
         var result = a.Add(b).Add(c);
         AssertEqual(6, result.Value, "Chained Add: 1+2+3");
     }
@@ -101,7 +101,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemCreation()
     {
-        var item = new MutableItem(value: 100);
+        var item = new MutableItem(_value: 100);
         AssertEqual(100, item.Value, "MutableItem.Value via property");
         AssertEqual(100, item.GetValue(), "MutableItem.GetValue()");
         TestLogger.Info($"MutableItem(100).Value = {item.Value}");
@@ -110,7 +110,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemSetValue()
     {
-        var item = new MutableItem(value: 10);
+        var item = new MutableItem(_value: 10);
         AssertEqual(10, item.Value, "Initial value");
         item.SetValue(42);
         AssertEqual(42, item.GetValue(), "After SetValue(42)");
@@ -120,7 +120,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemPropertySetter()
     {
-        var item = new MutableItem(value: 0);
+        var item = new MutableItem(_value: 0);
         AssertEqual(0, item.Value, "Initial zero");
         item.Value = 99;
         AssertEqual(99, item.Value, "After Value = 99");
@@ -129,7 +129,7 @@ public class BasicGenericTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemDispose()
     {
-        var item = new MutableItem(value: 5);
+        var item = new MutableItem(_value: 5);
         item.Dispose();
         AssertThrows<ObjectDisposedException>(() => { _ = item.Value; },
             "Disposed MutableItem throws on access");
@@ -213,8 +213,8 @@ public class BasicGenericTests : TestBase
     public void TestIntContainerElementAt()
     {
         var container = new IntContainer(items: new int[] { 100, 200 });
-        var first = container.Element(at: 0);
-        var second = container.Element(at: 1);
+        var first = container.Element(index: 0);
+        var second = container.Element(index: 1);
         AssertEqual(100, first, "Element at 0");
         AssertEqual(200, second, "Element at 1");
     }

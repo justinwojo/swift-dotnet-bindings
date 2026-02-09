@@ -61,9 +61,9 @@ public class BasicCompositionTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestValueAnimalHasValueConformance()
     {
-        var va = new ValueAnimal(name: "Wolf", sound: "Howl", value: 7);
-        AssertTrue(va is ISwiftHasValue, "ValueAnimal should implement ISwiftHasValue");
-        TestLogger.Info("ValueAnimal conforms to ISwiftHasValue");
+        var va = new ValueAnimal(name: "Wolf", sound: "Howl", _value: 7);
+        AssertTrue(va is IHasValue, "ValueAnimal should implement IHasValue");
+        TestLogger.Info("ValueAnimal conforms to IHasValue");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -85,7 +85,7 @@ public class BasicCompositionTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestValueAnimalSummary()
     {
-        var va = new ValueAnimal(name: "Eagle", sound: "Screech", value: 100);
+        var va = new ValueAnimal(name: "Eagle", sound: "Screech", _value: 100);
         var summary = va.Summary();
         AssertTrue(summary.Contains("Eagle"), "Summary should contain name");
         AssertTrue(summary.Contains("Screech"), "Summary should contain sound");
@@ -183,7 +183,7 @@ public class BasicCompositionTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestValueAnimalBlittableProperty()
     {
-        var va = new ValueAnimal(name: "Fox", sound: "Ring", value: 42);
+        var va = new ValueAnimal(name: "Fox", sound: "Ring", _value: 42);
         AssertEqual(42, va.Value, "Value should be 42");
         TestLogger.Info($"ValueAnimal.Value = {va.Value}");
     }
@@ -191,7 +191,7 @@ public class BasicCompositionTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestValueAnimalGetSetValue()
     {
-        var va = new ValueAnimal(name: "Bear", sound: "Growl", value: 10);
+        var va = new ValueAnimal(name: "Bear", sound: "Growl", _value: 10);
         AssertEqual(10, va.GetValue(), "GetValue should return 10");
         va.SetValue(99);
         AssertEqual(99, va.GetValue(), "GetValue after SetValue(99) should return 99");
@@ -202,12 +202,12 @@ public class BasicCompositionTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestValueAnimalHasValueInterface()
     {
-        var va = new ValueAnimal(name: "Owl", sound: "Hoot", value: 55);
-        ISwiftHasValue hasVal = va;
-        AssertEqual(55, hasVal.Value, "ISwiftHasValue.Value should be 55");
+        var va = new ValueAnimal(name: "Owl", sound: "Hoot", _value: 55);
+        IHasValue hasVal = va;
+        AssertEqual(55, hasVal.Value, "IHasValue.Value should be 55");
         hasVal.Value = 77;
-        AssertEqual(77, hasVal.Value, "ISwiftHasValue.Value after set should be 77");
-        TestLogger.Info($"ISwiftHasValue interface dispatch: {hasVal.Value}");
+        AssertEqual(77, hasVal.Value, "IHasValue.Value after set should be 77");
+        TestLogger.Info($"IHasValue interface dispatch: {hasVal.Value}");
     }
 
     // --- Registry: SafeHandle through CallConvSwift ---

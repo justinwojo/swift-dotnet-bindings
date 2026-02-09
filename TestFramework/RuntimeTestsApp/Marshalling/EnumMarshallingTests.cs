@@ -21,11 +21,11 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestDirectionCaseConstruction()
     {
-        // Verify all four Direction cases construct and have correct tags
-        AssertEqual(Direction.CaseTag.North, Direction.North.Tag, "North tag");
-        AssertEqual(Direction.CaseTag.South, Direction.South.Tag, "South tag");
-        AssertEqual(Direction.CaseTag.East, Direction.East.Tag, "East tag");
-        AssertEqual(Direction.CaseTag.West, Direction.West.Tag, "West tag");
+        // Direction is now a C# enum — verify values directly
+        AssertEqual(0, (int)Direction.North, "North value");
+        AssertEqual(1, (int)Direction.South, "South value");
+        AssertEqual(2, (int)Direction.East, "East value");
+        AssertEqual(3, (int)Direction.West, "West value");
         TestLogger.Info("Direction case construction passed");
     }
 
@@ -45,14 +45,14 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestDirectionOpposite()
     {
-        // Test Direction.Opposite() instance method
+        // Test Direction.Opposite() extension method
         var north = Direction.North;
         var opposite = north.Opposite();
-        AssertEqual(Direction.CaseTag.South, opposite.Tag, "Opposite of North is South");
+        AssertEqual(Direction.South, opposite, "Opposite of North is South");
 
         var east = Direction.East;
         opposite = east.Opposite();
-        AssertEqual(Direction.CaseTag.West, opposite.Tag, "Opposite of East is West");
+        AssertEqual(Direction.West, opposite, "Opposite of East is West");
 
         TestLogger.Info("Direction Opposite tests passed");
     }
@@ -64,39 +64,38 @@ public class EnumMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestColorCaseConstruction()
     {
-        AssertEqual(Color.CaseTag.Red, Color.Red.Tag, "Red tag");
-        AssertEqual(Color.CaseTag.Green, Color.Green.Tag, "Green tag");
-        AssertEqual(Color.CaseTag.Blue, Color.Blue.Tag, "Blue tag");
-        AssertEqual(Color.CaseTag.Alpha, Color.Alpha.Tag, "Alpha tag");
+        // Color is now a C# enum — verify values directly
+        AssertEqual(0, (int)Color.Red, "Red value");
+        AssertEqual(1, (int)Color.Green, "Green value");
+        AssertEqual(2, (int)Color.Blue, "Blue value");
+        AssertEqual(3, (int)Color.Alpha, "Alpha value");
         TestLogger.Info("Color case construction passed");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestColorIntRawValue()
     {
-        // Color has Int raw values: red=0, green=1, blue=2, alpha=3
-        AssertEqual(0, Color.Red.RawValue, "Red raw value");
-        AssertEqual(1, Color.Green.RawValue, "Green raw value");
-        AssertEqual(2, Color.Blue.RawValue, "Blue raw value");
-        AssertEqual(3, Color.Alpha.RawValue, "Alpha raw value");
+        // Color is now a C# enum with int backing — cast to int for raw value
+        AssertEqual(0, (int)Color.Red, "Red raw value");
+        AssertEqual(1, (int)Color.Green, "Green raw value");
+        AssertEqual(2, (int)Color.Blue, "Blue raw value");
+        AssertEqual(3, (int)Color.Alpha, "Alpha raw value");
         TestLogger.Info("Color int raw value tests passed");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestColorFromRawValue()
     {
-        // Round-trip: int raw value -> Color -> int raw value
-        var red = Color.FromRawValue(0);
-        AssertNotNull(red, "Color.FromRawValue(0) not null");
-        AssertEqual(0, red!.RawValue, "Red round-trip");
+        // Round-trip: int -> Color enum -> int
+        var red = (Color)0;
+        AssertEqual(Color.Red, red, "Red round-trip");
 
-        var blue = Color.FromRawValue(2);
-        AssertNotNull(blue, "Color.FromRawValue(2) not null");
-        AssertEqual(2, blue!.RawValue, "Blue round-trip");
+        var blue = (Color)2;
+        AssertEqual(Color.Blue, blue, "Blue round-trip");
 
-        // Invalid raw value
-        var invalid = Color.FromRawValue(99);
-        AssertNull(invalid, "Color.FromRawValue(99) is null");
+        // Invalid raw value — C# enums accept any int, so verify Enum.IsDefined
+        var invalid = (Color)99;
+        AssertFalse(Enum.IsDefined(invalid), "Color(99) is not a defined case");
 
         TestLogger.Info("Color FromRawValue tests passed");
     }
@@ -106,10 +105,10 @@ public class EnumMarshallingTests : TestBase
     {
         // Test the free function colorForIndex
         var color0 = SwiftBindingsTestLib.ColorForIndex(0);
-        AssertEqual(Color.CaseTag.Red, color0.Tag, "ColorForIndex(0) is Red");
+        AssertEqual(Color.Red, color0, "ColorForIndex(0) is Red");
 
         var color1 = SwiftBindingsTestLib.ColorForIndex(1);
-        AssertEqual(Color.CaseTag.Green, color1.Tag, "ColorForIndex(1) is Green");
+        AssertEqual(Color.Green, color1, "ColorForIndex(1) is Green");
 
         TestLogger.Info("ColorForIndex tests passed");
     }
@@ -293,7 +292,7 @@ public class EnumMarshallingTests : TestBase
         var cases = new[] { "application/json", "application/xml", "multipart/form-data", "text/plain" };
         foreach (var rawValue in cases)
         {
-            var ct = NetworkConfig.ContentType.FromRawValue(rawValue);
+            var ct = NetworkConfig.ContentTypeInfo.FromRawValue(rawValue);
             AssertNotNull(ct, $"ContentType {rawValue} not null");
             AssertEqual(rawValue, ct!.RawValue.ToString(), $"{rawValue} round-trip");
         }

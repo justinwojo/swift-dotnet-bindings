@@ -45,7 +45,7 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMutableItemConformance()
     {
-        var item = new MutableItem(value: 0);
+        var item = new MutableItem(_value: 0);
         AssertTrue(item is IHasValue, "MutableItem is IHasValue");
         TestLogger.Info("MutableItem conforms to IHasValue");
     }
@@ -91,7 +91,7 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestHasValueGetThroughInterface()
     {
-        var item = new MutableItem(value: 42);
+        var item = new MutableItem(_value: 42);
         var iface = (IHasValue)item;
         AssertEqual(42, iface.Value, "IHasValue.Value get");
         TestLogger.Info($"((IHasValue)MutableItem).Value = {iface.Value}");
@@ -100,7 +100,7 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestHasValueSetThroughInterface()
     {
-        var item = new MutableItem(value: 10);
+        var item = new MutableItem(_value: 10);
         var iface = (IHasValue)item;
         iface.Value = 99;
         AssertEqual(99, iface.Value, "IHasValue.Value after set");
@@ -110,7 +110,7 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestGetValueMethodThroughInterface()
     {
-        var item = new MutableItem(value: 77);
+        var item = new MutableItem(_value: 77);
         var iface = (IHasValue)item;
         AssertEqual(77, iface.GetValue(), "IHasValue.GetValue()");
         TestLogger.Info($"((IHasValue)MutableItem).GetValue() = {iface.GetValue()}");
@@ -119,7 +119,7 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestSetValueMethodThroughInterface()
     {
-        var item = new MutableItem(value: 0);
+        var item = new MutableItem(_value: 0);
         var iface = (IHasValue)item;
         iface.SetValue(55);
         AssertEqual(55, iface.GetValue(), "IHasValue after SetValue(55)");
@@ -129,7 +129,7 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMultiConformingAddThroughInterface()
     {
-        var val = new MultiConformingValue(value: 10);
+        var val = new MultiConformingValue(_value: 10);
         var iface = (IAddable)val;
         AssertEqual(15, iface.Add(5), "IAddable.Add(5) on value=10");
         TestLogger.Info($"((IAddable)MultiConformingValue(10)).Add(5) = {iface.Add(5)}");
@@ -138,7 +138,7 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMultiConformingSubtractThroughInterface()
     {
-        var val = new MultiConformingValue(value: 20);
+        var val = new MultiConformingValue(_value: 20);
         var iface = (ISubtractable)val;
         AssertEqual(15, iface.Subtract(5), "ISubtractable.Subtract(5) on value=20");
         TestLogger.Info($"((ISubtractable)MultiConformingValue(20)).Subtract(5) = {iface.Subtract(5)}");
@@ -147,7 +147,7 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMultiConformingMultiplyThroughInterface()
     {
-        var val = new MultiConformingValue(value: 7);
+        var val = new MultiConformingValue(_value: 7);
         var iface = (IMultipliable)val;
         AssertEqual(21, iface.Multiply(3), "IMultipliable.Multiply(3) on value=7");
         TestLogger.Info($"((IMultipliable)MultiConformingValue(7)).Multiply(3) = {iface.Multiply(3)}");
@@ -156,7 +156,7 @@ public class BasicProtocolDispatchTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestMultiConformingDivideThroughInterface()
     {
-        var val = new MultiConformingValue(value: 100);
+        var val = new MultiConformingValue(_value: 100);
         var iface = (IDividable)val;
         AssertEqual(25, iface.Divide(4), "IDividable.Divide(4) on value=100");
         TestLogger.Info($"((IDividable)MultiConformingValue(100)).Divide(4) = {iface.Divide(4)}");
@@ -235,8 +235,8 @@ public class BasicProtocolDispatchTests : TestBase
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
         var iface = (IStatusHandler)handler;
         var status = iface.GetCurrentStatus();
-        AssertEqual(SwiftTaskStatus.CaseTag.Pending, status.Tag, "Initial status should be Pending");
-        TestLogger.Info($"((IStatusHandler)handler).GetCurrentStatus().Tag = {status.Tag}");
+        AssertEqual(SwiftTaskStatus.Pending, status, "Initial status should be Pending");
+        TestLogger.Info($"((IStatusHandler)handler).GetCurrentStatus() = {status}");
     }
 
     [TestTier(TestTier.Tier2)]
@@ -245,8 +245,8 @@ public class BasicProtocolDispatchTests : TestBase
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
         var iface = (IStatusHandler)handler;
         var next = iface.TransitionStatus(from: SwiftTaskStatus.Pending);
-        AssertEqual(SwiftTaskStatus.CaseTag.Running, next.Tag, "Transition from Pending should be Running");
-        TestLogger.Info($"TransitionStatus(Pending).Tag = {next.Tag}");
+        AssertEqual(SwiftTaskStatus.Running, next, "Transition from Pending should be Running");
+        TestLogger.Info($"TransitionStatus(Pending) = {next}");
     }
 
     [TestTier(TestTier.Tier2)]
@@ -256,8 +256,8 @@ public class BasicProtocolDispatchTests : TestBase
         var iface = (IStatusHandler)handler;
         iface.HandleStatus(SwiftTaskStatus.Running);
         var current = iface.GetCurrentStatus();
-        AssertEqual(SwiftTaskStatus.CaseTag.Running, current.Tag, "After HandleStatus(Running)");
-        TestLogger.Info($"After HandleStatus(Running), GetCurrentStatus().Tag = {current.Tag}");
+        AssertEqual(SwiftTaskStatus.Running, current, "After HandleStatus(Running)");
+        TestLogger.Info($"After HandleStatus(Running), GetCurrentStatus() = {current}");
     }
 
     // Tier 3: TaskPriority has String raw value — FromRawValue("high") routes through
@@ -322,8 +322,8 @@ public class BasicProtocolDispatchTests : TestBase
     public void TestTaskStatusRawValue()
     {
         var status = SwiftTaskStatus.Running;
-        AssertEqual(1, status.RawValue, "SwiftTaskStatus.Running.RawValue");
-        TestLogger.Info($"SwiftTaskStatus.Running.RawValue = {status.RawValue}");
+        AssertEqual(1, (int)status, "SwiftTaskStatus.Running raw value");
+        TestLogger.Info($"(int)SwiftTaskStatus.Running = {(int)status}");
     }
 
     #endregion
