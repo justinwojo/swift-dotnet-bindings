@@ -13,74 +13,41 @@ For deferred/aspirational work, see `Future/`.
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 1665 passing |
+| Unit tests | 1677 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 
 | Library | Binding Errors | Test App Errors | Notes |
 |---------|---------------|-----------------|-------|
 | **BlinkID** | 0 | N/A | Clean |
-| **Nuke** | 1 | 0 | |
-| **CryptoSwift** | 3 | 0 | |
-| **Lottie** | 8 | N/A | 2 distinct bug patterns |
+| **Nuke** | 0 | N/A | Clean (test app has pre-existing install_name_tool iOS toolchain issue) |
+| **CryptoSwift** | 0 | 0 | Clean |
+| **Lottie** | 0 | N/A | Clean |
 
 ---
 
 ## Phase H: Unit Test Gaps + Remaining Library Errors
 
-**Status**: H1 Done, H2 Not Started
+**Status**: Done (H1 + H2)
 **Priority**: High — eliminate remaining library errors
 **Effort**: Medium (1-2 sessions)
 
-### H1: Unit Test Coverage Gaps (Phase G fixes)
+### H1: Unit Test Coverage Gaps (Phase G fixes) — Done
 
-Phase G fixed 8 generator bugs but 3 fixes lack targeted unit tests. Add tests to prevent regressions.
+Phase G fixed 8 generator bugs but 3 fixes lacked targeted unit tests. Added 5 regression tests.
 
-| Fix | Gap | What to Add |
-|-----|-----|-------------|
-| **G2** (Optional existential property pass-through) | Weak — existential detection tested, pass-through logic not | PropertyHandlerTests: optional existential property emits `get => MethodName();` / `set => MethodName(value);` pass-through instead of TypeConversionHandler |
-| **G5** (Zero-protocol existential return guard) | Weak — Any detection tested, wrapper return not | WrapperEmitter test: method returning `Any` (zero-protocol existential) emits `return result;` instead of proxy wrapping |
-| **G6** (Proxy dedup key unification) | Minimal — only 1 test | ProtocolProxyEmitterTests: protocol with closure param + array param (same ProtocolSignatureHelper key, different GetMethodKey) emits only one interface method |
+### H2: Remaining Library Errors (6 distinct bugs, 12 total errors) — Done
 
-Secondary gaps (moderate coverage exists, explicit tests would strengthen):
+Fixed 6 generator bugs eliminating all 12 remaining library binding errors (CryptoSwift 3→0, Nuke 1→0, Lottie 8→0). Added 12 regression tests.
 
-| Fix | Gap | What to Add |
-|-----|-----|-------------|
-| **G1** (Generic type params in properties) | Moderate — GenericContext tested, property integration not | PropertyHandlerTests: property on generic type `Container<T>` emits `T0` not `AnyType` |
-| **G7** (IntPtr fallback in GetBufferType) | Partial — AnyType fallback tested, IntPtr not explicit | BoundGenericsHandlerTests: `GetBufferType()` for unmapped bound generic returns `IntPtr` |
-
-### H2: Remaining Library Errors (6 distinct bugs, 12 total errors)
-
-#### Bug 1: Optional tuple property → AnyType? cast (CryptoSwift, 1 error)
-- **Error**: CS0030 at `Swift.CryptoSwift.cs:566` — Cannot convert `SwiftOptional<(BigUInt p, BigUInt q)>` to `AnyType?`
-- **Root cause**: Optional tuple property type not resolved — falls through to AnyType cast
-- **Affected type**: `RSA.Primes`
-- **Fix area**: PropertyHandler or TypeConversionHandler — optional tuple type resolution
-
-#### Bug 2: C# enum `.Payload` access in enum case factory (CryptoSwift, 1 error)
-- **Error**: CS1061 at `Swift.CryptoSwift.cs:4645` — `SHA2.VariantInfo` does not contain `.Payload`
-- **Root cause**: `VariantInfo` is emitted as C# `enum` (simple enum), but factory method tries `.Payload` (class enum pattern)
-- **Fix area**: Enum case factory emission — detect simple enum and use direct value instead of `.Payload`
-
-#### Bug 3: Receiver dispatch closure parameter mismatch (CryptoSwift, 1 error)
-- **Error**: CS1503 at `Swift.CryptoSwift.cs:7664` — Cannot convert `Action<SwiftArray<byte>>` to `AnyType`
-- **Root cause**: Receiver dispatch method parameter type doesn't match interface declaration for closure parameters
-- **Fix area**: ProtocolProxyEmitter receiver parameter resolution for closure types
-
-#### Bug 4: AnyType fallback in existential method body (Nuke, 1 error)
-- **Error**: CS1503 at `Swift.Nuke.cs:11157` — Cannot convert `AnyType` to `IImageDecoding`
-- **Root cause**: Method body uses AnyType where existential protocol interface type expected
-- **Fix area**: Method body emission — existential return type should use interface, not AnyType
-
-#### Bug 5: Existential `.Payload` on interface types (Lottie, 3 errors)
-- **Error**: CS1061 at lines 5824, 6078, 25675 — `ILottieURLSession` does not contain `.Payload`
-- **Root cause**: Generated code accesses `.Payload` on protocol interface types, but interfaces don't have nested `.Payload`
-- **Fix area**: Existential payload access emission — detect interface types and use proper extraction
-
-#### Bug 6: Metatype `TypeProxy` not emitted (Lottie, 5 errors)
-- **Error**: CS0246 at lines 8100, 11476, 21564, 23654, 26299 — `TypeProxy` not found
-- **Root cause**: `Any.Type` metatype existential references `TypeProxy` class which is never generated
-- **Fix area**: Metatype existential handling — either emit `TypeProxy` or map to appropriate existing type
+| Bug | Library | Fix |
+|-----|---------|-----|
+| 1 | CryptoSwift | `PropertyHandler.cs` — TupleTypeSpec branch in `TranslateTypeSpecWithGenerics` |
+| 2 | CryptoSwift | `EnumHandler.CaseConstruction.cs` — SimpleEnum check in `GetPInvokeArgument`/`GetPInvokeType` |
+| 3 | CryptoSwift | `Receivers/Vtables/StaticInit/SwiftObject` — consistent `ProtocolSignatureHelper.GetMethodSignatureKey` dedup |
+| 4 | Nuke | `WrapperEmitter.Return.cs` — `GetCSharpExistentialType()` for optional existential marshal type |
+| 5 | Lottie | `WrapperEmitter.Async.cs` — exclude existentials from copy-buffer filter |
+| 6 | Lottie | `WrapperEmitter.Return.cs` — `GetPublicExistentialType() == "object"` guard before proxy construction |
 
 ---
 
@@ -113,7 +80,7 @@ Candidates (pick 1):
 
 ## Future Work
 
-Once Phases H and I are complete:
+Once Phase I is complete:
 - Must-pass features at 94+ (currently 94, up from 61 pre-Phase B)
 - Runtime test coverage covers most of the contract matrix
 - Generated API is idiomatic C# — no interop types in public surface

@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -564,6 +565,158 @@ public class EnumHandlerTests
         var tupleSpec = new TupleTypeSpec();
 
         Assert.True(tupleSpec.IsEmptyTuple);
+    }
+
+    #endregion
+
+    #region H2 Bug 2 — Simple Enum P/Invoke in Case Factory
+
+    [Fact]
+    public void EmitEnumCaseFactory_SimpleEnumAssociatedValue_UsesCastNotPayload()
+    {
+        // H2 Bug 2: Enum case factory with a simple enum associated value
+        // used .Payload.DangerousGetHandle() which fails for C# enum types.
+        // Fix: Check TypeRecordFlags.SimpleEnum and use cast to underlying type.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        // Register the outer enum (non-simple, has associated values)
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.VariantInfo"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "VariantInfo"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.VariantInfo"),
+                MetadataAccessor = "$s10TestModule11VariantInfoOMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = null
+            });
+
+        // Register the simple enum (Int32 raw value, SimpleEnum flag)
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+                MetadataAccessor = "$s10TestModule7VariantOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Int32"
+            });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var enumDecl = CreateEnumDecl("VariantInfo");
+        enumDecl.ParentDecl = moduleDecl;
+        enumDecl.ModuleDecl = moduleDecl;
+        moduleDecl.Types.Add(enumDecl);
+
+        var caseDecl = CreateEnumCaseDecl("info");
+        caseDecl.AssociatedValues.Add(new NamedTypeSpec("TestModule.Variant"));
+        caseDecl.ParentDecl = enumDecl;
+        caseDecl.ModuleDecl = moduleDecl;
+        enumDecl.Cases.Add(caseDecl);
+
+        var handler = new EnumHandler(NullLogger.Instance);
+        var env = handler.Marshal(enumDecl, typeDatabase);
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var conductor = new Conductor(NullLoggerFactory.Instance);
+        handler.Emit(csWriter, swiftWriter, env, conductor);
+
+        var output = csOutput.ToString();
+
+        // Simple enum should use cast, not .Payload.DangerousGetHandle()
+        Assert.Contains("(int)value0", output);
+        Assert.DoesNotContain(".Payload.DangerousGetHandle()", output);
+    }
+
+    [Fact]
+    public void EmitEnumCaseFactory_SimpleEnumUInt8_UsesByteCast()
+    {
+        // Verify non-Int32 underlying types work: UInt8 → byte
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+                MetadataAccessor = "$s10TestModule9ContainerOMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = null
+            });
+
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Priority"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Priority"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Priority"),
+                MetadataAccessor = "$s10TestModule8PriorityOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "UInt8"
+            });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var enumDecl = CreateEnumDecl("Container");
+        enumDecl.ParentDecl = moduleDecl;
+        enumDecl.ModuleDecl = moduleDecl;
+        moduleDecl.Types.Add(enumDecl);
+
+        var caseDecl = CreateEnumCaseDecl("item");
+        caseDecl.AssociatedValues.Add(new NamedTypeSpec("TestModule.Priority"));
+        caseDecl.ParentDecl = enumDecl;
+        caseDecl.ModuleDecl = moduleDecl;
+        enumDecl.Cases.Add(caseDecl);
+
+        var handler = new EnumHandler(NullLogger.Instance);
+        var env = handler.Marshal(enumDecl, typeDatabase);
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var conductor = new Conductor(NullLoggerFactory.Instance);
+        handler.Emit(csWriter, swiftWriter, env, conductor);
+
+        var output = csOutput.ToString();
+
+        // UInt8 underlying type → byte cast
+        Assert.Contains("(byte)value0", output);
+        Assert.DoesNotContain(".Payload.DangerousGetHandle()", output);
     }
 
     #endregion

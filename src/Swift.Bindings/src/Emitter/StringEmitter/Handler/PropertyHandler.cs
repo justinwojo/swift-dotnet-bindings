@@ -584,6 +584,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return typeRecord.CSharpTypeName.FullyQualifiedName;
         }
 
+        if (typeSpec is TupleTypeSpec tupleTypeSpec)
+        {
+            var tupleHandler = new TupleHandler(typeDatabase);
+            return genericContext != null
+                ? tupleHandler.GetCSharpTupleType(tupleTypeSpec, genericContext)
+                : tupleHandler.GetCSharpTupleType(tupleTypeSpec);
+        }
+
         return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
     }
 }

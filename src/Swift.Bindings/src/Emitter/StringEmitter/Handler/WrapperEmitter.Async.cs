@@ -37,7 +37,7 @@ namespace BindingsGeneration
             // payload, which can't be passed directly through P/Invoke with Swift calling convention.
             var nonFrozenParams = _env.MethodDecl.CSSignature
                 .Skip(1)
-                .Where(p => !p.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(p) && !_env.ClosureHandler.IsClosure(p) && !_env.TupleHandler.IsTuple(p))
+                .Where(p => !p.IsGeneric && !_env.BoundGenericsHandler.IsBoundGeneric(p) && !_env.ClosureHandler.IsClosure(p) && !_env.TupleHandler.IsTuple(p) && !_env.ExistentialHandler.IsExistential(p.SwiftTypeSpec))
                 .Where(p =>
                 {
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);

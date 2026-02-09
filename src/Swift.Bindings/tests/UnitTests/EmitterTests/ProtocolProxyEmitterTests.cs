@@ -705,6 +705,92 @@ public class ProtocolProxyEmitterTests
         // Both params resolve to "Swift.AnyType" via ProtocolSignatureHelper →
         // same key "update(Swift.AnyType)" → only one proxy class method emitted
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "public void Update("));
+
+        // H2 Bug 3: Verify receiver count matches interface method count (no orphaned receivers).
+        // Before H2, receivers used GetMethodKey (ToString-based) producing different keys
+        // for closure vs array params, while interface used GetMethodSignatureKey (TypeDB-based)
+        // collapsing both to AnyType. This mismatch caused orphaned receivers → CS1503.
+        var receiverCount = EmitterTestHelpers.CountOccurrences(output, "static void Receive_update_");
+        Assert.Equal(1, receiverCount);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClosureAndArrayParams_ReceiverMatchesInterfaceDedup()
+    {
+        // H2 Bug 3: Two methods "finish(output:)" (closure param) and "finish(withBytes:)" (array param)
+        // both resolve to AnyType through ProtocolSignatureHelper. Interface dedup correctly
+        // emits a single method. After H2 fix, receiver/vtable/staticinit also use the same
+        // key function, so receiver count matches interface count (1, not 2).
+        var protocolDecl = CreateSimpleProtocol("UpdatableProtocol");
+
+        // Method 1: closure param → AnyType
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "finish",
+            MangledName = "$sfinish_closure",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "output", PrivateName = "output",
+                    SwiftTypeSpec = new ClosureTypeSpec(
+                        new TupleTypeSpec(new NamedTypeSpec("Swift.UInt8")),
+                        TupleTypeSpec.Empty),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        // Method 2: array param → AnyType
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "finish",
+            MangledName = "$sfinish_array",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "withBytes", PrivateName = "withBytes",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.UInt8")),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Single interface method emitted (both collapse to same key)
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "public void Finish("));
+        // Single receiver emitted (consistent dedup with interface)
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "static void Receive_finish_"));
     }
 
     #endregion

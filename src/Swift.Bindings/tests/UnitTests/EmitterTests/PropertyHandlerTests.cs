@@ -1021,6 +1021,54 @@ public class PropertyHandlerTests
 
     #endregion
 
+    #region H2 Bug 1 — Optional Tuple Property
+
+    [Fact]
+    public void Emit_OptionalTupleProperty_EmitsTupleTypeNotAnyType()
+    {
+        // H2 Bug 1: Optional<(BigUInt, BigUInt)> property fell through to AnyType
+        // because TranslateTypeSpecWithGenerics only handled NamedTypeSpec, not TupleTypeSpec.
+        // Fix: Added TupleTypeSpec branch before the final fallback.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+
+        // Register Swift.Optional so bound generic resolution doesn't fall back to AnyType
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.Optional"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("RSAPrimes", moduleDecl);
+
+        // Create a tuple type (Int, Int) to simulate (BigUInt, BigUInt)
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int")
+        });
+        // Wrap in Optional — property SwiftTypeSpec is Optional<tuple>
+        var optionalTupleType = new NamedTypeSpec("Swift.Optional", tupleType);
+
+        // Use a registered accessor type to avoid pre-flight skip, then override property TypeSpec
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "primes", "Swift.Int", hasGetter: true, hasSetter: false);
+        property.SwiftTypeSpec = optionalTupleType;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // The property type should contain tuple syntax "(", not AnyType
+        Assert.Contains("(", csOutput);
+        Assert.DoesNotContain("AnyType", csOutput);
+    }
+
+    #endregion
+
     #region Existential Property Tests
 
     [Fact]
@@ -1115,6 +1163,52 @@ public class PropertyHandlerTests
         var result = handler.GetCSharpExistentialType(protocolList);
 
         Assert.Equal("Swift.Runtime.ExistentialContainer2", result);
+    }
+
+    [Fact]
+    public void ExistentialHandler_GetPublicExistentialType_MetatypeProtocol_ReturnsObject()
+    {
+        // H2 Bug 6: "Any.Type" (metatype existential) is parsed as NamedTypeSpec("Any.Type")
+        // with IsAny=true. When converted to ProtocolListTypeSpec, the single "protocol"
+        // is "Any.Type" which has no TypeRecord → GetPublicExistentialType returns "object".
+        // WrapperEmitter.Return.cs now checks this and emits "return result;" instead
+        // of attempting to construct a non-existent TypeProxy.
+        var typeDatabase = new MockPropertyTypeDatabase();
+        var handler = new ExistentialHandler(typeDatabase);
+
+        // Simulates the Any.Type metatype existential
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Any.Type") });
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("object", result);
+    }
+
+    [Fact]
+    public void ExistentialHandler_GetPublicExistentialType_StdlibProtocolWithoutTypeRecord_ReturnsObject()
+    {
+        // Stdlib protocols (e.g., Swift.Error) without emitted interfaces
+        // also return "object" from GetPublicExistentialType.
+        var typeDatabase = new MockPropertyTypeDatabase();
+        var handler = new ExistentialHandler(typeDatabase);
+
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") });
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("object", result);
+    }
+
+    [Fact]
+    public void ExistentialHandler_GetPublicExistentialType_RegisteredProtocol_ReturnsInterfaceName()
+    {
+        // A real protocol with a TypeRecord returns the interface name, not "object".
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching");
+        var handler = new ExistentialHandler(typeDatabase);
+
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") });
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("IDataCaching", result);
     }
 
     private class MockPropertyTypeDatabase : ITypeDatabase

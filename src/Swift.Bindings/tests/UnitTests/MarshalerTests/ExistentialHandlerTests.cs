@@ -502,6 +502,70 @@ public class ExistentialHandlerTests
 
     #endregion
 
+    #region H2 Bug 4 — Optional Existential Container Type
+
+    [Fact]
+    public void UnwrapOptionalExistential_SingleProtocol_ReturnsProtocolList()
+    {
+        // H2 Bug 4: When an optional wraps an existential (e.g. Optional<any ImageDecoding>),
+        // the marshal type must use ExistentialContainer1, not AnyType.
+        // This test validates the handler correctly unwraps the optional existential.
+        var optionalExistential = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Nuke.ImageDecoding") }));
+
+        var protocolList = _handler.UnwrapOptionalExistential(optionalExistential);
+
+        Assert.NotNull(protocolList);
+        Assert.Single(protocolList!.Protocols);
+        Assert.Equal("Swift.Runtime.ExistentialContainer1", _handler.GetCSharpExistentialType(protocolList));
+    }
+
+    [Fact]
+    public void IsOptionalExistential_WithWrappedProtocolList_ReturnsTrue()
+    {
+        var optionalExistential = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Nuke.ImageDecoding") }));
+
+        Assert.True(_handler.IsOptionalExistential(optionalExistential));
+    }
+
+    #endregion
+
+    #region H2 Bug 5 — Existential Parameter Detection
+
+    [Fact]
+    public void IsExistential_ProtocolListTypeSpec_ReturnsTrue()
+    {
+        // H2 Bug 5: Async method filter must exclude existential parameters.
+        // This test validates that IsExistential correctly identifies ProtocolListTypeSpec
+        // (the existential type form used in method signatures like ILottieURLSession).
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Lottie.LottieURLSession") });
+
+        Assert.True(_handler.IsExistential(protocolList));
+    }
+
+    [Fact]
+    public void IsExistential_NamedTypeSpecWithIsAny_ReturnsTrue()
+    {
+        // Existential parameter expressed as NamedTypeSpec with IsAny=true
+        var existentialType = new NamedTypeSpec("Lottie.LottieURLSession") { IsAny = true };
+
+        Assert.True(_handler.IsExistential(existentialType));
+    }
+
+    [Fact]
+    public void IsExistential_RegularNamedTypeSpec_ReturnsFalse()
+    {
+        // Non-existential types should not be filtered
+        var regularType = new NamedTypeSpec("Swift.Int");
+
+        Assert.False(_handler.IsExistential(regularType));
+    }
+
+    #endregion
+
     #region MockTypeDatabase
 
     private class MockTypeDatabase : ITypeDatabase

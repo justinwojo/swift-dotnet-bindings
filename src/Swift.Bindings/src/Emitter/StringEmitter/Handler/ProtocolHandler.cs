@@ -196,9 +196,6 @@ namespace BindingsGeneration
                 // (e.g., BatchedCollection<AnyType> violates where T0 : ISwiftCollection)
                 if (HasAnyTypeGenericArgInSignature(methodDecl, env.TypeDatabase, protocolDecl))
                 {
-                    // Add both key formats so both consumers can find their entries:
-                    // InterfaceImpl uses ProtocolSignatureHelper keys, Receivers/StaticInit use GetMethodKey
-                    skippedMethodKeys.Add(ProtocolProxyEmitter.GetMethodKey(methodDecl));
                     skippedMethodKeys.Add(ProtocolSignatureHelper.GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl));
                     _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - contains AnyType as generic type argument.");
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument, which violates generic constraints.");

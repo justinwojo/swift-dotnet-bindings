@@ -145,6 +145,15 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // Metatype/unresolved existential → GetPublicExistentialType returns "object"
+                // No proxy class exists; return container directly (public type is AnyType via [UnsupportedSwiftType])
+                var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                if (publicType == "object")
+                {
+                    csWriter.WriteLine("return result;");
+                    return;
+                }
+
                 var proxyClassName = _env.ExistentialHandler.GetProxyClassName(protocolList);
                 csWriter.WriteLine($"return new {proxyClassName}(result);");
                 return;
@@ -329,8 +338,10 @@ namespace BindingsGeneration
                 {
                     var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
                     var proxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                    var marshalType = $"Swift.SwiftOptional<{containerType}>";
                     csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
                         if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
                         return new {{proxyClassName}}(swiftResult.Some);
                         """);
@@ -376,8 +387,10 @@ namespace BindingsGeneration
                 {
                     var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
                     var proxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                    var marshalType = $"Swift.SwiftOptional<{containerType}>";
                     csWriter.WriteLines($"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(swiftIndirectResult.Value));
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
                         if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
                         return new {proxyClassName}(swiftResult.Some);
                         """);

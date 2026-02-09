@@ -236,6 +236,11 @@ namespace BindingsGeneration
             // Extract the raw pointer for P/Invoke.
             if (typeRecord.Kind == TypeRecordKind.Enum)
             {
+                if (typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                {
+                    var underlyingType = EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
+                    return $"({underlyingType}){paramName}";
+                }
                 return $"{paramName}.Payload.DangerousGetHandle()";
             }
 
@@ -286,6 +291,8 @@ namespace BindingsGeneration
             // Always use IntPtr for enum parameters.
             if (typeRecord.Kind == TypeRecordKind.Enum)
             {
+                if (typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                    return EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
                 return "IntPtr";
             }
 
