@@ -13,7 +13,7 @@ For deferred/aspirational work, see `Future/`.
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 1660 passing |
+| Unit tests | 1665 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 
@@ -28,9 +28,9 @@ For deferred/aspirational work, see `Future/`.
 
 ## Phase H: Unit Test Gaps + Remaining Library Errors
 
-**Status**: Not Started
-**Priority**: High — stabilize and validate Phase G fixes, then eliminate remaining errors
-**Effort**: Medium (2-3 sessions)
+**Status**: H1 Done, H2 Not Started
+**Priority**: High — eliminate remaining library errors
+**Effort**: Medium (1-2 sessions)
 
 ### H1: Unit Test Coverage Gaps (Phase G fixes)
 

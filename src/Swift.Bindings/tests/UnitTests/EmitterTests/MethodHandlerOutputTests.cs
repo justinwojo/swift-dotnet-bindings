@@ -583,6 +583,31 @@ public class MethodHandlerOutputTests
         Assert.DoesNotContain("MarshalFromSwift", csOutput);
     }
 
+    [Fact]
+    public void Emit_MethodReturningAny_EmitsDirectReturnWithoutProxyWrapping()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Return type is 'Any' — a zero-protocol existential (ProtocolListTypeSpec with 0 protocols)
+        var method = CreateMethodDecl(
+            name: "getValue",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new ProtocolListTypeSpec(),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // G5 fix: zero-protocol existential (Any) emits direct "return result;"
+        // instead of wrapping in a proxy class (e.g., "return new ...Proxy(result);")
+        Assert.Contains("return result;", csOutput);
+        Assert.DoesNotContain("Proxy(result)", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();

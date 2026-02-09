@@ -370,6 +370,24 @@ public class BoundGenericsHandlerTests
 
     #endregion
 
+    #region GetBufferType Fallback Tests
+
+    [Fact]
+    public void GetBufferType_UnmappedBoundGeneric_ReturnsIntPtr()
+    {
+        // Bound generic type not in s_bufferTypeMap (e.g., TestModule.CustomGeneric<Int>)
+        // G7 fix: fallback returns "IntPtr" instead of AnyType
+        var typeSpec = new NamedTypeSpec("TestModule.CustomGeneric");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var argDecl = CreateArgumentDecl(typeSpec);
+        var result = _handler.GetBufferType(argDecl);
+
+        Assert.Equal("IntPtr", result);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static ArgumentDecl CreateArgumentDecl(TypeSpec typeSpec)

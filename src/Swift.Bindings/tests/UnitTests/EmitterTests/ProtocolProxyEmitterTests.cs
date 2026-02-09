@@ -623,6 +623,90 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("public void Update(Swift.TestModule.Box<Swift.AnyType> value)", output);
     }
 
+    [Fact]
+    public void EmitProxyClass_ClosureAndArrayParamsSameResolvedKey_EmitsSingleMethod()
+    {
+        // G6 bug shape: two methods with the same name but different Swift parameter types —
+        // a closure param and an array param — that both resolve to AnyType via
+        // GetTypeRecordOrAnyType (ClosureTypeSpec → default AnyType, unregistered
+        // NamedTypeSpec("Swift.Array<...>") → AnyType).
+        // Before G6, raw GetMethodKey used Swift type ToString() which produced different
+        // keys ("(Swift.Int) -> ()" vs "Swift.Array<Swift.Double>"), emitting duplicates.
+        // G6 fix: ProtocolSignatureHelper.GetMethodSignatureKey resolves through TypeDatabase,
+        // normalizing both to "Swift.AnyType" → same key → single method emitted.
+        // Note: ProtocolHandler (interface declaration) uses the same GetMethodSignatureKey,
+        // so interface dedup is implicitly covered by testing the same key function here.
+        var protocolDecl = CreateSimpleProtocol("DedupProtocol");
+
+        // Method 1: param is a closure (ClosureTypeSpec → _ => AnyType in GetTypeRecordOrAnyType)
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "update",
+            MangledName = "$supdate_closure",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "handler", PrivateName = "handler",
+                    SwiftTypeSpec = new ClosureTypeSpec(
+                        new TupleTypeSpec(new NamedTypeSpec("Swift.Int")),
+                        TupleTypeSpec.Empty),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        // Method 2: param is an array (unregistered NamedTypeSpec → AnyType via TypeDatabase miss)
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "update",
+            MangledName = "$supdate_array",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "items", PrivateName = "items",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Double")),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Both params resolve to "Swift.AnyType" via ProtocolSignatureHelper →
+        // same key "update(Swift.AnyType)" → only one proxy class method emitted
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(output, "public void Update("));
+    }
+
     #endregion
 
     #region Swift Existential Degradation Tests

@@ -933,6 +933,92 @@ public class PropertyHandlerTests
         return (csOutput.ToString(), swiftOutput.ToString());
     }
 
+    private static void RegisterProtocol(TypeDatabase typeDatabase, string protocolName)
+    {
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName(protocolName), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", protocolName.Split('.')[1]),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
+                MetadataAccessor = "$s10TestModule8ProtocolPAAWP",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+    }
+
+    #endregion
+
+    #region G2 — Optional Existential Property Pass-Through Tests
+
+    [Fact]
+    public void Emit_OptionalExistentialProperty_EmitsSimplePassThrough()
+    {
+        // G2 fix: Optional-existential properties emit simple pass-through
+        // instead of going through TypeConversionHandler (which would apply
+        // SwiftOptional conversion, producing incorrect ToNullable() calls).
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching");
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Processor", moduleDecl);
+
+        var optionalExistentialType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") }));
+        // Accessor CSSignature uses a registered type (Swift.Int) because the unit test
+        // TypeDatabase doesn't have Swift.Optional registered — using the raw optional-existential
+        // TypeSpec would cause the accessor pre-flight (SignatureHandler.GetWrapperSignature()
+        // → ContainsPlaceholder) to skip the property before reaching EmitGetter/EmitSetter.
+        // In production, the parser resolves accessor CSSignature types separately from the
+        // property's SwiftTypeSpec. This test isolates the G2 fix: when isOptionalExistential=true,
+        // EmitGetter/EmitSetter emit simple pass-through delegation.
+        var registeredType = new NamedTypeSpec("Swift.Int");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "dataCache", registeredType, hasGetter: true, hasSetter: true);
+        property.SwiftTypeSpec = optionalExistentialType;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Existential pass-through: simple delegation without type conversion
+        Assert.Contains("get => DataCache_Get();", csOutput);
+        Assert.Contains("set => DataCache_Set(value);", csOutput);
+        // Should NOT apply SwiftOptional conversion (.ToNullable / new SwiftOptional)
+        Assert.DoesNotContain("ToNullable", csOutput);
+    }
+
+    #endregion
+
+    #region G1 — Generic Type Params in Properties Tests
+
+    [Fact]
+    public void Emit_PropertyWithGenericTypeParameter_ResolvesToT0NotAnyType()
+    {
+        // G1 fix: Properties on generic types where the property type is τ_0_0
+        // resolve to "T0" via GenericContext, not "AnyType".
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Container", moduleDecl);
+        classDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new(
+                TypeName: "τ_0_0",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+
+        // Create property with a registered type initially, then override to generic param
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "value", "Swift.Int", hasGetter: true, hasSetter: false);
+        property.SwiftTypeSpec = new NamedTypeSpec("τ_0_0");
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Generic type parameter τ_0_0 should resolve to T0
+        Assert.Contains("public T0 Value", csOutput);
+        Assert.DoesNotContain("AnyType", csOutput);
+    }
+
     #endregion
 
     #region Existential Property Tests
