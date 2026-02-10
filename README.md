@@ -249,6 +249,21 @@ The more context you provide, the faster we can diagnose and fix the issue. The 
 
 ---
 
+## Known Limitations
+
+Swift Bindings targets .NET 10 on Apple platforms, which currently uses the Mono runtime for iOS deployment. Mono's JIT compiler has a known defect (`jit-info.c:918`) that causes process-fatal crashes when it encounters `CallConvSwift` in certain P/Invoke frame types. This affects three categories of Swift interop: string operations, closure callbacks, and existential type metadata.
+
+Four workarounds (A through D) have been implemented in this project to route around the crash. These workarounds are transparent to the end user — generated bindings work correctly on Mono without any manual intervention. However, they introduce a runtime dependency on `libSwiftBindingsRuntime.dylib`, which must be included in the application bundle.
+
+For full details on each workaround, affected files, and a revert checklist for when the upstream fix lands, see [`src/docs/known-issues-workarounds.md`](src/docs/known-issues-workarounds.md).
+
+Other documented limitations:
+- **Non-blittable types**: .NET's `CallConvSwift` requires all P/Invoke parameters to be blittable. Types like `SwiftOptional<T>` and `SafeHandle` require wrapper-based marshalling.
+- **SafeHandle in async P/Invoke**: The .NET runtime doesn't preserve `SafeHandle` references across async continuations. Singleton and IntPtr-based workarounds are implemented.
+- **VWT Destroy on Mono**: Explicit `Dispose()` on structs with reference-type fields (e.g., a struct containing a `String`) can trigger the JIT crash through `ValueWitnessTable->Destroy()`. This remains an open issue for a small number of types.
+
+---
+
 ## Project Status
 
 Swift Bindings is under active development. The core generator is functional and validated against real-world libraries. Work is ongoing toward the v1.0 developer experience (MSBuild SDK, project templates, NuGet packaging automation).
