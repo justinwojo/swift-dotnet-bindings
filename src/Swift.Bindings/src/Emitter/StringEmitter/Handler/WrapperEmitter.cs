@@ -47,16 +47,24 @@ namespace BindingsGeneration
             // Async methods call our generated Swift wrapper which handles errors internally
             _requiresSwiftError = !_requiresSwiftAsync && _env.MethodDecl.Throws;
 
-            // Frozen struct setters need a fixed block to get a pointer to 'this'
-            // because setters modify the struct in-place (pointer semantics)
-            // while getters can pass by value (value semantics)
+            // Frozen struct value types need a fixed block to pin 'this' and get a pointer.
+            // Two cases: (1) setters modify the struct in-place (pointer semantics),
+            // (2) standalone closure Cdecl wrappers pass self as explicit IntPtr.
+            // In both cases the fixed block provides __self for pointer access.
             _requiresFixedBlock = false;
-            if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen && MarshallingHelpers.MethodIsSetter(_env.MethodDecl))
+            if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)
             {
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                 // Only pure frozen structs (no memory management) need the fixed block
                 // Frozen structs with memory management use _payload SafeHandle like non-frozen types
-                _requiresFixedBlock = !MarshallingHelpers.RequiresMemoryManagement(typeRecord);
+                if (!MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+                {
+                    // Setters always need the fixed block for pointer-based mutation.
+                    // Standalone closure Cdecl wrappers need it only for instance methods
+                    // (static methods have no self parameter to pin).
+                    _requiresFixedBlock = MarshallingHelpers.MethodIsSetter(_env.MethodDecl)
+                        || (_env.MethodDecl.UsesFreeFunctionWrapper && _requiresSwiftSelf);
+                }
             }
         }
 
@@ -374,7 +382,10 @@ namespace BindingsGeneration
 
             // Async methods either use singleton workaround or pass self as explicit IntPtr parameter.
             // Either way, no SwiftSelf variable is needed on the C# side.
-            if (_requiresSwiftAsync)
+            // Standalone closure Cdecl wrapper methods also pass self as explicit IntPtr.
+            // Note: wrapper generator paths (ArraySlice, DefaultParam) with HasClosureCdeclWrapper
+            // still use extension methods with implicit self → SwiftSelf is still needed.
+            if (_requiresSwiftAsync || _env.MethodDecl.UsesFreeFunctionWrapper)
             {
                 return;
             }

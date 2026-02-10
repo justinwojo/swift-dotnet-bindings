@@ -53,6 +53,9 @@ namespace BindingsGeneration
             // Async+throwing closure start function pointer
             var t when t.StartsWith("AsyncThrowingStartFunc:") =>
                 $"{modifier} delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> {Name}",
+            // Cdecl closure wrapper: func pointer and context as separate IntPtr params
+            var t when t.StartsWith("CdeclClosureFuncPtr:") => $"{modifier} IntPtr {Name}",
+            var t when t.StartsWith("CdeclClosureContext:") => $"{modifier} IntPtr {Name}",
             _ => $"{modifier} {Type} {Name}"
         };
     }
@@ -101,6 +104,15 @@ namespace BindingsGeneration
                 { modifier: "ref" } => $"ref {parameter.Name}",
                 // Handle escaping closures: parameter is SwiftClosureData, variable is {name}Closure
                 { Type: "SwiftClosureData" } => $"{parameter.Name}Closure",
+                // Cdecl closure: func pointer — uses Handle.IsAllocated guard for optional nil safety.
+                // Non-optional closures always have Handle.IsAllocated == true, so the guard is a no-op.
+                // Format: "CdeclClosureFuncPtr:{callbackName}:{sourceCsName}"
+                { Type: var t } when t.StartsWith("CdeclClosureFuncPtr:") =>
+                    $"{t.Split(':')[2]}Handle.IsAllocated ? (IntPtr)s_{t.Split(':')[1]} : IntPtr.Zero",
+                // Cdecl closure: context — same Handle.IsAllocated guard for consistency.
+                // Format: "CdeclClosureContext:{sourceCsName}"
+                { Type: var t } when t.StartsWith("CdeclClosureContext:") =>
+                    $"{t.Split(':')[1]}Handle.IsAllocated ? GCHandle.ToIntPtr({t.Split(':')[1]}Handle) : IntPtr.Zero",
                 // Handle async+throwing closure context: AsyncThrowingContext:{paramName} -> {paramName}ContextPtr
                 { Type: var type } when type.StartsWith("AsyncThrowingContext:") =>
                     $"{type.Substring("AsyncThrowingContext:".Length)}ContextPtr",
@@ -116,9 +128,12 @@ namespace BindingsGeneration
                 // Native-remapped types (URL, Data): use the converted Swift variable
                 { Type: "NativeRemappedSafeHandle" } => $"{parameter.Name}Swift.Payload",
                 { Type: var type } when type.StartsWith("NativeRemapped:") => $"{parameter.Name}Swift",
-                // Async instance methods pass self as explicit IntPtr (not SwiftSelf register)
-                // For classes, dereference the payload buffer to get the actual class pointer
+                // Instance methods on free-function wrapper paths pass self as explicit IntPtr.
+                // For classes, dereference the payload buffer to get the actual class pointer.
+                // For frozen struct value types, use the fixed-block pointer (__self).
+                // For non-frozen structs (ClassWithOpaquePayload) and ClassWithBufferStruct, use _payload.
                 { Name: "_selfClass" } => "*(IntPtr*)_payload.DangerousGetHandle()",
+                { Name: "_selfFixed" } => "(IntPtr)__self",
                 { Name: "_self", Type: "IntPtr" } => "_payload.DangerousGetHandle()",
                 _ => parameter.Name
             };

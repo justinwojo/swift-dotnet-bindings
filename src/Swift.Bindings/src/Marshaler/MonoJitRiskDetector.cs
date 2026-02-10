@@ -184,6 +184,86 @@ public static class MonoJitRiskDetector
     }
 
     /// <summary>
+    /// Checks if a method has non-async escaping closures that need Cdecl wrapper adaptation.
+    /// Used by MethodHandler and wrapper generators to set HasClosureCdeclWrapper before
+    /// PInvokeSignatureBuilder runs.
+    /// Returns false for async methods, opaque return methods, and methods with async-throwing closures.
+    /// </summary>
+    /// <param name="methodDecl">The method declaration to check.</param>
+    /// <param name="closureHandler">The closure handler for type inspection.</param>
+    /// <returns>True if the method has escaping closures needing Cdecl adaptation.</returns>
+    public static bool NeedsClosureCdeclWrapper(MethodDecl methodDecl, ClosureHandler closureHandler)
+    {
+        if (methodDecl.IsAsync) return false;
+
+        // Property accessors (getters/setters) pass closure values directly, not as
+        // callback function pointers. The Cdecl wrapper pattern doesn't apply.
+        if (methodDecl.IsAccessor) return false;
+
+        // Opaque return methods use EmitOpaqueReturnWrapper() which passes closures as
+        // native Swift types. Combined closure+opaque wrapper not yet implemented.
+        if (methodDecl.CSSignature.Count > 0 &&
+            methodDecl.CSSignature[0].SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
+            return false;
+
+        // @convention(c) closures are passed as raw C function pointers, not Swift closures.
+        // The ABI JSON doesn't include convention attributes, but the mangled name encodes
+        // @convention(c) as 'XC'. If present, our adapter closure (a regular Swift closure)
+        // can't be passed where a @convention(c) pointer is expected.
+        if (HasConventionCInMangledName(methodDecl.MangledName))
+            return false;
+
+        // If the method has ANY async-throwing closures, don't use Cdecl wrapper.
+        // Async-throwing closures use a specialized P/Invoke pattern (AsyncThrowingContext +
+        // AsyncThrowingStartFunc IntPtr params) that is incompatible with the standalone Swift
+        // wrapper, which renders async-throwing closures as native Swift types.
+        var hasAsyncThrowingClosure = methodDecl.CSSignature.Skip(1)
+            .Where(closureHandler.IsClosure)
+            .Any(arg =>
+            {
+                var spec = closureHandler.GetClosureTypeSpec(arg);
+                return spec != null && closureHandler.IsAsyncThrowingClosure(spec);
+            });
+        if (hasAsyncThrowingClosure) return false;
+
+        // Find all escaping closures that need thunks (candidates for Cdecl wrapping)
+        var thunkClosures = methodDecl.CSSignature.Skip(1)
+            .Where(closureHandler.IsClosure)
+            .Where(arg =>
+            {
+                var spec = closureHandler.GetClosureTypeSpec(arg);
+                return spec != null
+                    && closureHandler.IsSupportedClosure(spec)
+                    && closureHandler.RequiresThunk(spec)
+                    && !closureHandler.IsAsyncThrowingClosure(spec);
+            })
+            .ToList();
+
+        // Must have at least one thunk closure, and ALL must be Cdecl-compatible.
+        // If any closure has non-primitive args/returns, the whole method stays on
+        // the legacy CallConvSwift path to avoid mixed ABI within a single wrapper.
+        return thunkClosures.Count > 0
+            && thunkClosures.All(arg =>
+                ClosureEmitter.IsClosureCdeclCompatible(
+                    closureHandler.GetClosureTypeSpec(arg)!, closureHandler));
+    }
+
+    /// <summary>
+    /// Checks if a method's mangled name contains the 'XC' marker indicating a
+    /// @convention(c) closure parameter. The ABI JSON doesn't include convention
+    /// attributes on ClosureTypeSpec, so this is the reliable detection path.
+    /// </summary>
+    private static bool HasConventionCInMangledName(string mangledName)
+    {
+        // Swift mangling: 'XC' marks @convention(c) (CFunctionPointer) on closure types.
+        // Simple substring check — may false-positive on identifiers containing "XC" (e.g.,
+        // "processXCData"), but the safe direction is to suppress the Cdecl wrapper (stays
+        // on functional legacy CallConvSwift path). False negatives cause Swift compile errors
+        // because a capturing closure can't be passed where @convention(c) is required.
+        return mangledName.Contains("XC", StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Checks if a closure has @convention(c) attribute, making it safe for Mono JIT.
     /// </summary>
     private static bool IsConventionC(ClosureTypeSpec closure)

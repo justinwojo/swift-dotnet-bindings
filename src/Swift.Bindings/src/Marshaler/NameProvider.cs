@@ -152,6 +152,13 @@ public static class NameProvider
             methodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return $"{methodDecl.MangledName}_opaque";
 
+        // Closure Cdecl wrappers need a unique symbol because the wrapper function has
+        // different parameter types (UnsafeMutableRawPointer pairs) than the original
+        // Swift function (native closure types). @_silgen_name with the original symbol
+        // would cause a function type mismatch error.
+        if (methodDecl.HasClosureCdeclWrapper)
+            return $"{methodDecl.MangledName}_cdecl";
+
         return methodDecl.MangledName;
     }
 

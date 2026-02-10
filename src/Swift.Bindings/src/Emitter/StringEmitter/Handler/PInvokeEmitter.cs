@@ -217,10 +217,19 @@ namespace BindingsGeneration
                         }
                         else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                         {
-                            // Escaping closures are passed as a single SwiftClosureData struct
-                            // containing both function pointer and context.
-                            // Optional closures use the same struct - nil is represented by zero pointers.
-                            AddParameter("SwiftClosureData", csName);
+                            if (_env.MethodDecl.HasClosureCdeclWrapper)
+                            {
+                                // Cdecl closure wrapper: pass func ptr + context as separate IntPtr params
+                                var callbackName = ClosureHandler.GetCallbackFunctionName(
+                                    _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
+                                AddParameter($"CdeclClosureFuncPtr:{callbackName}:{csName}", csName + "FuncPtr");
+                                AddParameter($"CdeclClosureContext:{csName}", csName + "Context");
+                            }
+                            else
+                            {
+                                // Legacy path: pass as SwiftClosureData (for async methods with non-async closures)
+                                AddParameter("SwiftClosureData", csName);
+                            }
                         }
                         else
                         {
@@ -415,6 +424,35 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleSwiftSelf()
         {
+            // Standalone closure Cdecl wrapper uses free-function Swift wrapper.
+            // Pass self as explicit IntPtr (same as async pattern).
+            // Wrapper generator paths (ArraySlice, DefaultParam) keep extension methods
+            // with implicit self via SwiftSelf — they set HasClosureCdeclWrapper but NOT UsesFreeFunctionWrapper.
+            if (_env.MethodDecl.UsesFreeFunctionWrapper && MarshallingHelpers.MethodRequiresSwiftSelf(_env))
+            {
+                if (_env.ParentDecl is ClassDecl)
+                {
+                    AddParameter("IntPtr", "_selfClass");
+                }
+                else if (_env.ParentDecl is StructDecl structDecl && structDecl.IsFrozen)
+                {
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                    // Frozen struct value types have no _payload SafeHandle.
+                    // Use _selfFixed → resolved via fixed block to pin 'this'.
+                    // Frozen structs with memory management (ClassWithBufferStruct) have _payload.
+                    if (!MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+                        AddParameter("IntPtr", "_selfFixed");
+                    else
+                        AddParameter("IntPtr", "_self");
+                }
+                else
+                {
+                    // Non-frozen structs (ClassWithOpaquePayload) have _payload
+                    AddParameter("IntPtr", "_self");
+                }
+                return;
+            }
+
             // Async instance methods on non-singleton classes pass self as explicit IntPtr parameter.
             // We use a module-level free function (not extension method) to avoid SwiftSelf binding issues.
             // Singleton classes use the ClassName.shared workaround and don't need _self.

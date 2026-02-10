@@ -64,6 +64,12 @@ public static class DefaultParameterOverloadEmitter
         {
             var overloadDecl = BuildOverloadDecl(methodDecl, trim);
 
+            // Note: HasClosureCdeclWrapper is NOT set on cloned overload decls.
+            // DefaultParam wrappers use @_silgen_name to intercept the original Swift symbol,
+            // which forces the function type to match the original ABI. Closure params must
+            // remain native Swift types in the wrapper. Only standalone closure wrappers
+            // (emitted at MethodHandler level with their own unique symbol) can use Cdecl params.
+
             // Create environment with overload decl
             var overloadEnv = new MethodEnvironment(
                 overloadDecl,
@@ -219,26 +225,30 @@ public static class DefaultParameterOverloadEmitter
         for (int i = 0; i < keptArgs.Count; i++)
         {
             var arg = keptArgs[i];
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
-            // Wrapper functions always need @escaping on closure parameters because
-            // the closure is passed to the original method which may require it.
-            // Also add @Sendable for async closures (required in Swift 5.5+ concurrency).
-            if (arg.SwiftTypeSpec is ClosureTypeSpec closureSpec)
-            {
-                if (!swiftType.StartsWith("@escaping"))
-                {
-                    if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
-                        swiftType = $"@escaping @Sendable {swiftType}";
-                    else
-                        swiftType = $"@escaping {swiftType}";
-                }
-                else if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
-                {
-                    swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
-                }
-            }
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            swiftParams.Add($"_ {label}: {swiftType}");
+
+            // Render param as native Swift type — @_silgen_name forces original function type
+            {
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                // Wrapper functions always need @escaping on closure parameters because
+                // the closure is passed to the original method which may require it.
+                // Also add @Sendable for async closures (required in Swift 5.5+ concurrency).
+                if (arg.SwiftTypeSpec is ClosureTypeSpec closureSpec)
+                {
+                    if (!swiftType.StartsWith("@escaping"))
+                    {
+                        if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                            swiftType = $"@escaping @Sendable {swiftType}";
+                        else
+                            swiftType = $"@escaping {swiftType}";
+                    }
+                    else if (closureSpec.IsAsync && !swiftType.Contains("@Sendable"))
+                    {
+                        swiftType = swiftType.Replace("@escaping ", "@escaping @Sendable ");
+                    }
+                }
+                swiftParams.Add($"_ {label}: {swiftType}");
+            }
         }
         var swiftParamString = string.Join(", ", swiftParams);
 
@@ -258,6 +268,7 @@ public static class DefaultParameterOverloadEmitter
                 var n => $"{n}: "
             };
 
+            // Call args use native param names — @_silgen_name preserves original ABI
             callArgs.Add(argStr + privateName);
         }
         var callArgString = string.Join(", ", callArgs);
@@ -289,6 +300,7 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
 
+
             var callExpr = $"{tryPrefix}{awaitPrefix}{callPrefix}{originalMethodName}({callArgString})";
             swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
 
@@ -313,6 +325,7 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"public static func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause} {{");
             swiftWriter.Indent++;
 
+
             var callExpr = $"{tryPrefix}{awaitPrefix}{swiftModuleQualifiedName}({callArgString})";
             swiftWriter.WriteLine($"return {callExpr}");
 
@@ -335,6 +348,7 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
+
 
             var callExpr = $"{tryPrefix}{awaitPrefix}{selfPrefix}.{originalMethodName}({callArgString})";
             swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");

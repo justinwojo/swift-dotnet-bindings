@@ -193,33 +193,52 @@ namespace BindingsGeneration
                 }
                 else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
                 {
-                    // For escaping closures, create a SwiftClosureData struct with thunk pointer and delegate in context
-                    var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
-
-                    if (isOptional)
+                    if (_env.MethodDecl.HasClosureCdeclWrapper)
                     {
-                        // Optional escaping closure - handle null case with zero-initialized SwiftClosureData
-                        csWriter.WriteLine($"SwiftClosureData {csName}Closure;");
-                        csWriter.WriteLine($"if ({csName} != null)");
-                        csWriter.WriteLine("{");
-                        csWriter.Indent++;
-                        csWriter.WriteLine($"{csName}Handle = GCHandle.Alloc({csName});");
-                        csWriter.WriteLine($"{csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({csName}Handle));");
-                        csWriter.Indent--;
-                        csWriter.WriteLine("}");
-                        csWriter.WriteLine("else");
-                        csWriter.WriteLine("{");
-                        csWriter.Indent++;
-                        csWriter.WriteLine($"{csName}Closure = default; // Zero-initialized = nil in Swift");
-                        csWriter.Indent--;
-                        csWriter.WriteLine("}");
+                        // Cdecl wrapper: just allocate the GCHandle if closure is non-null.
+                        // The call-argument mapping (MethodSignature) handles passing func ptr and context.
+                        if (isOptional)
+                        {
+                            csWriter.WriteLine($"if ({csName} != null)");
+                            csWriter.Indent++;
+                            csWriter.WriteLine($"{csName}Handle = GCHandle.Alloc({csName});");
+                            csWriter.Indent--;
+                        }
+                        else
+                        {
+                            csWriter.WriteLine($"{csName}Handle = GCHandle.Alloc({csName});");
+                        }
                     }
                     else
                     {
-                        csWriter.WriteLines($"""
-                            {csName}Handle = GCHandle.Alloc({csName});
-                            var {csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({csName}Handle));
-                            """);
+                        // Legacy SwiftClosureData path (for async methods with non-async closures)
+                        var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
+
+                        if (isOptional)
+                        {
+                            // Optional escaping closure - handle null case with zero-initialized SwiftClosureData
+                            csWriter.WriteLine($"SwiftClosureData {csName}Closure;");
+                            csWriter.WriteLine($"if ({csName} != null)");
+                            csWriter.WriteLine("{");
+                            csWriter.Indent++;
+                            csWriter.WriteLine($"{csName}Handle = GCHandle.Alloc({csName});");
+                            csWriter.WriteLine($"{csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({csName}Handle));");
+                            csWriter.Indent--;
+                            csWriter.WriteLine("}");
+                            csWriter.WriteLine("else");
+                            csWriter.WriteLine("{");
+                            csWriter.Indent++;
+                            csWriter.WriteLine($"{csName}Closure = default; // Zero-initialized = nil in Swift");
+                            csWriter.Indent--;
+                            csWriter.WriteLine("}");
+                        }
+                        else
+                        {
+                            csWriter.WriteLines($"""
+                                {csName}Handle = GCHandle.Alloc({csName});
+                                var {csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({csName}Handle));
+                                """);
+                        }
                     }
                 }
             }
@@ -383,9 +402,15 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits callback functions and pointers for escaping closures.
+        /// When HasClosureCdeclWrapper is set, non-async closure callbacks use CallConvCdecl
+        /// instead of CallConvSwift to avoid Mono JIT assertion crashes.
         /// </summary>
         private void EmitClosureCallbacks(CSharpWriter csWriter)
         {
+            // Determine if callbacks should use Cdecl calling convention.
+            // Async+throwing closures always use their own Cdecl pattern regardless.
+            var useCdecl = _env.MethodDecl.HasClosureCdeclWrapper;
+
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
             {
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
@@ -399,6 +424,7 @@ namespace BindingsGeneration
                     {
                         // Async+throwing closures use a special "start" callback pattern
                         // The start function is synchronous and spawns Task.Run
+                        // These always use their own Cdecl pattern, not gated by useCdecl
                         ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
                         ClosureEmitter.EmitAsyncThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
                     }
@@ -406,19 +432,19 @@ namespace BindingsGeneration
                     else if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
                     {
                         // Throwing closures need special callback that handles SwiftError
-                        ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
-                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
+                        ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
                     }
                     // Check if this closure needs indirect return marshalling
                     else if (_env.ClosureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec))
                     {
-                        ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
-                        ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
+                        ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
                     }
                     else
                     {
-                        ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
-                        ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
+                        ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
                     }
                     csWriter.WriteLine();
                 }

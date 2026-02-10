@@ -265,6 +265,11 @@ public static class ArraySliceNormalizationEmitter
         // Build normalized MethodDecl with ArraySlice → Array replacement
         var normalizedMethodDecl = NormalizeMethodDecl(methodDecl);
 
+        // Note: HasClosureCdeclWrapper is NOT set on cloned normalized decls.
+        // ArraySlice wrappers use @_silgen_name to intercept the original Swift symbol,
+        // which forces the function type to match the original ABI. Only standalone
+        // closure wrappers (emitted at MethodHandler level) can use Cdecl params.
+
         // Create environment with normalized decl
         var normalizedEnv = new MethodEnvironment(
             normalizedMethodDecl,
@@ -427,13 +432,16 @@ public static class ArraySliceNormalizationEmitter
         var swiftParams = new List<string>();
         var originalArgs = originalMethodDecl.CSSignature.Skip(1).ToList();
         var normalizedArgs = normalizedMethodDecl.CSSignature.Skip(1).ToList();
-
         for (int i = 0; i < normalizedArgs.Count; i++)
         {
             var arg = normalizedArgs[i];
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            swiftParams.Add($"_ {label}: {swiftType}");
+
+            // Render param as native Swift type — @_silgen_name forces original function type
+            {
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                swiftParams.Add($"_ {label}: {swiftType}");
+            }
         }
         var swiftParamString = string.Join(", ", swiftParams);
 
@@ -495,6 +503,7 @@ public static class ArraySliceNormalizationEmitter
             swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
 
+
             var callExpr = $"{tryPrefix}{callPrefix}{originalMethodName}({callArgString})";
             swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
 
@@ -515,6 +524,7 @@ public static class ArraySliceNormalizationEmitter
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
+
 
             var callExpr = $"{tryPrefix}{selfPrefix}.{originalMethodName}({callArgString})";
             swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");

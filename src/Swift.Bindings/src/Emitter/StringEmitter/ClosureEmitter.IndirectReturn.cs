@@ -16,19 +16,21 @@ public static partial class ClosureEmitter
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="mangledName">The mangled name of the method (for callback disambiguation).</param>
+    /// <param name="useCdecl">When true, emit CallConvCdecl with IntPtr context instead of CallConvSwift with SwiftSelf.</param>
     public static void EmitIndirectReturnCallback(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
-        string mangledName)
+        string mangledName,
+        bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
         var returnCSharpType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
 
-        // Build parameter list: void* indirectResult, arguments..., SwiftSelf context
+        // Build parameter list: void* indirectResult, arguments..., context
         var parameters = new List<string> { "void* indirectResult" };
         var argTypes = new List<TypeSpec>();
         int argIndex = 0;
@@ -39,7 +41,7 @@ public static partial class ClosureEmitter
             argTypes.Add(arg);
             argIndex++;
         }
-        parameters.Add("SwiftSelf context");
+        parameters.Add(useCdecl ? "IntPtr contextPtr" : "SwiftSelf context");
         var parametersString = string.Join(", ", parameters);
 
         // Build argument list for invoking the delegate
@@ -51,11 +53,14 @@ public static partial class ClosureEmitter
         }
         var invokeArgsString = string.Join(", ", invokeArgs);
 
+        var callConvType = useCdecl ? "typeof(CallConvCdecl)" : "typeof(CallConvSwift)";
+        var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
+
         csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
+            [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static void {{callbackName}}({{parametersString}})
             {
-                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>(new IntPtr(context.Value));
+                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
                 var result = del({{invokeArgsString}});
 
                 // Marshal the result to the indirect result buffer
@@ -69,20 +74,44 @@ public static partial class ClosureEmitter
     /// <summary>
     /// Emits the static field that holds the function pointer for an indirect return callback.
     /// </summary>
+    /// <param name="useCdecl">When true, emit Cdecl function pointer type with IntPtr context.</param>
     public static void EmitIndirectReturnCallbackPointer(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
-        string mangledName)
+        string mangledName,
+        bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
-        var funcPtrType = closureHandler.GetPInvokeFunctionPointerTypeWithIndirectReturn(closureTypeSpec);
+        // For Cdecl indirect return, build a Cdecl-based function pointer type
+        var funcPtrType = useCdecl
+            ? BuildIndirectReturnCdeclFunctionPointerType(closureTypeSpec, closureHandler)
+            : closureHandler.GetPInvokeFunctionPointerTypeWithIndirectReturn(closureTypeSpec);
 
         // Add context parameter to the function pointer type
-        var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+        var funcPtrTypeWithContext = useCdecl
+            ? AddCdeclContextToFunctionPointerType(funcPtrType)
+            : AddContextToFunctionPointerType(funcPtrType);
 
         csWriter.WriteLine($"private static unsafe readonly {funcPtrTypeWithContext} s_{callbackName} = &{callbackName};");
+    }
+
+    /// <summary>
+    /// Builds a Cdecl function pointer type for indirect return callbacks.
+    /// Format: delegate* unmanaged[Cdecl]&lt;void*, args..., void&gt;
+    /// </summary>
+    private static string BuildIndirectReturnCdeclFunctionPointerType(
+        ClosureTypeSpec closureTypeSpec,
+        ClosureHandler closureHandler)
+    {
+        var types = new List<string> { "void*" }; // indirect result buffer
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            types.Add(GetCallbackParameterType(arg, closureHandler));
+        }
+        types.Add("void"); // indirect return callbacks always return void
+        return $"delegate* unmanaged[Cdecl]<{string.Join(", ", types)}>";
     }
 }

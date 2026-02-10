@@ -19,13 +19,15 @@ public static partial class ClosureEmitter
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="mangledName">The mangled name of the method (for callback disambiguation).</param>
+    /// <param name="useCdecl">When true, emit CallConvCdecl with IntPtr context instead of CallConvSwift with SwiftSelf.</param>
     public static void EmitEscapingClosureCallback(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
-        string mangledName)
+        string mangledName,
+        bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
@@ -41,9 +43,9 @@ public static partial class ClosureEmitter
             argTypes.Add(arg);
             argIndex++;
         }
-        // Context is passed in the Swift "self" register. Using SwiftSelf tells .NET to
-        // receive this value from the correct register per Swift calling convention.
-        parameters.Add("SwiftSelf context");
+        // Cdecl: context is a plain IntPtr parameter.
+        // Swift: context is passed in the Swift "self" register via SwiftSelf.
+        parameters.Add(useCdecl ? "IntPtr contextPtr" : "SwiftSelf context");
 
         var returnType = GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler);
 
@@ -77,11 +79,14 @@ public static partial class ClosureEmitter
             returnStatement = $"return del({invokeArgsString});";
         }
 
+        var callConvType = useCdecl ? "typeof(CallConvCdecl)" : "typeof(CallConvSwift)";
+        var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
+
         csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
+            [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static {{returnType}} {{callbackName}}({{parametersString}})
             {
-                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>(new IntPtr(context.Value));
+                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
                 {{returnStatement}}
             }
             """);
@@ -96,19 +101,23 @@ public static partial class ClosureEmitter
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="mangledName">The mangled name of the method (for callback disambiguation).</param>
+    /// <param name="useCdecl">When true, emit Cdecl function pointer type with IntPtr context.</param>
     public static void EmitClosureCallbackPointer(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
-        string mangledName)
+        string mangledName,
+        bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
-        var funcPtrType = BuildEscapingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler);
+        var funcPtrType = BuildEscapingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler, useCdecl);
 
         // Add context parameter to the function pointer type
-        var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+        var funcPtrTypeWithContext = useCdecl
+            ? AddCdeclContextToFunctionPointerType(funcPtrType)
+            : AddContextToFunctionPointerType(funcPtrType);
 
         csWriter.WriteLine($"private static unsafe readonly {funcPtrTypeWithContext} s_{callbackName} = &{callbackName};");
     }
@@ -349,7 +358,8 @@ public static partial class ClosureEmitter
     /// </summary>
     private static string BuildEscapingClosureCallbackFunctionPointerType(
         ClosureTypeSpec closureTypeSpec,
-        ClosureHandler closureHandler)
+        ClosureHandler closureHandler,
+        bool useCdecl = false)
     {
         var types = new List<string>();
         foreach (var arg in closureTypeSpec.EachArgument())
@@ -358,7 +368,8 @@ public static partial class ClosureEmitter
         }
 
         types.Add(GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
-        return $"delegate* unmanaged[Swift]<{string.Join(", ", types)}>";
+        var callConv = useCdecl ? "Cdecl" : "Swift";
+        return $"delegate* unmanaged[{callConv}]<{string.Join(", ", types)}>";
     }
 
     /// <summary>
@@ -366,7 +377,8 @@ public static partial class ClosureEmitter
     /// </summary>
     private static string BuildThrowingClosureCallbackFunctionPointerType(
         ClosureTypeSpec closureTypeSpec,
-        ClosureHandler closureHandler)
+        ClosureHandler closureHandler,
+        bool useCdecl = false)
     {
         var types = new List<string>();
         foreach (var arg in closureTypeSpec.EachArgument())
@@ -378,7 +390,33 @@ public static partial class ClosureEmitter
         types.Add(closureTypeSpec.ReturnType.IsEmptyTuple
             ? "void"
             : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
-        return $"delegate* unmanaged[Swift]<{string.Join(", ", types)}>";
+        var callConv = useCdecl ? "Cdecl" : "Swift";
+        return $"delegate* unmanaged[{callConv}]<{string.Join(", ", types)}>";
+    }
+
+    /// <summary>
+    /// Adds IntPtr context parameter to a Cdecl function pointer type string.
+    /// Used for closure Cdecl wrapper path where context is a plain IntPtr (not SwiftSelf).
+    /// </summary>
+    internal static string AddCdeclContextToFunctionPointerType(string funcPtrType)
+    {
+        // Transform "delegate* unmanaged[Cdecl]<int, void>" to "delegate* unmanaged[Cdecl]<int, IntPtr, void>"
+        int lastAngle = funcPtrType.LastIndexOf('>');
+        if (lastAngle == -1)
+            return funcPtrType;
+
+        int lastComma = funcPtrType.LastIndexOf(',', lastAngle);
+        if (lastComma == -1)
+        {
+            // No parameters, just return type: "delegate* unmanaged[Cdecl]<void>"
+            int openAngle = funcPtrType.IndexOf('<');
+            if (openAngle == -1)
+                return funcPtrType;
+
+            return funcPtrType.Insert(openAngle + 1, "IntPtr, ");
+        }
+
+        return funcPtrType.Insert(lastComma + 1, " IntPtr,");
     }
 
     /// <summary>

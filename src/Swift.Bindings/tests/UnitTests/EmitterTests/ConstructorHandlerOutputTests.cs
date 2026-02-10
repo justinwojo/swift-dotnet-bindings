@@ -75,8 +75,11 @@ public class ConstructorHandlerOutputTests
 
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Contains("SwiftClosureData", csOutput);
+        // Cdecl closure wrapper: separate IntPtr params instead of SwiftClosureData
+        Assert.DoesNotContain("SwiftClosureData", csOutput);
         Assert.Contains("GCHandle callbackHandle", csOutput);
+        Assert.Contains("IntPtr callbackFuncPtr", csOutput);
+        Assert.Contains("IntPtr callbackContext", csOutput);
     }
 
     [Fact]

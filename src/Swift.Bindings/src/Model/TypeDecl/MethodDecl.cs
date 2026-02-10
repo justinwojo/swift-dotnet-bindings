@@ -87,6 +87,24 @@ namespace BindingsGeneration
         public bool UsesWrapperLibrary { get; set; } = false;
 
         /// <summary>
+        /// When true, escaping closure parameters are adapted via a Cdecl Swift wrapper.
+        /// The P/Invoke signature uses separate (funcPtr, context) IntPtr pairs instead of
+        /// SwiftClosureData, and callbacks use CallConvCdecl instead of CallConvSwift.
+        /// Set by MethodHandler (and wrapper generators) before SignatureHandler builds P/Invoke signature.
+        /// Does NOT imply explicit IntPtr self — see <see cref="UsesFreeFunctionWrapper"/>.
+        /// </summary>
+        public bool HasClosureCdeclWrapper { get; set; } = false;
+
+        /// <summary>
+        /// When true, the Swift wrapper is a free function (not extension method), so self
+        /// is passed as explicit IntPtr parameter instead of SwiftSelf register.
+        /// Only set for standalone closure wrappers where closures are the sole wrapping reason.
+        /// NOT set for wrapper generator paths (ArraySlice, DefaultParam, Existential) which
+        /// use extension methods with implicit self.
+        /// </summary>
+        public bool UsesFreeFunctionWrapper { get; set; } = false;
+
+        /// <summary>
         /// Mono JIT risk flags detected by <see cref="MonoJitRiskDetector"/>.
         /// Informational annotation only — does not affect P/Invoke routing.
         /// Routing is controlled by <see cref="UsesWrapperLibrary"/>, which is only set

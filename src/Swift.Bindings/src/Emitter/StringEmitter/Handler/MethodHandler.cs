@@ -184,6 +184,22 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Set closure Cdecl flags BEFORE WrapperEmitter reads P/Invoke signature.
+            // ONLY when no other generator owns the wrapper (see method path comment).
+            // Only frozen struct constructors are supported — non-frozen structs and classes
+            // require indirect return ABI which the standalone Cdecl wrapper doesn't handle.
+            // Failable constructors (init?) also require indirect return for Optional<Self>.
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                !methodEnv.MethodDecl.IsFailable &&
+                methodEnv.ParentDecl is StructDecl ctorParentStruct && ctorParentStruct.IsFrozen &&
+                MonoJitRiskDetector.NeedsClosureCdeclWrapper(methodEnv.MethodDecl, methodEnv.ClosureHandler))
+            {
+                methodEnv.MethodDecl.HasClosureCdeclWrapper = true;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
+                ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
+            }
+
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
             if (methodEnv.MethodDecl.IsFailable)
             {
@@ -351,6 +367,20 @@ namespace BindingsGeneration
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Method signature contains unsupported placeholder type.");
                 }
                 return;
+            }
+
+            // Set closure Cdecl flags BEFORE WrapperEmitter reads P/Invoke signature.
+            // NeedsClosureCdeclWrapper() already excludes async methods and opaque return methods.
+            // ONLY set flags when no other generator owns the wrapper. When UsesWrapperLibrary is
+            // already true (DefaultParam, ArraySlice, etc.), their Swift wrappers use @_silgen_name
+            // which forces original ABI — closure params must remain native Swift types.
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                MonoJitRiskDetector.NeedsClosureCdeclWrapper(methodEnv.MethodDecl, methodEnv.ClosureHandler))
+            {
+                methodEnv.MethodDecl.HasClosureCdeclWrapper = true;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
+                ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
             }
 
             TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;

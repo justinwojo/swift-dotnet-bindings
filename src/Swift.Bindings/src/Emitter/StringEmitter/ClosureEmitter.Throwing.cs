@@ -16,18 +16,20 @@ public static partial class ClosureEmitter
     /// <param name="closureTypeSpec">The closure type specification (must have Throws=true).</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="mangledName">The mangled name of the method (for callback disambiguation).</param>
+    /// <param name="useCdecl">When true, emit CallConvCdecl with IntPtr context instead of CallConvSwift with SwiftSelf.</param>
     public static void EmitThrowingClosureCallback(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
-        string mangledName)
+        string mangledName,
+        bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
 
-        // Build parameter list: arguments..., SwiftError* errorOut, SwiftSelf context
+        // Build parameter list: arguments..., SwiftError* errorOut, context
         var parameters = new List<string>();
         var argTypes = new List<TypeSpec>();
         int argIndex = 0;
@@ -40,8 +42,8 @@ public static partial class ClosureEmitter
         }
         // Error out parameter before context
         parameters.Add("SwiftError* errorOut");
-        // Context is passed in the Swift "self" register
-        parameters.Add("SwiftSelf context");
+        // Cdecl: context is a plain IntPtr. Swift: context via SwiftSelf register.
+        parameters.Add(useCdecl ? "IntPtr contextPtr" : "SwiftSelf context");
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var returnType = hasReturn
@@ -63,12 +65,15 @@ public static partial class ClosureEmitter
         var successType = hasReturn ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType) : "Swift.SwiftVoid";
         var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
 
+        var callConvType = useCdecl ? "typeof(CallConvCdecl)" : "typeof(CallConvSwift)";
+        var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
+
         // Generate callback body
         csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
+            [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static {{returnType}} {{callbackName}}({{parametersString}})
             {
-                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>(new IntPtr(context.Value));
+                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
                 var swiftResult = del({{invokeArgsString}});
 
                 if (swiftResult.IsFailure)
@@ -114,19 +119,23 @@ public static partial class ClosureEmitter
     /// <summary>
     /// Emits the static field that holds the function pointer for a throwing closure callback.
     /// </summary>
+    /// <param name="useCdecl">When true, emit Cdecl function pointer type with IntPtr context.</param>
     public static void EmitThrowingClosureCallbackPointer(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
-        string mangledName)
+        string mangledName,
+        bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
-        var funcPtrType = BuildThrowingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler);
+        var funcPtrType = BuildThrowingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler, useCdecl);
 
         // Add context parameter to the function pointer type
-        var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+        var funcPtrTypeWithContext = useCdecl
+            ? AddCdeclContextToFunctionPointerType(funcPtrType)
+            : AddContextToFunctionPointerType(funcPtrType);
 
         csWriter.WriteLine($"private static unsafe readonly {funcPtrTypeWithContext} s_{callbackName} = &{callbackName};");
     }
