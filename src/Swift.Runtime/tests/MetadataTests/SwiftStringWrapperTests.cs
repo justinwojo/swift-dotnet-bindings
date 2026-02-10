@@ -4,6 +4,7 @@
 using System.Runtime.InteropServices;
 using Swift;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace BindingsGeneration.Tests;
 
@@ -12,34 +13,82 @@ namespace BindingsGeneration.Tests;
 /// through SwiftBindingsRuntime via CallingConvention.Cdecl, avoiding
 /// the Mono JIT CallConvSwift assertion crash.
 /// </summary>
-public class SwiftStringWrapperTests
+public class SwiftStringWrapperTests : IClassFixture<SwiftStringWrapperTests.WrapperAvailabilityFixture>
 {
     /// <summary>
-    /// Probes whether the SwiftBindingsRuntime native library can be loaded
-    /// and has the SwiftString wrapper entry points.
+    /// Shared fixture that probes wrapper availability once and reports
+    /// skip/available status via ITestOutputHelper, preventing silent skips
+    /// from masking missing-symbol regressions.
     /// </summary>
-    private static bool IsWrapperAvailable()
+    public class WrapperAvailabilityFixture
     {
-        try
+        public bool IsAvailable { get; }
+        public string UnavailableReason { get; }
+
+        public WrapperAvailabilityFixture()
         {
-            if (!NativeLibrary.TryLoad("SwiftBindingsRuntime", out var handle))
-                return false;
-            // Verify all 3 entry points exist
-            return NativeLibrary.TryGetExport(handle, "SBW_SwiftString_ToUtf8", out _)
-                && NativeLibrary.TryGetExport(handle, "SBW_SwiftString_GetCount", out _)
-                && NativeLibrary.TryGetExport(handle, "SBW_SwiftString_FreeUtf8", out _);
+            try
+            {
+                if (!NativeLibrary.TryLoad("SwiftBindingsRuntime", out var handle))
+                {
+                    IsAvailable = false;
+                    UnavailableReason = "SwiftBindingsRuntime dylib not found in library search path";
+                    return;
+                }
+
+                // Check all 5 entry points — Create/Destroy were added in Step 3
+                var required = new[]
+                {
+                    "SBW_SwiftString_ToUtf8",
+                    "SBW_SwiftString_GetCount",
+                    "SBW_SwiftString_FreeUtf8",
+                    "SBW_SwiftString_Create",
+                    "SBW_SwiftString_Destroy",
+                };
+
+                var missing = required.Where(
+                    name => !NativeLibrary.TryGetExport(handle, name, out _)).ToArray();
+
+                if (missing.Length > 0)
+                {
+                    IsAvailable = false;
+                    UnavailableReason = $"Missing entry points: {string.Join(", ", missing)}";
+                    return;
+                }
+
+                IsAvailable = true;
+                UnavailableReason = string.Empty;
+            }
+            catch (Exception ex)
+            {
+                IsAvailable = false;
+                UnavailableReason = $"Exception probing wrapper: {ex.Message}";
+            }
         }
-        catch
-        {
+    }
+
+    private readonly WrapperAvailabilityFixture _fixture;
+    private readonly ITestOutputHelper _output;
+
+    public SwiftStringWrapperTests(WrapperAvailabilityFixture fixture, ITestOutputHelper output)
+    {
+        _fixture = fixture;
+        _output = output;
+    }
+
+    private bool SkipIfUnavailable()
+    {
+        if (_fixture.IsAvailable)
             return false;
-        }
+        _output.WriteLine($"SKIPPED: {_fixture.UnavailableReason}");
+        return true;
     }
 
     [Fact]
     public void ToString_SimpleAscii_RoundTrips()
     {
-        if (!IsWrapperAvailable())
-            return; // Skip: dylib not deployed. iOS Simulator runtime tests cover this.
+        if (SkipIfUnavailable())
+            return;
 
         using var str = new SwiftString("hello");
         Assert.Equal("hello", str.ToString());
@@ -48,7 +97,7 @@ public class SwiftStringWrapperTests
     [Fact]
     public void Length_SimpleAscii_ReturnsCorrectCount()
     {
-        if (!IsWrapperAvailable())
+        if (SkipIfUnavailable())
             return;
 
         using var str = new SwiftString("hello");
@@ -58,7 +107,7 @@ public class SwiftStringWrapperTests
     [Fact]
     public void ToString_EmptyString_ReturnsEmpty()
     {
-        if (!IsWrapperAvailable())
+        if (SkipIfUnavailable())
             return;
 
         using var str = new SwiftString("");
@@ -68,7 +117,7 @@ public class SwiftStringWrapperTests
     [Fact]
     public void Length_EmptyString_ReturnsZero()
     {
-        if (!IsWrapperAvailable())
+        if (SkipIfUnavailable())
             return;
 
         using var str = new SwiftString("");
@@ -78,7 +127,7 @@ public class SwiftStringWrapperTests
     [Fact]
     public void ToString_UnicodeEmoji_RoundTrips()
     {
-        if (!IsWrapperAvailable())
+        if (SkipIfUnavailable())
             return;
 
         using var str = new SwiftString("Hello 🌍!");
@@ -88,7 +137,7 @@ public class SwiftStringWrapperTests
     [Fact]
     public void Length_UnicodeEmoji_ReturnsCharacterCount()
     {
-        if (!IsWrapperAvailable())
+        if (SkipIfUnavailable())
             return;
 
         // Swift String.count returns grapheme cluster count.
@@ -100,7 +149,7 @@ public class SwiftStringWrapperTests
     [Fact]
     public void ToString_LongString_RoundTrips()
     {
-        if (!IsWrapperAvailable())
+        if (SkipIfUnavailable())
             return;
 
         // Long strings use heap-allocated storage (large string form) vs
@@ -114,7 +163,7 @@ public class SwiftStringWrapperTests
     [Fact]
     public void ToString_MultiByteUtf8_RoundTrips()
     {
-        if (!IsWrapperAvailable())
+        if (SkipIfUnavailable())
             return;
 
         // Japanese text uses 3-byte UTF-8 sequences per character.
@@ -126,7 +175,7 @@ public class SwiftStringWrapperTests
     [Fact]
     public void Length_MultiByteUtf8_ReturnsCharacterCount()
     {
-        if (!IsWrapperAvailable())
+        if (SkipIfUnavailable())
             return;
 
         // 6 characters, but 18 UTF-8 bytes (3 bytes each).
@@ -136,16 +185,58 @@ public class SwiftStringWrapperTests
     }
 
     [Fact]
-    public void WrapperEntryPoints_ExportedFromDylib()
+    public void Create_SimpleAscii_CanReadBack()
     {
-        if (!NativeLibrary.TryLoad("SwiftBindingsRuntime", out var handle))
+        if (SkipIfUnavailable())
             return;
 
+        // Create a SwiftString via wrapper path, then read it back via wrapper path.
+        using var str = new SwiftString("wrapper-create-test");
+        Assert.Equal("wrapper-create-test", str.ToString());
+        Assert.Equal(19, str.Length);
+    }
+
+    [Fact]
+    public void Create_UnicodeString_CanReadBack()
+    {
+        if (SkipIfUnavailable())
+            return;
+
+        using var str = new SwiftString("こんにちは世界");
+        Assert.Equal("こんにちは世界", str.ToString());
+        Assert.Equal(7, str.Length);
+    }
+
+    [Fact]
+    public void Create_EmptyString_CanReadBack()
+    {
+        if (SkipIfUnavailable())
+            return;
+
+        using var str = new SwiftString("");
+        Assert.Equal("", str.ToString());
+        Assert.Equal(0, str.Length);
+    }
+
+    [Fact]
+    public void WrapperEntryPoints_ExportedFromDylib()
+    {
+        if (SkipIfUnavailable())
+            return;
+
+        // If the fixture says we're available, all 5 entry points were already
+        // verified. Re-assert here for explicit per-symbol failure messages.
+        Assert.True(NativeLibrary.TryLoad("SwiftBindingsRuntime", out var handle),
+            "SwiftBindingsRuntime should be loadable");
         Assert.True(NativeLibrary.TryGetExport(handle, "SBW_SwiftString_ToUtf8", out _),
             "SBW_SwiftString_ToUtf8 should be exported");
         Assert.True(NativeLibrary.TryGetExport(handle, "SBW_SwiftString_GetCount", out _),
             "SBW_SwiftString_GetCount should be exported");
         Assert.True(NativeLibrary.TryGetExport(handle, "SBW_SwiftString_FreeUtf8", out _),
             "SBW_SwiftString_FreeUtf8 should be exported");
+        Assert.True(NativeLibrary.TryGetExport(handle, "SBW_SwiftString_Create", out _),
+            "SBW_SwiftString_Create should be exported");
+        Assert.True(NativeLibrary.TryGetExport(handle, "SBW_SwiftString_Destroy", out _),
+            "SBW_SwiftString_Destroy should be exported");
     }
 }

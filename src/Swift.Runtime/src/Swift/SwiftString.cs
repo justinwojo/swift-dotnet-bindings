@@ -128,10 +128,33 @@ public class SwiftString : ISwiftObject, IDisposable
         byte[] utf8Bytes = Encoding.UTF8.GetBytes(str);
         unsafe
         {
+            IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(SwiftString.Buffer));
+
+            if (_useWrapperPath)
+            {
+                try
+                {
+                    fixed (byte* utf8BytesPtr = utf8Bytes)
+                    {
+                        RuntimeNativeMethods.SwiftString_Create(
+                            (IntPtr)utf8BytesPtr, utf8Bytes.Length, bufferPtr);
+                    }
+                    _payload = new SwiftSafeHandle<SwiftString>(bufferPtr);
+                    return;
+                }
+                catch (DllNotFoundException) { _useWrapperPath = false; }
+                catch (EntryPointNotFoundException) { _useWrapperPath = false; }
+            }
+
+            if (_isMonoRuntime)
+            {
+                NativeMemory.Free((void*)bufferPtr);
+                ThrowMissingWrapperOnMono();
+            }
+
             fixed (byte* utf8BytesPtr = utf8Bytes)
             {
                 var result = PInvoke_Create(utf8BytesPtr, utf8Bytes.Length, 1);
-                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(SwiftString.Buffer));
                 *(SwiftString.Buffer*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<SwiftString>(bufferPtr);
             }
@@ -336,6 +359,15 @@ public class SwiftString : ISwiftObject, IDisposable
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
                    EntryPoint = "SBW_SwiftString_FreeUtf8")]
         public static extern void SwiftString_FreeUtf8(IntPtr ptr);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_SwiftString_Create")]
+        public static extern void SwiftString_Create(
+            IntPtr utf8Ptr, nint utf8Len, IntPtr outBufferPtr);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_SwiftString_Destroy")]
+        public static extern void SwiftString_Destroy(IntPtr bufferPtr);
     }
 
     private struct ToStringCallbackContext

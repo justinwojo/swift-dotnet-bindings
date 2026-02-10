@@ -167,6 +167,41 @@ public func sbw_swiftStringGetCount(_ bufferPtr: UnsafeRawPointer) -> Int {
     return str.count
 }
 
+/// Creates a Swift String from UTF-8 bytes and writes its raw representation
+/// to the provided output buffer.
+///
+/// The output buffer must be at least 16 bytes (2 words on arm64), matching
+/// the size of `SwiftString.Buffer` on the C# side. The function initializes
+/// the buffer with a new String value using proper ARC retain semantics.
+///
+/// - Parameters:
+///   - utf8Ptr: Pointer to the UTF-8 encoded bytes.
+///   - utf8Len: Number of UTF-8 bytes.
+///   - outBufferPtr: Pointer to the 16-byte output buffer for the String representation.
+@_cdecl("SBW_SwiftString_Create")
+public func sbw_swiftStringCreate(
+    _ utf8Ptr: UnsafePointer<UInt8>,
+    _ utf8Len: Int,
+    _ outBufferPtr: UnsafeMutableRawPointer
+) {
+    let data = UnsafeBufferPointer(start: utf8Ptr, count: utf8Len)
+    let str = String(decoding: data, as: UTF8.self)
+    // initialize(to:) properly retains the String value in the output buffer.
+    outBufferPtr.assumingMemoryBound(to: String.self).initialize(to: str)
+}
+
+/// Destroys a Swift String stored in the provided buffer.
+///
+/// Properly deinitializes the String value at the buffer pointer, releasing
+/// any ARC-managed storage. Call this instead of ValueWitnessTable->Destroy
+/// to avoid the Mono JIT CallConvSwift assertion.
+///
+/// - Parameter bufferPtr: Pointer to the 16-byte Swift.String raw representation.
+@_cdecl("SBW_SwiftString_Destroy")
+public func sbw_swiftStringDestroy(_ bufferPtr: UnsafeMutableRawPointer) {
+    bufferPtr.assumingMemoryBound(to: String.self).deinitialize(count: 1)
+}
+
 /// Frees a UTF-8 buffer previously allocated by `SBW_SwiftString_ToUtf8`.
 ///
 /// - Parameter ptr: The pointer to free, or nil (no-op).

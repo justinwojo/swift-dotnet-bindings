@@ -175,7 +175,7 @@ public class NegativePathTests : TestBase
         TestLogger.Info("Sound set after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier2)]
+    [TestTier(TestTier.Tier3)] // MutableProps.Dispose() → Destroy via CallConvSwift → Mono JIT crash
     public void TestDisposedMutablePropsNameAfterDispose()
     {
         var props = new MutableProps(1, "Test");
@@ -189,7 +189,7 @@ public class NegativePathTests : TestBase
         TestLogger.Info("MutableProps.Name after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier2)]
+    [TestTier(TestTier.Tier3)] // MutableProps.Dispose() → Destroy via CallConvSwift → Mono JIT crash
     public void TestDisposedMutablePropsNameSetAfterDispose()
     {
         var props = new MutableProps(1, "Test");

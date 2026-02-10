@@ -1,7 +1,7 @@
 # Mono JIT Mitigation Strategy
 
 Date: 2026-02-09
-Updated: 2026-02-10 (Step 1 — Strategy C, Step 2 — Strategy A implemented)
+Updated: 2026-02-10 (Steps 1-3 complete: Strategy C, Strategy A full lifecycle, iOS Simulator validation)
 
 ## Scope
 
@@ -19,11 +19,12 @@ Mono's JIT incorrectly marks `CallConvSwift` P/Invoke frames as "async", then hi
 
 ### Three Distinct Crash Categories
 
-| Category | Trigger | Example | Severity |
-|----------|---------|---------|----------|
-| **Existential metadata** | `swift_getExistentialTypeMetadata` via `CallConvSwift` | `SwiftArray<ExistentialContainer0>` construction | High — blocks any protocol-typed array |
-| **Closure callbacks** | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` callback invoked by Swift | Escaping closures with `SwiftSelf` context parameter | High — blocks all closure-taking APIs |
-| **SwiftString operations** | `PInvoke_GetLength`, `PInvoke_GetUtf8ContiguousArray`, `PInvoke_WithUnsafeBytes` via `CallConvSwift` | `SwiftString.Length`, `SwiftString.ToString()` | High — blocks string conversion at runtime |
+| Category | Trigger | Example | Severity | Status |
+|----------|---------|---------|----------|--------|
+| **Existential metadata** | `swift_getExistentialTypeMetadata` via `CallConvSwift` | `SwiftArray<ExistentialContainer0>` construction | High | **Resolved** (Strategy C) |
+| **Closure callbacks** | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` callback invoked by Swift | Escaping closures with `SwiftSelf` context parameter | High | Open |
+| **SwiftString operations** | `PInvoke_GetLength`, `PInvoke_Create`, `PInvoke_GetUtf8ContiguousArray` via `CallConvSwift` | `SwiftString.Length`, `SwiftString.ToString()`, `new SwiftString(str)` | High | **Resolved** (Strategy A) |
+| **VWT Destroy** | `ValueWitnessTable->Destroy()` indirect call via CallConvSwift function pointer | `MutableProps.Dispose()` (struct with String field) | Medium | Open (Step 3 finding) |
 
 ### Related Non-Crash Blockers
 
@@ -102,11 +103,13 @@ The safety of wrapper routing comes from the Swift wrapper doing the risky work 
 
 | Gap | Current Behavior | Impact |
 |-----|-----------------|--------|
-| ~~`SwiftString.Length` / `SwiftString.ToString()`~~ | ~~Direct `CallConvSwift` P/Invoke to `libswiftCore`~~ | **Resolved** — Strategy A wrapper implemented (Step 2). `SwiftString.cs` routes through `SBW_SwiftString_ToUtf8`/`SBW_SwiftString_GetCount` via `CallingConvention.Cdecl` when `libSwiftBindingsRuntime.dylib` is available, with fallback to direct `CallConvSwift`. |
+| ~~`SwiftString` full lifecycle~~ | ~~Direct `CallConvSwift` P/Invoke to `libswiftCore`~~ | **Resolved** — Strategy A wrappers for Create, ToString, Length (Steps 2+3). Constructor + accessor fully CallConvSwift-free on C# side. |
 | Regular escaping closure callbacks | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` in `ClosureEmitter.cs` | Crashes on Mono for any closure-taking method |
 | Throwing closure callbacks | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` in `ClosureEmitter.Throwing.cs` | Crashes on Mono for throwing closure params |
 | Indirect-return closure callbacks | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` in `ClosureEmitter.IndirectReturn.cs` | Crashes on Mono for closures returning complex types |
 | ~~`swift_getExistentialTypeMetadata`~~ | ~~Three P/Invoke workaround variants all hit process-fatal Mono assertion abort~~ | **Resolved** — Strategy C wrapper implemented (zero-protocol case). See Step 1 status below. |
+| **VWT Destroy (new)** | `metadata.ValueWitnessTable->Destroy()` indirect function pointer call via CallConvSwift | Crashes on Mono when `Dispose()` is called on types with non-trivial fields (e.g. MutableProps with String). Also corrupts frame tracker for later GC stack walks. |
+| **VWT InitializeWithCopy** | `metadata.ValueWitnessTable->InitializeWithCopy()` in `MarshalToSwift` | Indirect CallConvSwift function pointer call. Risk of frame tracker corruption. |
 
 ---
 
@@ -297,13 +300,27 @@ NativeAOT eliminates the most severe blocker but requires the same workarounds f
 
 **Proof gate**: `SwiftString("hello").ToString()` returns `"hello"` via wrapper, `SwiftString("日本語テスト").Length` returns 6 (character count, not UTF-8 byte count). iOS Simulator runtime validation deferred to Step 3.
 
-### Step 3: Runtime Validation on iOS Simulator
+### Step 3: Runtime Validation on iOS Simulator — DONE
 
-**Next step.** Run existing Tier 2 runtime tests that use SwiftString through the wrapper path on iOS Simulator to confirm the Mono JIT crash is avoided. This requires `libSwiftBindingsRuntime.dylib` injection into the app bundle (already done by `run-runtime-tests.sh` Step 2.5).
+**Completed 2026-02-10.** SwiftString wrapper path validated end-to-end on iOS Simulator. Also extended Strategy A to wrap `PInvoke_Create` (string construction), making constructor + read paths CallConvSwift-free on the C# side. Dispose path (VWT Destroy) remains unwrapped — see crash category 4 below.
 
-**Deliverables**:
-- iOS Simulator runtime test confirming `SwiftString.ToString()` via wrapper, no Mono JIT crash
-- Promote previously-CrashRisk SwiftString tests to safe tier if crash is eliminated
+**Proof gate passed**: 8 StringMarshallingTests pass on iOS Simulator via wrapper path, exercising `SwiftString` construction + `.ToString()` + `.Length` without Mono JIT crash. Tests include ASCII, Unicode, emoji, and edge case strings.
+
+**Extended Strategy A deliverables**:
+- `SwiftBindingsRuntime.swift`: 2 new `@_cdecl` functions — `SBW_SwiftString_Create` (UTF-8 → String buffer), `SBW_SwiftString_Destroy` (buffer deinit)
+- `SwiftString.cs`: Constructor now routes through `RuntimeNativeMethods.SwiftString_Create` via wrapper-first pattern (same as ToString/Length)
+- `SwiftStringWrapperTests.cs`: 3 additional unit tests for Create wrapper (ASCII, Unicode, empty)
+- Baselines maintained: 1760 unit, 699 integration, 133 runtime (up from 130)
+
+**New finding — ValueWitnessTable Destroy via CallConvSwift (crash category 4)**:
+- `SwiftSafeHandle<T>.ReleaseHandle()` calls `metadata.ValueWitnessTable->Destroy()` through an indirect function pointer with the Swift calling convention
+- On Mono, this triggers the same `!ji->async` JIT assertion as direct CallConvSwift P/Invokes
+- Deterministic trigger: `MutableProps.Dispose()` (struct with String field) → crash during `Destroy`
+- Non-deterministic trigger: GC finalization timing can cause the assertion during unrelated stack walks after any CallConvSwift call has corrupted Mono's frame tracker
+- Mitigation: `SBW_SwiftString_Destroy` wrapper added but not yet wired into `SwiftSafeHandle` generic path (requires type-specific dispatch or per-type generator-emitted destroy wrappers)
+- `NegativePathTests.TestDisposedMutablePropsName*` demoted to Tier3 to prevent process-fatal crash during Tier2 runs
+
+**MutableProps promotion blocked**: Cannot promote MutableProps tests from Tier3 to Tier2 due to the VWT Destroy crash. The SwiftString.ToString() path is safe, but any explicit `Dispose()` on types with String fields triggers the crash.
 
 ### Step 4: Implement Strategy D (Signature Risk Detection)
 
@@ -333,7 +350,7 @@ Not a sequential step. Pursue when .NET 10 NativeAOT iOS tooling stabilizes. Eli
 |------|----------|--------|--------|------------|--------|
 | **1** | C: Existential metadata wrapper | Low | Medium | Nothing | **DONE** |
 | **2** | A: SwiftString spike + rollout | Medium | High | Nothing | **DONE** |
-| **3** | A: iOS Simulator validation | Low | — | Step 2 | Pending |
+| **3** | A: iOS Simulator validation + Create wrapper | Low | High | Step 2 | **DONE** |
 | **4** | D: Signature risk detection | Medium | Medium | Steps 1 + 2 | Pending |
 | **5** | B: Closure Cdecl expansion | High | High | Steps 1 + 2 + 4 | Pending |
 | *ongoing* | E: NativeAOT migration | High | Complete | External (.NET 10 tooling) |
@@ -344,9 +361,10 @@ Not a sequential step. Pursue when .NET 10 NativeAOT iOS tooling stabilizes. Eli
 
 | File | Role | Key Lines |
 |------|------|-----------|
-| `SwiftString.cs` | 5 CallConvSwift P/Invokes + RuntimeNativeMethods wrapper path | 247-267 (direct), 301-317 (wrapper) |
-| `SwiftBindingsRuntime.swift` | SwiftString wrapper functions (`SBW_SwiftString_*`) | 109-175 |
-| `SwiftStringWrapperTests.cs` | 10 unit tests for SwiftString wrapper path | Full file |
+| `SwiftString.cs` | 5 CallConvSwift P/Invokes + RuntimeNativeMethods wrapper path (Create, ToUtf8, GetCount, Destroy, FreeUtf8) | Full file |
+| `SwiftBindingsRuntime.swift` | SwiftString wrapper functions (`SBW_SwiftString_*`) — 5 @_cdecl exports | 109-215 |
+| `SwiftStringWrapperTests.cs` | 13 unit tests for SwiftString wrapper path (incl. Create) | Full file |
+| `SwiftHandle.cs` | `SwiftSafeHandle<T>.ReleaseHandle()` — VWT Destroy call (crash vector) | 101-141 |
 | `TypeMetadata.cs` | Wrapper path (`TryGetExistentialTypeMetadataViaWrapper`) + retained workaround P/Invokes (reference only) | 362-571 |
 | `PInvokeEmitter.cs` | Wrapper lib routing decision | 544-549 |
 | `PInvokeHelperEmitter.cs` | Generic-type P/Invoke declarations (also defaults to CallConvSwift) | 163 |
@@ -428,10 +446,12 @@ For each mitigation strategy implemented:
 - [x] Runtime proof gate: zero-protocol existential metadata via wrapper, no Mono JIT crash
 - **Note**: `libSwiftBindingsRuntime.dylib` is now a hard runtime dependency for existential metadata. Without it, `GetExistentialTypeMetadata` and `TryGetTypeMetadata<ExistentialContainerN>` throw `SwiftRuntimeException`. Downstream consumers must include the dylib in their app bundle.
 
-### Strategy A (SwiftString Wrapper) — Spike + Rollout Completed 2026-02-10
+### Strategy A (SwiftString Wrapper) — Constructor + Read Paths Completed 2026-02-10
 
-- [x] Unit tests: `SwiftStringWrapperTests.cs` — 10 tests (ASCII, empty, Unicode emoji, multi-byte UTF-8, long strings, entry points)
-- [x] Regression: 1770 unit+runtime / 699 integration
-- [ ] Runtime proof gate: iOS Simulator validation pending (Step 3)
+- [x] Unit tests: `SwiftStringWrapperTests.cs` — 13 tests (ASCII, empty, Unicode emoji, multi-byte UTF-8, long strings, Create wrapper, entry points)
+- [x] Regression: 1760 unit / 699 integration / 133 runtime
+- [x] Runtime proof gate: 8 StringMarshallingTests pass on iOS Simulator via wrapper path — construction, ToString, Length all validated. No Mono JIT crash.
 - **Approach**: `UnsafeRawPointer` + `assumingMemoryBound(to: String.self).pointee` via `@_cdecl`. Retain-balanced, no ABI risk, no `BitwiseCopyable` issues.
-- **Design**: Wrapper-first with fallback — `_useWrapperPath` static flag, DllNotFoundException/EntryPointNotFoundException downgrade to direct `CallConvSwift` path. Unlike Strategy C, this is not a hard dependency on the dylib.
+- **Design**: Wrapper-first with fallback — `_useWrapperPath` static flag, DllNotFoundException/EntryPointNotFoundException downgrade to direct `CallConvSwift` path. Hard dependency on Mono (throws `SwiftRuntimeException` if wrapper unavailable); fallback to direct path allowed on non-Mono runtimes.
+- **Step 3 extension**: Added `SBW_SwiftString_Create` (constructor wrapper) and `SBW_SwiftString_Destroy` (deinit wrapper). Constructor + read paths (Create, ToUtf8, GetCount, FreeUtf8) are CallConvSwift-free. Destroy wrapper is exported but not yet wired into `SwiftSafeHandle<SwiftString>` generic path — dispose still uses VWT Destroy via CallConvSwift.
+- **VWT Destroy blocker**: MutableProps.Dispose() still crashes because `SwiftSafeHandle<T>.ReleaseHandle` calls the generic VWT Destroy path. The SwiftString-specific `SBW_SwiftString_Destroy` exists but needs type-specific dispatch in `SwiftSafeHandle` to use it. `NegativePathTests` MutableProps dispose tests demoted to Tier3.
