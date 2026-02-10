@@ -1,7 +1,7 @@
 # Mono JIT Mitigation Strategy
 
 Date: 2026-02-09
-Updated: 2026-02-10 (Steps 1-5 complete: Strategy C, Strategy A full lifecycle, Strategy D risk detection, Strategy B closure Cdecl expansion)
+Updated: 2026-02-10 (Steps 1-6 complete: Strategy C, Strategy A full lifecycle, Strategy D risk detection, Strategy B closure Cdecl expansion, Tier Promotion Pass)
 
 ## Scope
 
@@ -378,6 +378,7 @@ Not a sequential step. Pursue when .NET 10 NativeAOT iOS tooling stabilizes. Eli
 | **3** | A: iOS Simulator validation + Create wrapper | Low | High | Step 2 | **DONE** |
 | **4** | D: Signature risk detection | Medium | Medium | Steps 1 + 2 | **DONE** |
 | **5** | B: Closure Cdecl expansion | High | High | Steps 1 + 2 + 4 | **DONE** |
+| **6** | Tier Promotion Pass | Medium | High | Steps 1-5 | **DONE** |
 | *ongoing* | E: NativeAOT migration | High | Complete | External (.NET 10 tooling) |
 
 ---
@@ -402,7 +403,9 @@ Not a sequential step. Pursue when .NET 10 NativeAOT iOS tooling stabilizes. Eli
 | `WrapperEmitter.Marshalling.cs` | Opaque return wrapper (`EmitOpaqueReturnWrapper`) | 16 |
 | `ExistentialBypassEmitter.cs` | Constructor existential-arg bypass | 9 |
 | `ProtocolProxyEmitter.SwiftObject.cs` | Uses CallingConvention.Cdecl for wrapper imports | 124 |
-| `MethodDecl.cs` | `UsesWrapperLibrary`, `HasClosureCdeclWrapper`, `UsesFreeFunctionWrapper` flags | 86 |
+| `MethodDecl.cs` | `UsesWrapperLibrary`, `HasClosureCdeclWrapper`, `UsesFreeFunctionWrapper`, `IsFinal` flags | 86 |
+| `ClassDecl.cs` | `IsFinal` — final class detection for dispatch thunk gating | IsFinal property |
+| `DispatchThunkEmitterTests.cs` | 11 unit tests for Tj dispatch thunk matrix | Full file |
 | `MonoJitRiskDetector.cs` | Strategy D: signature risk detection + `NeedsClosureCdeclWrapper()` for Strategy B | Full file |
 | `MonoJitRiskDetectorTests.cs` | 48 unit tests for risk detection patterns | Full file |
 | `IHandler.cs` | `ApplyRiskDetection()` call site in `HandleBaseDecl` | 186 |
@@ -501,3 +504,30 @@ For each mitigation strategy implemented:
 - **Scope**: Primitive-arg closures (Int, Bool, Double, Float) get Cdecl wrapping. Non-primitive (String, class, struct args) stay on legacy `CallConvSwift` path. Async methods excluded. `@convention(c)` closures excluded.
 - **Exclusions by design**: (1) Async-throwing closures — P/Invoke uses `AsyncThrowingContext`/`StartFunc` pattern incompatible with standalone wrapper. (2) Non-failable frozen struct constructors only — class/non-frozen constructors require indirect return ABI. (3) Opaque return methods (`some Protocol`) — combined closure+opaque wrapper not yet implemented. (4) Wrapper generator paths (DefaultParam, ArraySlice) keep `@_silgen_name` original function types.
 - **Runtime proof gate**: Deferred to runtime test tier promotion (closure P/Invoke on iOS Simulator).
+
+### Step 6: Tier Promotion Pass — Completed 2026-02-10
+
+Promoted runtime tests from Tier 3 to Tier 2 after Strategies A-D removed the crash vectors for string marshalling, closures, and composition patterns. Also fixed a generator bug where non-final class instance methods weren't resolving to exported symbols (dispatch thunk suffix).
+
+**Dispatch thunk fix (`Tj` suffix)**:
+- With `-enable-library-evolution`, non-final class instance methods/property accessors are NOT exported as bare symbols — only the dispatch thunk (`Tj` suffix) is globally exported. `PInvokeEmitter.cs` now appends `Tj` to entry points for non-final class instance methods/accessors.
+- **Member-level `IsFinal`**: Individual members (e.g., stored `let` property accessors) can be `final` inside non-final classes — these use direct dispatch and don't get `Tj`. Parsed from `DeclAttributes` containing `"Final"` on both `ClassDecl` and `MethodDecl`.
+- Gate: `!classParent.IsFinal && !methodDecl.IsFinal && MethodType.Instance && !IsConstructor && !needsWrapperLib`
+
+**Test class split for safe-only coverage**:
+- `OwnershipTests` split into safe `OwnershipTests` (14 Tier 2 tests: dispose safety, access-after-dispose, multiple references, ownership transfer) and `OwnershipGCStressTests` with `[CrashRisk]` (all Tier 3: ForceGC lifecycle, MutableProps, GC stress).
+- Plain `--tier 2` runs no longer hit crash-prone tests. `--safe-only` skips the entire `OwnershipGCStressTests` class.
+
+**Promotions**:
+- Closure tests: Cdecl-wrapped closures promoted to Tier 2 (non-Cdecl stay Tier 3)
+- Composition tests: `TransformerApply`, `EventHandlerCreateDefault` promoted to Tier 2
+- String marshalling: Long string tests promoted to Tier 2
+- Ownership tests: 14 safe tests restored to Tier 2 `--safe-only` execution
+
+**Deliverables**:
+- `ClassDecl.IsFinal` + `MethodDecl.IsFinal` parsed from ABI JSON `DeclAttributes`
+- `PInvokeEmitter.cs` Tj suffix logic with class-level and member-level final gates
+- `DispatchThunkEmitterTests.cs` — 11 emitter tests covering full dispatch matrix
+- `SwiftABIParserRuntimeTests.cs` — 7 parser tests building `Node` trees with `DeclAttributes = ["Final"]`
+- `OwnershipTests.cs` / `OwnershipGCStressTests.cs` — safe/crash-risk split
+- Baselines: 1864 unit / 699 integration / 185 runtime (Tier 2 safe-only, up from 133)

@@ -616,6 +616,7 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsActor = isActor,
+                IsFinal = node.DeclAttributes?.Contains("Final") == true,
                 IsModuleInternal = IsNodeModuleInternal(node)
             };
             PopulateDocumentation(decl, node);
@@ -731,6 +732,7 @@ namespace BindingsGeneration
                     ?? DetectAsyncFromMangledName(mangledName),
                 Visibility = Visibility.Public,
                 IsMutating = node.funcSelfKind == "Mutating",
+                IsFinal = node.DeclAttributes?.Contains("Final") == true,
                 IsModuleInternal = IsNodeModuleInternal(node) ||
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
             };
@@ -918,6 +920,7 @@ namespace BindingsGeneration
                 Throws = false,
                 IsAsync = isAsync,
                 Visibility = Visibility.Private,
+                IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
 
             return new GetAccessorDecl { Method = methodDecl };
@@ -978,6 +981,7 @@ namespace BindingsGeneration
                 Throws = false,
                 IsAsync = false,
                 Visibility = Visibility.Private,
+                IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
 
             return new SetAccessorDecl { Method = methodDecl };
@@ -1167,7 +1171,8 @@ namespace BindingsGeneration
                 Throws = false,
                 IsAsync = false,
                 Visibility = Visibility.Private,
-                IsAccessor = true
+                IsAccessor = true,
+                IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
 
             return new GetAccessorDecl { Method = methodDecl };
@@ -1224,7 +1229,8 @@ namespace BindingsGeneration
                 Throws = false,
                 IsAsync = false,
                 Visibility = Visibility.Private,
-                IsAccessor = true
+                IsAccessor = true,
+                IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
 
             return new SetAccessorDecl { Method = methodDecl };

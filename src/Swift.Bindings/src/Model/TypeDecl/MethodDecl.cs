@@ -74,6 +74,14 @@ namespace BindingsGeneration
         public bool IsMutating { get; set; } = false;
 
         /// <summary>
+        /// Whether this method or accessor is declared as 'final'.
+        /// Final members use direct dispatch even inside non-final classes
+        /// (bare symbols exported, no Tj dispatch thunk needed).
+        /// Stored property accessors on let properties are implicitly final.
+        /// </summary>
+        public bool IsFinal { get; set; } = false;
+
+        /// <summary>
         /// Indicates the method is @usableFromInline internal — visible in the ABI but not
         /// callable from external modules. Used by ArraySlice normalization to skip generating
         /// wrapper extensions for inaccessible methods.

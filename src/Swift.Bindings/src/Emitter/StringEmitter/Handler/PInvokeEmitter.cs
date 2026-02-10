@@ -588,6 +588,27 @@ namespace BindingsGeneration
 
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
+            // Compute the entry point symbol.
+            var entryPoint = NameProvider.GetMangledName(methodDecl);
+
+            // With library evolution, non-final class instance methods and property accessors
+            // are dispatched through vtable thunks. The bare method symbol is a local
+            // (non-exported) symbol in the dylib; only the dispatch thunk (Tj suffix) is
+            // globally exported. Final classes use direct dispatch and export bare symbols.
+            // Individual members can also be final (e.g. stored let properties) — these
+            // use direct dispatch even inside non-final classes.
+            // Constructors and static methods are directly exported and don't need this.
+            // Wrapper library methods use @_silgen_name/@_cdecl free functions, not thunked.
+            if (!needsWrapperLib &&
+                methodDecl.ParentDecl is ClassDecl classParent &&
+                !classParent.IsFinal &&
+                !methodDecl.IsFinal &&
+                methodDecl.MethodType == MethodType.Instance &&
+                !methodDecl.IsConstructor)
+            {
+                entryPoint += "Tj";
+            }
+
             // If we're inside a generic type, collect the P/Invoke to the helper context
             // instead of emitting it inline (to avoid CS7042: DllImport in generic type)
             if (methodEnv.PInvokeHelperContext != null)
@@ -595,7 +616,7 @@ namespace BindingsGeneration
                 var declaration = new PInvokeDeclaration
                 {
                     LibraryPath = libPath,
-                    EntryPoint = NameProvider.GetMangledName(methodDecl),
+                    EntryPoint = entryPoint,
                     MethodName = pInvokeName,
                     ReturnType = pInvokeSignature.ReturnType,
                     ParametersString = pInvokeSignature.PInvokeParametersString(),
@@ -608,7 +629,7 @@ namespace BindingsGeneration
             {
                 // Emit directly (non-generic type)
                 csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{NameProvider.GetMangledName(methodDecl)}\")]");
+                csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{entryPoint}\")]");
                 csWriter.WriteLine($"private static extern {(methodDecl.IsAsync ? "void" : pInvokeSignature.ReturnType)} {pInvokeName}({pInvokeSignature.PInvokeParametersString()});");
             }
         }

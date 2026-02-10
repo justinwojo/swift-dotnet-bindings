@@ -19,5 +19,12 @@ namespace BindingsGeneration
         /// Actors are detected by their conformance to the Swift Actor protocol (s:ScA).
         /// </summary>
         public bool IsActor { get; set; }
+
+        /// <summary>
+        /// Whether this class is declared as 'final'.
+        /// Final classes use direct dispatch for methods (bare symbols exported).
+        /// Non-final classes use vtable dispatch (only Tj thunk symbols exported).
+        /// </summary>
+        public bool IsFinal { get; set; }
     }
 }

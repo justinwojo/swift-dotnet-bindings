@@ -348,6 +348,218 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region IsFinal Parsing Tests
+
+    [Fact]
+    public void ParseModule_ClassWithFinalAttribute_SetsIsFinalTrue()
+    {
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "FinalHandler",
+            mangledName: "$s10TestModule12FinalHandlerCN");
+        classNode.DeclAttributes = new[] { "Final", "AccessControl" };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var classDecl = Assert.Single(result.ModuleDecl.Types);
+        Assert.IsType<ClassDecl>(classDecl);
+        Assert.True(((ClassDecl)classDecl).IsFinal);
+    }
+
+    [Fact]
+    public void ParseModule_ClassWithoutFinalAttribute_SetsIsFinalFalse()
+    {
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "Animal",
+            mangledName: "$s10TestModule6AnimalCN");
+        classNode.DeclAttributes = new[] { "AccessControl" };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var classDecl = Assert.Single(result.ModuleDecl.Types);
+        Assert.IsType<ClassDecl>(classDecl);
+        Assert.False(((ClassDecl)classDecl).IsFinal);
+    }
+
+    [Fact]
+    public void ParseModule_MethodWithFinalAttribute_SetsIsFinalTrue()
+    {
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "getKey",
+            printedName: "getKey()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.DeclAttributes = new[] { "Final", "AccessControl" };
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.True(method.IsFinal);
+    }
+
+    [Fact]
+    public void ParseModule_MethodWithoutFinalAttribute_SetsIsFinalFalse()
+    {
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = CreateFunctionNode(
+            name: "speak",
+            printedName: "speak()",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode });
+        funcNode.DeclAttributes = new[] { "AccessControl" };
+
+        using var fixture = CreateParserWithNodes(funcNode);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.False(method.IsFinal);
+    }
+
+    [Fact]
+    public void ParseModule_PropertyGetAccessorWithFinalAttribute_SetsIsFinalTrue()
+    {
+        // A stored let property has Final on its getter accessor
+        var typeNode = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        typeNode.PrintedName = "Int";
+
+        var getterAccessor = CreateNode(
+            kind: "Accessor",
+            name: "key",
+            mangledName: "$s10TestModule12AsyncServiceC3keySSvg");
+        getterAccessor.AccessorKind = "get";
+        getterAccessor.DeclAttributes = new[] { "Final" };
+        getterAccessor.Children = new[] { typeNode };
+
+        var varNode = CreateNode(
+            kind: "Var",
+            name: "key",
+            mangledName: "$s10TestModule12AsyncServiceC3keySSvp");
+        varNode.DeclAttributes = new[] { "HasStorage", "Final", "AccessControl" };
+        varNode.Children = new[] { typeNode };
+        varNode.Accessors = new[] { getterAccessor };
+
+        // Place inside a non-final class
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "AsyncService",
+            mangledName: "$s10TestModule12AsyncServiceCN");
+        classNode.DeclAttributes = new[] { "AccessControl" };
+        classNode.Children = new[] { varNode };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var classDecl = Assert.Single(result.ModuleDecl.Types);
+        Assert.False(((ClassDecl)classDecl).IsFinal); // class is not final
+        var prop = Assert.Single(classDecl.Properties);
+        var getter = prop.Accessors.OfType<GetAccessorDecl>().Single();
+        Assert.True(getter.Method.IsFinal); // but accessor is final
+    }
+
+    [Fact]
+    public void ParseModule_PropertyGetAccessorWithoutFinalAttribute_SetsIsFinalFalse()
+    {
+        // A computed/open property has no Final on its getter accessor
+        var typeNode = CreateNode(kind: "TypeNominal", name: "String", mangledName: "$sSS");
+        typeNode.PrintedName = "String";
+
+        var getterAccessor = CreateNode(
+            kind: "Accessor",
+            name: "name",
+            mangledName: "$s10TestModule6AnimalC4nameSSvg");
+        getterAccessor.AccessorKind = "get";
+        getterAccessor.DeclAttributes = Array.Empty<string>();
+        getterAccessor.Children = new[] { typeNode };
+
+        var varNode = CreateNode(
+            kind: "Var",
+            name: "name",
+            mangledName: "$s10TestModule6AnimalC4nameSSvp");
+        varNode.DeclAttributes = new[] { "AccessControl" };
+        varNode.Children = new[] { typeNode };
+        varNode.Accessors = new[] { getterAccessor };
+
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "Animal",
+            mangledName: "$s10TestModule6AnimalCN");
+        classNode.DeclAttributes = new[] { "AccessControl" };
+        classNode.Children = new[] { varNode };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var classDecl = Assert.Single(result.ModuleDecl.Types);
+        var prop = Assert.Single(classDecl.Properties);
+        var getter = prop.Accessors.OfType<GetAccessorDecl>().Single();
+        Assert.False(getter.Method.IsFinal);
+    }
+
+    [Fact]
+    public void ParseModule_FinalClassMethodInheritsClassDispatch()
+    {
+        // In a final class, individual methods don't need Final attribute —
+        // the class-level Final is sufficient for direct dispatch
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var funcNode = new Node
+        {
+            Kind = "Function",
+            DeclKind = "Func",
+            Name = "fire",
+            MangledName = "$s10TestModule12EventHandlerC4fireyyF",
+            PrintedName = "fire()",
+            ModuleName = "TestModule",
+            DeclAttributes = new[] { "AccessControl" }, // no Final on method
+            @static = false,
+            IsInternal = false,
+            GenericSig = null,
+            sugared_genericSig = null,
+            throwing = false,
+            AccessorKind = null,
+            EnumRawTypeName = null,
+            paramValueOwnership = null,
+            hasDefaultArg = null,
+            funcSelfKind = null,
+            Children = new[] { returnTypeNode },
+            Conformances = Array.Empty<Node>(),
+            Accessors = Array.Empty<Node>()
+        };
+
+        var classNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "EventHandler",
+            mangledName: "$s10TestModule12EventHandlerCN");
+        classNode.DeclAttributes = new[] { "Final", "AccessControl" };
+        classNode.Children = new[] { funcNode };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var result = fixture.Parser.ParseModule();
+
+        var classDecl = Assert.Single(result.ModuleDecl.Types);
+        Assert.True(((ClassDecl)classDecl).IsFinal);
+        var method = Assert.Single(classDecl.Methods);
+        Assert.False(method.IsFinal); // method itself isn't marked final
+        // But the class IS final, so PInvokeEmitter skips Tj
+    }
+
+    #endregion
+
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)
     {
         var root = new ABIRootNode

@@ -21,8 +21,9 @@ namespace RuntimeTestsApp.Patterns;
 /// - Tier 1: Construction + blittable property access (constructors may pass String
 ///           internally but the assertions only read Int32 properties, static getters,
 ///           or check interface conformance — no String return paths exercised)
+/// - Tier 2: Transformer.Apply (Cdecl closure wrapper), EventHandler.CreateDefault (no closure in call)
 /// - Tier 3: Everything else — frozen struct string returns (JIT crash), SafeHandle
-///           through CallConvSwift, missing entry points, closures, optional array
+///           through CallConvSwift, missing entry points, closure returns, optional array
 ///           property access, Registry mutation methods, string-returning methods
 ///
 /// Known Tier 3 blocks found during B5:
@@ -253,9 +254,9 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"processRegistry = {count}");
     }
 
-    // --- EventHandler: closure P/Invoke ---
+    // --- EventHandler: factory + blittable Fire() (no closure in call path) ---
 
-    [TestTier(TestTier.Tier3)]
+    [TestTier(TestTier.Tier2)] // CreateDefault is a factory (no closure param); Fire takes Int32, returns Bool
     public void TestEventHandlerCreateDefault()
     {
         var handler = SwiftEventHandler.CreateDefault();
@@ -285,9 +286,9 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("EventHandler.OnComplete property access OK");
     }
 
-    // --- Transformer: closure P/Invoke ---
+    // --- Transformer: Cdecl-wrapped closure P/Invoke (Strategy B) ---
 
-    [TestTier(TestTier.Tier3)]
+    [TestTier(TestTier.Tier2)] // Strategy B: Apply uses CallConvCdecl callback + _cdecl wrapper
     public void TestTransformerApply()
     {
         var t = new Transformer(offset: 5);

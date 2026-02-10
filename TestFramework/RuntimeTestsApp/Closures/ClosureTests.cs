@@ -10,16 +10,72 @@ namespace RuntimeTestsApp.Closures;
 /// Tests for closure marshalling: @convention(c), escaping with primitives/struct,
 /// closure returns, and struct closure methods.
 /// </summary>
-[CrashRisk("Mono JIT assertion on closure P/Invoke")]
 public class ClosureTests : TestBase
 {
     public ClosureTests(TestResults results) : base(results) { }
 
-    #region Tier 3 — All closures (Mono JIT crash: closure P/Invoke triggers jit-info.c assertion)
-    // ALL closure tests crash the process due to a Mono JIT bug:
-    //   Assertion at jit-info.c:918, condition '!ji->async' not met
-    // This affects both @convention(c) and @escaping closures when passed through
-    // managed-to-native P/Invoke boundaries. Deferred to Tier 3 (nightly).
+    #region Tier 2 — Escaping closures with Cdecl wrappers (Strategy B)
+    // These escaping closure tests use CallConvCdecl callbacks + Swift _cdecl wrapper
+    // functions, bypassing the Mono JIT CallConvSwift crash.
+
+    [TestTier(TestTier.Tier2)]
+    public void TestEscapingWithInt32()
+    {
+        var result = SwiftBindingsTestLib.CallWithInt32(x => x * 2);
+        AssertEqual(84, result, "CallWithInt32(x => x * 2) with 42");
+        TestLogger.Info($"CallWithInt32(x => x * 2) = {result}");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestVoidCallback()
+    {
+        var called = false;
+        SwiftBindingsTestLib.CallVoidCallback(() => { called = true; });
+        AssertTrue(called, "Void callback was called");
+        TestLogger.Info("CallVoidCallback passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestMultiArgClosure()
+    {
+        var result = SwiftBindingsTestLib.CallMultiArg((a, b) => a + b);
+        AssertEqual(30, result, "CallMultiArg(10 + 20)");
+        TestLogger.Info($"CallMultiArg((a,b) => a+b) = {result}");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestBoolCallback()
+    {
+        var result = SwiftBindingsTestLib.CallBoolCallback(b => !b);
+        AssertFalse(result, "CallBoolCallback(!true) = false");
+        TestLogger.Info("CallBoolCallback passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestCallMultipleTimes()
+    {
+        var result = SwiftBindingsTestLib.CallMultipleTimes(x => x * x, 3);
+        // 1*1 + 2*2 + 3*3 = 1 + 4 + 9 = 14
+        AssertEqual(14, result, "CallMultipleTimes(x^2, 3) = 14");
+        TestLogger.Info($"CallMultipleTimes(x => x*x, 3) = {result}");
+    }
+
+    // Struct instance method with Cdecl closure wrapper + _selfFixed
+    [TestTier(TestTier.Tier2)]
+    public void TestClosureConsumer()
+    {
+        var consumer = new ClosureConsumer(3);
+        var result = consumer.ApplyToValue(5, x => x + 1);
+        // multiplier=3, value=5, so 5*3=15, then transform: 15+1=16
+        AssertEqual(16, result, "ClosureConsumer.ApplyToValue(5, x+1) with multiplier 3");
+        TestLogger.Info($"ClosureConsumer.ApplyToValue = {result}");
+    }
+
+    #endregion
+
+    #region Tier 3 — @convention(c) closures + closure returns (still CallConvSwift)
+    // @convention(c) closures: C# callbacks still use CallConvSwift (Strategy B excludes them)
+    // Closure returns: invoking returned closures uses delegate* unmanaged[Swift]
 
     [TestTier(TestTier.Tier3)]
     public void TestConventionCFunction()
@@ -46,48 +102,6 @@ public class ClosureTests : TestBase
         result = SwiftBindingsTestLib.CallCPredicate(x => x > 5, 3);
         AssertFalse(result, "CPredicate(3 not > 5)");
         TestLogger.Info("CallCPredicate passed");
-    }
-
-    [TestTier(TestTier.Tier3)]
-    public void TestEscapingWithInt32()
-    {
-        var result = SwiftBindingsTestLib.CallWithInt32(x => x * 2);
-        AssertEqual(84, result, "CallWithInt32(x => x * 2) with 42");
-        TestLogger.Info($"CallWithInt32(x => x * 2) = {result}");
-    }
-
-    [TestTier(TestTier.Tier3)]
-    public void TestVoidCallback()
-    {
-        var called = false;
-        SwiftBindingsTestLib.CallVoidCallback(() => { called = true; });
-        AssertTrue(called, "Void callback was called");
-        TestLogger.Info("CallVoidCallback passed");
-    }
-
-    [TestTier(TestTier.Tier3)]
-    public void TestMultiArgClosure()
-    {
-        var result = SwiftBindingsTestLib.CallMultiArg((a, b) => a + b);
-        AssertEqual(30, result, "CallMultiArg(10 + 20)");
-        TestLogger.Info($"CallMultiArg((a,b) => a+b) = {result}");
-    }
-
-    [TestTier(TestTier.Tier3)]
-    public void TestBoolCallback()
-    {
-        var result = SwiftBindingsTestLib.CallBoolCallback(b => !b);
-        AssertFalse(result, "CallBoolCallback(!true) = false");
-        TestLogger.Info("CallBoolCallback passed");
-    }
-
-    [TestTier(TestTier.Tier3)]
-    public void TestCallMultipleTimes()
-    {
-        var result = SwiftBindingsTestLib.CallMultipleTimes(x => x * x, 3);
-        // 1*1 + 2*2 + 3*3 = 1 + 4 + 9 = 14
-        AssertEqual(14, result, "CallMultipleTimes(x^2, 3) = 14");
-        TestLogger.Info($"CallMultipleTimes(x => x*x, 3) = {result}");
     }
 
     [TestTier(TestTier.Tier3)]
@@ -118,18 +132,6 @@ public class ClosureTests : TestBase
         AssertTrue(greaterThan5!(10), "10 > 5");
         AssertFalse(greaterThan5!(3), "3 not > 5");
         TestLogger.Info("MakeGreaterThan passed");
-    }
-
-    // Struct closure methods (also crash)
-
-    [TestTier(TestTier.Tier3)]
-    public void TestClosureConsumer()
-    {
-        var consumer = new ClosureConsumer(3);
-        var result = consumer.ApplyToValue(5, x => x + 1);
-        // multiplier=3, value=5, so 5*3=15, then transform: 15+1=16
-        AssertEqual(16, result, "ClosureConsumer.ApplyToValue(5, x+1) with multiplier 3");
-        TestLogger.Info($"ClosureConsumer.ApplyToValue = {result}");
     }
 
     [TestTier(TestTier.Tier3)]

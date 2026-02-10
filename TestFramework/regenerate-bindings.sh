@@ -88,6 +88,7 @@ dotnet run --project "$PROJECT_ROOT/src/Swift.Bindings/src" -- \
     -t "$TBD" \
     -o output \
     -l "$MODULE_NAME" \
+    --async-library SwiftBindings \
     $SWIFTINTERFACE_OPT \
     $SYMBOLGRAPH_OPT 2>&1
 GENERATOR_EXIT=$?

@@ -20,13 +20,13 @@ public class StringMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestAsciiStringRoundTrip()
     {
-        // Create an Animal with ASCII name, verify it round-trips through Speak()
+        // Create an Animal with ASCII name, verify it round-trips through Describe()
+        // describe() returns "Animal: \(name)" — name only
         var animal = SwiftBindingsTestLib.CreateAnimal("TestDog", "Woof");
         var description = animal.Describe();
 
         AssertNotNull(description, "Description not null");
         AssertTrue(description.Contains("TestDog"), "Description contains name");
-        AssertTrue(description.Contains("Woof"), "Description contains sound");
         TestLogger.Info($"ASCII round-trip: \"{description}\"");
     }
 
@@ -63,13 +63,14 @@ public class StringMarshallingTests : TestBase
     public void TestUnicodeJapanese()
     {
         // Test Japanese characters in strings (CJK unified ideographs + hiragana)
+        // describe() returns "Animal: \(name)" — name only; speak() returns "\(name) says \(sound)"
         var animal = SwiftBindingsTestLib.CreateAnimal("犬", "ワンワン");
-        var description = animal.Describe();
+        var speak = animal.Speak();
 
-        AssertNotNull(description, "Japanese description not null");
-        AssertTrue(description.Contains("犬"), "Japanese name preserved");
-        AssertTrue(description.Contains("ワンワン"), "Japanese sound preserved");
-        TestLogger.Info($"Japanese: \"{description}\"");
+        AssertNotNull(speak, "Japanese speak not null");
+        AssertTrue(speak.Contains("犬"), "Japanese name preserved");
+        AssertTrue(speak.Contains("ワンワン"), "Japanese sound preserved");
+        TestLogger.Info($"Japanese: \"{speak}\"");
     }
 
     [TestTier(TestTier.Tier2)]
@@ -320,7 +321,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("GetLogLevelRaw tests passed");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [TestTier(TestTier.Tier2)] // Animal.Describe() works at Tier 1; large strings use same P/Invoke path
     public void TestLongStringViaAnimal()
     {
         // Test a moderately long string (1KB)
@@ -333,7 +334,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"Long string ({longName.Length} chars) round-trip passed");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [TestTier(TestTier.Tier2)] // Animal.Describe() works at Tier 1; large strings use same P/Invoke path
     public void TestVeryLongStringViaAnimal()
     {
         // Stress test: >64KB string to exercise large buffer marshalling

@@ -75,8 +75,8 @@ public class ClassMarshallingTests : TestBase
         var result = animal.Describe();
 
         AssertNotNull(result, "Describe result not null");
+        // describe() returns "Animal: \(name)" — name only, no sound
         AssertTrue(result.Contains("Rex"), "Describe contains name");
-        AssertTrue(result.Contains("Bark"), "Describe contains sound");
         TestLogger.Info($"Animal.Describe() = \"{result}\"");
     }
 
@@ -135,7 +135,7 @@ public class ClassMarshallingTests : TestBase
 
     #region MutableProps Struct (property get/set)
 
-    [TestTier(TestTier.Tier3)] // SwiftString.PInvoke_GetLength triggers Mono JIT assertion crash
+    [TestTier(TestTier.Tier3)] // MutableProps constructor P/Invoke uses CallConvSwift → frame tracker corruption → cascading crash
     public void TestMutablePropsCreation()
     {
         var props = new MutableProps(42, "TestName");
@@ -149,7 +149,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"MutableProps: Value={value}, Name={name}");
     }
 
-    [TestTier(TestTier.Tier3)] // SwiftString.PInvoke_GetLength triggers Mono JIT assertion crash
+    [TestTier(TestTier.Tier3)] // MutableProps constructor P/Invoke uses CallConvSwift → frame tracker corruption → cascading crash
     public void TestMutablePropsSetValue()
     {
         var props = new MutableProps(10, "Original");
