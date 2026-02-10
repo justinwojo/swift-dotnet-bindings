@@ -135,6 +135,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits remarks tag combining Throws and remark directives.
+        /// Uses para tags when there are multiple items for better visual structure.
         /// </summary>
         private static void EmitRemarks(CSharpWriter csWriter, DocComment doc)
         {
@@ -144,14 +145,19 @@ namespace BindingsGeneration
             if (!hasThrows && !hasRemarks)
                 return;
 
+            int totalItems = (hasThrows ? 1 : 0) + doc.Remarks.Count;
+            bool usePara = totalItems > 1;
+
             csWriter.WriteLine("/// <remarks>");
             if (hasThrows)
             {
-                csWriter.WriteLine($"/// Throws: {FormatDocText(doc.Throws!)}");
+                var text = $"Throws: {FormatDocText(doc.Throws!)}";
+                csWriter.WriteLine(usePara ? $"/// <para>{text}</para>" : $"/// {text}");
             }
             foreach (var remark in doc.Remarks)
             {
-                csWriter.WriteLine($"/// {FormatDocText(remark)}");
+                var text = FormatDocText(remark);
+                csWriter.WriteLine(usePara ? $"/// <para>{text}</para>" : $"/// {text}");
             }
             csWriter.WriteLine("/// </remarks>");
         }

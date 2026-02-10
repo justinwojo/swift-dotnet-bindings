@@ -118,6 +118,100 @@ public class SymbolGraphDocParserTests
     }
 
     [Fact]
+    public void ParseDocCommentLines_ContinuationWithoutIndentation()
+    {
+        // Symbol graph JSON strips indentation from continuation lines
+        var lines = new List<string>
+        {
+            "Plays the animation from a named marker to another marker.",
+            "",
+            "- Parameter fromMarker: The start marker for the animation playback. If `nil` the",
+            "animation will start at the current progress.",
+            "- Parameter toMarker: The end marker for the animation playback.",
+            "- Parameter playEndMarkerFrame: A flag to determine whether or not to play the frame of the end marker. If the",
+            "end marker represents the end of the section to play, it should be to true. If the provided end marker",
+            "represents the beginning of the next section, it should be false.",
+            "- Parameter loopMode: The loop behavior of the animation."
+        };
+        var result = SymbolGraphDocParser.ParseDocCommentLines(lines);
+        Assert.Equal("Plays the animation from a named marker to another marker.", result.Summary);
+        Assert.Equal(4, result.Parameters.Count);
+        Assert.Equal("The start marker for the animation playback. If `nil` the animation will start at the current progress.", result.Parameters["fromMarker"]);
+        Assert.Equal("The end marker for the animation playback.", result.Parameters["toMarker"]);
+        Assert.Equal("A flag to determine whether or not to play the frame of the end marker. If the end marker represents the end of the section to play, it should be to true. If the provided end marker represents the beginning of the next section, it should be false.", result.Parameters["playEndMarkerFrame"]);
+        Assert.Equal("The loop behavior of the animation.", result.Parameters["loopMode"]);
+    }
+
+    [Fact]
+    public void ParseDocCommentLines_NonDirectiveBullets_RoutedToRemarks()
+    {
+        // Markdown-style bullet points without colons should go to remarks, not summary
+        var lines = new List<string>
+        {
+            "Whether or not to use force display update.",
+            "- The main thread rendering engine implements optimizations.",
+            "- Forcing a full render will decrease performance.",
+            "- Has no effect when using the Core Animation rendering engine."
+        };
+        var result = SymbolGraphDocParser.ParseDocCommentLines(lines);
+        Assert.Equal("Whether or not to use force display update.", result.Summary);
+        Assert.Equal(3, result.Remarks.Count);
+        Assert.Equal("The main thread rendering engine implements optimizations.", result.Remarks[0]);
+        Assert.Equal("Forcing a full render will decrease performance.", result.Remarks[1]);
+        Assert.Equal("Has no effect when using the Core Animation rendering engine.", result.Remarks[2]);
+    }
+
+    [Fact]
+    public void ParseDocCommentLines_BulletWithContinuation_RoutedToRemarks()
+    {
+        // Bullet points with multi-line continuation text
+        var lines = new List<string>
+        {
+            "Summary text.",
+            "",
+            "- The rendering engine implements optimizations to decrease the amount",
+            "of properties that need re-rendering.",
+            "- Has no effect with Core Animation."
+        };
+        var result = SymbolGraphDocParser.ParseDocCommentLines(lines);
+        Assert.Equal("Summary text.", result.Summary);
+        Assert.Equal(2, result.Remarks.Count);
+        Assert.Equal("The rendering engine implements optimizations to decrease the amount of properties that need re-rendering.", result.Remarks[0]);
+        Assert.Equal("Has no effect with Core Animation.", result.Remarks[1]);
+    }
+
+    [Fact]
+    public void ParseDocCommentLines_BulletWithColon_NotDirective_RoutedToRemarks()
+    {
+        // A bullet with a colon that doesn't match any known directive
+        var lines = new List<string>
+        {
+            "Summary text.",
+            "",
+            "- Example: use this method for processing."
+        };
+        var result = SymbolGraphDocParser.ParseDocCommentLines(lines);
+        Assert.Equal("Summary text.", result.Summary);
+        Assert.Single(result.Remarks);
+        Assert.Equal("Example: use this method for processing.", result.Remarks[0]);
+    }
+
+    [Fact]
+    public void ParseDocCommentLines_ReturnsContinuationWithoutIndentation()
+    {
+        // Returns directive with continuation on next line without indentation
+        var lines = new List<string>
+        {
+            "Gets data.",
+            "",
+            "- Returns: The fetched data or nil if",
+            "the request failed."
+        };
+        var result = SymbolGraphDocParser.ParseDocCommentLines(lines);
+        Assert.Equal("The fetched data or nil if the request failed.", result.Returns);
+    }
+
+    [Fact]
     public void ParseDocCommentLines_EmptyInput()
     {
         var result = SymbolGraphDocParser.ParseDocCommentLines(new List<string>());

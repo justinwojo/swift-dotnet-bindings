@@ -48,7 +48,7 @@ public class XmlDocCommentEmitterTests
     }
 
     [Fact]
-    public void EmitDocComment_WithRemarks()
+    public void EmitDocComment_WithRemarks_MultipleUsesPara()
     {
         var (csWriter, stringWriter) = CreateWriter();
         var decl = CreateBaseDecl(new DocComment
@@ -61,8 +61,48 @@ public class XmlDocCommentEmitterTests
 
         var output = stringWriter.ToString();
         Assert.Contains("/// <remarks>", output);
-        Assert.Contains("/// Note: This is important.", output);
-        Assert.Contains("/// Warning: Handle with care.", output);
+        Assert.Contains("/// <para>Note: This is important.</para>", output);
+        Assert.Contains("/// <para>Warning: Handle with care.</para>", output);
+        Assert.Contains("/// </remarks>", output);
+    }
+
+    [Fact]
+    public void EmitDocComment_SingleRemark_NoPara()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        var decl = CreateBaseDecl(new DocComment
+        {
+            Summary = "A type.",
+            Remarks = new List<string> { "Note: Single remark." }
+        });
+
+        XmlDocCommentEmitter.EmitDocComment(csWriter, decl);
+
+        var output = stringWriter.ToString();
+        Assert.Contains("/// <remarks>", output);
+        Assert.Contains("/// Note: Single remark.", output);
+        Assert.DoesNotContain("<para>", output);
+        Assert.Contains("/// </remarks>", output);
+    }
+
+    [Fact]
+    public void EmitMethodDocComment_ThrowsAndRemarks_UsesPara()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        var methodDecl = CreateMethodDecl(
+            new DocComment
+            {
+                Summary = "Does work.",
+                Throws = "Error on failure.",
+                Remarks = new List<string> { "Note: Requires setup." }
+            });
+
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+
+        var output = stringWriter.ToString();
+        Assert.Contains("/// <remarks>", output);
+        Assert.Contains("/// <para>Throws: Error on failure.</para>", output);
+        Assert.Contains("/// <para>Note: Requires setup.</para>", output);
         Assert.Contains("/// </remarks>", output);
     }
 

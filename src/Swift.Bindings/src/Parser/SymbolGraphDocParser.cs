@@ -157,6 +157,15 @@ namespace BindingsGeneration
                         pastSummary = true;
                         // Fall through to directive parsing below
                     }
+                    else if (trimmed.StartsWith("- "))
+                    {
+                        // Non-directive bullet point (e.g., "- Some descriptive text" without colon)
+                        // ends the summary and goes to remarks
+                        pastSummary = true;
+                        remarks.Add(trimmed.Substring(2).Trim());
+                        currentTarget = DirectiveTarget.Remark;
+                        continue;
+                    }
                     else
                     {
                         summaryLines.Add(line.TrimEnd());
@@ -226,8 +235,18 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Multi-line continuation: indented line continues previous directive
-                if (currentTarget != DirectiveTarget.None && (line.StartsWith("  ") || line.StartsWith("\t")))
+                // Non-directive bullet points (e.g., "- Some descriptive text" without a known directive keyword)
+                if (trimmed.StartsWith("- "))
+                {
+                    remarks.Add(trimmed.Substring(2).Trim());
+                    currentTarget = DirectiveTarget.Remark;
+                    inPluralParameterBlock = false;
+                    continue;
+                }
+
+                // Multi-line continuation: non-directive, non-bullet line continues previous directive.
+                // Symbol graph JSON strips indentation, so we don't require leading whitespace.
+                if (currentTarget != DirectiveTarget.None)
                 {
                     var continuation = trimmed;
                     switch (currentTarget)
@@ -248,7 +267,7 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Non-indented, non-directive line after summary: treat as additional summary or ignore
+                // Unrecognized standalone line with no active directive target
                 currentTarget = DirectiveTarget.None;
                 inPluralParameterBlock = false;
             }
