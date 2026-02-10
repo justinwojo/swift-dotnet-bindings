@@ -35,6 +35,21 @@ public class SwiftString : ISwiftObject, IDisposable
 
     private static Dictionary<Type, string> _protocolConformanceSymbols;
 
+    /// <summary>
+    /// When true, ToString()/Length use the SwiftBindingsRuntime wrapper path
+    /// (avoids Mono JIT CallConvSwift assertion). Falls back to false if the
+    /// runtime library is not deployed, after which direct P/Invoke is used.
+    /// On Mono, fallback to direct CallConvSwift is not allowed (process-fatal).
+    /// </summary>
+    private static bool _useWrapperPath = true;
+
+    /// <summary>
+    /// True when running on the Mono runtime (iOS). On Mono, the direct
+    /// CallConvSwift P/Invoke path triggers a process-fatal JIT assertion,
+    /// so fallback is not safe — we must throw instead.
+    /// </summary>
+    private static readonly bool _isMonoRuntime = Type.GetType("Mono.Runtime") != null;
+
     static SwiftString()
     {
         _protocolConformanceSymbols = new Dictionary<Type, string> { };
@@ -130,8 +145,36 @@ public class SwiftString : ISwiftObject, IDisposable
     {
         get
         {
+            if (_useWrapperPath)
+            {
+                try
+                {
+                    return GetLengthViaWrapper();
+                }
+                catch (DllNotFoundException) { _useWrapperPath = false; }
+                catch (EntryPointNotFoundException) { _useWrapperPath = false; }
+            }
+
+            if (_isMonoRuntime)
+                ThrowMissingWrapperOnMono();
+
             using PayloadBuffer<SwiftString.Buffer> disposable = PayloadBuffer;
             return (int)PInvoke_GetLength(disposable.Buffer);
+        }
+    }
+
+    private unsafe int GetLengthViaWrapper()
+    {
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
+        try
+        {
+            return (int)RuntimeNativeMethods.SwiftString_GetCount(_payload.DangerousGetHandle());
+        }
+        finally
+        {
+            if (success)
+                _payload.DangerousRelease();
         }
     }
 
@@ -139,6 +182,60 @@ public class SwiftString : ISwiftObject, IDisposable
     /// Converts the SwiftString to a C# string.
     /// </summary>
     public override string ToString()
+    {
+        if (_useWrapperPath)
+        {
+            try
+            {
+                return ToStringViaWrapper();
+            }
+            catch (DllNotFoundException) { _useWrapperPath = false; }
+            catch (EntryPointNotFoundException) { _useWrapperPath = false; }
+        }
+
+        if (_isMonoRuntime)
+            ThrowMissingWrapperOnMono();
+
+        return ToStringDirect();
+    }
+
+    private unsafe string ToStringViaWrapper()
+    {
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
+        try
+        {
+            RuntimeNativeMethods.SwiftString_ToUtf8(
+                _payload.DangerousGetHandle(), out var utf8Ptr, out var utf8Len);
+
+            if (utf8Ptr == IntPtr.Zero || utf8Len <= 0)
+                return string.Empty;
+
+            try
+            {
+                return Encoding.UTF8.GetString((byte*)utf8Ptr, (int)utf8Len);
+            }
+            finally
+            {
+                RuntimeNativeMethods.SwiftString_FreeUtf8(utf8Ptr);
+            }
+        }
+        finally
+        {
+            if (success)
+                _payload.DangerousRelease();
+        }
+    }
+
+    private static void ThrowMissingWrapperOnMono()
+    {
+        throw new SwiftRuntimeException(
+            "SwiftString operations require the SwiftBindingsRuntime native library on Mono. " +
+            "The direct CallConvSwift P/Invoke path triggers a process-fatal JIT assertion on Mono. " +
+            "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
+    }
+
+    private string ToStringDirect()
     {
         var elementType = TypeMetadata.GetTypeMetadataOrThrow<byte>();
         var resultType = TypeMetadata.GetTypeMetadataOrThrow<long>();
@@ -217,6 +314,28 @@ public class SwiftString : ISwiftObject, IDisposable
     public void Dispose()
     {
         _payload?.Dispose();
+    }
+
+    /// <summary>
+    /// P/Invoke declarations for the SwiftBindingsRuntime library.
+    /// Uses CallingConvention.Cdecl to avoid the Mono JIT CallConvSwift assertion.
+    /// </summary>
+    private static class RuntimeNativeMethods
+    {
+        private const string LibraryName = "SwiftBindingsRuntime";
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_SwiftString_ToUtf8")]
+        public static extern void SwiftString_ToUtf8(
+            IntPtr bufferPtr, out IntPtr outPtr, out nint outLen);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_SwiftString_GetCount")]
+        public static extern nint SwiftString_GetCount(IntPtr bufferPtr);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_SwiftString_FreeUtf8")]
+        public static extern void SwiftString_FreeUtf8(IntPtr ptr);
     }
 
     private struct ToStringCallbackContext

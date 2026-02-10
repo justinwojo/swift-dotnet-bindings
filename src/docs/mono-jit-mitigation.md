@@ -1,7 +1,7 @@
 # Mono JIT Mitigation Strategy
 
 Date: 2026-02-09
-Updated: 2026-02-10 (Step 1 — Strategy C implemented)
+Updated: 2026-02-10 (Step 1 — Strategy C, Step 2 — Strategy A implemented)
 
 ## Scope
 
@@ -74,8 +74,8 @@ The safety of wrapper routing comes from the Swift wrapper doing the risky work 
 - `WrapperEmitter.Async.cs` — async method callbacks returning strings
 - `ProtocolProxyEmitter.InterfaceImpl.cs` — protocol proxy string handling
 
-**Not yet used by**:
-- `SwiftString.cs` runtime (`Length`, `ToString()`) — still uses direct `CallConvSwift` P/Invoke
+**Now also used by** (Strategy A, Step 2):
+- `SwiftString.cs` runtime (`Length`, `ToString()`) — routes through `SBW_SwiftString_ToUtf8`/`SBW_SwiftString_GetCount` in `libSwiftBindingsRuntime.dylib` via `CallingConvention.Cdecl` (similar pattern to `SBW_Utf8Slice` but dedicated functions, not the generated struct)
 
 #### Layer 3: Async Callback Pattern (`CallConvCdecl`)
 
@@ -102,7 +102,7 @@ The safety of wrapper routing comes from the Swift wrapper doing the risky work 
 
 | Gap | Current Behavior | Impact |
 |-----|-----------------|--------|
-| `SwiftString.Length` / `SwiftString.ToString()` | Direct `CallConvSwift` P/Invoke to `libswiftCore` | Crashes on Mono when called from closure callback context |
+| ~~`SwiftString.Length` / `SwiftString.ToString()`~~ | ~~Direct `CallConvSwift` P/Invoke to `libswiftCore`~~ | **Resolved** — Strategy A wrapper implemented (Step 2). `SwiftString.cs` routes through `SBW_SwiftString_ToUtf8`/`SBW_SwiftString_GetCount` via `CallingConvention.Cdecl` when `libSwiftBindingsRuntime.dylib` is available, with fallback to direct `CallConvSwift`. |
 | Regular escaping closure callbacks | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` in `ClosureEmitter.cs` | Crashes on Mono for any closure-taking method |
 | Throwing closure callbacks | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` in `ClosureEmitter.Throwing.cs` | Crashes on Mono for throwing closure params |
 | Indirect-return closure callbacks | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` in `ClosureEmitter.IndirectReturn.cs` | Crashes on Mono for closures returning complex types |
@@ -276,28 +276,38 @@ NativeAOT eliminates the most severe blocker but requires the same workarounds f
 - `ExistentialMetadataTests.cs`: 2 Tier 2 runtime tests on iOS Simulator — proof gate passed
 - Baselines maintained: 1760 unit, 699 integration, 94/94 TestFramework coverage
 
-### Step 2: Prototype Strategy A (SwiftString Wrapper) — Time-Boxed Spike
+### Step 2: Prototype Strategy A (SwiftString Wrapper) — Spike DONE
 
-**Run in parallel with or immediately after Step 1.** Strategy A has the highest impact but three unresolved implementation approaches. Time-box to 1-2 sessions to pick an approach:
+**Completed 2026-02-10.** Spike validated the `UnsafeRawPointer` buffer pass-through approach (option 3, via `@_cdecl`).
 
-1. Raw-word `unsafeBitCast` via `@_cdecl` (fastest, ABI-risky)
-2. `NSString` boxing via `@_cdecl` (safe, adds overhead)
-3. `@_silgen_name` with `UnsafeRawPointer` buffer pass-through (middle ground)
+**Approach chosen**: Pass `IntPtr` to the `SwiftString.Buffer` (16-byte raw representation), Swift side uses `bufferPtr.assumingMemoryBound(to: String.self).pointee` to get a retain-balanced copy. This avoids both the ABI risk of raw-word `unsafeBitCast` (option 1) and the overhead of `NSString` boxing (option 2). The `assumingMemoryBound` + `.pointee` pattern correctly increments the refcount when reading and decrements on scope exit, leaving the original buffer unaffected.
 
-**Spike deliverable**: One working `SwiftString("hello").ToString()` round-trip on iOS Simulator via wrapper path, without JIT crash. Document which approach won and why.
+**Why this won over the alternatives**:
+- **Option 1 (raw-word `unsafeBitCast`)**: Requires passing 2 `Int` parameters and reconstructing a `String` via `unsafeBitCast((word0, word1), to: String.self)`. The reconstructed value has no ARC balance — when Swift destroys it at scope exit, it decrements the refcount of the original string (use-after-free risk for heap-allocated large strings). Would require a manual `_fixLifetime` or `Unmanaged` workaround, but `String` is a value type so `Unmanaged` can't be used directly.
+- **Option 2 (`NSString` boxing)**: Requires bridging `String` → `NSString` (Obj-C heap allocation) → `Unmanaged<NSString>` → pointer. Adds overhead and complexity. Not needed since option 3 works.
+- **Option 3 (pointer pass-through)**: Single `UnsafeRawPointer` parameter, `assumingMemoryBound` reads the existing memory as a `String` with correct ARC semantics. Simplest, safest, no extra allocations. Compiles clean on Swift 6 (no `BitwiseCopyable` restrictions on typed pointer access, unlike `load(as:)`).
 
-### Step 3: Implement Strategy A (SwiftString Wrapper) — Full Rollout
+**Delivered (spike + full rollout combined)**:
+- `SwiftBindingsRuntime.swift`: 3 `@_cdecl` functions — `SBW_SwiftString_ToUtf8`, `SBW_SwiftString_GetCount`, `SBW_SwiftString_FreeUtf8`
+- `SwiftString.cs`: `RuntimeNativeMethods` inner class with `CallingConvention.Cdecl` P/Invokes, static `_useWrapperPath` flag, refactored `ToString()` and `Length` with wrapper-first + direct fallback
+- `SwiftStringWrapperTests.cs`: 10 unit tests covering ASCII, empty, Unicode emoji, multi-byte UTF-8, long strings (heap-allocated), and entry point export verification
+- Baselines maintained: 1770 unit + runtime, 699 integration
 
-**After spike chooses approach.** Replace `SwiftString.Length` and `SwiftString.ToString()` hot paths with the chosen wrapper approach. This is the highest-impact single fix — unblocks string-returning methods across the board.
+**Design decision — wrapper-first with fallback**: Unlike Strategy C (wrapper-only, hard-fail), Strategy A uses a try/catch fallback pattern. On first call, `_useWrapperPath` is true and the wrapper is attempted. If `DllNotFoundException` or `EntryPointNotFoundException` is caught, the flag is set to false and all subsequent calls go directly to the existing `CallConvSwift` P/Invokes. This allows the runtime to work on both Mono (wrapper path) and environments where the dylib isn't deployed (direct path). The flag is static so the exception penalty is paid at most once.
+
+**Proof gate**: `SwiftString("hello").ToString()` returns `"hello"` via wrapper, `SwiftString("日本語テスト").Length` returns 6 (character count, not UTF-8 byte count). iOS Simulator runtime validation deferred to Step 3.
+
+### Step 3: Runtime Validation on iOS Simulator
+
+**Next step.** Run existing Tier 2 runtime tests that use SwiftString through the wrapper path on iOS Simulator to confirm the Mono JIT crash is avoided. This requires `libSwiftBindingsRuntime.dylib` injection into the app bundle (already done by `run-runtime-tests.sh` Step 2.5).
 
 **Deliverables**:
-- Swift wrapper function(s) for string operations
-- Updated `SwiftString.cs` with safe path (wrapper) + fallback (direct `CallConvSwift`)
-- Unit tests + runtime tests
+- iOS Simulator runtime test confirming `SwiftString.ToString()` via wrapper, no Mono JIT crash
+- Promote previously-CrashRisk SwiftString tests to safe tier if crash is eliminated
 
 ### Step 4: Implement Strategy D (Signature Risk Detection)
 
-**After C and A are landed.** D is a force-multiplier, but only useful when there are concrete wrapper targets to route to. With existential and SwiftString wrappers in place, the generator can auto-detect risky signatures and route them.
+**After C and A are landed (both done).** D is a force-multiplier, but only useful when there are concrete wrapper targets to route to. With existential and SwiftString wrappers in place, the generator can auto-detect risky signatures and route them.
 
 **Deliverables**:
 - `IsMonoJitRisk()` analysis pass in the generator
@@ -319,13 +329,13 @@ Not a sequential step. Pursue when .NET 10 NativeAOT iOS tooling stabilizes. Eli
 
 ### Summary Table
 
-| Step | Strategy | Effort | Impact | Depends On |
-|------|----------|--------|--------|------------|
-| **1** | C: Existential metadata wrapper | Low | Medium | Nothing |
-| **2** | A: SwiftString spike (prototype) | Low | — | Nothing (can parallel with 1) |
-| **3** | A: SwiftString full rollout | Medium | High | Step 2 |
-| **4** | D: Signature risk detection | Medium | Medium | Steps 1 + 3 |
-| **5** | B: Closure Cdecl expansion | High | High | Steps 1 + 3 + 4 |
+| Step | Strategy | Effort | Impact | Depends On | Status |
+|------|----------|--------|--------|------------|--------|
+| **1** | C: Existential metadata wrapper | Low | Medium | Nothing | **DONE** |
+| **2** | A: SwiftString spike + rollout | Medium | High | Nothing | **DONE** |
+| **3** | A: iOS Simulator validation | Low | — | Step 2 | Pending |
+| **4** | D: Signature risk detection | Medium | Medium | Steps 1 + 2 | Pending |
+| **5** | B: Closure Cdecl expansion | High | High | Steps 1 + 2 + 4 | Pending |
 | *ongoing* | E: NativeAOT migration | High | Complete | External (.NET 10 tooling) |
 
 ---
@@ -334,7 +344,9 @@ Not a sequential step. Pursue when .NET 10 NativeAOT iOS tooling stabilizes. Eli
 
 | File | Role | Key Lines |
 |------|------|-----------|
-| `SwiftString.cs` | 5 CallConvSwift P/Invokes to libswiftCore | 172-192 |
+| `SwiftString.cs` | 5 CallConvSwift P/Invokes + RuntimeNativeMethods wrapper path | 247-267 (direct), 301-317 (wrapper) |
+| `SwiftBindingsRuntime.swift` | SwiftString wrapper functions (`SBW_SwiftString_*`) | 109-175 |
+| `SwiftStringWrapperTests.cs` | 10 unit tests for SwiftString wrapper path | Full file |
 | `TypeMetadata.cs` | Wrapper path (`TryGetExistentialTypeMetadataViaWrapper`) + retained workaround P/Invokes (reference only) | 362-571 |
 | `PInvokeEmitter.cs` | Wrapper lib routing decision | 544-549 |
 | `PInvokeHelperEmitter.cs` | Generic-type P/Invoke declarations (also defaults to CallConvSwift) | 163 |
@@ -415,3 +427,11 @@ For each mitigation strategy implemented:
 - [x] Regression: 1760 unit / 699 integration / 94/94 TestFramework coverage
 - [x] Runtime proof gate: zero-protocol existential metadata via wrapper, no Mono JIT crash
 - **Note**: `libSwiftBindingsRuntime.dylib` is now a hard runtime dependency for existential metadata. Without it, `GetExistentialTypeMetadata` and `TryGetTypeMetadata<ExistentialContainerN>` throw `SwiftRuntimeException`. Downstream consumers must include the dylib in their app bundle.
+
+### Strategy A (SwiftString Wrapper) — Spike + Rollout Completed 2026-02-10
+
+- [x] Unit tests: `SwiftStringWrapperTests.cs` — 10 tests (ASCII, empty, Unicode emoji, multi-byte UTF-8, long strings, entry points)
+- [x] Regression: 1770 unit+runtime / 699 integration
+- [ ] Runtime proof gate: iOS Simulator validation pending (Step 3)
+- **Approach**: `UnsafeRawPointer` + `assumingMemoryBound(to: String.self).pointee` via `@_cdecl`. Retain-balanced, no ABI risk, no `BitwiseCopyable` issues.
+- **Design**: Wrapper-first with fallback — `_useWrapperPath` static flag, DllNotFoundException/EntryPointNotFoundException downgrade to direct `CallConvSwift` path. Unlike Strategy C, this is not a hard dependency on the dylib.

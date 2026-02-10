@@ -58,7 +58,7 @@ Fixed 6 generator bugs eliminating all 12 remaining library binding errors (Cryp
 **Priority**: High — unblocks core functionality for Nuke and CryptoSwift
 **Effort**: Medium (2-3 sessions)
 **Depends on**: Phase H
-**Reference**: `Future/mono-jit-mitigation-and-nuke-loadimage-regression.md`
+**Reference**: `mono-jit-mitigation.md`
 
 The Mono JIT on iOS does not fully support `CallConvSwift` for closures, non-blittable types, and certain instance method patterns. The generator already emits `@_cdecl` wrapper functions in the `SwiftBindings` framework for async methods — this phase extends that pattern to cover the remaining crash-prone signatures.
 

@@ -105,3 +105,72 @@ public func getExistentialTypeMetadata(_ numProtocols: Int) -> UnsafeMutableRawP
     let response = _swift_getExistentialTypeMetadata(0, nil, 0, nil)
     return response.metadataPtr
 }
+
+// MARK: - SwiftString Wrapper Functions
+//
+// SwiftString.cs uses CallConvSwift P/Invokes for ToString() and Length,
+// which trigger the Mono JIT assertion at jit-info.c:918. These @_cdecl
+// wrappers perform string operations entirely on the Swift side, returning
+// results via C-compatible types callable with CallingConvention.Cdecl.
+//
+// The buffer pointer points to the 16-byte raw representation of a
+// Swift.String (2 words on arm64), which is the same layout as
+// SwiftString.Buffer on the C# side.
+
+/// Converts a Swift String buffer to UTF-8 bytes.
+///
+/// Reads a `String` from the raw 2-word buffer at `bufferPtr`, extracts its
+/// UTF-8 representation, and returns an allocated byte buffer that the caller
+/// must free with `SBW_SwiftString_FreeUtf8`.
+///
+/// - Parameters:
+///   - bufferPtr: Pointer to the 16-byte Swift.String raw representation.
+///   - outPtr: On return, pointer to the allocated UTF-8 byte buffer (nil if empty).
+///   - outLen: On return, the number of UTF-8 bytes.
+@_cdecl("SBW_SwiftString_ToUtf8")
+public func sbw_swiftStringToUtf8(
+    _ bufferPtr: UnsafeRawPointer,
+    _ outPtr: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
+    _ outLen: UnsafeMutablePointer<Int>
+) {
+    // assumingMemoryBound + .pointee creates a retain-balanced copy:
+    // increments refcount on read, decrements when `str` goes out of scope.
+    // The original buffer at bufferPtr is unaffected.
+    let str = bufferPtr.assumingMemoryBound(to: String.self).pointee
+
+    let utf8Array = Array(str.utf8)
+    if utf8Array.isEmpty {
+        outPtr.pointee = nil
+        outLen.pointee = 0
+        return
+    }
+
+    let count = utf8Array.count
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: count)
+    utf8Array.withUnsafeBufferPointer { buf in
+        ptr.initialize(from: buf.baseAddress!, count: count)
+    }
+    outPtr.pointee = ptr
+    outLen.pointee = count
+}
+
+/// Gets the character count of a Swift String from its raw buffer.
+///
+/// Returns `String.count` (Unicode scalar/grapheme cluster count), which
+/// may differ from the UTF-8 byte count for multi-byte characters.
+///
+/// - Parameter bufferPtr: Pointer to the 16-byte Swift.String raw representation.
+/// - Returns: The character count.
+@_cdecl("SBW_SwiftString_GetCount")
+public func sbw_swiftStringGetCount(_ bufferPtr: UnsafeRawPointer) -> Int {
+    let str = bufferPtr.assumingMemoryBound(to: String.self).pointee
+    return str.count
+}
+
+/// Frees a UTF-8 buffer previously allocated by `SBW_SwiftString_ToUtf8`.
+///
+/// - Parameter ptr: The pointer to free, or nil (no-op).
+@_cdecl("SBW_SwiftString_FreeUtf8")
+public func sbw_swiftStringFreeUtf8(_ ptr: UnsafeMutablePointer<UInt8>?) {
+    ptr?.deallocate()
+}
