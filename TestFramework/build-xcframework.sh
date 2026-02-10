@@ -60,6 +60,27 @@ xcrun swiftc \
 cp "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios-simulator.swiftinterface" \
    "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/arm64-apple-ios-simulator.private.swiftinterface"
 
+echo "=== Extracting Symbol Graph ==="
+SYMBOLGRAPH_DIR="$BUILD_DIR/symbolgraph"
+if xcrun --find swift-symbolgraph-extract &>/dev/null; then
+    mkdir -p "$SYMBOLGRAPH_DIR"
+    if xcrun swift-symbolgraph-extract \
+        -module-name "$MODULE_NAME" \
+        -target "$TARGET" \
+        -sdk "$SIM_SDK" \
+        -I "$SIM_BUILD_DIR" \
+        -F "$SIM_BUILD_DIR" \
+        -output-dir "$SYMBOLGRAPH_DIR" \
+        -pretty-print 2>&1; then
+        SG_COUNT=$(find "$SYMBOLGRAPH_DIR" -name "*.symbols.json" 2>/dev/null | wc -l | tr -d ' ')
+        echo "Extracted $SG_COUNT symbol graph files to $SYMBOLGRAPH_DIR"
+    else
+        echo "WARNING: swift-symbolgraph-extract failed (exit code $?). Doc comments will not be available."
+    fi
+else
+    echo "Warning: swift-symbolgraph-extract not found. Doc comments will not be available."
+fi
+
 echo "=== Generating TBD ==="
 xcrun tapi stubify \
     --filetype=tbd-v4 \

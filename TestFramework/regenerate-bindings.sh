@@ -72,13 +72,24 @@ if [ -n "$SWIFTINTERFACE" ]; then
     SWIFTINTERFACE_OPT="-s $SWIFTINTERFACE"
 fi
 
+SYMBOLGRAPH_OPT=""
+SYMBOLGRAPH_DIR=".build/symbolgraph"
+if [ -d "$SYMBOLGRAPH_DIR" ]; then
+    SG_COUNT=$(find "$SYMBOLGRAPH_DIR" -name "*.symbols.json" 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$SG_COUNT" -gt 0 ]; then
+        SYMBOLGRAPH_OPT="--symbolgraph $SYMBOLGRAPH_DIR"
+        echo "Symbol graph: $SYMBOLGRAPH_DIR ($SG_COUNT files)"
+    fi
+fi
+
 dotnet run --project "$PROJECT_ROOT/src/Swift.Bindings/src" -- \
     -a "$ABI_JSON" \
     -d "$DYLIB" \
     -t "$TBD" \
     -o output \
     -l "$MODULE_NAME" \
-    $SWIFTINTERFACE_OPT 2>&1
+    $SWIFTINTERFACE_OPT \
+    $SYMBOLGRAPH_OPT 2>&1
 GENERATOR_EXIT=$?
 set -e
 

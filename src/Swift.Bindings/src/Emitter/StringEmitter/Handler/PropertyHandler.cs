@@ -376,6 +376,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         {
             UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value);
         }
+        XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
         csWriter.WriteLine($"public {staticModifier}{csTypeName} {propertyName}");
         csWriter.WriteLine("{");
         csWriter.Indent++;

@@ -13,7 +13,7 @@ For deferred/aspirational work, see `Future/`.
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 1723 passing |
+| Unit tests | 1753 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 
@@ -95,6 +95,22 @@ Instance methods on Swift classes/structs currently use `CallConvSwift` for the 
 
 ---
 
+## Phase K: API Documentation Generation (Swift Doc Comments → C# XML Doc Comments)
+
+**Status**: Done
+**Priority**: Medium
+**Effort**: 1 session
+
+Extracts Swift doc comments from `swift-symbolgraph-extract` output and emits C# XML doc comments (`/// <summary>`, `/// <param>`, `/// <returns>`, `/// <remarks>`) on all generated bindings. Join key: `node.usr` (ABI JSON) = `symbol.identifier.precise` (symbol graph JSON). Entirely opt-in via `--symbolgraph` CLI option.
+
+**New files**: `DocComment.cs` (model), `SymbolGraphDocParser.cs` (streaming JSON parser), `XmlDocCommentEmitter.cs` (XML doc emission with backtick→`<c>` conversion, Swift label→C# param name mapping, failable factory `Returns`→`<param name="result">` projection).
+
+**Modified**: `BaseDecl.cs` (`Documentation` property), `SwiftABIParser.cs` (`usr` field + `PopulateDocumentation` in all 9 `Create*Decl` methods), `Program.cs` (`--symbolgraph` option), 8 handler files (emission insertion points), `build-xcframework.sh` + `regenerate-bindings.sh` (pipeline integration).
+
+**Tests**: 30 new unit tests (13 parser + 17 emitter). Verified end-to-end: TestFramework symbol graph extraction → doc comments on generated C# types (e.g., `TaskStatus`, `INamed`, `NamedItem`).
+
+---
+
 ## Phase J: Additional Library Validation
 
 **Status**: Not Started
@@ -134,7 +150,6 @@ Once Phase J is complete:
 
 Next priorities:
 
-- **API Documentation Generation** — Extract Swift doc comments via `swift-symbolgraph-extract` and emit as C# XML doc comments (`/// <summary>`, `/// <param>`, etc.) on generated bindings. Every `.framework`/`.xcframework` ships `.swiftdoc` files that the tool reads — no source code needed. Join key: `usr` field shared between symbol graph JSON and ABI JSON. Steps: (1) run `swift-symbolgraph-extract` in build pipeline, (2) parse `docComment.lines` from symbol graph JSON, (3) add `Documentation` property to `BaseDecl` model, (4) emit XML doc comments in emitter. Tested coverage: Nuke 87%, BlinkID 50%, StoreKit 54%, SwiftBindingsTestLib 96%.
 - **MSBuild SDK + project templates** — Phase 3 DX work from `north-star.md`
 - **Optional string properties** — `Swift.Optional<Swift.String>` → `string?` (extend TypeConversionHandler to unwrap optional strings)
 - **Cross-module protocol interface coverage** — Expand `_runtimeProtocols` for stdlib protocols used as existentials (Comparable, Sendable, CodingKey, etc.)

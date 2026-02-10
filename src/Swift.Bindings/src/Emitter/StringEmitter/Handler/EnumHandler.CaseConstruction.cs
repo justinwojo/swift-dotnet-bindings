@@ -41,10 +41,17 @@ namespace BindingsGeneration
                 parameters.Add((csharpType, paramName, typeSpec));
             }
 
-            // Generate the static method for this case
-            csWriter.WriteLine($"/// <summary>");
-            csWriter.WriteLine($"/// Creates the '{caseName}' case of {enumTypeName}.");
-            csWriter.WriteLine($"/// </summary>");
+            // Generate the static method for this case — prefer symbol graph doc over synthetic
+            if (caseDecl.Documentation != null && !caseDecl.Documentation.IsEmpty)
+            {
+                XmlDocCommentEmitter.EmitDocComment(csWriter, caseDecl);
+            }
+            else
+            {
+                csWriter.WriteLine($"/// <summary>");
+                csWriter.WriteLine($"/// Creates the '{caseName}' case of {enumTypeName}.");
+                csWriter.WriteLine($"/// </summary>");
+            }
 
             var parameterString = string.Join(", ", parameters.Select(p => $"{p.type} {p.name}"));
             csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}({parameterString})");

@@ -22,5 +22,10 @@ namespace BindingsGeneration
         /// The module declaration.
         /// </summary>
         public required ModuleDecl? ModuleDecl { get; set; }
+
+        /// <summary>
+        /// Documentation from Swift symbol graph (null when --symbolgraph is not provided).
+        /// </summary>
+        public DocComment? Documentation { get; set; }
     }
 }

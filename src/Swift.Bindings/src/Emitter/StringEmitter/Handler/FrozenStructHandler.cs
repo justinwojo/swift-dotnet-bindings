@@ -125,6 +125,7 @@ namespace BindingsGeneration
                     env.TypeDatabase,
                     conformanceValidator);
 
+                XmlDocCommentEmitter.EmitDocComment(csWriter, structDecl);
                 if (isProjectedAsClass)
                 {
                     // Use unsafe class since methods may use function pointers for closure parameters

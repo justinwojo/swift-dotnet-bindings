@@ -61,6 +61,7 @@ namespace BindingsGeneration
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
 
             // Emit the C# enum declaration
+            XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
             csWriter.WriteLine($"public enum {enumName} : {csUnderlyingType}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -82,6 +83,7 @@ namespace BindingsGeneration
                     tagValue = enumDecl.GetCaseTag(caseDecl);
                 }
 
+                XmlDocCommentEmitter.EmitDocComment(csWriter, caseDecl);
                 csWriter.WriteLine($"{casePascalName} = {tagValue},");
             }
 

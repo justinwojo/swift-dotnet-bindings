@@ -40,6 +40,9 @@ namespace BindingsGeneration
                 aliases: new[] { "-s", "--swiftinterface" },
                 description: "Path to the .swiftinterface file. Used to detect @inlinable internal members " +
                              "that can't be distinguished from public in the ABI JSON alone.");
+            Option<string> symbolGraphOption = new(
+                aliases: new[] { "--symbolgraph" },
+                description: "Path to symbol graph JSON file or directory. Used to extract Swift doc comments for C# XML doc comment generation.");
             Option<string> bridgeHintsOption = new(
                 aliases: new[] { "--bridge-hints" },
                 description: "Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
@@ -61,6 +64,7 @@ namespace BindingsGeneration
                 libraryNameOption,
                 asyncLibraryOption,
                 swiftInterfaceOption,
+                symbolGraphOption,
                 bridgeHintsOption,
                 namespacePatternOption,
                 configOption,
@@ -77,6 +81,7 @@ namespace BindingsGeneration
                 var libraryName = parseResult.GetValueForOption(libraryNameOption);
                 var asyncLibrary = parseResult.GetValueForOption(asyncLibraryOption);
                 var swiftInterface = parseResult.GetValueForOption(swiftInterfaceOption);
+                var symbolGraph = parseResult.GetValueForOption(symbolGraphOption);
                 var bridgeHints = parseResult.GetValueForOption(bridgeHintsOption);
                 var namespacePattern = parseResult.GetValueForOption(namespacePatternOption);
                 var configPath = parseResult.GetValueForOption(configOption);
@@ -93,6 +98,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  -l, --library-name   Optional. Runtime library name for DllImport. Escape @ with backslash: '\\@rpath/...'");
                     Console.WriteLine("  --async-library      Optional. Library name for async wrapper functions. Default uses module library.");
                     Console.WriteLine("  -s, --swiftinterface Optional. Path to .swiftinterface file for internal member detection.");
+                    Console.WriteLine("  --symbolgraph        Optional. Path to symbol graph JSON file or directory for doc comments.");
                     Console.WriteLine("  --bridge-hints       Optional. Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
                     Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
                     Console.WriteLine($"  --config             Optional. Path to config file. Default: {DefaultConfigFileName}");
@@ -131,7 +137,7 @@ namespace BindingsGeneration
                 var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
                 var effectiveNamespacePattern = ResolveNamespacePattern(namespacePattern, configPath, logger);
 
-                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, bridgeHints, effectiveNamespacePattern, logger, loggerFactory);
+                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory);
             });
 
             rootCommand.Invoke(args);
@@ -149,7 +155,7 @@ namespace BindingsGeneration
         /// <param name="namespacePattern">Namespace pattern for generated modules and types.</param>
         /// <param name="logger">ILogger instance.</param>
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
-        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
+        public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
         {
             var typeDatabase = new TypeDatabase();
             typeDatabase.AsyncLibraryName = asyncLibraryName;
@@ -176,8 +182,23 @@ namespace BindingsGeneration
                 logger.LogInformation("Loaded {Count} parameter name entries from swiftinterface", parameterNames.Count);
             }
 
+            // Parse symbol graph for doc comments (supplementary data)
+            Dictionary<string, DocComment>? docComments = null;
+            if (!string.IsNullOrWhiteSpace(symbolGraphPath))
+            {
+                if (File.Exists(symbolGraphPath) || Directory.Exists(symbolGraphPath))
+                {
+                    docComments = SymbolGraphDocParser.ParseSymbolGraphs(symbolGraphPath);
+                    logger.LogInformation("Loaded {Count} doc comments from symbol graph", docComments.Count);
+                }
+                else
+                {
+                    logger.LogWarning("Symbol graph path not found: {Path}. Doc comments will not be generated.", symbolGraphPath);
+                }
+            }
+
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);

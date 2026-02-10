@@ -293,6 +293,7 @@ namespace BindingsGeneration
                 var leftType = ApplyRemap(FixGenericTypeName(leftParam.Type));
                 var rightType = ApplyRemap(FixGenericTypeName(rightParam.Type));
 
+                XmlDocCommentEmitter.EmitDocComment(csWriter, operatorDecl);
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({leftType} {leftParam.Name}, {rightType} {rightParam.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
@@ -333,6 +334,7 @@ namespace BindingsGeneration
                 var returnType = ApplyRemap(FixGenericTypeName(wrapperSignature.ReturnType));
                 var operandType = ApplyRemap(FixGenericTypeName(operand.Type));
 
+                XmlDocCommentEmitter.EmitDocComment(csWriter, operatorDecl);
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({operandType} {operand.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;

@@ -60,6 +60,7 @@ namespace BindingsGeneration
         public required string? paramValueOwnership { get; set; }
         public required bool? hasDefaultArg { get; set; }
         public string? funcSelfKind { get; set; }
+        public string? usr { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Accessors { get; set; } = Enumerable.Empty<Node>();
@@ -197,13 +198,19 @@ namespace BindingsGeneration
         /// </summary>
         private readonly Dictionary<string, List<string>>? _parameterNames;
 
+        /// <summary>
+        /// Optional doc comments from symbol graph, keyed by USR.
+        /// </summary>
+        private readonly Dictionary<string, DocComment>? _docComments;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
             DemanglingResults demangledTbd,
             ILogger logger,
             HashSet<string>? internalMemberKeys = null,
-            Dictionary<string, List<string>>? parameterNames = null)
+            Dictionary<string, List<string>>? parameterNames = null,
+            Dictionary<string, DocComment>? docComments = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -211,6 +218,7 @@ namespace BindingsGeneration
             _logger = logger;
             _internalMemberKeys = internalMemberKeys;
             _parameterNames = parameterNames;
+            _docComments = docComments;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -448,7 +456,7 @@ namespace BindingsGeneration
             var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
             var hasFrozenAttribute = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Frozen") != -1;
 
-            return new StructDecl
+            var decl = new StructDecl
             {
                 Name = ExtractUniqueName(node.Name),
                 SwiftTypeName = swiftTypeName,
@@ -465,6 +473,8 @@ namespace BindingsGeneration
                 MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName),
                 IsModuleInternal = IsNodeModuleInternal(node)
             };
+            PopulateDocumentation(decl, node);
+            return decl;
         }
 
         /// <summary>
@@ -480,7 +490,7 @@ namespace BindingsGeneration
             var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
             var hasFrozenAttribute = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Frozen") != -1;
 
-            return new EnumDecl
+            var decl = new EnumDecl
             {
                 Name = ExtractUniqueName(node.Name),
                 SwiftTypeName = swiftTypeName,
@@ -499,6 +509,8 @@ namespace BindingsGeneration
                 RawValueTypeName = node.EnumRawTypeName,
                 IsModuleInternal = IsNodeModuleInternal(node)
             };
+            PopulateDocumentation(decl, node);
+            return decl;
         }
 
         /// <summary>
@@ -518,6 +530,7 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
             };
+            PopulateDocumentation(enumCaseDecl, node);
 
             // Parse associated values from the type signature if present
             // The type signature for enum cases looks like:
@@ -589,7 +602,7 @@ namespace BindingsGeneration
             // Use the stable mangled name ($sScA) to avoid false positives from user-defined protocols named "Actor".
             var isActor = node.Conformances.Any(c => c.MangledName == "$sScA");
 
-            return new ClassDecl
+            var decl = new ClassDecl
             {
                 Name = ExtractUniqueName(node.Name),
                 SwiftTypeName = swiftTypeName,
@@ -605,6 +618,8 @@ namespace BindingsGeneration
                 IsActor = isActor,
                 IsModuleInternal = IsNodeModuleInternal(node)
             };
+            PopulateDocumentation(decl, node);
+            return decl;
         }
 
         /// <summary>
@@ -652,7 +667,7 @@ namespace BindingsGeneration
                 p.Name == "AnyObject" ||
                 p.Name == "Swift.AnyObject");
 
-            return new ProtocolDecl
+            var decl = new ProtocolDecl
             {
                 Name = ExtractUniqueName(node.Name),
                 SwiftTypeName = GetSwiftTypeName(parentDecl, node.Name),
@@ -669,6 +684,8 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl
             };
+            PopulateDocumentation(decl, node);
+            return decl;
         }
 
         /// <summary>
@@ -717,6 +734,7 @@ namespace BindingsGeneration
                 IsModuleInternal = IsNodeModuleInternal(node) ||
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
             };
+            PopulateDocumentation(methodDecl, node);
 
             // Look up internal parameter names from swiftinterface data
             List<string>? internalParamNames = null;
@@ -810,7 +828,7 @@ namespace BindingsGeneration
                 isPrefix = false;
             }
 
-            return new OperatorDecl
+            var operatorDecl = new OperatorDecl
             {
                 Name = node.Name,
                 OperatorSymbol = node.Name,
@@ -820,6 +838,8 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl
             };
+            PopulateDocumentation(operatorDecl, node);
+            return operatorDecl;
         }
 
         private List<AccessorDecl> HandleAccessors(IEnumerable<Node> accessors, string fieldName, BaseDecl parentDecl, ModuleDecl moduleDecl)
@@ -970,7 +990,7 @@ namespace BindingsGeneration
             // Sanitize property wrapper projected value names ($volume -> projectedVolume)
             var sanitizedName = NameProvider.SanitizePropertyWrapperName(node.Name);
 
-            return new PropertyDecl
+            var decl = new PropertyDecl
             {
                 SwiftTypeSpec = typeSpec,
                 Name = sanitizedName,
@@ -980,6 +1000,8 @@ namespace BindingsGeneration
                 HasStorage = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "HasStorage") != -1,
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
+            PopulateDocumentation(decl, node);
+            return decl;
         }
 
         /// <summary>
@@ -1022,7 +1044,7 @@ namespace BindingsGeneration
                 });
             }
 
-            return new SubscriptDecl
+            var decl = new SubscriptDecl
             {
                 Name = "subscript",
                 MangledName = node.MangledName,
@@ -1033,6 +1055,8 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl
             };
+            PopulateDocumentation(decl, node);
+            return decl;
         }
 
         /// <summary>
@@ -1365,6 +1389,18 @@ namespace BindingsGeneration
             }
 
             return name;
+        }
+
+        /// <summary>
+        /// Populates the Documentation property on a declaration from the symbol graph, if available.
+        /// Join key: node.usr matches symbol identifier.precise.
+        /// </summary>
+        private void PopulateDocumentation(BaseDecl decl, Node node)
+        {
+            if (_docComments != null && node.usr != null && _docComments.TryGetValue(node.usr, out var doc))
+            {
+                decl.Documentation = doc;
+            }
         }
 
         private static SwiftTypeName GetSwiftTypeName(BaseDecl parentDecl, string name)

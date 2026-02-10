@@ -73,6 +73,7 @@ namespace BindingsGeneration
             var inheritedInterfaces = GetInheritedInterfaceList(protocolDecl);
 
             // Write the interface declaration
+            XmlDocCommentEmitter.EmitDocComment(csWriter, protocolDecl);
             if (inheritedInterfaces.Count > 0)
             {
                 csWriter.WriteLine($"public interface {interfaceName} : {string.Join(", ", inheritedInterfaces)}");
@@ -349,6 +350,7 @@ namespace BindingsGeneration
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo);
             }
 
+            XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
             csWriter.WriteLine($"{csharpTypeName} {propertyName} {accessors}");
         }
 
@@ -543,6 +545,7 @@ namespace BindingsGeneration
             }
 
             var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync);
+            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
             csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
         }
 

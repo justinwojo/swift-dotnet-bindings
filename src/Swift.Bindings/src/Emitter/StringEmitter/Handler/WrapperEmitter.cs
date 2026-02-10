@@ -76,6 +76,7 @@ namespace BindingsGeneration
                 EmitClosureCallbacks(csWriter);
             }
 
+            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
             EmitSafeHandleAddRef(csWriter);
@@ -155,6 +156,7 @@ namespace BindingsGeneration
                 EmitClosureCallbacks(csWriter);
             }
 
+            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isFailableFactory: true);
             // Emit signature: public static unsafe bool TryCreate(params, out TypeName result)
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
             csWriter.WriteLine($"{accessModifier} static unsafe bool TryCreate({_wrapperSignature.ParametersString()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} result)");
@@ -289,6 +291,10 @@ namespace BindingsGeneration
             if (_fallbackInfo.HasValue)
             {
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value);
+            }
+            if (!_env.MethodDecl.IsAccessor)
+            {
+                XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl);
             }
             EmitSignatureMethod(csWriter);
             EmitBodyStart(csWriter);

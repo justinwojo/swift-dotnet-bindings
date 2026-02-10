@@ -117,6 +117,7 @@ namespace BindingsGeneration
                     env.TypeDatabase,
                     conformanceValidator);
 
+                XmlDocCommentEmitter.EmitDocComment(csWriter, structDecl);
                 var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";
