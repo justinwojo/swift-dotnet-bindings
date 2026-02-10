@@ -1,7 +1,7 @@
 # Mono JIT Mitigation Strategy
 
 Date: 2026-02-09
-Updated: 2026-02-09 (Claude Opus deep-dive review)
+Updated: 2026-02-10 (Step 1 — Strategy C implemented)
 
 ## Scope
 
@@ -93,7 +93,7 @@ The safety of wrapper routing comes from the Swift wrapper doing the risky work 
 **Important distinction**: This layer provides **diagnostics and test isolation**, not crash prevention. The Mono JIT assertion (`!ji->async` at `jit-info.c:918`) is a **process-fatal abort** that bypasses all managed exception handlers. The try/catch in `TypeMetadata.cs:478` will never catch this assertion — it only catches managed exceptions from workaround attempts that fail for other reasons (e.g., invalid metadata pointer).
 
 **What it actually does**:
-- `TypeMetadata.cs:473-539` — Tries three P/Invoke workaround variants; if all fail with managed exceptions, throws descriptive `SwiftRuntimeException` explaining the limitation
+- `TypeMetadata.cs` — Previously tried three P/Invoke workaround variants (lines 473-539, still present for reference). **Now superseded** by `TryGetExistentialTypeMetadataViaWrapper` which routes through the Swift wrapper (Strategy C). The old workaround function `TryGetExistentialTypeMetadataWithWorkarounds` is no longer called from any resolution path.
 - `[CrashRisk("reason")]` attribute — Marks test classes known to trigger process-fatal crashes
 - `--safe-only` flag — Test runner skips `[CrashRisk]` classes entirely
 - Test ordering — Safe tests run first, crash-risk last (so earlier results survive a process abort)
@@ -106,7 +106,7 @@ The safety of wrapper routing comes from the Swift wrapper doing the risky work 
 | Regular escaping closure callbacks | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` in `ClosureEmitter.cs` | Crashes on Mono for any closure-taking method |
 | Throwing closure callbacks | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` in `ClosureEmitter.Throwing.cs` | Crashes on Mono for throwing closure params |
 | Indirect-return closure callbacks | `[UnmanagedCallersOnly(CallConvs = CallConvSwift)]` in `ClosureEmitter.IndirectReturn.cs` | Crashes on Mono for closures returning complex types |
-| `swift_getExistentialTypeMetadata` | Three P/Invoke workaround variants all hit process-fatal Mono assertion abort (try/catch cannot intercept) | Blocks protocol-typed arrays entirely |
+| ~~`swift_getExistentialTypeMetadata`~~ | ~~Three P/Invoke workaround variants all hit process-fatal Mono assertion abort~~ | **Resolved** — Strategy C wrapper implemented (zero-protocol case). See Step 1 status below. |
 
 ---
 
@@ -216,28 +216,24 @@ Meanwhile, `ClosureEmitter.Async.cs:51` already uses the safe pattern:
 **Proof gate**: Single closure-taking method (e.g., `Array.sort(by:)`) works end-to-end on iOS Simulator via Cdecl callback + Swift adapter, without Mono JIT crash.
 **Kill criteria**: If the `@convention(swift)` → `@convention(c)` adapter in Swift introduces measurable overhead (>10% on hot path) or can't handle all closure type signatures generically.
 
-### Strategy C: Existential Metadata via Swift Wrapper (Medium Impact, Low Effort)
+### Strategy C: Existential Metadata via Swift Wrapper (Medium Impact, Low Effort) — IMPLEMENTED
 
-**Problem**: `TypeMetadata.cs` tries three P/Invoke workarounds for `swift_getExistentialTypeMetadata`, all fail with the same JIT assertion.
+**Status**: Implemented and validated (2026-02-10). Zero-protocol existential case (`Any` / `ExistentialContainer0`) works end-to-end. N-protocol cases deferred (require protocol descriptor pointers).
 
-**Proposal**: Generate a Swift wrapper function that creates existential type metadata on the Swift side:
+**Implementation summary**:
+- `SwiftBindingsRuntime.swift`: `@_cdecl("SwiftBindings_GetExistentialTypeMetadata")` wrapper calls `swift_getExistentialTypeMetadata` via `@_silgen_name` import, returning metadata pointer. Uses `MetadataResponse` tuple to correctly capture the 2-word return on ARM64.
+- `TypeMetadata.cs`: `RuntimeNativeMethods.GetExistentialTypeMetadata()` via `CallingConvention.Cdecl` → `TryGetExistentialTypeMetadataViaWrapper()`. All call paths now use wrapper-only — old workaround P/Invokes retained in file for documentation but removed from resolution paths.
+- `run-runtime-tests.sh`: Injects `libSwiftBindingsRuntime.dylib` into app bundle post-build (Step 2.5) to sidestep InstallNameTool failure while making the dylib available at runtime.
 
-```swift
-@_cdecl("SBW_GetExistentialTypeMetadata")
-public func sbw_getExistentialTypeMetadata(_ numProtocols: Int) -> UnsafeMutableRawPointer {
-    // Call swift_getExistentialTypeMetadata on the Swift side (no JIT involved)
-    // Return the metadata pointer as an opaque pointer
-}
-```
+**Design decision — wrapper-only, hard-fail without dylib**: `TryGetExistentialTypeMetadataViaWrapper` catches `DllNotFoundException` and `EntryPointNotFoundException`, returns false. Callers throw `SwiftRuntimeException` with a descriptive message — no fallback to direct `CallConvSwift` P/Invoke (process-fatal on Mono, unnecessary on non-Mono where the wrapper also works). This means `libSwiftBindingsRuntime.dylib` is a hard dependency for existential metadata. Downstream consumers must include the dylib in their application bundle.
 
-**Complexity**: Low — this is a thin wrapper. The challenge is that `swift_getExistentialTypeMetadata` also takes protocol descriptors, and constructing those from C# identifiers requires a lookup mechanism. For the zero-protocol case (`Any`), this is trivial. For N-protocol cases, we'd need a protocol descriptor registry in the wrapper library.
+**Proof gate passed**: `ExistentialMetadataTests` on iOS Simulator — 2/2 tests pass, metadata kind=Existential, no Mono JIT crash.
 
-**Current workaround comparison**: Today, users write per-type Swift wrappers (e.g., `ImageRequest_initWithURLString_simple`). This strategy would create a generic metadata wrapper that covers the common case.
+**Remaining scope**: N-protocol existentials (`ExistentialContainer1`+) require protocol descriptor pointers passed to `swift_getExistentialTypeMetadata`. The wrapper currently returns nil for `numProtocols > 0`, and the C# side throws `SwiftRuntimeException` explaining the limitation.
 
-**Assumption to validate**: Swift-side access to the `swift_getExistentialTypeMetadata` entrypoint is practical for all protocol-count cases. For zero protocols (`Any`), this is trivial. For N-protocol cases, the wrapper needs protocol descriptor pointers — whether these can be obtained generically at runtime (vs. requiring compile-time knowledge of each protocol) determines the scope of this strategy.
+**Original problem**: `TypeMetadata.cs` tried three P/Invoke workarounds for `swift_getExistentialTypeMetadata`, all failed with the same JIT assertion.
 
-**Proof gate**: `SwiftArray<ExistentialContainer0>` construction succeeds on iOS Simulator via the wrapper, without Mono JIT crash.
-**Kill criteria**: If N-protocol cases require per-protocol compile-time registration that makes the wrapper no simpler than existing per-type wrappers.
+**Kill criteria** (for N-protocol expansion): If N-protocol cases require per-protocol compile-time registration that makes the wrapper no simpler than existing per-type wrappers.
 
 ### Strategy D: Generator-Level Signature Risk Detection (Medium Impact, Medium Effort)
 
@@ -269,15 +265,16 @@ NativeAOT eliminates the most severe blocker but requires the same workarounds f
 
 ## 4. Execution Plan
 
-### Step 1: Implement Strategy C (Existential Metadata Wrapper)
+### Step 1: Implement Strategy C (Existential Metadata Wrapper) — DONE
 
-**Do first.** Lowest risk, lowest effort, immediate unblock for protocol-typed arrays. Also validates the end-to-end wrapper plumbing pattern (Swift `@_cdecl` wrapper → `CallingConvention.Cdecl` import → runtime integration) that all later strategies depend on.
+**Completed 2026-02-10.** Validated end-to-end wrapper plumbing pattern that later strategies depend on.
 
-**Deliverables**:
-- Swift wrapper function in runtime support library (`SBW_GetExistentialTypeMetadata`)
-- Wire `TypeMetadata.cs` to call the wrapper instead of direct `swift_getExistentialTypeMetadata`
-- Unit tests + iOS Simulator runtime test confirming `SwiftArray<ExistentialContainer0>` works
-- Proof gate: no Mono JIT crash on existential array construction
+**Delivered**:
+- `SwiftBindingsRuntime.swift`: `@_cdecl("SwiftBindings_GetExistentialTypeMetadata")` wrapper
+- `TypeMetadata.cs`: `RuntimeNativeMethods` + `TryGetExistentialTypeMetadataViaWrapper`, wrapper-only resolution (no crashy fallback)
+- `ExistentialMetadataWrapperTests.cs`: 4 unit tests (zero-protocol success, ExistentialContainer0, non-zero throws, error message content)
+- `ExistentialMetadataTests.cs`: 2 Tier 2 runtime tests on iOS Simulator — proof gate passed
+- Baselines maintained: 1760 unit, 699 integration, 94/94 TestFramework coverage
 
 ### Step 2: Prototype Strategy A (SwiftString Wrapper) — Time-Boxed Spike
 
@@ -338,7 +335,7 @@ Not a sequential step. Pursue when .NET 10 NativeAOT iOS tooling stabilizes. Eli
 | File | Role | Key Lines |
 |------|------|-----------|
 | `SwiftString.cs` | 5 CallConvSwift P/Invokes to libswiftCore | 172-192 |
-| `TypeMetadata.cs` | 3 failed workaround attempts + existential handling | 358-539 |
+| `TypeMetadata.cs` | Wrapper path (`TryGetExistentialTypeMetadataViaWrapper`) + retained workaround P/Invokes (reference only) | 362-571 |
 | `PInvokeEmitter.cs` | Wrapper lib routing decision | 544-549 |
 | `PInvokeHelperEmitter.cs` | Generic-type P/Invoke declarations (also defaults to CallConvSwift) | 163 |
 | `ClosureEmitter.cs` | Regular escaping closures use CallConvSwift | 81 |
@@ -381,7 +378,7 @@ Many methods that appear safe (no closures, no existentials) still crash because
 
 ### The three TypeMetadata workaround attempts are architecturally informative
 
-All three attempts in `TypeMetadata.cs:429-539` failed because the bug is in Mono's JIT frame classification, not in the P/Invoke marshalling:
+All three attempts in `TypeMetadata.cs` (retained for reference, no longer called) failed because the bug is in Mono's JIT frame classification, not in the P/Invoke marshalling:
 1. `[SuppressGCTransition]` — GC transition is not the trigger
 2. `CallingConvention.Cdecl` — calling convention on C# side doesn't change Mono's frame tracking for the actual native call
 3. `nint` return type — return type marshalling is not the trigger
@@ -410,3 +407,11 @@ For each mitigation strategy implemented:
 - [ ] TestFramework: `./build-and-test.sh` + coverage report shows no degradation
 - [ ] Library validation: affected library builds remain clean
 - [ ] Runtime test on iOS Simulator confirming the previously-crashing path now works
+
+### Strategy C (Existential Metadata) — Completed 2026-02-10
+
+- [x] Unit tests: `ExistentialMetadataWrapperTests.cs` — 4 tests (zero-protocol, ExistentialContainer0, non-zero throws, error message)
+- [x] End-to-end: `ExistentialMetadataTests.cs` — Tier 2 runtime tests on iOS Simulator
+- [x] Regression: 1760 unit / 699 integration / 94/94 TestFramework coverage
+- [x] Runtime proof gate: zero-protocol existential metadata via wrapper, no Mono JIT crash
+- **Note**: `libSwiftBindingsRuntime.dylib` is now a hard runtime dependency for existential metadata. Without it, `GetExistentialTypeMetadata` and `TryGetTypeMetadata<ExistentialContainerN>` throw `SwiftRuntimeException`. Downstream consumers must include the dylib in their app bundle.

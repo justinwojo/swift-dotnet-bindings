@@ -72,3 +72,36 @@ public func initializeConcurrency() {
 public func isConcurrencyInitialized() -> Bool {
     return _isInitialized
 }
+
+// MARK: - Existential Type Metadata
+
+/// Swift runtime's MetadataResponse: (metadata pointer, completion state).
+/// We model this as a tuple so @_silgen_name captures both return registers
+/// correctly on ARM64, avoiding UB from truncating a 2-word return.
+private typealias MetadataResponse = (metadataPtr: UnsafeMutableRawPointer, state: Int)
+
+/// Import swift_getExistentialTypeMetadata from the Swift runtime.
+/// Calling this from Swift avoids the Mono JIT assertion that occurs
+/// when C# calls it via CallConvSwift P/Invoke.
+@_silgen_name("swift_getExistentialTypeMetadata")
+private func _swift_getExistentialTypeMetadata(
+    _ request: Int,
+    _ superclass: UnsafeRawPointer?,
+    _ numProtocols: Int,
+    _ protocols: UnsafeRawPointer?
+) -> MetadataResponse
+
+/// Returns existential type metadata for a zero-protocol existential (Any).
+///
+/// Wraps `swift_getExistentialTypeMetadata` so the call happens entirely on
+/// the Swift side, avoiding the Mono JIT `CallConvSwift` assertion crash.
+///
+/// - Parameter numProtocols: Number of protocol constraints. Only 0 is supported.
+/// - Returns: Metadata pointer, or nil if numProtocols is unsupported.
+@_cdecl("SwiftBindings_GetExistentialTypeMetadata")
+public func getExistentialTypeMetadata(_ numProtocols: Int) -> UnsafeMutableRawPointer? {
+    guard numProtocols == 0 else { return nil }
+    // request=0 is MetadataRequest.Complete, superclass=nil, protocols=nil
+    let response = _swift_getExistentialTypeMetadata(0, nil, 0, nil)
+    return response.metadataPtr
+}

@@ -363,20 +363,23 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         {
             var numProtocols = GetProtocolCountFromExistentialType(type);
 
-            // Try multiple P/Invoke approaches to work around the Mono JIT bug
-            if (TryGetExistentialTypeMetadataWithWorkarounds(numProtocols, out var existentialMetadata))
+            // Use SwiftBindingsRuntime wrapper (avoids Mono JIT crash entirely)
+            if (TryGetExistentialTypeMetadataViaWrapper(numProtocols, out var existentialMetadata))
             {
                 cache.GetOrAdd(type, _ => existentialMetadata);
                 result = existentialMetadata;
                 return true;
             }
 
-            // All workarounds failed - provide descriptive error
+            // Wrapper unavailable or returned nil (unsupported protocol count).
+            // Do NOT fall back to direct P/Invoke — process-fatal on Mono.
             throw new SwiftRuntimeException(
-                $"SwiftArray<{type.Name}> is not yet supported. " +
-                "The swift_getExistentialTypeMetadata function triggers a Mono JIT assertion. " +
-                "Workaround: Use concrete types instead of existential containers in Swift arrays, " +
-                "or use a Swift wrapper function to handle the array creation.");
+                numProtocols > 0
+                    ? $"SwiftArray<{type.Name}> is not yet supported. " +
+                      $"Existential containers with {numProtocols} protocol(s) require protocol descriptor " +
+                      "pointers that are not yet implemented in the Swift wrapper."
+                    : $"SwiftArray<{type.Name}> requires the SwiftBindingsRuntime native library. " +
+                      "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
         }
 
         result = null;
@@ -406,16 +409,15 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// <returns>The existential type metadata.</returns>
     public static TypeMetadata GetExistentialTypeMetadata(int numProtocols)
     {
-        // Swift signature: swift_getExistentialTypeMetadata(MetadataRequest request,
-        //   const Metadata * _Nullable superclassConstraint, size_t numProtocols,
-        //   const ProtocolDescriptorRef *protocols) -> MetadataResponse
-        // MetadataResponse contains both metadata pointer and state - we just want the pointer
-        var response = swift_getExistentialTypeMetadata(
-            TypeMetadataRequest.Complete,  // request: complete metadata
-            IntPtr.Zero,                   // superclassConstraint: null
-            (nuint)numProtocols,           // numProtocols
-            IntPtr.Zero);                  // protocols: null for unconstrained existential
-        return response;
+        if (TryGetExistentialTypeMetadataViaWrapper(numProtocols, out var result))
+            return result;
+
+        throw new SwiftRuntimeException(
+            numProtocols > 0
+                ? $"Existential containers with {numProtocols} protocol(s) require protocol descriptor " +
+                  "pointers that are not yet implemented in the Swift wrapper."
+                : "Cannot get existential type metadata. " +
+                  "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
     }
 
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
@@ -462,6 +464,41 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         IntPtr superclassConstraint,
         nuint numProtocols,
         IntPtr protocols);
+
+    /// <summary>
+    /// P/Invoke declarations for the SwiftBindingsRuntime library.
+    /// Uses CallingConvention.Cdecl to avoid the Mono JIT CallConvSwift assertion.
+    /// </summary>
+    private static class RuntimeNativeMethods
+    {
+        private const string LibraryName = "SwiftBindingsRuntime";
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SwiftBindings_GetExistentialTypeMetadata")]
+        public static extern IntPtr GetExistentialTypeMetadata(nint numProtocols);
+    }
+
+    /// <summary>
+    /// Attempts to get existential type metadata via the SwiftBindingsRuntime wrapper.
+    /// This avoids the Mono JIT CallConvSwift assertion by performing the metadata
+    /// lookup entirely on the Swift side.
+    /// </summary>
+    private static bool TryGetExistentialTypeMetadataViaWrapper(int numProtocols, out TypeMetadata result)
+    {
+        result = Zero;
+        try
+        {
+            var handle = RuntimeNativeMethods.GetExistentialTypeMetadata((nint)numProtocols);
+            if (handle != IntPtr.Zero)
+            {
+                result = new TypeMetadata(handle);
+                return true;
+            }
+        }
+        catch (DllNotFoundException) { }     // Runtime lib not deployed
+        catch (EntryPointNotFoundException) { } // Older lib version
+        return false;
+    }
 
     /// <summary>
     /// Attempts to get existential type metadata using various P/Invoke workarounds.

@@ -138,6 +138,21 @@ fi
 echo "Build successful."
 echo ""
 
+# Step 2.5: Inject SwiftBindingsRuntime dylib into app bundle
+# The csproj has IncludeSwiftBindingsRuntimeNative=false to avoid InstallNameTool failures,
+# so we copy the iossimulator dylib manually into the Frameworks directory.
+RUNTIME_DYLIB="../../src/Swift.Runtime/native/iossimulator/libSwiftBindingsRuntime.dylib"
+APP_FRAMEWORKS="bin/Debug/net10.0-ios/iossimulator-arm64/RuntimeTestsApp.app/Frameworks"
+if [ -f "$RUNTIME_DYLIB" ]; then
+    mkdir -p "$APP_FRAMEWORKS"
+    cp "$RUNTIME_DYLIB" "$APP_FRAMEWORKS/"
+    echo "Injected libSwiftBindingsRuntime.dylib into app bundle."
+else
+    echo "Warning: libSwiftBindingsRuntime.dylib not found at $RUNTIME_DYLIB"
+    echo "Existential metadata tests will fail."
+fi
+echo ""
+
 cd ..
 
 # Step 3: Run on iOS Simulator
