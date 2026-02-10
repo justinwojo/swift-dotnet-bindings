@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration
@@ -84,6 +85,14 @@ namespace BindingsGeneration
         /// Set by normalization emitters that generate Swift wrapper functions.
         /// </summary>
         public bool UsesWrapperLibrary { get; set; } = false;
+
+        /// <summary>
+        /// Mono JIT risk flags detected by <see cref="MonoJitRiskDetector"/>.
+        /// Informational annotation only — does not affect P/Invoke routing.
+        /// Routing is controlled by <see cref="UsesWrapperLibrary"/>, which is only set
+        /// when a corresponding Swift wrapper function has been generated.
+        /// </summary>
+        public MonoJitRiskDetector.MonoJitRisk DetectedJitRisks { get; set; } = MonoJitRiskDetector.MonoJitRisk.None;
     }
 
     /// <summary>

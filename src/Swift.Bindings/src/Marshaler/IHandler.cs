@@ -182,6 +182,9 @@ namespace BindingsGeneration
                     }
                     emittedMethodSignatures.Add(signatureKey);
 
+                    // Annotate with Mono JIT risk patterns (informational, does not affect routing)
+                    MonoJitRiskDetector.ApplyRiskDetection(methodDecl);
+
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
                         // Pass property names and P/Invoke helper context to the method environment

@@ -322,14 +322,26 @@ NativeAOT eliminates the most severe blocker but requires the same workarounds f
 
 **MutableProps promotion blocked**: Cannot promote MutableProps tests from Tier3 to Tier2 due to the VWT Destroy crash. The SwiftString.ToString() path is safe, but any explicit `Dispose()` on types with String fields triggers the crash.
 
-### Step 4: Implement Strategy D (Signature Risk Detection)
+### Step 4: Implement Strategy D (Signature Risk Detection) — DONE
 
-**After C and A are landed (both done).** D is a force-multiplier, but only useful when there are concrete wrapper targets to route to. With existential and SwiftString wrappers in place, the generator can auto-detect risky signatures and route them.
+**Completed 2026-02-10.** `MonoJitRiskDetector` static class added to the generator's marshaler layer. Automatically detects three Mono JIT crash patterns in method signatures and annotates methods via `MethodDecl.DetectedJitRisks` (informational flags). Detection is decoupled from P/Invoke routing — `UsesWrapperLibrary` is only set by emitters that generate actual Swift wrapper functions.
+
+**Detected risk patterns** (including Optional-wrapped variants):
+1. **Closure parameters** — escaping closures (non-`@convention(c)`) use `delegate* unmanaged[Swift]` callbacks. `@convention(c)` closures are correctly excluded (they use Cdecl). Optional-wrapped closures detected.
+2. **Existential parameters** — protocol types, protocol compositions, and `NamedTypeSpec` with `IsAny`. Optional-wrapped existentials (`Optional<any Protocol>`) also detected.
+3. **SwiftString returns** — `SwiftString.ToString()`/`.Length` internally route through CallConvSwift P/Invokes. `Optional<Swift.String>` returns also detected.
+
+**Design decisions**:
+- Detection is **informational only** — sets `DetectedJitRisks` flags, does NOT set `UsesWrapperLibrary`. This avoids rerouting P/Invokes to the wrapper library when no corresponding wrapper export exists (which would cause link errors).
+- `UsesWrapperLibrary` remains exclusively controlled by emitters that generate Swift wrapper functions (ArraySlice normalization, default parameter overloads, async wrappers).
+- Step 5 (Strategy B) can consume `DetectedJitRisks` to decide which methods need closure wrappers.
 
 **Deliverables**:
-- `IsMonoJitRisk()` analysis pass in the generator
-- Auto-sets `UsesWrapperLibrary = true` for methods with closures, existential params, or SwiftString returns
-- Unit tests verifying detection + routing
+- `MonoJitRiskDetector.cs` — static analysis class with `AnalyzeMethod()` (flags enum), `IsMonoJitRisk()` (bool), `ApplyRiskDetection()` (annotates `DetectedJitRisks`)
+- `MethodDecl.DetectedJitRisks` — informational flags property on method declarations
+- Hooked into `BaseHandler.HandleBaseDecl()` — runs before every method emission
+- `MonoJitRiskDetectorTests.cs` — 48 unit tests covering all three risk patterns, Optional-wrapped variants, negative cases, combined risks, @convention(c) safety, emission-level DllImport routing verification (with and without `AsyncLibraryName`)
+- Baselines maintained: 1808 unit (up from 1760), 699 integration, 133 runtime
 
 ### Step 5: Implement Strategy B (Closure Cdecl Expansion)
 
@@ -351,7 +363,7 @@ Not a sequential step. Pursue when .NET 10 NativeAOT iOS tooling stabilizes. Eli
 | **1** | C: Existential metadata wrapper | Low | Medium | Nothing | **DONE** |
 | **2** | A: SwiftString spike + rollout | Medium | High | Nothing | **DONE** |
 | **3** | A: iOS Simulator validation + Create wrapper | Low | High | Step 2 | **DONE** |
-| **4** | D: Signature risk detection | Medium | Medium | Steps 1 + 2 | Pending |
+| **4** | D: Signature risk detection | Medium | Medium | Steps 1 + 2 | **DONE** |
 | **5** | B: Closure Cdecl expansion | High | High | Steps 1 + 2 + 4 | Pending |
 | *ongoing* | E: NativeAOT migration | High | Complete | External (.NET 10 tooling) |
 
@@ -376,6 +388,9 @@ Not a sequential step. Pursue when .NET 10 NativeAOT iOS tooling stabilizes. Eli
 | `ExistentialBypassEmitter.cs` | Constructor existential-arg bypass | 9 |
 | `ProtocolProxyEmitter.SwiftObject.cs` | Uses CallingConvention.Cdecl for wrapper imports | 124 |
 | `MethodDecl.cs` | `UsesWrapperLibrary` flag | 86 |
+| `MonoJitRiskDetector.cs` | Strategy D: signature risk detection (closure/existential/SwiftString) | Full file |
+| `MonoJitRiskDetectorTests.cs` | 48 unit tests for risk detection patterns | Full file |
+| `IHandler.cs` | `ApplyRiskDetection()` call site in `HandleBaseDecl` | 186 |
 | `Utf8SliceEmitter.cs` | SBW_Utf8Slice struct + SBW_Free | Full file |
 | `WrapperEmitter.Async.cs` | Proven async wrapper pattern | Full file |
 | `DefaultParameterOverloadEmitter.cs` | Sets UsesWrapperLibrary=true | 163 |
