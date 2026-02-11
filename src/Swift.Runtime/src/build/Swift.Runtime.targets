@@ -1,0 +1,45 @@
+<!-- Swift.Runtime NuGet package: conditional native dylib injection.
+     Replicates the ProjectReference dylib logic for NuGet consumers.
+     Placed in buildTransitive/ so it flows to transitive dependents. -->
+<Project>
+
+  <PropertyGroup>
+    <IncludeSwiftBindingsRuntimeNative Condition="'$(IncludeSwiftBindingsRuntimeNative)' == ''">true</IncludeSwiftBindingsRuntimeNative>
+  </PropertyGroup>
+
+  <!-- macOS: when TFM is NOT ios or maccatalyst -->
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
+                         AND !$(TargetFramework.Contains('ios'))
+                         AND !$(TargetFramework.Contains('maccatalyst'))
+                         AND Exists('$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+
+  <!-- iOS device: TFM contains 'ios', RID is non-empty and starts with 'ios-' (not 'iossimulator-') -->
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
+                         AND $(TargetFramework.Contains('ios'))
+                         AND '$(RuntimeIdentifier)' != ''
+                         AND $(RuntimeIdentifier.StartsWith('ios-'))
+                         AND Exists('$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+
+  <!-- iOS simulator: TFM contains 'ios', RID is non-empty and starts with 'iossimulator-' -->
+  <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
+                         AND $(TargetFramework.Contains('ios'))
+                         AND '$(RuntimeIdentifier)' != ''
+                         AND $(RuntimeIdentifier.StartsWith('iossimulator-'))
+                         AND Exists('$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib')">
+    <Content Include="$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libSwiftBindingsRuntime.dylib</Link>
+    </Content>
+  </ItemGroup>
+
+</Project>

@@ -9,12 +9,18 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <IsPackable>false</IsPackable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- CS1591: Missing XML comment for publicly visible type or member -->
     <!-- Suppress as error until XML docs are added to all public APIs -->
     <WarningsNotAsErrors>CS1591</WarningsNotAsErrors>
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- NuGet package metadata -->
+    <PackageId>Swift.Runtime</PackageId>
+    <PackageVersion>0.1.0-preview.1</PackageVersion>
+    <Description>Runtime library for Swift/.NET interop. Provides SwiftString, SwiftArray, SwiftOptional, ARC memory management, protocol witness tables, and type metadata for generated Swift bindings.</Description>
+    <Authors>Justin Wojciechowski</Authors>
+    <PackageTags>swift;interop;bindings;dotnet;ios;macos</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <!-- Minimum OS versions -->
     <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('ios'))">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('maccatalyst'))">15.0</SupportedOSPlatformVersion>
@@ -23,7 +29,7 @@
     <IncludeSwiftBindingsRuntimeNative>true</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
   <ItemGroup>
-    <Content Include="Swift/**/*.*">
+    <Content Include="Swift/**/*.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -34,24 +40,36 @@
        duplicate content items. -->
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib"
-             Condition="!$(TargetFramework.Contains('ios')) AND !$(TargetFramework.Contains('maccatalyst'))">
+             Condition="!$(TargetFramework.Contains('ios')) AND !$(TargetFramework.Contains('maccatalyst'))"
+             Pack="false">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('ios')) AND !$(RuntimeIdentifier.Contains('simulator'))">
+             Condition="$(TargetFramework.Contains('ios')) AND !$(RuntimeIdentifier.Contains('simulator'))"
+             Pack="false">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('ios')) AND $(RuntimeIdentifier.Contains('simulator'))">
+             Condition="$(TargetFramework.Contains('ios')) AND $(RuntimeIdentifier.Contains('simulator'))"
+             Pack="false">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>libSwiftBindingsRuntime.dylib</Link>
     </Content>
+  </ItemGroup>
+
+  <!-- NuGet pack items: native dylibs, .targets, and README -->
+  <ItemGroup>
+    <None Include="../native/macos/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/macos" />
+    <None Include="../native/ios/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/ios" />
+    <None Include="../native/iossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/iossimulator" />
+    <None Include="build/Swift.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
+    <None Include="../../../README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>

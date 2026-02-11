@@ -147,20 +147,18 @@ Takes an xcframework directory and automatically resolves all inputs:
 - `Swift.{Module}.Wrappers.cs` — manual wrapper code (when needed)
 - `Swift.{Module}.SwiftUIBridge.cs` + `.swift` — SwiftUI bridge (when views detected)
 - `binding-report.json` — coverage metrics
-- `Swift/` directory — **a full copy of Swift.Runtime source files** (~42 files)
-
 ### What the Generator Does NOT Do
 
-- Does not compile the Swift wrapper (user must run `xcrun swiftc` manually via `build-swift-wrapper.sh`)
 - Does not emit a `.csproj` (user must create one manually)
 - Does not produce NuGet-ready output (no `.targets`, no metadata extraction, no package structure)
 
 ### Swift.Runtime
 
 - Multi-target: `net10.0;net10.0-ios;net10.0-macos;net10.0-maccatalyst`
-- `IsPackable=false` — not distributed as a NuGet package
+- Packable as a NuGet package (`Swift.Runtime`, version `0.1.0-preview.1`)
 - Contains: SwiftString, SwiftArray, SwiftOptional, ARC, SafeHandle, ValueWitnessTable, type database XMLs, native dylibs per platform
-- Binding test projects reference it as `<ProjectReference>` within the repo
+- NuGet package includes: compiled DLL per TFM, XML type databases, native dylibs in `native/{platform}/`, `.targets` in `buildTransitive/` for automatic dylib injection, README
+- Binding test projects reference it as `<ProjectReference>` within the repo (unaffected by NuGet packaging)
 
 ### Binding Test Projects (How Bindings Are Consumed Today)
 
@@ -389,20 +387,20 @@ Each step builds permanently toward the SDK. No step is discarded when the next 
 
 **Contributes to SDK:** Target 3 (CompileSwiftWrapper) invokes this same capability.
 
-### Step 3: Swift.Runtime as a NuGet package
+### Step 3: Swift.Runtime as a NuGet package ✅
 
-**What:** Flip `IsPackable=true`, add package metadata, publish to a NuGet feed.
+**Status: Complete.**
 
-**Why here:** The generated binding project needs to reference Swift.Runtime as a `PackageReference`, not a `ProjectReference`. This also means the generator should stop copying the `Swift/` runtime source directory into its output.
+**What was implemented:**
+- `Swift.Runtime.csproj`: Removed `IsPackable=false` (inherits `true` from `Directory.Build.props`), added NuGet metadata (`PackageId=Swift.Runtime`, `PackageVersion=0.1.0-preview.1`, description, authors, tags, readme)
+- Content glob narrowed from `Swift/**/*.*` to `Swift/**/*.xml` — C# files compile into the DLL; only the 10 XML type databases need to be copied as content (used by the generator at code-gen time)
+- Added `Pack="false"` to existing conditional Content items for native dylibs — prevents double-packing via both Content items and explicit pack items. Content items continue to work for ProjectReference consumers (all test apps).
+- Added NuGet pack items: native dylibs in `native/{platform}/`, `.targets` file in `buildTransitive/`, README at package root
+- Created `build/Swift.Runtime.targets` — conditional native dylib injection for NuGet consumers with `IncludeSwiftBindingsRuntimeNative` opt-out (default: true). Three conditional ItemGroups with RID-starts-with guards: macOS (non-ios/maccatalyst TFM), iOS device (`RuntimeIdentifier.StartsWith('ios-')`), iOS simulator (`RuntimeIdentifier.StartsWith('iossimulator-')`)
+- Generator: removed `CopyDirectory` call and helper method from `Program.cs` — generator no longer copies `Swift/` runtime source directory to output. The generator still reads XML type databases from its own bin directory via its ProjectReference to Swift.Runtime.
+- Versioning: independent from binding packages, starts at `0.1.0-preview.1` (pre-release). Uses `<PackageVersion>` (not `<Version>`) to keep assembly version simple.
 
-**What changes:**
-- `Swift.Runtime.csproj`: `IsPackable=true`, add `PackageId`, `Description`, `Authors`, `License`, `PackageVersion`
-- Generator: stop emitting `Swift/` runtime copy
-- Generator: emit `PackageReference` to `Swift.Runtime` in generated `.csproj`
-- Decide on versioning strategy (independent from binding packages, or lock-step with SDK)
-- Publish to nuget.org or a public GitHub Packages feed
-
-**After this step:** External users can reference Swift.Runtime from a NuGet source.
+**After this step:** `dotnet pack` in `src/Swift.Runtime/src/` produces a `.nupkg` with compiled DLLs, XML type databases, native dylibs, consumer `.targets`, and README. External consumers can reference Swift.Runtime from a NuGet feed.
 
 **Contributes to SDK:** `Sdk.props` will inject the `PackageReference` to `Swift.Runtime` automatically.
 
@@ -481,16 +479,9 @@ How exactly do you ship a .NET tool inside an MSBuild SDK NuGet package?
 - How do other SDKs (e.g., `Microsoft.NET.Sdk.Razor`) handle this?
 - What's the minimum NuGet/MSBuild version required for custom SDK support?
 
-### Q3: Swift.Runtime Versioning Strategy
+### Q3: Swift.Runtime Versioning Strategy ✅ Resolved
 
-Should Swift.Runtime version independently from the SDK and from binding packages?
-
-**Options:**
-- **Independent:** Swift.Runtime 1.x, SDK 1.x, Nuke.Swift.iOS 12.8.0 — each on its own cadence
-- **Lock-step with SDK:** Swift.Runtime and SDK share a version; binding packages use upstream library version
-- **Lock-step with everything:** All packages share a version (impractical — upstream library versions differ)
-
-**Recommendation:** Independent versioning for Swift.Runtime and SDK, with SDK declaring a minimum Swift.Runtime version. Binding packages use upstream library versions.
+**Answer: Independent versioning.** Swift.Runtime 0.1.0-preview.1 (pre-release, signals experimental status), SDK on its own cadence, binding packages use upstream library versions (e.g., Nuke.Swift.iOS 12.8.0). SDK will declare a minimum Swift.Runtime version via version-ranged `PackageReference` in `Sdk.props`.
 
 ### Q4: Swift Wrapper Compilation — Architecture Slices
 
@@ -792,9 +783,9 @@ The project targets .NET 10.0 with iOS workload. The SDK would require:
 - .NET SDK 10.0+
 - iOS workload installed (`dotnet workload install ios`)
 
-### Swift.Runtime Must Be Published First
+### Swift.Runtime NuGet Package (Step 3 — Complete)
 
-Before the SDK can work, Swift.Runtime must be available as a NuGet package. This is Step 3 in the incremental path and blocks Steps 4-5.
+Swift.Runtime is packable as `Swift.Runtime` version `0.1.0-preview.1`. The package includes compiled DLLs for all TFMs, XML type databases, native dylibs, and a `.targets` file for automatic native library injection. It must be published to a NuGet feed before the SDK (Step 5) can reference it.
 
 ---
 

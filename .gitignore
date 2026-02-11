@@ -35,6 +35,8 @@ msbuild.wrn
 *.lo
 *.o
 build/
+# Unignore NuGet .targets file for Swift.Runtime package
+!src/Swift.Runtime/src/build/
 
 # Cross directory
 eng/common/cross
