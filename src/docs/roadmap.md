@@ -3,7 +3,7 @@
 **Created**: February 2026
 **Status**: Active — single source of truth for work items
 
-For completed work (Phases A–G), see `CompletedPhases/phases-a-through-g.md`.
+For completed work (Phases A–G), see `Completed/phases-a-through-g.md`.
 For detailed gap descriptions and contract matrix, see `testing-gaps.md`.
 For deferred/aspirational work, see `Future/`.
 
@@ -59,7 +59,7 @@ Fixed 6 generator bugs eliminating all 12 remaining library binding errors (Cryp
 **Priority**: High — unblocks core functionality for Nuke and CryptoSwift
 **Effort**: Medium (2-3 sessions)
 **Depends on**: Phase H
-**Reference**: `mono-jit-mitigation.md`
+**Reference**: `Completed/mono-jit-mitigation-strategies.md`, `Future/mono-jit-future-work.md`
 
 The Mono JIT on iOS does not fully support `CallConvSwift` for closures, non-blittable types, and certain instance method patterns. The generator already emits `@_cdecl` wrapper functions in the `SwiftBindings` framework for async methods — this phase extends that pattern to cover the remaining crash-prone signatures.
 
@@ -144,7 +144,7 @@ Added `Tj` dispatch thunks for non-final class methods (library evolution), `IsF
 **Status**: Done
 **Priority**: High
 
-Major API surface improvements tracked in `binding-api-improvements.md`:
+Major API surface improvements (see `Completed/binding-api-review-and-improvements.md`). Remaining items in `Future/binding-api-future-work.md`.
 
 | Work Unit | Change |
 |-----------|--------|

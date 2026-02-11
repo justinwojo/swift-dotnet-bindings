@@ -25,7 +25,7 @@ v2 expanded parameter type support (Phase 1), added ABI-driven async inference (
 
 ## Completed Phases
 
-**Phase 1 (Parameter Type Expansion)** and **Phase 2 (Generalized Async Factory)** are complete. See [`CompletedPhases/swiftui-bridge-v2-phases1-2.md`](../CompletedPhases/swiftui-bridge-v2-phases1-2.md) for full details.
+**Phase 1 (Parameter Type Expansion)** and **Phase 2 (Generalized Async Factory)** are complete. See [`Completed/swiftui-bridge-v2-phases1-2.md`](../Completed/swiftui-bridge-v2-phases1-2.md) for full details.
 
 **Summary**: 1439 unit tests, 35/35 BridgeParamTest, 16/16 BlinkIDUX, 15/15 Lottie.
 

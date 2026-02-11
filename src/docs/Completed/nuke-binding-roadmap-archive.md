@@ -18,29 +18,29 @@ The following phases have been completed. See individual documents for details:
 
 | Phase | Description | Document |
 |-------|-------------|----------|
-| Phase 1 | Infrastructure (Required to Run Anything) | [phase-1-infrastructure.md](CompletedPhases/phase-1-infrastructure.md) |
-| Phase 2 | Type System Gaps | [phase-2-type-system-gaps.md](CompletedPhases/phase-2-type-system-gaps.md) |
-| Phase 3 | Method Signature Gaps | [phase-3-method-signature-gaps.md](CompletedPhases/phase-3-method-signature-gaps.md) |
-| Phase 4 | Runtime Infrastructure | [phase-4-runtime-infrastructure.md](CompletedPhases/phase-4-runtime-infrastructure.md) |
-| Phase 5 | Testing & Validation | [phase-5-testing-validation.md](CompletedPhases/phase-5-testing-validation.md) |
-| Phase 6 | Protocol Interface Completeness | [phase-6-protocol-interface-completeness.md](CompletedPhases/phase-6-protocol-interface-completeness.md) |
-| Phase 7 | Protocol Proxy Emitter | [phase-7-protocol-proxy-emitter.md](CompletedPhases/phase-7-protocol-proxy-emitter.md) |
-| Phase 8 | Remaining Validation & Bug Fixes | [phase-8-validation-bug-fixes.md](CompletedPhases/phase-8-validation-bug-fixes.md) |
-| Phase 9 | Binding Gap Reduction | [phase-9-binding-gap-reduction.md](CompletedPhases/phase-9-binding-gap-reduction.md) |
-| Phase 10 | Remaining Binding Gap Fixes | [phase-10-binding-gap-fixes.md](CompletedPhases/phase-10-binding-gap-fixes.md) |
-| Phase 11 | Advanced Binding Gap Fixes | [phase-11-binding-gap-fixes.md](CompletedPhases/phase-11-binding-gap-fixes.md) |
-| Phase 12 | CoreFoundation/TupleHandler Fixes | [phase-12-corefoundation-tuple-fixes.md](CompletedPhases/phase-12-corefoundation-tuple-fixes.md) |
-| Phase 13 | Optional Closures & AsyncStream Fixes | [phase-13-optional-closures.md](CompletedPhases/phase-13-optional-closures.md) |
-| Phase 14 | Async Tuple Return Support | [phase-14-async-tuple-returns.md](CompletedPhases/phase-14-async-tuple-returns.md) |
-| Phase 15 | Throwing Closures Support | [phase-15-throwing-closures.md](CompletedPhases/phase-15-throwing-closures.md) |
+| Phase 1 | Infrastructure (Required to Run Anything) | [phase-1-infrastructure.md](Completed/phase-1-infrastructure.md) |
+| Phase 2 | Type System Gaps | [phase-2-type-system-gaps.md](Completed/phase-2-type-system-gaps.md) |
+| Phase 3 | Method Signature Gaps | [phase-3-method-signature-gaps.md](Completed/phase-3-method-signature-gaps.md) |
+| Phase 4 | Runtime Infrastructure | [phase-4-runtime-infrastructure.md](Completed/phase-4-runtime-infrastructure.md) |
+| Phase 5 | Testing & Validation | [phase-5-testing-validation.md](Completed/phase-5-testing-validation.md) |
+| Phase 6 | Protocol Interface Completeness | [phase-6-protocol-interface-completeness.md](Completed/phase-6-protocol-interface-completeness.md) |
+| Phase 7 | Protocol Proxy Emitter | [phase-7-protocol-proxy-emitter.md](Completed/phase-7-protocol-proxy-emitter.md) |
+| Phase 8 | Remaining Validation & Bug Fixes | [phase-8-validation-bug-fixes.md](Completed/phase-8-validation-bug-fixes.md) |
+| Phase 9 | Binding Gap Reduction | [phase-9-binding-gap-reduction.md](Completed/phase-9-binding-gap-reduction.md) |
+| Phase 10 | Remaining Binding Gap Fixes | [phase-10-binding-gap-fixes.md](Completed/phase-10-binding-gap-fixes.md) |
+| Phase 11 | Advanced Binding Gap Fixes | [phase-11-binding-gap-fixes.md](Completed/phase-11-binding-gap-fixes.md) |
+| Phase 12 | CoreFoundation/TupleHandler Fixes | [phase-12-corefoundation-tuple-fixes.md](Completed/phase-12-corefoundation-tuple-fixes.md) |
+| Phase 13 | Optional Closures & AsyncStream Fixes | [phase-13-optional-closures.md](Completed/phase-13-optional-closures.md) |
+| Phase 14 | Async Tuple Return Support | [phase-14-async-tuple-returns.md](Completed/phase-14-async-tuple-returns.md) |
+| Phase 15 | Throwing Closures Support | [phase-15-throwing-closures.md](Completed/phase-15-throwing-closures.md) |
 | Phase 16 | Bug Fixes & Stability | See Phase 16+ section below |
 | Phase 17 | RawRepresentable Enum Support (Partial) | See Phase 17 section below |
 | Phase 18 | Full Non-Frozen RawRepresentable Enum Support | See Phase 18 section below |
 | Phase 19 | Enum Associated Values Support | See Phase 19 section below |
 | Phase 20 | Enum Associated Value Extraction | See Phase 20 section below |
-| Phase 21 | Generic Type Parameter & Swift Wrapper Fixes | [phase-21-generic-param-fixes.md](CompletedPhases/phase-21-generic-param-fixes.md) |
-| Phase 22 | Generic Protocol Proxy Compilation Fix | [phase-22-generic-protocol-proxy-fix.md](CompletedPhases/phase-22-generic-protocol-proxy-fix.md) |
-| Phase 23 | Integration Test Restoration | [phase-23-integration-test-restoration.md](CompletedPhases/phase-23-integration-test-restoration.md) |
+| Phase 21 | Generic Type Parameter & Swift Wrapper Fixes | [phase-21-generic-param-fixes.md](Completed/phase-21-generic-param-fixes.md) |
+| Phase 22 | Generic Protocol Proxy Compilation Fix | [phase-22-generic-protocol-proxy-fix.md](Completed/phase-22-generic-protocol-proxy-fix.md) |
+| Phase 23 | Integration Test Restoration | [phase-23-integration-test-restoration.md](Completed/phase-23-integration-test-restoration.md) |
 | Phase 24 | Tuple Associated Values in Enum TryGet | See Phase 24 section below |
 | Phase 25 | Async DllImport Fix | See Phase 25 section below |
 | Phase 26 | Native Type Remapping (URL → NSUrl, Data → NSData) | See Phase 26 section below |
@@ -1046,7 +1046,7 @@ dotnet build BindingTesting/Nuke/NukeTestApp -c Debug -t:Run
 ./run-tests.sh
 ```
 
-For detailed testing workflows and environment setup, see [Phase 5: Testing & Validation](CompletedPhases/phase-5-testing-validation.md).
+For detailed testing workflows and environment setup, see [Phase 5: Testing & Validation](Completed/phase-5-testing-validation.md).
 
 ---
 

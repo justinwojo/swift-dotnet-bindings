@@ -255,7 +255,7 @@ Based on combined review from Claude, Grok, Gemini, and Codex, these four priori
 
 ### Immediate (This Phase)
 
-1. ~~**Consolidate documentation**~~ - Done: `CURRENT-STATUS.md` is now single source of truth; standalone `BINDING_GAPS.md` files removed; completed feature docs archived to `CompletedPhases/`
+1. ~~**Consolidate documentation**~~ - Done: `CURRENT-STATUS.md` is now single source of truth; standalone `BINDING_GAPS.md` files removed; completed feature docs archived to `Completed/`
 2. **Add finalizer to SwiftSafeHandle** - Safety net for forgotten `Dispose()`
 3. **Improve binding report** - Add "recommended workaround" field for skipped items
 
@@ -334,5 +334,5 @@ The 42 phases of work have produced a solid, working foundation. The path forwar
 - `/src/docs/CURRENT-STATUS.md` - Single source of truth for status, gaps, and coverage
 - `/src/docs/emitter-redesign-proposal.md` - Architecture improvement plan
 - `/src/docs/known-issues-workarounds.md` - Runtime issue documentation
-- `/src/docs/CompletedPhases/swift-concurrency-interop-plan.md` - Async concurrency design (remaining work in `remaining-work.md`)
+- `/src/docs/Completed/swift-concurrency-interop-plan.md` - Async concurrency design (remaining work in `remaining-work.md`)
 - `/src/docs/remaining-work.md` - Consolidated backlog (generator gaps, runtime, validation)

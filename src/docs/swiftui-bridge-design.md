@@ -158,7 +158,7 @@ The generator auto-detects SwiftUI Views and generates bridge code:
 
 ### v2 Phases 1-2: Parameter Expansion + Async Inference
 
-Full details: [`CompletedPhases/swiftui-bridge-v2-phases1-2.md`](CompletedPhases/swiftui-bridge-v2-phases1-2.md)
+Full details: [`Completed/swiftui-bridge-v2-phases1-2.md`](Completed/swiftui-bridge-v2-phases1-2.md)
 
 Expanded beyond v1 (primitives, String, `() -> Void`) to support: BoundEnum, BoundType (classes), TypedClosure (max 4 params), Optional\<T\>, and ABI-driven async factory inference with cross-module type resolution.
 
@@ -222,7 +222,7 @@ See [`Future/swiftui-bridge-v2-plan.md`](Future/swiftui-bridge-v2-plan.md) for r
 - `src/docs/known-issues-workarounds.md` — Runtime issues affecting async bridge patterns
 - `src/docs/Future/emitter-redesign-proposal.md` — Emitter architecture context
 - `src/docs/Future/swiftui-bridge-v2-plan.md` — v2 remaining phase (4)
-- `src/docs/CompletedPhases/swiftui-bridge-v2-phases1-2.md` — v2 completed phases (1-2)
+- `src/docs/Completed/swiftui-bridge-v2-phases1-2.md` — v2 completed phases (1-2)
 - `BindingTesting/BlinkId/` — BlinkIDUX bridge tests
 - `BindingTesting/BridgeTest/` — BridgeParamTest synthetic views
 - `BindingTesting/Lottie/` — Lottie bridge tests

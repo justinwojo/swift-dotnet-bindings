@@ -181,8 +181,10 @@ CryptoSwift fix steps (9 total) addressed 24 generator bugs spanning P/Invoke en
 | `roadmap.md` | Active work queue (single source of truth) |
 | `known-issues-workarounds.md` | Three active Mono runtime blockers and workarounds |
 | `testing-gaps.md` | Known testing gaps across all layers |
+| `Future/binding-api-future-work.md` | Remaining binding API improvements (ExistentialContainer, AnyType, exception mapping, etc.) |
+| `Future/mono-jit-future-work.md` | Remaining Mono JIT edge cases (VWT Destroy, non-primitive closures, N-protocol existentials) |
 | `Future/emitter-redesign-proposal.md` | Architectural north star for emitter refactoring |
 | `Future/nativeaot-investigation.md` | NativeAOT desk research (hands-on validation pending) |
 | `Future/upstream-bug-reports-draft.md` | Draft .NET runtime bug reports (waiting for repo to go public) |
 | `Future/interop-performance-validation-plan.md` | Performance benchmarking plan |
-| `CompletedPhases/` | Archived phase completion records |
+| `Completed/` | Archived phase completion records |

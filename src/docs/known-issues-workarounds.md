@@ -41,7 +41,7 @@ Four workarounds (A through D) have been implemented to address these categories
 
 > **Runtime dependency**: Workarounds A and C require `libSwiftBindingsRuntime.dylib` to be included in the application bundle. Without it, SwiftString operations and existential metadata lookups will throw `SwiftRuntimeException` at runtime.
 
-> **Detailed implementation notes**: For the full technical investigation, prototyping decisions, and code-level references, see [`mono-jit-mitigation.md`](mono-jit-mitigation.md).
+> **Detailed implementation notes**: For the completed strategies (A–D), see [`Completed/mono-jit-mitigation-strategies.md`](Completed/mono-jit-mitigation-strategies.md). For remaining edge cases, see [`Future/mono-jit-future-work.md`](Future/mono-jit-future-work.md).
 
 ---
 
@@ -200,7 +200,7 @@ When the Mono JIT `CallConvSwift` bug is fixed in dotnet/runtime, these workarou
 
 - Remove `[CrashRisk]` attributes from test classes that were marked due to JIT crashes
 - Promote Tier 3 tests (MutableProps dispose, etc.) back to Tier 2
-- Update `mono-jit-mitigation.md` status to "Resolved upstream"
+- Update `Future/mono-jit-future-work.md` status to "Resolved upstream"
 - Update this document
 
 ---
