@@ -27,6 +27,19 @@ namespace BindingsGeneration
         public string? SwiftInterfacePath { get; init; }
         public required string ModuleName { get; init; }
         public required string XCFrameworkPath { get; init; }
+        /// <summary>
+        /// The slice directory path used as the -F flag target for swiftc.
+        /// E.g., "{xcframeworkPath}/{LibraryIdentifier}/".
+        /// </summary>
+        public required string FrameworkSearchPath { get; init; }
+        /// <summary>
+        /// The slice identifier from the xcframework (e.g., "ios-arm64_x86_64-simulator").
+        /// </summary>
+        public required string LibraryIdentifier { get; init; }
+        /// <summary>
+        /// True when the resolved slice has SupportedPlatformVariant == "simulator".
+        /// </summary>
+        public required bool IsSimulatorSlice { get; init; }
     }
 
     /// <summary>
@@ -181,7 +194,10 @@ namespace BindingsGeneration
                 TbdPath = tbdPath,
                 SwiftInterfacePath = swiftInterfacePath,
                 ModuleName = moduleName,
-                XCFrameworkPath = xcframeworkPath
+                XCFrameworkPath = xcframeworkPath,
+                FrameworkSearchPath = Path.Combine(xcframeworkPath, slice.LibraryIdentifier),
+                LibraryIdentifier = slice.LibraryIdentifier,
+                IsSimulatorSlice = string.Equals(slice.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase)
             };
         }
 

@@ -149,6 +149,10 @@ namespace BindingsGeneration
                 }
 
                 // Resolve xcframework mode
+                XCFrameworkResolution? resolution = null;
+                var shouldCompileWrapper = false;
+                var asyncLibraryAutoWired = false;
+
                 if (hasXcframework)
                 {
                     Directory.CreateDirectory(outputDirectory);
@@ -170,7 +174,7 @@ namespace BindingsGeneration
 
                     try
                     {
-                        var resolution = XCFrameworkResolver.Resolve(
+                        resolution = XCFrameworkResolver.Resolve(
                             xcframeworkPath!, outputDirectory, platformTarget, logger);
                         swiftAbiPath = resolution.AbiJsonPath;
                         dylibPath = resolution.DylibPath;
@@ -182,6 +186,24 @@ namespace BindingsGeneration
                     {
                         logger.LogError("Error resolving xcframework: {Message}", ex.Message);
                         return;
+                    }
+
+                    // Gate wrapper compilation on resolved simulator slice
+                    shouldCompileWrapper = resolution.IsSimulatorSlice;
+                    if (!shouldCompileWrapper)
+                    {
+                        logger.LogInformation(
+                            "Swift wrapper compilation requires a simulator slice. " +
+                            "Pass --async-library manually for device builds.");
+                    }
+
+                    // Auto-set --async-library before GenerateBindings() (simulator only)
+                    if (shouldCompileWrapper && string.IsNullOrWhiteSpace(asyncLibrary))
+                    {
+                        var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
+                        asyncLibrary = wrapperModuleName;
+                        asyncLibraryAutoWired = true;
+                        logger.LogInformation("Auto-setting --async-library to '{Module}'.", wrapperModuleName);
                     }
                 }
 
@@ -214,6 +236,47 @@ namespace BindingsGeneration
                 var effectiveNamespacePattern = ResolveNamespacePattern(namespacePattern, configPath, logger);
 
                 GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory);
+
+                // Compile Swift wrapper (xcframework simulator mode only)
+                if (shouldCompileWrapper && resolution != null)
+                {
+                    SwiftWrapperCompilationResult? compilationResult = null;
+                    Exception? compilationException = null;
+
+                    try
+                    {
+                        compilationResult = SwiftWrapperCompiler.Compile(
+                            outputDirectory, resolution.ModuleName,
+                            resolution.FrameworkSearchPath, resolution.DylibPath, logger);
+                    }
+                    catch (Exception ex)
+                    {
+                        compilationException = ex;
+                    }
+
+                    var outcome = SwiftWrapperCompiler.EvaluateResult(
+                        compilationResult, asyncLibraryAutoWired, compilationException);
+
+                    if (outcome == WrapperCompilationOutcome.Fatal)
+                    {
+                        var message = compilationException != null
+                            ? $"Swift wrapper compilation failed: {compilationException.Message}. " +
+                              "Generated C# references the wrapper library but no compiled wrapper exists."
+                            : $"All Swift wrapper code was stripped as broken ({compilationResult!.StrippedBlockCount} block(s)). " +
+                              "Generated C# references the wrapper library but no compiled wrapper exists. " +
+                              "Use --async-library explicitly or report this as a generator bug.";
+                        logger.LogError("{Message}", message);
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    else if (outcome == WrapperCompilationOutcome.Warning)
+                    {
+                        var message = compilationException != null
+                            ? $"Swift wrapper compilation failed: {compilationException.Message}"
+                            : $"All Swift wrapper code was stripped as broken ({compilationResult!.StrippedBlockCount} block(s)).";
+                        logger.LogWarning("{Message}", message);
+                    }
+                }
             });
 
             rootCommand.Invoke(args);

@@ -369,21 +369,23 @@ Each step builds permanently toward the SDK. No step is discarded when the next 
 
 **Contributes to SDK:** Target 1 (ExtractSwiftABI) and Target 2 (GenerateBindings) will invoke this same code path.
 
-### Step 2: Generator compiles Swift wrapper automatically
+### Step 2: Generator compiles Swift wrapper automatically ✅
 
-**What:** After generating `Swift.{Module}.swift`, the generator (or a companion tool) compiles it into `{Module}SwiftBindings.xcframework`.
+**Status: Complete.**
 
-**Why second:** This eliminates the most complex manual step — the binding author shouldn't need to know `xcrun swiftc` flags or `xcodebuild -create-xcframework` invocations.
-
-**What changes:**
-- New post-generation step (or `--build-wrapper` flag, or automatic)
-- Encodes the logic from `build-swift-wrapper.sh`: swiftc flags, architecture targets, framework linking, xcframework creation
+**What was implemented:**
+- `SwiftWrapperCompiler.cs` — orchestrates wrapper compilation: file collection, post-processing, deployment target resolution, xcframework structure creation, swiftc invocation
+- `SwiftWrapperPostProcessor.cs` — C# port of the Python post-processing from `build-async-wrapper.sh`. Line-by-line brace-counting block detector that strips 4 categories of known-broken patterns (EveryProtocol, @_silgen_name broken functions, broken extensions, standalone broken funcs)
 - **Module-unique wrapper name**: `{Module}SwiftBindings` (e.g., `NukeSwiftBindings.xcframework`) — prevents collisions when multiple binding packages are consumed in one app
-- Updates generator's `--async-library` default from fixed `SwiftBindings` to `{Module}SwiftBindings`
-- Produces both device (arm64) and simulator (arm64 + x86_64) slices
-- Error handling for missing Xcode, wrong SDK version, etc.
+- Auto-sets `--async-library` to `{Module}SwiftBindings` before `GenerateBindings()` when using `--xcframework` with a simulator slice
+- Deployment target derived from source framework's `Info.plist` `MinimumOSVersion` (falls back to 15.0)
+- Produces simulator (arm64) slice. Device slices deferred to Step 5.
+- Error handling: SDK resolution failures, swiftc failures, all-code-stripped detection. `EvaluateResult()` centralizes outcome logic (Fatal/Warning/Success) with full unit test coverage. Auto-wired failures set non-zero exit code and abort.
+- Gated on resolved simulator slice (`IsSimulatorSlice`) — skips compilation for device-only frameworks
+- 3 new properties on `XCFrameworkResolution`: `FrameworkSearchPath`, `LibraryIdentifier`, `IsSimulatorSlice`
+- ~82 unit tests across post-processor patterns, compiler internals, end-to-end compilation, and fatal exit-code branches
 
-**After this step:** The generator takes one input (xcframework) and produces all outputs including the compiled Swift wrapper. The binding author only needs `dotnet build` to compile the C#.
+**After this step:** `dotnet run --project src/Swift.Bindings/src -- --xcframework Nuke.xcframework -o output/` produces all generated files including the compiled Swift wrapper xcframework from a single input.
 
 **Contributes to SDK:** Target 3 (CompileSwiftWrapper) invokes this same capability.
 
