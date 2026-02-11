@@ -238,9 +238,9 @@ namespace BindingsGeneration
                 GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory);
 
                 // Compile Swift wrapper (xcframework simulator mode only)
+                SwiftWrapperCompilationResult? compilationResult = null;
                 if (shouldCompileWrapper && resolution != null)
                 {
-                    SwiftWrapperCompilationResult? compilationResult = null;
                     Exception? compilationException = null;
 
                     try
@@ -275,6 +275,48 @@ namespace BindingsGeneration
                             ? $"Swift wrapper compilation failed: {compilationException.Message}"
                             : $"All Swift wrapper code was stripped as broken ({compilationResult!.StrippedBlockCount} block(s)).";
                         logger.LogWarning("{Message}", message);
+                    }
+                }
+
+                // Emit binding project files (xcframework mode only)
+                if (hasXcframework && resolution != null)
+                {
+                    try
+                    {
+                        var metadata = XCFrameworkMetadataExtractor.Extract(
+                            resolution.DylibPath, resolution.XCFrameworkPath,
+                            resolution.ModuleName, logger);
+
+                        var wrapperXcfwPath = compilationResult?.XCFrameworkPath;
+                        var hasWrapperXcfw = wrapperXcfwPath != null && Directory.Exists(wrapperXcfwPath);
+
+                        BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                        {
+                            OutputDirectory = outputDirectory,
+                            ModuleName = resolution.ModuleName,
+                            Metadata = metadata,
+                            SourceXCFrameworkPath = resolution.XCFrameworkPath,
+                            WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null
+                        }, logger);
+
+                        ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                        {
+                            OutputDirectory = outputDirectory,
+                            ModuleName = resolution.ModuleName,
+                            PackageId = $"{resolution.ModuleName}.Swift.iOS",
+                            EffectiveMinimumOSVersion = metadata.EffectiveMinimumOSVersion,
+                            HasWrapperXCFramework = hasWrapperXcfw
+                        }, logger);
+
+                        XCFrameworkMetadataExtractor.EmitMetadataJson(metadata, outputDirectory, logger);
+
+                        logger.LogInformation("Binding project emitted successfully.");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError("Failed to emit binding project: {Message}", ex.Message);
+                        context.ExitCode = 1;
+                        return;
                     }
                 }
             });

@@ -147,10 +147,12 @@ Takes an xcframework directory and automatically resolves all inputs:
 - `Swift.{Module}.Wrappers.cs` — manual wrapper code (when needed)
 - `Swift.{Module}.SwiftUIBridge.cs` + `.swift` — SwiftUI bridge (when views detected)
 - `binding-report.json` — coverage metrics
-### What the Generator Does NOT Do
+### What the Generator Also Does (in `--xcframework` mode)
 
-- Does not emit a `.csproj` (user must create one manually)
-- Does not produce NuGet-ready output (no `.targets`, no metadata extraction, no package structure)
+- Emits a ready-to-build `.csproj` with `PackageReference` to `Swift.Runtime`, NativeReference items, and NuGet pack layout
+- Emits a `.targets` file for NuGet consumers (NativeReference injection, platform version validation)
+- Extracts xcframework metadata (version, min iOS, SDK version) into `binding-metadata.json`
+- Detects version placeholders (Xcode default "1.0"/"1.0.0") and emits `PackageVersion=0.0.0` with a warning comment
 
 ### Swift.Runtime
 
@@ -404,26 +406,50 @@ Each step builds permanently toward the SDK. No step is discarded when the next 
 
 **Contributes to SDK:** `Sdk.props` will inject the `PackageReference` to `Swift.Runtime` automatically.
 
-### Step 4: Generator emits compilable `.csproj` + NuGet packaging support
+### Step 4: Generator emits compilable `.csproj` + NuGet packaging support ✅
 
-**What:** The generator outputs a ready-to-build, ready-to-pack project.
+**Status: Complete.**
 
-**What changes:**
-- Generator emits a `.csproj` that:
-  - Targets `net10.0-ios` (or detected from xcframework)
-  - References `Swift.Runtime` via `PackageReference`
-  - Includes generated `.cs` files
-  - Sets `PackageVersion` from xcframework metadata
-  - Sets `SupportedOSPlatformVersion` from xcframework metadata
-- Generator emits a `.targets` file for `buildTransitive/` (NativeReference injection with idempotency guard + Layer 3 validation)
-- Generator emits correct NuGet package structure hints (runtimes/ layout, module-unique wrapper name)
+**What was implemented:**
+
+- `PlistReader.cs` — Shared binary/XML plist reader. Uses `plutil -convert xml1 -o /dev/stdout` to handle binary plists (which inner framework Info.plists use), with XML `XmlDocument.Load` fallback for self-generated XML plists. Fixes a latent bug where `SwiftWrapperCompiler.ResolveDeploymentTarget()` silently fell back to "15.0" on binary plists because `XmlDocument.Load()` can't parse binary plist format.
+- `XCFrameworkMetadataExtractor.cs` — Extracts `CFBundleShortVersionString`, `MinimumOSVersion`, and `DTPlatformVersion` from the inner framework's `Info.plist` via `PlistReader`. Detects Xcode default version placeholders ("1.0", "1.0.0") and clamps MinimumOSVersion to max(raw, 15.0) for the .NET 10 iOS floor. Reads platform list from outer xcframework `Info.plist`. Emits `binding-metadata.json` with all extracted metadata.
+- `BindingProjectEmitter.cs` — Emits `{Module}.Swift.iOS.csproj` targeting `net10.0-ios` with:
+  - `PackageReference` to `Swift.Runtime` (version `0.1.0-preview.1`)
+  - `PackageVersion` from xcframework metadata (or `0.0.0` with XML warning comment for placeholders)
+  - `SupportedOSPlatformVersion` from clamped MinimumOSVersion
+  - Explicit `Compile` items for generated `.cs` files (with `Condition="Exists()"` on optional Wrappers/SwiftUIBridge files)
+  - `NativeReference` items for source xcframework (relative path) and optional wrapper xcframework
+  - NuGet pack layout: `.targets` in `buildTransitive/net10.0-ios/`, xcframeworks in `runtimes/ios-arm64/native/`
+- `ConsumerTargetsEmitter.cs` — Emits `{PackageId}.targets` for NuGet consumers with:
+  - Idempotency guard (`_SwiftBinding_{Module}_Injected` property) to prevent duplicate NativeReference injection
+  - `NativeReference` items for source and wrapper xcframeworks via `$(MSBuildThisFileDirectory)` relative paths
+  - `SwiftBindingFramework` registration for downstream tooling (Layer 3 validation)
+  - `SWIFTBIND010` platform version warning using `System.Version.CompareTo()` for correct numeric comparison (not lexicographic `<` which miorders `15.10` vs `15.2`)
+  - Module name sanitization (dots/hyphens → underscores for MSBuild target/property names)
+- `Program.cs` — Project emission after wrapper compilation, gated on `hasXcframework && resolution != null`. Fatal on failure (exit code 1) — in `--xcframework` mode, a ready-to-build project is the primary contract.
+- `SwiftWrapperCompiler.ResolveDeploymentTarget()` — Refactored to delegate to `PlistReader.ReadPlistDict()` instead of direct `XmlDocument.Load()`, fixing the binary plist silent fallback bug.
+- 74 unit tests across 4 new test files:
+  - `PlistReaderTests.cs` (8 tests): plutil success/failure, XML fallback, binary plist null return, key type parsing, real-world Nuke data
+  - `XCFrameworkMetadataExtractorTests.cs` (22 tests): version placeholder detection, MinOS clamping, full extraction, metadata JSON emission
+  - `BindingProjectEmitterTests.cs` (19 tests): project structure, compile items, NativeReference, NuGet layout, placeholder warning, custom runtime version
+  - `ConsumerTargetsEmitterTests.cs` (23 tests): NativeReference injection, idempotency guard, platform version warning, `Version.CompareTo` correctness across 8 edge-case version pairs, module name sanitization
+  - Plus 2 additional tests in existing `SwiftWrapperCompilerTests.cs` for PlistReader delegation
+
+**Verified real-world metadata:**
+| Framework | CFBundleShortVersionString | MinimumOSVersion | IsPlaceholder? | PackageVersion |
+|-----------|---------------------------|------------------|----------------|----------------|
+| Nuke | 12.8.0 | 13.0 | No | 12.8.0 |
+| BlinkIDUX | 1.0 | 16.0 | Yes | 0.0.0 |
 
 **After this step:** The manual workflow works end-to-end:
 ```bash
-swift-bindings generate Nuke.xcframework -o Nuke.Swift.iOS/
+dotnet run --project src/Swift.Bindings/src -- --xcframework Nuke.xcframework -o Nuke.Swift.iOS/
 cd Nuke.Swift.iOS && dotnet build && dotnet pack
 # → Nuke.Swift.iOS.12.8.0.nupkg
 ```
+
+**Manual mode regression:** `-a/-d/-t` flags do NOT emit .csproj/.targets — project emission is gated on `hasXcframework`.
 
 **Contributes to SDK:** Targets 5-7 reuse the metadata extraction and `.targets` generation logic.
 

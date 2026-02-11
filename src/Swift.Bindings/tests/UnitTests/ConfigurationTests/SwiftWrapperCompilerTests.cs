@@ -142,6 +142,59 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public void ResolveDeploymentTarget_UsesPlistReader_ViaPlutil()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                // Write a binary-like Info.plist that isn't valid XML
+                var plistPath = Path.Combine(dir, "Info.plist");
+                File.WriteAllBytes(plistPath, new byte[] { 0x62, 0x70, 0x6C, 0x69 });
+                var dylibPath = Path.Combine(dir, "SomeLib");
+                File.WriteAllText(dylibPath, "");
+
+                // Mock plutil to return XML with MinimumOSVersion
+                var runner = new MockCommandRunner();
+                runner.SetResponse("plutil", 0, """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>MinimumOSVersion</key>
+                        <string>16.4</string>
+                    </dict>
+                    </plist>
+                    """);
+
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(
+                    dylibPath, NullLogger.Instance, runner);
+                Assert.Equal("16.4", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ResolveDeploymentTarget_PlistReaderFails_FallsBackToDefault()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                // Write binary content and fail plutil
+                var plistPath = Path.Combine(dir, "Info.plist");
+                File.WriteAllBytes(plistPath, new byte[] { 0x62, 0x70 });
+                var dylibPath = Path.Combine(dir, "SomeLib");
+                File.WriteAllText(dylibPath, "");
+
+                var runner = new MockCommandRunner();
+                runner.SetResponse("plutil", 1, "", "error");
+
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(
+                    dylibPath, NullLogger.Instance, runner);
+                Assert.Equal("15.0", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"swc_dt_{Guid.NewGuid():N}");

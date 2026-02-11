@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using System.Xml;
 using Microsoft.Extensions.Logging;
 
 namespace BindingsGeneration
@@ -204,43 +203,24 @@ namespace BindingsGeneration
         /// Reads MinimumOSVersion from the source framework's Info.plist.
         /// Falls back to "15.0" if not found.
         /// </summary>
-        internal static string ResolveDeploymentTarget(string dylibPath, ILogger logger)
+        internal static string ResolveDeploymentTarget(
+            string dylibPath, ILogger logger, ICommandRunner? commandRunner = null)
         {
             const string fallback = "15.0";
 
-            try
+            var frameworkDir = Path.GetDirectoryName(dylibPath);
+            if (string.IsNullOrEmpty(frameworkDir))
+                return fallback;
+
+            var infoPlistPath = Path.Combine(frameworkDir, "Info.plist");
+            var data = PlistReader.ReadPlistDict(infoPlistPath, commandRunner, logger);
+            if (data != null && data.TryGetValue("MinimumOSVersion", out var minOS) && minOS is string minOSStr)
             {
-                // dylibPath is inside the .framework directory (e.g., .../Nuke.framework/Nuke)
-                var frameworkDir = Path.GetDirectoryName(dylibPath);
-                if (string.IsNullOrEmpty(frameworkDir))
-                    return fallback;
-
-                var infoPlistPath = Path.Combine(frameworkDir, "Info.plist");
-                if (!File.Exists(infoPlistPath))
-                {
-                    logger.LogDebug("No Info.plist found at {Path}, using default min OS {Version}", infoPlistPath, fallback);
-                    return fallback;
-                }
-
-                var doc = new XmlDocument();
-                doc.Load(infoPlistPath);
-
-                var rootDict = doc.SelectSingleNode("/plist/dict");
-                if (rootDict == null)
-                    return fallback;
-
-                var data = XCFrameworkResolver.ParsePlistDict(rootDict);
-                if (data.TryGetValue("MinimumOSVersion", out var minOS) && minOS is string minOSStr)
-                {
-                    logger.LogInformation("Resolved deployment target {Version} from source framework.", minOSStr);
-                    return minOSStr;
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogDebug(ex, "Failed to read MinimumOSVersion from framework Info.plist, using default {Version}", fallback);
+                logger.LogInformation("Resolved deployment target {Version} from source framework.", minOSStr);
+                return minOSStr;
             }
 
+            logger.LogDebug("Could not read MinimumOSVersion from Info.plist, using default {Version}", fallback);
             return fallback;
         }
 
