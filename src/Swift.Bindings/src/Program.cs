@@ -21,10 +21,19 @@ namespace BindingsGeneration
         /// </summary>
         public static void Main(string[] args)
         {
-            Option<string> swiftAbiOption = new(aliases: new[] { "-a", "--swiftabi" }, "Path to the Swift ABI file.") { IsRequired = true };
-            Option<string> dylibOption = new(aliases: new[] { "-d", "--dylib" }, "Path to the dynamic library.") { IsRequired = true };
-            Option<string> tbdOption = new(aliases: new[] { "-t", "--tbd" }, "Path to the TBD file.") { IsRequired = true };
+            Option<string> swiftAbiOption = new(aliases: new[] { "-a", "--swiftabi" }, "Path to the Swift ABI file.");
+            Option<string> dylibOption = new(aliases: new[] { "-d", "--dylib" }, "Path to the dynamic library.");
+            Option<string> tbdOption = new(aliases: new[] { "-t", "--tbd" }, "Path to the TBD file.");
             Option<string> outputDirectoryOption = new(aliases: new[] { "-o", "--output" }, "Output directory for generated bindings.") { IsRequired = true };
+            Option<string> xcframeworkOption = new(
+                aliases: new[] { "--xcframework" },
+                description: "Path to an xcframework directory. Automatically resolves ABI JSON, dylib, TBD, and swiftinterface. " +
+                             "Mutually exclusive with -a, -d, -t.");
+            Option<string> platformTargetOption = new(
+                aliases: new[] { "--platform-target" },
+                description: "Platform target for xcframework slice selection: 'simulator' (default) or 'device'. " +
+                             "Only used with --xcframework.",
+                getDefaultValue: () => "simulator");
             Option<string> libraryNameOption = new(
                 aliases: new[] { "-l", "--library-name" },
                 description: "Runtime library name for DllImport. If not specified, uses the dylib path. " +
@@ -61,6 +70,8 @@ namespace BindingsGeneration
                 dylibOption,
                 tbdOption,
                 outputDirectoryOption,
+                xcframeworkOption,
+                platformTargetOption,
                 libraryNameOption,
                 asyncLibraryOption,
                 swiftInterfaceOption,
@@ -78,6 +89,8 @@ namespace BindingsGeneration
                 var dylibPath = parseResult.GetValueForOption(dylibOption);
                 var tbdPath = parseResult.GetValueForOption(tbdOption);
                 var outputDirectory = parseResult.GetValueForOption(outputDirectoryOption);
+                var xcframeworkPath = parseResult.GetValueForOption(xcframeworkOption);
+                var platformTargetStr = parseResult.GetValueForOption(platformTargetOption);
                 var libraryName = parseResult.GetValueForOption(libraryNameOption);
                 var asyncLibrary = parseResult.GetValueForOption(asyncLibraryOption);
                 var swiftInterface = parseResult.GetValueForOption(swiftInterfaceOption);
@@ -91,9 +104,11 @@ namespace BindingsGeneration
                 if (help)
                 {
                     Console.WriteLine("Usage:");
-                    Console.WriteLine("  -a, --swiftabi       Required. Path to the Swift ABI file.");
-                    Console.WriteLine("  -d, --dylib          Required. Path to the dynamic library.");
-                    Console.WriteLine("  -t, --tbd            Required. Path to the TBD file.");
+                    Console.WriteLine("  --xcframework        Path to xcframework directory. Replaces -a, -d, -t.");
+                    Console.WriteLine("  --platform-target    Platform target: 'simulator' (default) or 'device'. Used with --xcframework.");
+                    Console.WriteLine("  -a, --swiftabi       Path to the Swift ABI file. Required if --xcframework not used.");
+                    Console.WriteLine("  -d, --dylib          Path to the dynamic library. Required if --xcframework not used.");
+                    Console.WriteLine("  -t, --tbd            Path to the TBD file. Required if --xcframework not used.");
                     Console.WriteLine("  -o, --output         Required. Output directory for generated bindings.");
                     Console.WriteLine("  -l, --library-name   Optional. Runtime library name for DllImport. Escape @ with backslash: '\\@rpath/...'");
                     Console.WriteLine("  --async-library      Optional. Library name for async wrapper functions. Default uses module library.");
@@ -108,6 +123,67 @@ namespace BindingsGeneration
 
                 ILoggerFactory loggerFactory = CreateLoggerFactory(verbose);
                 ILogger logger = loggerFactory.CreateLogger<BindingsGenerator>();
+
+                if (string.IsNullOrWhiteSpace(outputDirectory))
+                {
+                    logger.LogError("Error: Output directory (-o) is required.");
+                    return;
+                }
+
+                // Validate mutual exclusivity: --xcframework vs -a/-d/-t
+                var hasXcframework = !string.IsNullOrWhiteSpace(xcframeworkPath);
+                var hasManualInputs = !string.IsNullOrWhiteSpace(swiftAbiPath) ||
+                                      !string.IsNullOrWhiteSpace(dylibPath) ||
+                                      !string.IsNullOrWhiteSpace(tbdPath);
+
+                if (hasXcframework && hasManualInputs)
+                {
+                    logger.LogError("Error: --xcframework cannot be combined with -a, -d, or -t. Use one mode or the other.");
+                    return;
+                }
+
+                if (!hasXcframework && !hasManualInputs)
+                {
+                    logger.LogError("Error: Either --xcframework or all of -a, -d, -t must be provided.");
+                    return;
+                }
+
+                // Resolve xcframework mode
+                if (hasXcframework)
+                {
+                    Directory.CreateDirectory(outputDirectory);
+
+                    XCFrameworkPlatformTarget platformTarget;
+                    switch (platformTargetStr?.ToLowerInvariant())
+                    {
+                        case "simulator":
+                        case null:
+                            platformTarget = XCFrameworkPlatformTarget.Simulator;
+                            break;
+                        case "device":
+                            platformTarget = XCFrameworkPlatformTarget.Device;
+                            break;
+                        default:
+                            logger.LogError("Error: Invalid --platform-target '{Value}'. Valid values: 'simulator', 'device'.", platformTargetStr);
+                            return;
+                    }
+
+                    try
+                    {
+                        var resolution = XCFrameworkResolver.Resolve(
+                            xcframeworkPath!, outputDirectory, platformTarget, logger);
+                        swiftAbiPath = resolution.AbiJsonPath;
+                        dylibPath = resolution.DylibPath;
+                        tbdPath = resolution.TbdPath;
+                        swiftInterface ??= resolution.SwiftInterfacePath;
+                        libraryName ??= resolution.ModuleName;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError("Error resolving xcframework: {Message}", ex.Message);
+                        return;
+                    }
+                }
 
                 if (string.IsNullOrWhiteSpace(swiftAbiPath) || !File.Exists(swiftAbiPath))
                 {
@@ -127,7 +203,7 @@ namespace BindingsGeneration
                     return;
                 }
 
-                if (string.IsNullOrWhiteSpace(outputDirectory) || !Directory.Exists(outputDirectory))
+                if (!Directory.Exists(outputDirectory))
                 {
                     logger.LogError("Error: Valid output directory is required.");
                     return;

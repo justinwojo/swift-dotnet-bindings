@@ -114,17 +114,32 @@ The consumer never sees Swift, never runs the generator, never touches xcframewo
 
 ---
 
-## Current State (What Exists Today)
+## Current State
 
 ### Generator
 
-The generator is a .NET CLI tool (`src/Swift.Bindings/src/`) that takes **four separate inputs**:
-- `-a` ABI JSON file (extracted manually via `swift-frontend -compile-module-from-interface`)
-- `-d` Compiled dylib (found manually inside xcframework)
-- `-t` TBD file (found manually or extracted via `xcrun tapi`)
-- `-o` Output directory
+The generator is a .NET CLI tool (`src/Swift.Bindings/src/`) that supports two input modes:
 
-Plus optional inputs: `--async-library`, `-s` swiftinterface, `--symbolgraph`, `--bridge-hints`, `--namespace-pattern`.
+**Mode 1: `--xcframework` (Step 1 — implemented)**
+```bash
+dotnet run --project src/Swift.Bindings/src -- \
+  --xcframework Nuke.xcframework -o output/
+```
+Takes an xcframework directory and automatically resolves all inputs:
+- Parses `Info.plist` to find iOS platform slices (simulator preferred, device fallback)
+- Discovers the Swift module from `Modules/*.swiftmodule`
+- Locates the dylib via `BinaryPath` from plist, verifies it's dynamic via `file` command
+- Auto-discovers `.swiftinterface` (excludes `.private.swiftinterface`)
+- Finds `.abi.json` in swiftmodule dir, or generates via `swift-frontend -compile-module-from-interface`
+- Finds `.tbd` in swiftmodule dir, or generates via `xcrun tapi stubify`
+- Derives module name and library name from the swiftmodule directory name
+- `--platform-target simulator|device` controls slice selection (default: simulator)
+- Implemented in `XCFrameworkResolver.cs` with `ICommandRunner` abstraction for testability (32 unit tests)
+
+**Mode 2: Manual inputs (original)**
+- `-a` ABI JSON, `-d` dylib, `-t` TBD, `-o` output directory
+- Plus optional: `--async-library`, `-s` swiftinterface, `--symbolgraph`, `--bridge-hints`, `--namespace-pattern`
+- Mutually exclusive with `--xcframework`
 
 **It produces:**
 - `Swift.{Module}.cs` — main C# bindings
@@ -136,7 +151,6 @@ Plus optional inputs: `--async-library`, `-s` swiftinterface, `--symbolgraph`, `
 
 ### What the Generator Does NOT Do
 
-- Does not read xcframeworks directly (user must extract ABI JSON manually)
 - Does not compile the Swift wrapper (user must run `xcrun swiftc` manually via `build-swift-wrapper.sh`)
 - Does not emit a `.csproj` (user must create one manually)
 - Does not produce NuGet-ready output (no `.targets`, no metadata extraction, no package structure)
@@ -336,19 +350,20 @@ Nuke.Swift.iOS.12.8.0.nupkg/
 
 Each step builds permanently toward the SDK. No step is discarded when the next is implemented.
 
-### Step 1: Generator accepts `--xcframework` directly
+### Step 1: Generator accepts `--xcframework` directly ✅
 
-**What:** Add a new input mode to the generator CLI that takes an xcframework path and internally extracts ABI JSON, dylib, TBD, and swiftinterface.
+**Status: Complete.**
 
-**Why first:** This is the automation core. Everything downstream (MSBuild targets, pack scripts) needs the generator to be invocable with a single input. Today the user must run 3-4 commands to extract the inputs the generator needs.
-
-**What changes:**
-- New `--xcframework` CLI option in `Program.cs`
-- xcframework parser that reads `Info.plist`, locates platform slices, finds framework bundles
-- ABI extraction: invoke `swift-frontend -compile-module-from-interface` as a subprocess
-- TBD extraction: invoke `xcrun tapi` or locate existing `.tbd` in framework
-- Auto-detect `--library-name` from framework name
-- Auto-detect `--async-library` name
+**What was implemented:**
+- `XCFrameworkResolver.cs` — self-contained resolver with `ICommandRunner` abstraction for subprocess testability
+- Plist parsing (XML), iOS slice selection (simulator/device with fallback), Swift module discovery
+- ABI JSON fallback chain: existing `.abi.json` → `swift-frontend` generation from `.swiftinterface`
+- TBD fallback: existing `.tbd` → `xcrun tapi stubify` generation from dylib
+- Static xcframework detection (`.a` archives and static libraries in `.framework` bundles)
+- Concurrent stdout/stderr reads with timeout enforcement via `CancellationTokenSource`
+- `--xcframework` and `--platform-target` CLI options in `Program.cs`, mutually exclusive with `-a/-d/-t`
+- 32 unit tests across 8 test classes (plist parsing, slice selection, module discovery, ABI JSON fallback, TBD generation, static detection, validation, swiftinterface discovery)
+- Validated against all 5 xcframeworks in repo (Nuke, CryptoSwift, Lottie, BlinkID, TestFramework)
 
 **After this step:** `dotnet run --project src/Swift.Bindings/src -- --xcframework Nuke.xcframework -o output/` produces all generated files from a single input.
 
@@ -443,40 +458,15 @@ cd Nuke.Swift.iOS && dotnet build && dotnet pack
 
 ## Open Questions
 
-### Q1: xcframework Layout Reliability
+### Q1: xcframework Layout Reliability ✅ Resolved
 
-Can we reliably find `.swiftinterface`, `.swiftmodule`, dylib, and TBD inside dynamic Swift xcframeworks?
+**Answer: Yes.** All five tested xcframeworks (Nuke, CryptoSwift, Lottie, BlinkID, TestFramework) follow the expected layout. Step 1's `XCFrameworkResolver` handles all observed variations:
+- Two-slice (Nuke: device + simulator), single-slice (TestFramework: simulator only), multi-platform (Lottie: 8 slices across iOS/tvOS/macOS/xrOS)
+- SPM-built (CryptoSwift), Xcode-built (BlinkID), custom-built (TestFramework)
+- With and without pre-existing TBD/ABI JSON files
+- macOS Catalyst slices correctly excluded from iOS slice selection
 
-**v1 scope:** Dynamic Swift xcframeworks only (`.framework` bundles with Mach-O dylibs). All four tested libraries are dynamic. Static xcframeworks (`.a` archives without dylib/TBD) are out of scope — they'd need a separate extraction pipeline and are less common for Swift libraries with library evolution enabled.
-
-**Validation needed against:**
-- SPM-built xcframeworks (e.g., CryptoSwift)
-- Xcode-built xcframeworks (e.g., BlinkID)
-- Manually assembled xcframeworks via `xcodebuild -create-xcframework`
-
-**Expected layout** (Apple convention for dynamic Swift xcframeworks):
-```
-Library.xcframework/
-├── Info.plist                                    # Lists available slices
-├── ios-arm64/
-│   └── Library.framework/
-│       ├── Library                               # Mach-O dylib
-│       ├── Info.plist                            # MinimumOSVersion, CFBundleShortVersionString
-│       └── Modules/
-│           └── Library.swiftmodule/
-│               ├── arm64-apple-ios.swiftinterface
-│               └── arm64-apple-ios.private.swiftinterface  # (sometimes)
-└── ios-arm64_x86_64-simulator/
-    └── Library.framework/
-        └── [same structure]
-```
-
-**Detection and error handling:**
-- If xcframework contains `.a` instead of `.framework` → error: *"Static xcframeworks are not supported in v1. Provide a dynamic xcframework (.framework bundle with dylib)."*
-- If `.swiftinterface` is missing → error: *"No Swift interface found. This may be an Objective-C framework (use ObjC binding tools) or a Swift framework without library evolution."*
-- If dylib is missing inside `.framework` → error with specific missing path
-
-**Risk:** Low for v1 scope. Dynamic Swift xcframeworks follow Apple's layout convention consistently. The four tested libraries confirm this.
+Actionable errors cover: static xcframeworks, ObjC-only frameworks, missing Info.plist, no iOS slices, multiple Swift modules, missing `file` command.
 
 ### Q2: MSBuild SDK Packaging Mechanics
 
