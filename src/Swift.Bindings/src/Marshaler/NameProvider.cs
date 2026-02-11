@@ -215,7 +215,7 @@ public static class NameProvider
     /// <summary>
     /// Gets the C# parameter name for an argument declaration.
     /// Prefers the internal Swift name (PrivateName) from swiftinterface data.
-    /// Falls back to Name-based logic when swiftinterface data is unavailable.
+    /// For generated names (arg0, arg1), derives a meaningful name from the type.
     ///
     /// The returned name is safe for use in string interpolation for derived
     /// variable names (e.g., {name}Handle, {name}Swift). It does NOT use @
@@ -229,15 +229,70 @@ public static class NameProvider
         if (!string.IsNullOrEmpty(arg.PrivateName))
             return SanitizeForCSharp(arg.PrivateName);
 
-        // 2. If Name is a generated name (arg0, arg1), keep it as fallback
+        // 2. If Name is a generated name (arg0, arg1), derive from the type
         if (IsGeneratedArgName(arg.Name))
+        {
+            var derived = DeriveParameterNameFromType(arg.SwiftTypeSpec);
+            if (derived != null)
+            {
+                // Append index suffix for arg1+ to reduce collision risk
+                var argIndex = arg.Name.Substring(3);
+                return argIndex == "0" ? derived : $"{derived}{argIndex}";
+            }
             return arg.Name;
+        }
 
         // 3. Otherwise use Name as-is (including _keyword forms like _for, _using)
         // We keep the _ prefix because derived names ({name}Handle, {name}Swift)
         // must be valid identifiers without @ escaping.
         return arg.Name;
     }
+
+    /// <summary>
+    /// Derives a meaningful parameter name from a Swift type specification.
+    /// Strips module prefixes and common type prefixes (UI, NS) to produce
+    /// short, idiomatic camelCase names.
+    /// </summary>
+    private static string? DeriveParameterNameFromType(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return "value";
+
+        var typeName = namedType.NameWithoutModule;
+
+        // Primitives → generic "value"
+        if (_primitiveTypeNames.Contains(typeName))
+            return "value";
+
+        // Bool → "flag"
+        if (typeName == "Bool")
+            return "flag";
+
+        // Strip common Apple prefixes
+        if (typeName.Length > 2 && typeName.StartsWith("UI") && char.IsUpper(typeName[2]))
+            typeName = typeName.Substring(2);
+        else if (typeName.Length > 2 && typeName.StartsWith("NS") && char.IsUpper(typeName[2]))
+            typeName = typeName.Substring(2);
+
+        // camelCase — handle all-caps words like URL, ID
+        string result;
+        if (typeName.All(char.IsUpper))
+            result = typeName.ToLowerInvariant();
+        else
+            result = char.ToLowerInvariant(typeName[0]) + typeName.Substring(1);
+        return SanitizeForCSharp(result);
+    }
+
+    /// <summary>
+    /// Primitive Swift type names that should produce generic "value" parameter names.
+    /// </summary>
+    private static readonly HashSet<string> _primitiveTypeNames = new()
+    {
+        "Int", "Int8", "Int16", "Int32", "Int64",
+        "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
+        "Float", "Float16", "Float32", "Float64", "Double",
+        "String", "Character",
+    };
 
     /// <summary>
     /// Sanitizes a Swift internal parameter name for use as a C# identifier.
@@ -556,18 +611,113 @@ public static class NameProvider
     }
 
     /// <summary>
+    /// Common English verbs used as method name prefixes in .NET APIs.
+    /// Used to detect whether a PascalCase method name already starts with a verb,
+    /// so we can avoid adding a redundant "Get" prefix.
+    /// </summary>
+    private static readonly HashSet<string> _verbPrefixes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Get", "Set", "Create", "Make", "Build", "Load", "Fetch", "Find",
+        "Remove", "Delete", "Clear", "Reset", "Start", "Stop", "Open", "Close",
+        "Read", "Write", "Send", "Process", "Validate", "Check", "Is", "Has",
+        "Can", "Add", "Update", "Refresh", "Store", "Save", "Encode", "Decode",
+        "Register", "Sort", "Filter", "Format", "Render", "Configure",
+        "Initialize", "Dispose", "Cancel", "Resume", "Invalidate", "Prefetch",
+        "Cache", "Purge", "Run", "Execute", "Perform", "Apply", "Try",
+        "Flush", "Notify", "Log", "Parse", "Merge", "Split", "Map",
+        "Reduce", "Transform", "Convert", "Extract", "Insert", "Append",
+        "Prepend", "Push", "Pop", "Enqueue", "Dequeue", "Show", "Hide",
+        "Enable", "Disable", "Connect", "Disconnect", "Subscribe", "Unsubscribe",
+        "Publish", "Emit", "Trigger", "Handle", "Observe", "Wait", "Resolve",
+        "Reject", "Throw", "Catch", "Retry", "Abort", "Suspend", "Yield",
+        "Allocate", "Deallocate", "Release", "Retain", "Copy", "Clone", "Move",
+        "Swap", "Compare", "Contains", "Equals", "Hash", "Print", "Dump",
+        "To", "From", "With", "Decompose", "Compose", "Compute", "Calculate",
+        "Flatten", "Normalize", "Serialize", "Deserialize", "Marshal", "Unmarshal",
+        "Dispatch", "Invoke", "Call", "Request", "Respond", "Receive",
+        "Destroy", "Finalize", "Verify", "Assert", "Ensure", "Require",
+        "Supply", "Provide", "Produce", "Consume", "Generate", "Derive",
+        "Wrap", "Unwrap", "Pack", "Unpack", "Zip", "Unzip",
+        "Attach", "Detach", "Bind", "Unbind", "Link", "Unlink",
+        "Lock", "Unlock", "Acquire", "Relinquish",
+        "Traverse", "Visit", "Iterate", "Enumerate", "Scan", "Seek",
+        "Interpolate", "Animate", "Layout", "Measure", "Draw", "Paint",
+        "Scroll", "Navigate", "Route", "Redirect",
+        "Authorize", "Authenticate", "Revoke", "Grant", "Deny",
+        "Increment", "Decrement", "Negate", "Invert", "Reverse", "Rotate",
+        "Compress", "Decompress", "Encrypt", "Decrypt", "Sign",
+        "Queue", "Schedule", "Postpone", "Defer", "Delay",
+        "Broadcast", "Multicast", "Relay", "Forward", "Relay",
+        "Put", "Patch", "Post",
+    };
+
+    /// <summary>
+    /// Checks whether a PascalCase method name starts with a recognized verb.
+    /// The verb must be followed by an uppercase letter or end of string to avoid
+    /// false positives (e.g., "Caching" should not match "Cache").
+    /// </summary>
+    private static bool StartsWithVerb(string pascalName)
+    {
+        foreach (var verb in _verbPrefixes)
+        {
+            if (pascalName.StartsWith(verb, StringComparison.Ordinal) &&
+                (pascalName.Length == verb.Length || char.IsUpper(pascalName[verb.Length])))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Strips a leading "async" or "Async" prefix from a Swift method name.
+    /// Swift methods like "asyncGetString" or "AsyncData" have the async semantics
+    /// expressed in the suffix ("Async") in .NET conventions, not as a prefix.
+    /// </summary>
+    private static string StripAsyncPrefix(string methodName)
+    {
+        if (methodName.Length > 5 && methodName.StartsWith("async", StringComparison.OrdinalIgnoreCase))
+        {
+            var rest = methodName.Substring(5);
+            // "asyncGetString" → "getString", "AsyncData" → "Data"
+            // Only strip if the next char is uppercase (avoids stripping from words like "asyncify")
+            if (char.IsUpper(rest[0]))
+                return rest;
+            // "asyncGetString" (camelCase) — next char is uppercase after conversion
+            // Actually for camelCase "asyncGetString", rest = "GetString" which starts uppercase. Good.
+        }
+        return methodName;
+    }
+
+    /// <summary>
     /// Gets the public C# method name with PascalCase, property collision resolution,
-    /// and Async suffix for async methods (per .NET naming conventions).
+    /// verb prefix for noun-only names, async prefix stripping, and Async suffix
+    /// for async methods (per .NET naming conventions).
     /// </summary>
     /// <param name="methodName">The original Swift method name.</param>
     /// <param name="isAsync">Whether the method is async.</param>
+    /// <param name="hasReturnValue">Whether the method has a non-void return value.</param>
     /// <param name="propertyNames">Set of property names in the same type (already in PascalCase).</param>
     /// <returns>The public-facing method name.</returns>
-    public static string GetPublicMethodName(string methodName, bool isAsync, IReadOnlySet<string>? propertyNames = null)
+    public static string GetPublicMethodName(string methodName, bool isAsync, bool hasReturnValue = false, IReadOnlySet<string>? propertyNames = null)
     {
-        var name = GetMethodName(methodName, propertyNames);
+        // 1. Strip leading async/Async prefix (Swift convention → .NET suffix convention)
+        var strippedName = StripAsyncPrefix(methodName);
+
+        // 2. PascalCase
+        var name = ToPascalCase(strippedName);
+
+        // 3. Add "Get" prefix for noun-only names with a return value
+        //    Do this BEFORE property collision check so "Data" → "GetData" no longer collides
+        if (hasReturnValue && !StartsWithVerb(name))
+            name = $"Get{name}";
+
+        // 4. Property collision resolution (only if still colliding after verb prefix)
+        if (propertyNames != null && propertyNames.Contains(name))
+            name = $"{name}Method";
+
+        // 5. Append "Async" suffix for async methods (per .NET convention)
         if (isAsync && !name.EndsWith("Async"))
             name = $"{name}Async";
+
         return name;
     }
 }

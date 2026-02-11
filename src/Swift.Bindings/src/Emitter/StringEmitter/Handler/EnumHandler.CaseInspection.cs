@@ -54,10 +54,13 @@ namespace BindingsGeneration
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine("/// Gets the current case of this enum instance.");
             csWriter.WriteLine("/// </summary>");
-            csWriter.WriteLine("public unsafe CaseTag Tag");
+            csWriter.WriteLine("public CaseTag Tag");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("unsafe");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -84,9 +87,11 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
 
             csWriter.Indent--;
-            csWriter.WriteLine("}");
+            csWriter.WriteLine("}"); // unsafe
             csWriter.Indent--;
-            csWriter.WriteLine("}");
+            csWriter.WriteLine("}"); // get
+            csWriter.Indent--;
+            csWriter.WriteLine("}"); // Tag
             csWriter.WriteLine();
         }
 
@@ -161,7 +166,10 @@ namespace BindingsGeneration
             csWriter.WriteLine("/// </summary>");
             csWriter.WriteLine($"/// <param name=\"value\">When this method returns true, contains the associated value(s).</param>");
             csWriter.WriteLine($"/// <returns>True if this enum is the '{caseName}' case; otherwise, false.</returns>");
-            csWriter.WriteLine($"public unsafe bool TryGet{capitalizedName}([MaybeNullWhen(false)] out {outType} value)");
+            csWriter.WriteLine($"public bool TryGet{capitalizedName}([MaybeNullWhen(false)] out {outType} value)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("unsafe");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -246,7 +254,9 @@ namespace BindingsGeneration
 
             csWriter.WriteLine("return true;");
             csWriter.Indent--;
-            csWriter.WriteLine("}");
+            csWriter.WriteLine("}"); // unsafe
+            csWriter.Indent--;
+            csWriter.WriteLine("}"); // TryGet
             csWriter.WriteLine();
         }
 
@@ -311,7 +321,10 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"/// <param name=\"{name}\">When this method returns true, contains the associated value.</param>");
             }
             csWriter.WriteLine($"/// <returns>True if this enum is the '{caseName}' case; otherwise, false.</returns>");
-            csWriter.WriteLine($"public unsafe bool TryGet{capitalizedName}({outParamString})");
+            csWriter.WriteLine($"public bool TryGet{capitalizedName}({outParamString})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("unsafe");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -375,7 +388,9 @@ namespace BindingsGeneration
 
             csWriter.WriteLine("return true;");
             csWriter.Indent--;
-            csWriter.WriteLine("}");
+            csWriter.WriteLine("}"); // unsafe
+            csWriter.Indent--;
+            csWriter.WriteLine("}"); // TryGet
             csWriter.WriteLine();
 
             // Emit the tuple metadata accessor helper

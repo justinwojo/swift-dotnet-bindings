@@ -620,7 +620,8 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public void Update(Swift.TestModule.Box<Swift.AnyType> value)", output);
+        // "value" is sanitized to "_value" by GetCSharpParameterName (it's a C# contextual keyword)
+        Assert.Contains("public void Update(Swift.TestModule.Box<Swift.AnyType> _value)", output);
     }
 
     [Fact]

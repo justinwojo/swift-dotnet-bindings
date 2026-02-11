@@ -130,7 +130,10 @@ namespace BindingsGeneration
         /// <summary>
         /// Gets the C# method name, resolving any collisions with property names.
         /// </summary>
-        public string CSharpMethodName => NameProvider.GetPublicMethodName(MethodDecl.Name, MethodDecl.IsAsync, SiblingPropertyNames);
+        public string CSharpMethodName => NameProvider.GetPublicMethodName(
+            MethodDecl.Name, MethodDecl.IsAsync,
+            hasReturnValue: !MethodDecl.IsAccessor && MethodDecl.CSSignature.Count > 0 && !MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
+            SiblingPropertyNames);
 
         /// <summary>
         /// Gets the P/Invoke helper context for collecting P/Invoke declarations in generic types.

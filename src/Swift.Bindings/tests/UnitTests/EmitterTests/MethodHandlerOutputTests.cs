@@ -33,7 +33,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[DllImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
-        Assert.Contains("public unsafe Task<System.Int64> FetchAsync()", csOutput);
+        Assert.Contains("public Task<System.Int64> FetchAsync()", csOutput);
         Assert.Contains("return task.Task;", csOutput);
     }
 
@@ -77,7 +77,7 @@ public class MethodHandlerOutputTests
         var siblingProperties = new HashSet<string> { "Fetch" };
         var (csOutput, _) = EmitMethod(method, typeDatabase, siblingProperties);
 
-        Assert.Contains("public unsafe System.Int64 FetchMethod()", csOutput);
+        Assert.Contains("public System.Int64 FetchMethod()", csOutput);
     }
 
     [Fact]
@@ -97,8 +97,8 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public static System.Int64 Count()", csOutput);
-        var signatureLine = Array.Find(csOutput.Split('\n'), line => line.Contains("public static System.Int64 Count()", StringComparison.Ordinal));
+        Assert.Contains("public static System.Int64 GetCount()", csOutput);
+        var signatureLine = Array.Find(csOutput.Split('\n'), line => line.Contains("public static System.Int64 GetCount()", StringComparison.Ordinal));
         Assert.NotNull(signatureLine);
         Assert.DoesNotContain("unsafe", signatureLine!, StringComparison.Ordinal);
     }
@@ -126,7 +126,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public unsafe System.Int64 Decode<T0>()", csOutput);
+        Assert.Contains("public System.Int64 Decode<T0>()", csOutput);
         Assert.Contains("where T0 : ISwiftObject, ILoadable", csOutput);
     }
 
@@ -182,7 +182,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public static System.Int64 Version()", csOutput);
+        Assert.Contains("public static System.Int64 GetVersion()", csOutput);
     }
 
     [Fact]
@@ -229,7 +229,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Unsupported closure fallback\",", csOutput);
-        Assert.Contains("public unsafe Swift.TestModule.Box<object> BoxedHandler()", csOutput);
+        Assert.Contains("public Swift.TestModule.Box<object> GetBoxedHandler()", csOutput);
     }
 
     [Fact]

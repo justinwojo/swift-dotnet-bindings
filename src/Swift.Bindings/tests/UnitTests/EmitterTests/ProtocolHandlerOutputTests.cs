@@ -58,7 +58,7 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         Assert.Contains("public interface IReader<TElement>", csOutput);
-        Assert.Contains("TElement Next();", csOutput);
+        Assert.Contains("TElement GetNext();", csOutput);
         Assert.DoesNotContain("class ReaderProxy", csOutput);
     }
 
@@ -929,6 +929,349 @@ public class ProtocolHandlerOutputTests
 
         Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Type is missing from the type database\", \"UnknownModule.Key\")]", csOutput);
         Assert.Contains("this[", csOutput);
+    }
+
+    #endregion
+
+    #region Async-Void Method Naming Regression (Codex P1)
+
+    [Fact]
+    public void Emit_AsyncVoidMethod_NoGetPrefix()
+    {
+        // Regression: async void methods had returnType changed to "Task" before
+        // hasReturnValue was computed, causing noun-only names to get Get prefix.
+        // "flush" async void → should be FlushAsync, not GetFlushAsync
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "AsyncCache",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AsyncCache"),
+            MangledName = "$s10TestModule10AsyncCacheP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "flush",
+                    MangledName = "$s10TestModule10AsyncCacheP5flushyyYaF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = true,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Should be FlushAsync (void return → no Get prefix)
+        Assert.Contains("FlushAsync()", csOutput);
+        Assert.DoesNotContain("GetFlushAsync", csOutput);
+        // Return type should be Task, not Task<void>
+        Assert.Contains("Task FlushAsync()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_AsyncValueMethod_GetsGetPrefix()
+    {
+        // Async method with non-void return → should get Get prefix for noun names
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "DataProvider",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataProvider"),
+            MangledName = "$s10TestModule12DataProviderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "data",
+                    MangledName = "$s10TestModule12DataProviderP4datayyYaF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, new NamedTypeSpec("Swift.String"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = true,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Non-void return + noun name → GetDataAsync
+        Assert.Contains("GetDataAsync()", csOutput);
+    }
+
+    #endregion
+
+    #region Protocol Parameter Name Normalization (Codex P1)
+
+    [Fact]
+    public void Emit_ProtocolMethodWithArg0_UsesTypeDerivedName()
+    {
+        // Regression: protocol interface emission used raw arg.Name ("arg0")
+        // instead of GetCSharpParameterName which derives from type
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Processor",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Processor"),
+            MangledName = "$s10TestModule9ProcessorP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "process",
+                    MangledName = "$s10TestModule9ProcessorP7processyyF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),  // return
+                        new ArgumentDecl  // parameter with arg0 name
+                        {
+                            Name = "arg0",
+                            PrivateName = "",
+                            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // "arg0" with Swift.String type → "value" (type-derived) in the interface signature
+        Assert.Contains("string value)", csOutput);
+        // Interface method declaration should not contain "arg0" parameter name
+        Assert.DoesNotContain("string arg0)", csOutput);
+    }
+
+    #endregion
+
+    #region Subscript Type Conversion Tests (WU3)
+
+    [Fact]
+    public void Emit_InterfaceSubscript_SwiftOptional_ConvertedToNullable()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Cache",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Cache"),
+            MangledName = "$s10TestModule5CacheP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>
+            {
+                new()
+                {
+                    Name = "subscript",
+                    MangledName = "$s10TestModule5CacheP9subscriptig",
+                    ReturnTypeSpec = optionalReturn,
+                    IsStatic = false,
+                    IndexParameters = new List<ArgumentDecl>
+                    {
+                        CreateArgument("key", new NamedTypeSpec("Swift.String"), moduleDecl)
+                    },
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl { Method = CreateMethodDecl("subscript_get", moduleDecl) }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface subscript should use nullable int?, not SwiftOptional
+        Assert.Contains("System.Int64?", csOutput);
+        Assert.Contains("this[", csOutput);
+        // Parameters should also be converted (SwiftString → string)
+        Assert.Contains("string", csOutput);
+    }
+
+    [Fact]
+    public void Emit_InterfaceSubscript_SwiftString_ConvertedToString()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "StringLookup",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StringLookup"),
+            MangledName = "$s10TestModule12StringLookupP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>
+            {
+                new()
+                {
+                    Name = "subscript",
+                    MangledName = "$s10TestModule12StringLookupP9subscriptig",
+                    ReturnTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsStatic = false,
+                    IndexParameters = new List<ArgumentDecl>
+                    {
+                        CreateArgument("index", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                    },
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl { Method = CreateMethodDecl("subscript_get", moduleDecl) }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface subscript return type should be string, not SwiftString
+        Assert.Contains("string this[", csOutput);
+    }
+
+    #endregion
+
+    #region Subscript Parameter Normalization (Codex P1)
+
+    [Fact]
+    public void Emit_InterfaceSubscript_ValueParam_SanitizedToAvoidCS0316()
+    {
+        // Regression: subscript with parameter named "value" would conflict
+        // with C# indexer setter's implicit "value" parameter (CS0316).
+        // GetCSharpParameterName sanitizes "value" to "_value".
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "ValueLookup",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ValueLookup"),
+            MangledName = "$s10TestModule11ValueLookupP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>
+            {
+                new()
+                {
+                    Name = "subscript",
+                    MangledName = "$s10TestModule11ValueLookupP9subscriptig",
+                    ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    IndexParameters = new List<ArgumentDecl>
+                    {
+                        CreateArgument("value", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                    },
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl { Method = CreateMethodDecl("subscript_get", moduleDecl) }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Parameter "value" should be sanitized to "_value" (C# contextual keyword)
+        Assert.Contains("this[System.Int64 _value]", csOutput);
+        Assert.DoesNotContain("this[System.Int64 value]", csOutput);
     }
 
     #endregion

@@ -288,6 +288,17 @@ namespace BindingsGeneration
                             csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromEnumerable({csName});");
                         }
                     }
+                    else if (elementTypeSpec != null && _env.TypeConversionHandler.IsSwiftString(elementTypeSpec))
+                    {
+                        // Element type converted: public API is IEnumerable<string>,
+                        // but SwiftArray<SwiftString>.FromEnumerable needs IEnumerable<SwiftString>
+                        // try/finally ensures temporary SwiftStrings are disposed even if FromEnumerable throws
+                        csWriter.WriteLine($"var {csName}Converted = {csName}.Select(e => new SwiftString(e)).ToList();");
+                        csWriter.WriteLine($"{swiftType} {csName}SwiftInner;");
+                        csWriter.WriteLine($"try {{ {csName}SwiftInner = {swiftType}.FromEnumerable({csName}Converted); }}");
+                        csWriter.WriteLine($"finally {{ foreach (var _item in {csName}Converted) _item.Dispose(); }}");
+                        csWriter.WriteLine($"using var {csName}Swift = {csName}SwiftInner;");
+                    }
                     else
                     {
                         csWriter.WriteLine($"using var {csName}Swift = {swiftType}.FromEnumerable({csName});");
@@ -325,7 +336,20 @@ namespace BindingsGeneration
                     var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
                         argumentDecl.SwiftTypeSpec,
                         typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                    csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({csName}Value) : {swiftType}.NewNone();");
+                    // Check if inner element type was converted (e.g., string → SwiftString)
+                    var optNamedType = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
+                    var innerElementSpec = optNamedType?.GenericParameters.FirstOrDefault();
+                    if (innerElementSpec != null && _env.TypeConversionHandler.IsSwiftString(innerElementSpec))
+                    {
+                        // Public API is string?, but SwiftOptional<SwiftString>.NewSome needs SwiftString
+                        // Use named intermediate so the temporary SwiftString is deterministically disposed
+                        csWriter.WriteLine($"using var {csName}Str = {csName} is {{}} {csName}Value ? new SwiftString({csName}Value) : null;");
+                        csWriter.WriteLine($"using var {csName}Swift = {csName}Str != null ? {swiftType}.NewSome({csName}Str) : {swiftType}.NewNone();");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({csName}Value) : {swiftType}.NewNone();");
+                    }
                     // Create payload buffer for P/Invoke (same as bound generic handling)
                     csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);

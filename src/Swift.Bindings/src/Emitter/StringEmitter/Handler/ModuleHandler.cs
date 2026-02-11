@@ -155,8 +155,7 @@ namespace BindingsGeneration
                 // Emit top-level methods
                 if (moduleDecl.Methods.Any())
                 {
-                    // Use unsafe class since methods may use function pointers for closure parameters
-                    csWriter.WriteLine($"public unsafe class {moduleDecl.Name}");
+                    csWriter.WriteLine($"public class {moduleDecl.Name}");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     csWriter.WriteLine();
@@ -643,7 +642,8 @@ namespace BindingsGeneration
 
                     var returnType = ResolveMethodReturnType(method, typeDatabase, typeConversionHandler, boundGenericsHandler, existentialHandler);
                     var parameters = ResolveMethodParameters(method, typeDatabase, typeConversionHandler, boundGenericsHandler, existentialHandler);
-                    var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync);
+                    bool hasReturnValue = method.CSSignature.Count > 0 && !method.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
+                    var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturnValue);
 
                     if (method.IsAsync)
                     {
@@ -734,7 +734,7 @@ namespace BindingsGeneration
                 else
                     paramTypeName = ResolveCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, existentialHandler);
 
-                var paramName = string.IsNullOrEmpty(arg.Name) ? $"arg{i}" : arg.Name;
+                var paramName = NameProvider.GetCSharpParameterName(arg);
                 parameters.Add($"{paramTypeName} {paramName}");
             }
             return parameters;

@@ -116,7 +116,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("// Swift actor type - methods are actor-isolated unless marked nonisolated");
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, classDecl);
-                var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                var classDeclaration = $"public class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";
                 csWriter.WriteLine(classDeclaration);

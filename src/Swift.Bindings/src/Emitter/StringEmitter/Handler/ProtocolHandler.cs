@@ -362,10 +362,16 @@ namespace BindingsGeneration
         private void EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
 
-            // Get return type
+            // Get return type — apply idiomatic type conversion (SwiftOptional → T?, SwiftString → string)
             string returnTypeName;
-            if (subscriptDecl.ReturnTypeSpec is AssociatedTypeReferenceSpec assocRef)
+            var idiomaticReturnType = typeConversionHandler.GetIdiomaticCSharpType(subscriptDecl.ReturnTypeSpec, isParameter: false);
+            if (idiomaticReturnType != null)
+            {
+                returnTypeName = idiomaticReturnType;
+            }
+            else if (subscriptDecl.ReturnTypeSpec is AssociatedTypeReferenceSpec assocRef)
             {
                 returnTypeName = ProtocolSignatureHelper.MapAssociatedTypeToGenericParam(assocRef, protocolContext);
             }
@@ -389,12 +395,13 @@ namespace BindingsGeneration
                 returnTypeName = typeDatabase.GetTypeRecordOrAnyType(subscriptDecl.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
             }
 
-            // Build index parameters
+            // Build index parameters — apply idiomatic type conversion
             var parameters = new List<string>();
             foreach (var param in subscriptDecl.IndexParameters)
             {
-                var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
-                var paramName = string.IsNullOrEmpty(param.Name) ? "index" : param.Name;
+                var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(param.SwiftTypeSpec, isParameter: true);
+                var paramTypeName = idiomaticParamType ?? GetCSharpTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+                var paramName = NameProvider.GetCSharpParameterName(param);
                 parameters.Add($"{paramTypeName} {paramName}");
             }
 
@@ -500,9 +507,12 @@ namespace BindingsGeneration
                 {
                     argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 }
-                var argName = string.IsNullOrEmpty(arg.Name) ? $"arg{i}" : arg.Name;
+                var argName = NameProvider.GetCSharpParameterName(arg);
                 parameters.Add($"{argTypeName} {argName}");
             }
+
+            // Capture hasReturnValue BEFORE async conversion turns void → Task
+            var hasReturnValue = returnType != "void";
 
             // Handle async methods
             if (methodDecl.IsAsync)
@@ -544,7 +554,7 @@ namespace BindingsGeneration
                 }
             }
 
-            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync);
+            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
             csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
         }

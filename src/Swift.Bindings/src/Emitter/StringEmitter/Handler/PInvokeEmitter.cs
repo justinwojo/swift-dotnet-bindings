@@ -630,7 +630,9 @@ namespace BindingsGeneration
                 // Emit directly (non-generic type)
                 csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
                 csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{entryPoint}\")]");
-                csWriter.WriteLine($"private static extern {(methodDecl.IsAsync ? "void" : pInvokeSignature.ReturnType)} {pInvokeName}({pInvokeSignature.PInvokeParametersString()});");
+                var pInvokeParams = pInvokeSignature.PInvokeParametersString();
+                var unsafeModifier = pInvokeParams.Contains("void*") || pInvokeParams.Contains("delegate*") ? "unsafe " : "";
+                csWriter.WriteLine($"private static {unsafeModifier}extern {(methodDecl.IsAsync ? "void" : pInvokeSignature.ReturnType)} {pInvokeName}({pInvokeParams});");
             }
         }
     }

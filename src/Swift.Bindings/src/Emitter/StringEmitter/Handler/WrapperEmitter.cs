@@ -22,6 +22,7 @@ namespace BindingsGeneration
         private readonly bool _requiresOpaqueReturnWrapper;
         private readonly bool _requiresFixedBlock;
         private readonly TypeDatabaseExtensions.AnyTypeFallbackInfo? _fallbackInfo;
+        private bool _needsUnsafeBody;
 
         internal WrapperEmitter(
             MethodEnvironment methodEnv,
@@ -87,6 +88,7 @@ namespace BindingsGeneration
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
+            EmitUnsafeBlockStart(csWriter);
             EmitSafeHandleAddRef(csWriter);
 
             // Declare TypeMetadata, payload, and GCHandle variables
@@ -126,6 +128,7 @@ namespace BindingsGeneration
                 EmitFinally(csWriter);
             }
 
+            EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
         }
 
@@ -165,10 +168,12 @@ namespace BindingsGeneration
             }
 
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isFailableFactory: true);
-            // Emit signature: public static unsafe bool TryCreate(params, out TypeName result)
+            // Emit signature: public static bool TryCreate(params, out TypeName result)
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} static unsafe bool TryCreate({_wrapperSignature.ParametersString()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} result)");
+            _needsUnsafeBody = true;
+            csWriter.WriteLine($"{accessModifier} static bool TryCreate({_wrapperSignature.ParametersString()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} result)");
             EmitBodyStart(csWriter);
+            EmitUnsafeBlockStart(csWriter);
 
             // Declare TypeMetadata, payload, and GCHandle variables for generic/closure args
             EmitDeclarationsForAllocations(csWriter);
@@ -257,6 +262,7 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
 
+            EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
         }
 
@@ -306,6 +312,7 @@ namespace BindingsGeneration
             }
             EmitSignatureMethod(csWriter);
             EmitBodyStart(csWriter);
+            EmitUnsafeBlockStart(csWriter);
             EmitAsync(csWriter, swiftWriter);
             EmitOpaqueReturnWrapper(swiftWriter);
             EmitSafeHandleAddRef(csWriter);
@@ -330,6 +337,7 @@ namespace BindingsGeneration
             EmitFixedBlockEnd(csWriter);
             EmitTryBlockEnd(csWriter);
             EmitFinally(csWriter);
+            EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
         }
 
@@ -630,7 +638,8 @@ namespace BindingsGeneration
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
             // Use the resolved C# type name (may be renamed for nested type collision avoidance)
             var constructorName = GetResolvedTypeName();
-            csWriter.WriteLine($"{accessModifier} unsafe {constructorName}({_wrapperSignature.ParametersString()})");
+            _needsUnsafeBody = true;
+            csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString()})");
         }
 
         /// <summary>
@@ -653,7 +662,7 @@ namespace BindingsGeneration
             bool isAsyncConstructor = _env.MethodDecl.IsConstructor && _env.MethodDecl.IsAsync;
 
             var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl || isAsyncConstructor ? "static " : "";
-            var unsafeKeyword = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || methodOwnParams.Count > 0 || containsBoundGenerics ? "unsafe " : "";
+            _needsUnsafeBody = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _requiresSwiftError || methodOwnParams.Count > 0 || containsBoundGenerics;
 
             var returnType = _wrapperSignature.ReturnType;
             if (_requiresSwiftAsync)
@@ -667,7 +676,7 @@ namespace BindingsGeneration
                 : _env.CSharpMethodName;
 
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} {staticKeyword}{unsafeKeyword}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString()})");
+            csWriter.WriteLine($"{accessModifier} {staticKeyword}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString()})");
 
             // Emit where clauses for generic constraints
             var whereClause = BuildWhereClause();
@@ -747,6 +756,31 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits the start of an unsafe block if the method body requires unsafe context.
+        /// </summary>
+        private void EmitUnsafeBlockStart(CSharpWriter csWriter)
+        {
+            if (_needsUnsafeBody)
+            {
+                csWriter.WriteLine("unsafe");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+            }
+        }
+
+        /// <summary>
+        /// Emits the end of an unsafe block if one was opened.
+        /// </summary>
+        private void EmitUnsafeBlockEnd(CSharpWriter csWriter)
+        {
+            if (_needsUnsafeBody)
+            {
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
         }
 
         /// <summary>

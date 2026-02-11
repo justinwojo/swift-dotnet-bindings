@@ -70,7 +70,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should be class-based, not C# enum
-        Assert.Contains("public unsafe class LogLevel", csOutput);
+        Assert.Contains("public class LogLevel", csOutput);
         Assert.Contains("FromRawValue", csOutput);
         Assert.DoesNotContain("public enum LogLevel", csOutput);
     }
@@ -87,7 +87,7 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("unsafe class Status", csOutput);
+        Assert.Contains("class Status", csOutput);
         Assert.DoesNotContain("public enum Status", csOutput);
     }
 
@@ -220,7 +220,7 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public unsafe bool TryGetPair([MaybeNullWhen(false)] out System.Int64 value0, [MaybeNullWhen(false)] out System.Boolean value1)", csOutput);
+        Assert.Contains("public bool TryGetPair([MaybeNullWhen(false)] out System.Int64 value0, [MaybeNullWhen(false)] out System.Boolean value1)", csOutput);
         Assert.Contains("Pair = 0,", csOutput);
         Assert.Contains("None = 1,", csOutput);
     }
@@ -264,7 +264,7 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public unsafe class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject", csOutput);
+        Assert.Contains("public class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject", csOutput);
         Assert.Contains("public static ValueProviderStorage<T0> Boxed(T0 value0)", csOutput);
         Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();", csOutput);
         Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);

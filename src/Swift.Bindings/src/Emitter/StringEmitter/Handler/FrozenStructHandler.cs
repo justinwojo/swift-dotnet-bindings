@@ -128,8 +128,7 @@ namespace BindingsGeneration
                 XmlDocCommentEmitter.EmitDocComment(csWriter, structDecl);
                 if (isProjectedAsClass)
                 {
-                    // Use unsafe class since methods may use function pointers for closure parameters
-                    var classDeclaration = $"public unsafe class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                    var classDeclaration = $"public class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                     if (!string.IsNullOrEmpty(whereClause))
                         classDeclaration += $" {whereClause}";
                     csWriter.WriteLine(classDeclaration);

@@ -725,7 +725,7 @@ namespace BindingsGeneration
             var text = $$"""
                         private static unsafe delegate* unmanaged[Cdecl]<{{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType}, ")}}IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{callbackMethodName}}({{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType} rawResult, ")}}IntPtr task)
+                        private static unsafe void {{callbackMethodName}}({{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType} rawResult, ")}}IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
@@ -774,7 +774,7 @@ namespace BindingsGeneration
 
                         private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
@@ -873,7 +873,7 @@ namespace BindingsGeneration
             var text = $$"""
                         private static unsafe delegate* unmanaged[Cdecl]<{{delegateTypeParams}}> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{callbackMethodName}}({{methodParamList}})
+                        private static unsafe void {{callbackMethodName}}({{methodParamList}})
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
@@ -917,7 +917,7 @@ namespace BindingsGeneration
 
                         private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
@@ -1002,7 +1002,7 @@ namespace BindingsGeneration
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{callbackMethodName}}(IntPtr slicePtr, nint sliceLen, IntPtr task)
+                        private static unsafe void {{callbackMethodName}}(IntPtr slicePtr, nint sliceLen, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
@@ -1055,7 +1055,7 @@ namespace BindingsGeneration
 
                         private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
@@ -1134,7 +1134,7 @@ namespace BindingsGeneration
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{callbackMethodName}}(IntPtr bufferPtr, nint bufferLen, IntPtr task)
+                        private static unsafe void {{callbackMethodName}}(IntPtr bufferPtr, nint bufferLen, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             System.Exception? deserializationError = null;
@@ -1249,7 +1249,7 @@ namespace BindingsGeneration
 
                         private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
@@ -1347,7 +1347,7 @@ namespace BindingsGeneration
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{callbackMethodName}}(IntPtr resultPtr, IntPtr task)
+                        private static unsafe void {{callbackMethodName}}(IntPtr resultPtr, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);{{readObjPtrCode}}
                             try
@@ -1392,7 +1392,7 @@ namespace BindingsGeneration
 
                         private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try

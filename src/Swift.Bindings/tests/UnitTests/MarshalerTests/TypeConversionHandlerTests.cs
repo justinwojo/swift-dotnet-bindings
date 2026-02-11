@@ -419,6 +419,126 @@ public class TypeConversionHandlerTests
 
     #endregion
 
+    #region Array Element Type Conversion Tests (WU2)
+
+    [Fact]
+    public void SwiftArray_SwiftString_ReturnsIReadOnlyListString()
+    {
+        // Array<SwiftString> should convert element type: IReadOnlyList<string>
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var result = _handler.GetIdiomaticCSharpType(typeSpec, isParameter: false);
+        Assert.Equal("IReadOnlyList<string>", result);
+    }
+
+    [Fact]
+    public void SwiftArray_Int32_ReturnsIReadOnlyListInt32()
+    {
+        // Array<Int> should not convert element type (Int is not convertible)
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var result = _handler.GetIdiomaticCSharpType(typeSpec, isParameter: false);
+        // DB lookup returns System.Int64 for Swift.Int
+        Assert.Equal("IReadOnlyList<System.Int64>", result);
+    }
+
+    [Fact]
+    public void SwiftArray_SwiftString_Parameter_ReturnsIEnumerableString()
+    {
+        // Parameter arrays also get element conversion
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var result = _handler.GetIdiomaticCSharpType(typeSpec, isParameter: true);
+        Assert.Equal("IEnumerable<string>", result);
+    }
+
+    [Fact]
+    public void SwiftOptional_SwiftArray_SwiftString_ConvertsBoth()
+    {
+        // Optional<Array<String>> → IReadOnlyList<string>?
+        var innerArray = new NamedTypeSpec("Swift.Array");
+        innerArray.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(innerArray);
+        var result = _handler.GetIdiomaticCSharpType(typeSpec, isParameter: false);
+        Assert.Equal("IReadOnlyList<string>?", result);
+    }
+
+    [Fact]
+    public void ReturnConversion_Array_ConvertedElement_UsesSelect()
+    {
+        // Return conversion with SwiftString element should use .Select()
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var result = _handler.GetReturnConversion("result", typeSpec);
+        Assert.Contains(".Select(", result!);
+        Assert.Contains(".ToList()", result);
+    }
+
+    [Fact]
+    public void ReturnConversion_Array_NonConvertedElement_NoSelect()
+    {
+        // Return conversion with non-convertible element should be passthrough
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var result = _handler.GetReturnConversion("result", typeSpec);
+        Assert.Equal("result", result);
+    }
+
+    #endregion
+
+    #region GetSwiftWrapperType — Raw Element Type Regression (Codex P0)
+
+    [Fact]
+    public void GetSwiftWrapperType_SwiftArray_SwiftString_UsesSwiftStringNotString()
+    {
+        // Regression: GetSwiftWrapperType must use raw element type (SwiftString)
+        // not the idiomatically converted type (string). SwiftArray<string> can't be
+        // marshalled — only SwiftArray<SwiftString> can.
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var result = _handler.GetSwiftWrapperType(typeSpec);
+        Assert.Equal("SwiftArray<Swift.SwiftString>", result);
+        Assert.DoesNotContain("SwiftArray<string>", result);
+    }
+
+    [Fact]
+    public void GetSwiftWrapperType_SwiftOptional_SwiftString_UsesSwiftStringNotString()
+    {
+        // Regression: SwiftOptional<string> would fail at runtime in SwiftMarshal.MarshalToSwift
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var result = _handler.GetSwiftWrapperType(typeSpec);
+        Assert.Equal("SwiftOptional<Swift.SwiftString>", result);
+        Assert.DoesNotContain("SwiftOptional<string>", result);
+    }
+
+    [Fact]
+    public void GetParameterConversion_SwiftArray_SwiftString_UsesSwiftStringWrapper()
+    {
+        // The parameter conversion must produce SwiftArray<SwiftString> not SwiftArray<string>
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var result = _handler.GetParameterConversion("names", typeSpec);
+        Assert.NotNull(result);
+        Assert.Contains("SwiftArray<Swift.SwiftString>", result);
+        Assert.DoesNotContain("SwiftArray<string>", result);
+    }
+
+    [Fact]
+    public void GetParameterConversion_SwiftOptional_SwiftString_UsesSwiftStringWrapper()
+    {
+        // The parameter conversion must produce SwiftOptional<SwiftString> not SwiftOptional<string>
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var result = _handler.GetParameterConversion("name", typeSpec);
+        Assert.NotNull(result);
+        Assert.Contains("SwiftOptional<Swift.SwiftString>", result);
+        Assert.DoesNotContain("SwiftOptional<string>", result);
+    }
+
+    #endregion
+
     #region MockTypeDatabase
 
     private class MockTypeDatabase : ITypeDatabase

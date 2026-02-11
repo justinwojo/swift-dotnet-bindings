@@ -35,10 +35,11 @@ public class NameProviderParameterTests
     }
 
     [Fact]
-    public void GetCSharpParameterName_FallsBackToArgName()
+    public void GetCSharpParameterName_DerivesFromType_ForGeneratedArgs()
     {
+        // arg0 with Swift.Int should derive "value" from the type
         var arg = MakeArg("arg0");
-        Assert.Equal("arg0", NameProvider.GetCSharpParameterName(arg));
+        Assert.Equal("value", NameProvider.GetCSharpParameterName(arg));
     }
 
     [Fact]
@@ -146,6 +147,102 @@ public class NameProviderParameterTests
     public void StripCSharpKeywordPrefix_NoPrefix()
     {
         Assert.Equal("name", NameProvider.StripCSharpKeywordPrefix("name"));
+    }
+
+    #endregion
+
+    #region Type-Derived Parameter Name Tests (WU4)
+
+    private static ArgumentDecl MakeArgWithType(string name, string swiftType, string privateName = "")
+    {
+        return new ArgumentDecl
+        {
+            Name = name,
+            PrivateName = privateName,
+            SwiftTypeSpec = new NamedTypeSpec(swiftType),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    [Fact]
+    public void Arg0_UIImage_BecomesImage()
+    {
+        var arg = MakeArgWithType("arg0", "UIKit.UIImage");
+        Assert.Equal("image", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void Arg0_String_BecomesValue()
+    {
+        var arg = MakeArgWithType("arg0", "Swift.String");
+        Assert.Equal("value", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void Arg0_ImageRequest_BecomesImageRequest()
+    {
+        var arg = MakeArgWithType("arg0", "Nuke.ImageRequest");
+        Assert.Equal("imageRequest", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void Arg0_NSUrl_BecomesUrl()
+    {
+        var arg = MakeArgWithType("arg0", "Foundation.NSURL");
+        // NSURL → strip NS → URL → camelCase → uRL... hmm, actually it should be "nsurl"
+        // NSURL has third char 'U' uppercase, so strip NS → URL → url
+        var result = NameProvider.GetCSharpParameterName(arg);
+        Assert.Equal("url", result);
+    }
+
+    [Fact]
+    public void Arg1_Int_BecomesValue1()
+    {
+        // Second generated arg gets numeric suffix
+        var arg = MakeArgWithType("arg1", "Swift.Int");
+        Assert.Equal("value1", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void Arg0_Bool_BecomesFlag()
+    {
+        var arg = MakeArgWithType("arg0", "Swift.Bool");
+        Assert.Equal("flag", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void PrivateName_Preferred_OverTypeDerivation()
+    {
+        // PrivateName always wins even for arg0
+        var arg = MakeArgWithType("arg0", "UIKit.UIImage", "photo");
+        Assert.Equal("photo", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void RegularName_Unchanged()
+    {
+        // Non-generated names pass through unchanged
+        var arg = MakeArgWithType("request", "Nuke.ImageRequest");
+        Assert.Equal("request", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void Arg0_CSharpKeyword_Sanitized()
+    {
+        // Type that would derive a C# keyword (e.g., "Object" → "object" → "_object")
+        var arg = MakeArgWithType("arg0", "Swift.Object");
+        Assert.Equal("_object", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void GetCSharpParameterName_Unchanged_ForNonGenerated()
+    {
+        // Verify the original function is unaffected for non-generated names
+        var arg = MakeArg("name");
+        Assert.Equal("name", NameProvider.GetCSharpParameterName(arg));
     }
 
     #endregion

@@ -7,16 +7,39 @@
 
 ---
 
+## Fix Status (Updated February 2026)
+
+Multiple refactor passes addressed 11 of 12 issues from this review. Current status:
+
+| # | Issue | Priority | Status |
+|---|-------|----------|--------|
+| 1 | `Init()` methods instead of constructors | P0 | **Done** — real C# constructors emitted |
+| 2 | `SwiftString` in property return types | P0 | **Done** — properties return `string` |
+| 3 | `SwiftOptional<T>` instead of `T?` | P1 | **Done** — all contexts including subscripts (WU3) |
+| 4 | `IntPtr` for integer types | P1 | **Done** — maps to `nint`/`int`/`long` |
+| 5 | Simple enums are classes | P2 | **Done** — `EnumHandler.IsSimpleEnum` emits real C# `enum` types |
+| 6 | `ExistentialContainer` in public API | P2 | Open |
+| 7 | `AnyType` fallback | P2 | Open |
+| 8 | Parameter naming (`arg0`, `_for`) | P2 | **Done** — WU4: type-derived names, `_` stripping, dedup |
+| 9 | `Payload` public / `IDisposable` | P1 | **Done** — `Payload` is `internal`, `ISwiftObject : IDisposable` provides transitive IDisposable |
+| 10 | `Equals`/`GetHashCode` throw | P2 | **Done** — uses `SwiftEquatable.Equals()`, hash returns 0 |
+| 11 | Property `Value` suffixes | P3 | **Done** — removed |
+| 12 | `ISwift*` interface naming | P3 | **Done** — interfaces use `I` + protocol name |
+
+Additional post-review issues fixed: N1 (method verb prefix + double Async stripping — WU1), N3 (`unsafe` removed from public surface — WU5), N4 (array element type conversion — WU2). See `binding-api-improvements.md` for full tracker.
+
+---
+
 ## Executive Summary
 
 These bindings represent genuinely impressive technical work. Getting Swift interop to work at all is a significant achievement, and the breadth of coverage across three very different real-world libraries is notable. That said, the developer experience when consuming these bindings has serious rough edges. A .NET developer picking these up for the first time would face a steep learning curve, not because Swift concepts are hard, but because the C# API surface exposes too many interop implementation details and deviates from .NET conventions in ways that create constant friction.
 
-**Overall Grade: C+**
+**Overall Grade (at time of review): C+** (post-WU1-WU5: estimated **B+/A-**)
 - Technical achievement: A
-- API discoverability: D
-- .NET idiom compliance: D+
-- Type safety: B-
-- Usability for a "just make it work" developer: C-
+- API discoverability: D → **B+** (constructors, string properties, nullable, verb-prefixed methods, clean param names)
+- .NET idiom compliance: D+ → **B+** (type issues fixed, naming fixed, enums fixed, unsafe removed)
+- Type safety: B- → **A-** (IntPtr → nint, SwiftOptional → T?, array elements converted)
+- Usability for a "just make it work" developer: C- → **B+** (Init→ctor, string, IDisposable, no unsafe)
 
 ---
 

@@ -140,7 +140,8 @@ public class TypeConversionHandler
     }
 
     /// <summary>
-    /// Gets the element type name from a generic Swift type (Array&lt;T&gt; or Optional&lt;T&gt;).
+    /// Gets the element type name from a generic Swift type (Array&lt;T&gt; or Optional&lt;T&gt;),
+    /// applying idiomatic type conversion to the element type itself (e.g., SwiftString → string).
     /// </summary>
     /// <param name="genericType">The generic type specification.</param>
     /// <param name="typeTranslator">Optional function to translate the element type spec to a C# type name.</param>
@@ -152,6 +153,11 @@ public class TypeConversionHandler
 
         var elementTypeSpec = genericType.GenericParameters[0];
 
+        // Check if the element type itself is convertible (e.g., SwiftString → string)
+        var idiomaticElement = GetIdiomaticCSharpType(elementTypeSpec, isParameter: false, typeTranslator);
+        if (idiomaticElement != null)
+            return idiomaticElement;
+
         // If we have a translator, use it
         if (typeTranslator != null)
         {
@@ -159,6 +165,43 @@ public class TypeConversionHandler
         }
 
         // Fall back to simple type lookup
+        if (elementTypeSpec is NamedTypeSpec elementNamedType)
+        {
+            var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(elementNamedType);
+            return typeRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks whether the element type of a generic container was converted to an idiomatic type.
+    /// Used to determine if return conversion needs a .Select() projection.
+    /// </summary>
+    public bool IsElementTypeConverted(NamedTypeSpec genericType, Func<TypeSpec, string>? typeTranslator = null)
+    {
+        if (genericType.GenericParameters.Count == 0)
+            return false;
+
+        var elementTypeSpec = genericType.GenericParameters[0];
+        return GetIdiomaticCSharpType(elementTypeSpec, isParameter: false, typeTranslator) != null;
+    }
+
+    /// <summary>
+    /// Gets the raw (unconverted) element type name from a generic Swift type.
+    /// Unlike GetElementType(), this does NOT apply idiomatic conversion to the element.
+    /// Used when constructing SwiftArray&lt;SwiftString&gt; in parameter conversion.
+    /// </summary>
+    private string? GetRawElementType(NamedTypeSpec genericType, Func<TypeSpec, string>? typeTranslator = null)
+    {
+        if (genericType.GenericParameters.Count == 0)
+            return null;
+
+        var elementTypeSpec = genericType.GenericParameters[0];
+
+        if (typeTranslator != null)
+            return typeTranslator(elementTypeSpec);
+
         if (elementTypeSpec is NamedTypeSpec elementNamedType)
         {
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(elementNamedType);
@@ -188,12 +231,22 @@ public class TypeConversionHandler
 
         if (IsSwiftArray(namedTypeSpec))
         {
-            var elementType = GetElementType(namedTypeSpec, typeTranslator);
-            if (elementType == null)
+            // For element type conversion, we need the raw (unconverted) element type for SwiftArray<T>
+            var rawElementType = GetRawElementType(namedTypeSpec, typeTranslator);
+            if (rawElementType == null)
                 return null;
 
+            // If element type was converted (e.g., string → SwiftString), wrap with .Select()
+            if (IsElementTypeConverted(namedTypeSpec, typeTranslator))
+            {
+                if (IsSwiftString(namedTypeSpec.GenericParameters.FirstOrDefault()))
+                {
+                    return $"SwiftArray<{rawElementType}>.FromEnumerable({paramName}.Select(e => new SwiftString(e)))";
+                }
+            }
+
             // IEnumerable<T> -> SwiftArray<T>
-            return $"SwiftArray<{elementType}>.FromEnumerable({paramName})";
+            return $"SwiftArray<{rawElementType}>.FromEnumerable({paramName})";
         }
 
         if (IsSwiftOptional(namedTypeSpec))
@@ -205,7 +258,8 @@ public class TypeConversionHandler
                 return null;
             }
 
-            var innerType = GetElementType(namedTypeSpec, typeTranslator);
+            // Use raw (unconverted) element type — SwiftOptional<SwiftString>, not SwiftOptional<string>
+            var innerType = GetRawElementType(namedTypeSpec, typeTranslator);
             if (innerType == null)
                 return null;
 
@@ -240,6 +294,15 @@ public class TypeConversionHandler
 
         if (IsSwiftArray(namedTypeSpec))
         {
+            // If element type was converted (e.g., SwiftString → string), project with .Select()
+            if (IsElementTypeConverted(namedTypeSpec, typeTranslator))
+            {
+                if (IsSwiftString(namedTypeSpec.GenericParameters.FirstOrDefault()))
+                {
+                    return $"{resultVar}.Select(e => e.ToString()).ToList()";
+                }
+                // Future: other element conversions can add their projections here
+            }
             // SwiftArray<T> implements IReadOnlyList<T>, so cast is safe
             return resultVar;
         }
@@ -275,7 +338,9 @@ public class TypeConversionHandler
 
         if (IsSwiftArray(namedTypeSpec))
         {
-            var elementType = GetElementType(namedTypeSpec, typeTranslator);
+            // Use raw (unconverted) element type — SwiftArray<SwiftString>, not SwiftArray<string>
+            // GetElementType() would eagerly convert SwiftString→string, breaking marshalling
+            var elementType = GetRawElementType(namedTypeSpec, typeTranslator);
             if (elementType == null)
                 return null;
 
@@ -284,7 +349,8 @@ public class TypeConversionHandler
 
         if (IsSwiftOptional(namedTypeSpec))
         {
-            var innerType = GetElementType(namedTypeSpec, typeTranslator);
+            // Use raw (unconverted) element type — SwiftOptional<SwiftString>, not SwiftOptional<string>
+            var innerType = GetRawElementType(namedTypeSpec, typeTranslator);
             if (innerType == null)
                 return null;
 

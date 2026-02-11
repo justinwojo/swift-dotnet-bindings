@@ -173,8 +173,8 @@ public class PropertyHandlerTests
         Assert.Contains("public System.Int64 Count", csOutput);
         Assert.Contains("get => Count_Get();", csOutput);
         Assert.Contains("set => Count_Set(value);", csOutput);
-        Assert.Contains("public unsafe System.Int64 Count_Get()", csOutput);
-        Assert.Contains("public unsafe void Count_Set(", csOutput);
+        Assert.Contains("public System.Int64 Count_Get()", csOutput);
+        Assert.Contains("public void Count_Set(", csOutput);
     }
 
     [Fact]

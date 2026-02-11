@@ -257,8 +257,16 @@ public partial class ProtocolProxyEmitter
     private void EmitSubscriptImplementation(CSharpWriter writer, SubscriptDecl subscript, ProtocolDecl protocolDecl, int index)
     {
         var existentialHandler = new ExistentialHandler(_typeDatabase);
+        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
+
+        // Apply idiomatic type conversion first (SwiftOptional → T?, SwiftString → string)
         string returnTypeName;
-        if (existentialHandler.IsExistential(subscript.ReturnTypeSpec))
+        var idiomaticReturnType = typeConversionHandler.GetIdiomaticCSharpType(subscript.ReturnTypeSpec, isParameter: false);
+        if (idiomaticReturnType != null)
+        {
+            returnTypeName = idiomaticReturnType;
+        }
+        else if (existentialHandler.IsExistential(subscript.ReturnTypeSpec))
         {
             var protocolList = existentialHandler.ToProtocolListTypeSpec(subscript.ReturnTypeSpec);
             if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
@@ -271,13 +279,18 @@ public partial class ProtocolProxyEmitter
             returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec);
         }
 
-        // Build parameter list
+        // Build parameter list — apply idiomatic type conversion
         var parameters = new List<string>();
         for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
             var param = subscript.IndexParameters[i];
             string paramTypeName;
-            if (existentialHandler.IsExistential(param.SwiftTypeSpec))
+            var idiomaticParamType = typeConversionHandler.GetIdiomaticCSharpType(param.SwiftTypeSpec, isParameter: true);
+            if (idiomaticParamType != null)
+            {
+                paramTypeName = idiomaticParamType;
+            }
+            else if (existentialHandler.IsExistential(param.SwiftTypeSpec))
             {
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(param.SwiftTypeSpec);
                 if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
@@ -289,13 +302,13 @@ public partial class ProtocolProxyEmitter
             {
                 paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
             }
-            var paramName = string.IsNullOrEmpty(param.Name) ? $"index{i}" : param.Name;
+            var paramName = NameProvider.GetCSharpParameterName(param);
             parameters.Add($"{paramTypeName} {paramName}");
         }
         var parametersString = string.Join(", ", parameters);
 
-        var argNames = subscript.IndexParameters.Select((p, i) =>
-            string.IsNullOrEmpty(p.Name) ? $"index{i}" : p.Name).ToList();
+        var argNames = subscript.IndexParameters.Select(p =>
+            NameProvider.GetCSharpParameterName(p)).ToList();
         var argsString = string.Join(", ", argNames);
 
         writer.WriteLine($"public {returnTypeName} this[{parametersString}]");
@@ -414,7 +427,7 @@ public partial class ProtocolProxyEmitter
                     paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
                 }
             }
-            var paramName = string.IsNullOrEmpty(param.Name) ? $"arg{argIndex}" : param.Name;
+            var paramName = NameProvider.GetCSharpParameterName(param);
             parameters.Add($"{paramTypeName} {paramName}");
             argNames.Add(paramName);
             projectedParamTypes.Add(paramTypeName);
@@ -424,7 +437,7 @@ public partial class ProtocolProxyEmitter
         var parametersString = string.Join(", ", parameters);
         var argsString = string.Join(", ", argNames);
 
-        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync);
+        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn);
         var isDispatchable = dispatchEmitter.IsMethodDispatchable(method);
 
         // Validate that the projected return type matches the dispatch strategy.

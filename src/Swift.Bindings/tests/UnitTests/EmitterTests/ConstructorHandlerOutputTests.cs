@@ -124,7 +124,7 @@ public class ConstructorHandlerOutputTests
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
         // Should emit constructor syntax, not instance method
-        Assert.Contains("public unsafe Animal(", csOutput);
+        Assert.Contains("public Animal(", csOutput);
         // Should NOT contain a return type (constructors don't have one)
         Assert.DoesNotContain("Swift.TestModule.Animal Init(", csOutput);
         Assert.DoesNotContain("return ", csOutput);
@@ -166,7 +166,7 @@ public class ConstructorHandlerOutputTests
 
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Contains("public unsafe Animal(", csOutput);
+        Assert.Contains("public Animal(", csOutput);
         // The extern P/Invoke should use IntPtr for the enum parameter
         var lines = csOutput.Split('\n');
         var externLine = Array.Find(lines, line => line.Contains("extern", StringComparison.Ordinal));
@@ -186,7 +186,7 @@ public class ConstructorHandlerOutputTests
 
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Contains("public static unsafe bool TryCreate(", csOutput);
+        Assert.Contains("public static bool TryCreate(", csOutput);
         Assert.Contains("out Animal result)", csOutput);
     }
 
