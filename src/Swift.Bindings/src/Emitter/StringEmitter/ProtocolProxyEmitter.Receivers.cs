@@ -221,6 +221,12 @@ public partial class ProtocolProxyEmitter
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? GetCSharpTypeName(returnType!) : "void";
 
+        // Detect existential/optional-existential return types — these can't be marshalled
+        // back to Swift via Unsafe.Write because the C# interface type doesn't match
+        // the Swift existential container layout (3 payload + 1 metadata + N witness table words).
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        bool hasOptionalExistentialReturn = hasReturn && existentialHandler.IsOptionalExistential(returnType!);
+
         var paramCount = method.CSSignature.Count - 1;
         var paramTypes = "IntPtr vtHandle, IntPtr selfContainer" + string.Concat(
             method.CSSignature.Skip(1).Select((p, i) => $", IntPtr rawArg{i}"));
@@ -231,6 +237,30 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"private static {csharpReturnType} {receiverName}({paramTypes})");
         writer.WriteLine("{");
         writer.Indent++;
+
+        // Optional existential returns: return zeroed buffer representing Optional.none.
+        // C# interface types (e.g. IImageDecoding?) can't be correctly marshalled into
+        // Swift existential containers — constructing a valid container requires Swift type
+        // metadata + protocol witness table pointers that aren't accessible from C#.
+        // Returning None is safe; non-null existential return marshalling requires future
+        // infrastructure (Swift metadata lookup + witness table construction from C#).
+        // This is NOT a regression — before optional existential resolution, these methods
+        // used AnyType? with equally invalid Unsafe.Write marshalling.
+        if (hasOptionalExistentialReturn)
+        {
+            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(returnType!);
+            var containerSizeWords = innerProtocolList != null
+                ? existentialHandler.GetExistentialContainerSizeInWords(innerProtocolList)
+                : 5; // default: 3 payload + 1 metadata + 1 witness table
+            var containerSizeBytes = containerSizeWords * 8;
+            writer.WriteLine($"// Optional existential return: can't construct valid Swift existential container from C#");
+            writer.WriteLine($"// (needs type metadata + witness table). Return None until existential marshalling is implemented.");
+            writer.WriteLine($"return (IntPtr)NativeMemory.AllocZeroed({containerSizeBytes});");
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine();
+            return;
+        }
 
         writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
         writer.WriteLine($"var proxy = SwiftObjectRegistry.GetProxyFromContainer<{proxyClassName}>(container);");

@@ -583,6 +583,20 @@ namespace BindingsGeneration
                 }
             }
 
+            // Handle Optional-wrapped existential types (e.g., (any ImageDecoding)?)
+            if (existentialHandler.IsOptionalExistential(typeSpec))
+            {
+                var innerProtocolList = existentialHandler.UnwrapOptionalExistential(typeSpec);
+                if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
+                {
+                    var publicInnerType = existentialHandler.GetPublicExistentialType(innerProtocolList);
+                    if (publicInnerType != "object")
+                    {
+                        return existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
+                    }
+                }
+            }
+
             // Handle closures - translate to C# delegate types for protocol interfaces
             if (typeSpec is ClosureTypeSpec closureTypeSpec)
             {

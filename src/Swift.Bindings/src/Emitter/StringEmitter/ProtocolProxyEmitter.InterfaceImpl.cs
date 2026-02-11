@@ -381,6 +381,20 @@ public partial class ProtocolProxyEmitter
                     else
                         returnTypeName = GetCSharpTypeName(returnType!);
                 }
+                else if (existentialHandler.IsOptionalExistential(returnType!))
+                {
+                    var innerProtocolList = existentialHandler.UnwrapOptionalExistential(returnType!);
+                    if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
+                    {
+                        var publicInnerType = existentialHandler.GetPublicExistentialType(innerProtocolList);
+                        if (publicInnerType != "object")
+                            returnTypeName = existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
+                        else
+                            returnTypeName = GetCSharpTypeName(returnType!);
+                    }
+                    else
+                        returnTypeName = GetCSharpTypeName(returnType!);
+                }
                 else
                 {
                     returnTypeName = GetCSharpTypeName(returnType!);
@@ -419,6 +433,20 @@ public partial class ProtocolProxyEmitter
                     var protocolList = existentialHandler.ToProtocolListTypeSpec(param.SwiftTypeSpec);
                     if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
                         paramTypeName = existentialHandler.GetPublicExistentialType(protocolList);
+                    else
+                        paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+                }
+                else if (existentialHandler.IsOptionalExistential(param.SwiftTypeSpec))
+                {
+                    var innerProtocolList = existentialHandler.UnwrapOptionalExistential(param.SwiftTypeSpec);
+                    if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
+                    {
+                        var publicInnerType = existentialHandler.GetPublicExistentialType(innerProtocolList);
+                        if (publicInnerType != "object")
+                            paramTypeName = existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
+                        else
+                            paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+                    }
                     else
                         paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
                 }

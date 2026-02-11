@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="SwiftUI" modulePath="/System/Library/Frameworks/SwiftUI.framework/SwiftUI">
+    <entities>
+        <entity managedNameSpace="SwiftUI" managedTypeName="Color">
+            <typedeclaration kind="struct" name="Color" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="SwiftUI" managedTypeName="Font">
+            <typedeclaration kind="struct" name="Font" module="SwiftUI" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+    </entities>
+</swifttypedatabase>

@@ -1693,7 +1693,7 @@ public class MyImageProcessor : IImageProcessing
         }
     }
 
-    public AnyType HashableIdentifier => default;
+    public AnyHashable HashableIdentifier => default;
 
     public UIKit.UIImage? Process(UIKit.UIImage arg0)
     {

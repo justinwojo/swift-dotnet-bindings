@@ -85,5 +85,8 @@
         <entity managedNameSpace="Swift" managedTypeName="Hasher">
             <typedeclaration kind="struct" name="Hasher" module="Swift" mangledName="$ss6HasherV" frozen="false" requiresMemoryManagement="false" />
         </entity>
+        <entity managedNameSpace="Swift" managedTypeName="AnyHashable">
+            <typedeclaration kind="struct" name="AnyHashable" module="Swift" mangledName="$ss11AnyHashableV" frozen="false" requiresMemoryManagement="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

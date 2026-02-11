@@ -44,6 +44,12 @@ public partial class ProtocolProxyEmitter
             // Unsupported existentials flow through to type database fallback (typically Swift.AnyType).
         }
 
+        // Note: Optional-wrapped existentials (e.g., (any ImageDecoding)?) are NOT handled here.
+        // This method is used by receivers for ABI marshalling where the pre-existing
+        // BoundGenericsHandler fallback (SwiftOptional<AnyType>) must be preserved.
+        // Optional existential resolution to public types (IImageDecoding?) is only done
+        // in ProtocolHandler.GetCSharpTypeName() and InterfaceImpl.EmitMethodImplementation().
+
         try
         {
             // Handle generic types by getting base type and building generic arguments

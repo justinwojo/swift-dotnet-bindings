@@ -128,6 +128,16 @@ public class TypeConversionHandler
                 return null;
             }
 
+            // Don't handle Optional<Existential> here - let ExistentialHandler deal with it
+            if (namedTypeSpec.GenericParameters.Count > 0)
+            {
+                var existentialHandler = new ExistentialHandler(_typeDatabase);
+                if (existentialHandler.IsExistential(namedTypeSpec.GenericParameters[0]))
+                {
+                    return null;
+                }
+            }
+
             var innerType = GetElementType(namedTypeSpec, typeTranslator);
             if (innerType == null)
                 return null;

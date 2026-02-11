@@ -435,6 +435,7 @@ public static class TypeDatabaseExtensions
         // AVFoundation structs
         "AVFoundation.AVAudioFramePosition", "AVFoundation.AVAudioFrameCount",
         "AVFoundation.AVAudioPacketCount", "AVFoundation.AVAudioChannelCount",
+        "AVFoundation.AVCaptureVideoOrientation",
         // CoreData structs
         "CoreData.NSFetchRequestResultType",
         // SceneKit structs

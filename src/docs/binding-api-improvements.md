@@ -16,7 +16,9 @@ A major refactor pass addressed the most critical issues from the initial review
 
 **Post-WU Codex review fixes**: Protocol proxy getter/setter type asymmetry (interface uses idiomatic types, receivers marshal Swift ABI types), Optional<Array<String>> element conversion in WrapperEmitter.Marshalling, GetSwiftWrapperType raw element type safety, async-void Get prefix ordering, protocol param name normalization.
 
-**New issues found post-review**: AnyType fallback has no type info (R7), async naming edge cases (N5), property collision logic (N6), default parameters/overloads.
+**AnyType reduction pass**: Eliminated 7 unique AnyType occurrences (optional existential bug fix, Bundle/CTFont/AnyHashable TypeDB registrations). Nuke AnyType lines 10→4. Remaining instances are structural.
+
+**New issues found post-review**: AnyType fallback has no type info (R7, partially addressed), async naming edge cases (N5), property collision logic (N6), default parameters/overloads.
 
 ---
 
@@ -51,7 +53,7 @@ A major refactor pass addressed the most critical issues from the initial review
 
 | # | Issue | Status | Implementation Notes |
 |---|-------|--------|---------------------|
-| R7 | `AnyType` fallback with no type info | **Open** | 4 instances remain in Nuke (`HashableIdentifier`, `ImageDecoder`, `ImageCache`, `DataCache`). When type resolution falls back to `Swift.AnyType`, add `[OriginalSwiftType("Module.TypeName")]` attribute. |
+| R7 | `AnyType` fallback with no type info | **Partial** | AnyType reduction pass eliminated 7 unique occurrences: Optional existential in protocol interfaces (3 Nuke), Foundation.Bundle (1 Lottie), CoreText.CTFont (1 Lottie), Swift.AnyHashable (2 Nuke+Lottie). Remaining AnyType instances are structural (ArraySlice in protocols, Self type, generic params, Any/Any.Type). Original `[OriginalSwiftType]` attribute proposal still open. |
 | R11 | Property `Value` suffixes | **Done** | Removed — no `ConfigurationValue`, `CacheValue`, etc. in generated output. |
 | R12 | `ISwift*` interface prefix | **Done** | Interfaces use `I` + protocol name (`IImageProcessing`, `ICancellable`, etc.). |
 
@@ -296,6 +298,28 @@ Codex review of the WU1-WU6 changes identified marshalling correctness issues in
 
 ---
 
+### AnyType Reduction Pass (**Done**)
+
+**Priority**: P1 (R7 partial)
+**Status**: **Done** — Eliminated 7 unique AnyType occurrences across Nuke and Lottie. Nuke AnyType lines: 10 → 4.
+
+Four categories of fixes, each addressing a different root cause of AnyType fallback:
+
+| # | Fix | Libraries | Unique eliminated |
+|---|-----|-----------|-------------------|
+| AT1 | Optional existential in protocol interface methods — `GetIdiomaticCSharpType` intercepted `Optional<any P>` before `ExistentialHandler` could resolve it | Nuke | 3 (×2 with proxy = 6 lines) |
+| AT2 | Foundation.Bundle (NSBundle) TypeDB registration | Lottie | 1 |
+| AT3 | CoreText.CTFont TypeDB registration | Lottie | 1 |
+| AT4 | Swift.AnyHashable TypeDB registration + runtime struct | Nuke, Lottie | 2 |
+
+**AT1 detail**: `TypeConversionHandler.GetIdiomaticCSharpType()` handled `Optional<T>` by calling `GetElementType()` which fell through to `GetTypeRecordOrAnyType` for existential inner types. Fix: bail out of Optional handling when inner type is existential (mirrors existing Closure bail-out), letting `ExistentialHandler` resolve it. Applied to `ProtocolHandler.GetCSharpTypeName()` (interface signatures) and `ProtocolProxyEmitter.InterfaceImpl.EmitMethodImplementation()` (proxy method signatures). Receiver callbacks guard optional-existential returns with zeroed buffer (Optional.none) since C# can't construct valid Swift existential containers (needs type metadata + witness tables).
+
+**Files modified**: `TypeConversionHandler.cs`, `ProtocolHandler.cs`, `ProtocolProxyEmitter.InterfaceImpl.cs`, `ProtocolProxyEmitter.Helpers.cs`, `ProtocolProxyEmitter.Receivers.cs`, `FoundationDatabase.xml`, `CoreTextDatabase.xml` (new), `SwiftDatabase.xml`, `AnyHashable.cs` (new), `Program.cs`
+
+**Remaining AnyType** (structural — not fixable without architecture changes): ArraySlice in protocol interfaces (15), Protocol Self type (6), Any/Any.Type (3), generic type arguments (4), associated type protocols (2), cross-module nested types (1), no C# type (1), closure containing ArraySlice (1).
+
+---
+
 ## Cross-Cutting Concerns
 
 These affect multiple waves and should be addressed incrementally:
@@ -365,7 +389,7 @@ Based on impact and effort. Items marked **Done** from the refactor pass are exc
 
 **Next (structural changes):**
 8. **R6 — ExistentialContainer → typed interface**: Requires protocol resolution in emitter. Still appears in Error factories, proxy constructors.
-9. **R7 — AnyType original type attribute**: Add `[OriginalSwiftType("Module.TypeName")]` when falling back to AnyType. 4 instances in Nuke.
+9. **R7 — AnyType original type attribute**: Add `[OriginalSwiftType("Module.TypeName")]` when falling back to AnyType. Most Nuke instances resolved by AnyType reduction pass; remaining instances are structural (ArraySlice in protocols, Self type, generic params).
 
 **Polish:**
 10. **N5/N6 — Async naming edge cases, property collision logic**

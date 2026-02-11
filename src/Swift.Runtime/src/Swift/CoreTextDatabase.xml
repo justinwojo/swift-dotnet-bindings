@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="CoreText"
+                   modulePath="/System/Library/Frameworks/CoreText.framework/CoreText">
+    <entities>
+        <entity managedNameSpace="CoreText" managedTypeName="CTFont" objcBridged="true">
+            <typedeclaration kind="class" name="CTFont" module="CoreText"
+                           mangledName="$sSo6CTFontaD" frozen="false"
+                           requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+    </entities>
+</swifttypedatabase>

@@ -31,5 +31,8 @@
         <entity managedNameSpace="Foundation" managedTypeName="NSUrlCache" objcBridged="true">
             <typedeclaration kind="class" name="URLCache" module="Foundation" mangledName="$sSo10NSURLCacheC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSBundle" objcBridged="true">
+            <typedeclaration kind="class" name="Bundle" module="Foundation" mangledName="$sSo8NSBundleC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>
