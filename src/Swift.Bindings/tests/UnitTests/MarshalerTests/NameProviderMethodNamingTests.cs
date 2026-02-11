@@ -112,6 +112,27 @@ public class NameProviderMethodNamingTests
         Assert.Equal("RefreshTitleAsync", result);
     }
 
+    [Fact]
+    public void AcceptsPrefix_RecognizedAsVerb()
+    {
+        var result = NameProvider.GetPublicMethodName("acceptsParameters", isAsync: false, hasReturnValue: true);
+        Assert.Equal("AcceptsParameters", result);
+    }
+
+    [Fact]
+    public void SumPrefix_RecognizedAsVerb()
+    {
+        var result = NameProvider.GetPublicMethodName("sum", isAsync: false, hasReturnValue: true);
+        Assert.Equal("Sum", result);
+    }
+
+    [Fact]
+    public void PassPrefix_RecognizedAsVerb()
+    {
+        var result = NameProvider.GetPublicMethodName("passThrough", isAsync: false, hasReturnValue: true);
+        Assert.Equal("PassThrough", result);
+    }
+
     #endregion
 
     #region Void return (no Get)

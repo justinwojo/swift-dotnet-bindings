@@ -58,7 +58,7 @@ public static partial class ClosureEmitter
 
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
-            private static void {{callbackName}}({{parametersString}})
+            private static unsafe void {{callbackName}}({{parametersString}})
             {
                 var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
                 var result = del({{invokeArgsString}});

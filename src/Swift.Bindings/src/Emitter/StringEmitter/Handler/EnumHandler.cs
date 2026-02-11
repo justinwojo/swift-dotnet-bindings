@@ -316,6 +316,9 @@ namespace BindingsGeneration
             csWriter.WriteLine("get");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            csWriter.WriteLine("unsafe");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
             csWriter.WriteLine($"var result = new {enumTypeName}();");
             csWriter.WriteLine($"var metadata = SwiftObjectHelper<{enumTypeName}>.GetTypeMetadata();");
             csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
@@ -323,6 +326,8 @@ namespace BindingsGeneration
             csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
             csWriter.WriteLine("return result;");
 
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.Indent--;

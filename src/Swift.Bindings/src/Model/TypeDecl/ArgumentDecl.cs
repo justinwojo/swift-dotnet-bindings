@@ -34,5 +34,11 @@ namespace BindingsGeneration
         /// if overload generation is implemented.
         /// </summary>
         public bool HasDefaultArg { get; set; } = false;
+
+        /// <summary>
+        /// The deduplicated C# parameter name, set by NameProvider.DeduplicateParameterNames().
+        /// When set, NameProvider.GetCSharpParameterName() returns this value.
+        /// </summary>
+        public string? CSharpName { get; set; }
     }
 }

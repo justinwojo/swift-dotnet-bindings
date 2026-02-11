@@ -15,7 +15,7 @@ namespace BindingsGeneration
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Emit the static cached field
-            csWriter.WriteLine($"private static TupleTypeMetadata* _tupleMetadata_{capitalizedCaseName};");
+            csWriter.WriteLine($"private static unsafe TupleTypeMetadata* _tupleMetadata_{capitalizedCaseName};");
             csWriter.WriteLine();
 
             // Emit the accessor method

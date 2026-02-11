@@ -967,6 +967,48 @@ public class ClosureCdeclEmitterTests
 
     #endregion
 
+    #region Unsafe Body Detection for Closures
+
+    [Fact]
+    public void StaticMethodWithClosure_EmitsUnsafeBody()
+    {
+        // Static/module-level method with a supported closure parameter.
+        // No SwiftSelf, no IndirectResult, no SwiftAsync, no generics —
+        // closure is the ONLY reason unsafe is required (delegate* unmanaged).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("callWithInt", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // The wrapper method body must contain an unsafe { } block because closure
+        // marshalling emits delegate* unmanaged function pointers.
+        // We assert specifically on the method body — not just any "unsafe" token,
+        // since callback field declarations (e.g. "private static unsafe readonly delegate*")
+        // already contain "unsafe" and would make a blanket assertion pass vacuously.
+        var lines = csOutput.Split('\n').Select(l => l.Trim()).ToArray();
+        var methodLineIdx = Array.FindIndex(lines, l => l.Contains("CallWithInt("));
+        Assert.True(methodLineIdx >= 0, "Expected wrapper method 'CallWithInt' in output");
+
+        // Find "unsafe" block inside the method body (after the method signature line)
+        var bodyLines = lines.Skip(methodLineIdx + 1).ToArray();
+        var unsafeIdx = Array.FindIndex(bodyLines, l => l == "unsafe");
+        Assert.True(unsafeIdx >= 0, "Expected 'unsafe' block inside CallWithInt method body");
+        Assert.Equal("{", bodyLines[unsafeIdx + 1]);
+    }
+
+    #endregion
+
     #region Test Helpers
 
     private static TypeDatabase CreateTypeDatabase()

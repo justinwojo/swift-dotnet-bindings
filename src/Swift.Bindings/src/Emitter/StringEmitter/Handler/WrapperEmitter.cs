@@ -657,12 +657,21 @@ namespace BindingsGeneration
 
             bool containsBoundGenerics = _env.MethodDecl.CSSignature.Any(_env.BoundGenericsHandler.IsBoundGeneric);
 
+            // Closure parameters that pass EmitClosureMarshalling emit delegate* unmanaged pointers,
+            // which require unsafe context (matches gating at Marshalling.cs:153-156)
+            bool hasClosureParams = _env.MethodDecl.CSSignature.Skip(1).Any(arg =>
+            {
+                if (!_env.ClosureHandler.IsClosure(arg)) return false;
+                var closureSpec = _env.ClosureHandler.GetClosureTypeSpec(arg);
+                return closureSpec != null && _env.ClosureHandler.IsSupportedClosure(closureSpec);
+            });
+
             // Async constructors emit as static CreateAsync() factory methods
             // (C# doesn't support async constructors)
             bool isAsyncConstructor = _env.MethodDecl.IsConstructor && _env.MethodDecl.IsAsync;
 
             var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl || isAsyncConstructor ? "static " : "";
-            _needsUnsafeBody = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _requiresSwiftError || methodOwnParams.Count > 0 || containsBoundGenerics;
+            _needsUnsafeBody = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _requiresSwiftError || methodOwnParams.Count > 0 || containsBoundGenerics || hasClosureParams;
 
             var returnType = _wrapperSignature.ReturnType;
             if (_requiresSwiftAsync)

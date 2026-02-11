@@ -63,7 +63,7 @@ These issues were identified during analysis of generated output for Nuke and Te
 
 **Priority**: P1
 **Wave**: 2 or 3
-**Status**: **Done** — WU1 implemented verb prefix detection (`Get` for noun-only return methods), double Async stripping, and void-return protection in `NameProvider.GetPublicMethodName()`. 15 unit tests.
+**Status**: **Done** — WU1 implemented verb prefix detection (`Get` for noun-only return methods), double Async stripping, and void-return protection in `NameProvider.GetPublicMethodName()`. 18 unit tests. Post-WU1 integration fix added `Accept`/`Pass`/`Sum` verbs to `_verbPrefixes` (were causing false `Get` prefix on `AcceptsGenericParameters`, `PassThroughArray`, `Sum`, etc.).
 **Impact**: Every async method with a noun-only name reads wrong to .NET developers
 
 The generator's method naming logic (`NameProvider.cs:566-572`) does three things:
@@ -160,7 +160,7 @@ The generator currently uses the external label. It should prefer the internal n
 
 **Priority**: P2
 **Wave**: 3
-**Status**: **Done** — WU5 removed `unsafe` from all public class declarations and method/constructor signatures. `unsafe` moved to body-level `unsafe { }` blocks. Kept on genuinely-required types: frozen struct value types (fixed byte buffers), protocol proxy classes (delegate* vtable), composition proxy classes (pointer ops). P/Invoke declarations auto-detect `void*`/`delegate*` for per-method `unsafe`. 6 unit tests.
+**Status**: **Done** — WU5 removed `unsafe` from all public class declarations and method/constructor signatures. `unsafe` moved to body-level `unsafe { }` blocks. Kept on genuinely-required types: frozen struct value types (fixed byte buffers), protocol proxy classes (delegate* vtable), composition proxy classes (pointer ops). P/Invoke declarations auto-detect `void*`/`delegate*` for per-method `unsafe`. 7 unit tests. Post-WU5 integration fix added closure parameter detection to `_needsUnsafeBody` (methods with `delegate* unmanaged` from closure marshalling), `unsafe` on closure callback methods, enum factory methods, and `TupleTypeMetadata*` fields.
 **Impact**: Forces callers into unsafe context unnecessarily
 
 Every method that internally performs pointer operations is declared `public unsafe`. This forces consumer code to either use `unsafe` blocks or compile with `/unsafe`. For a high-level binding library, this is wrong — the unsafe operations are an internal implementation detail.
@@ -358,4 +358,4 @@ Based on impact and effort. Items marked **Done** from the refactor pass are exc
 | `roadmap.md` | This work is a prerequisite for DX-1 (external consumption). Updates needed to reflect this phase. |
 | `developer-experience.md` | DX-1 through DX-4 assume a usable API surface. This plan gets the API there. |
 | `testframework-review.md` | TestFramework hardening (compile gate, baseline budgets) should run in parallel to catch regressions from these changes. |
-| `CURRENT-STATUS.md` | Needs update to reflect current baselines (stale — shows 1,603 unit tests, actual is 1,900). |
+| `CURRENT-STATUS.md` | Needs update to reflect current baselines (stale — shows 1,603 unit tests, actual is 1,912). |

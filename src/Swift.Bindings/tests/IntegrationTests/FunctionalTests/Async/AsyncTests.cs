@@ -47,13 +47,13 @@ namespace BindingsGeneration.FunctionalTests
             var myStruct = new Bindings.AsyncStruct(42);
 
             var stopwatch = Stopwatch.StartNew();
-            await myStruct.AsyncVoidAsync();
+            await myStruct.VoidAsync();
             stopwatch.Stop();
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);
 
             stopwatch.Restart();
             ulong seconds = 2;
-            ulong result = await myStruct.AsyncNonVoidAsync(seconds);
+            ulong result = await myStruct.GetNonVoidAsync(seconds);
             stopwatch.Stop();
             Assert.Equal(seconds, result);
             Assert.True(stopwatch.Elapsed.TotalSeconds >= seconds);
@@ -63,13 +63,13 @@ namespace BindingsGeneration.FunctionalTests
         public async Task TestStaticMethods()
         {
             var stopwatch = Stopwatch.StartNew();
-            await Bindings.AsyncStruct.AsyncVoidStaticAsync();
+            await Bindings.AsyncStruct.VoidStaticAsync();
             stopwatch.Stop();
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);
 
             stopwatch.Restart();
             ulong seconds = 2;
-            ulong result = await Bindings.AsyncStruct.AsyncNonVoidStaticAsync(seconds);
+            ulong result = await Bindings.AsyncStruct.GetNonVoidStaticAsync(seconds);
             stopwatch.Stop();
             Assert.Equal(seconds, result);
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);
@@ -93,17 +93,17 @@ namespace BindingsGeneration.FunctionalTests
         public async Task TestArray()
         {
             var myStruct = new Bindings.AsyncStruct(0);
-            var input = new SwiftString[] { new SwiftString("one"), new SwiftString("two"), new SwiftString("three") };
+            var input = new string[] { "one", "two", "three" };
 
             var stopwatch = Stopwatch.StartNew();
-            IReadOnlyList<SwiftString> result = await myStruct.ArrayPassThroughAsync(input);
+            IReadOnlyList<string> result = await myStruct.GetArrayPassThroughAsync(input);
             stopwatch.Stop();
 
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);
             Assert.Equal(3, result.Count);
-            Assert.Equal("one", result[0].ToString());
-            Assert.Equal("two", result[1].ToString());
-            Assert.Equal("three", result[2].ToString());
+            Assert.Equal("one", result[0]);
+            Assert.Equal("two", result[1]);
+            Assert.Equal("three", result[2]);
         }
 
         [Fact]
@@ -113,7 +113,7 @@ namespace BindingsGeneration.FunctionalTests
             string input = "test string";
 
             var stopwatch = Stopwatch.StartNew();
-            string result = await myStruct.StringPassThroughAsync(input);
+            string result = await myStruct.GetStringPassThroughAsync(input);
             stopwatch.Stop();
 
             Assert.True(stopwatch.Elapsed.TotalSeconds >= 1);

@@ -1130,7 +1130,7 @@ namespace BindingsGeneration
                 """
                 : "";
 
-            // The wrapper return type is IReadOnlyList<SwiftString> (matches non-async Array<String> return type)
+            // The wrapper return type is IReadOnlyList<string> (matches non-async Array<String> return type with WU2 element conversion)
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -1138,16 +1138,16 @@ namespace BindingsGeneration
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             System.Exception? deserializationError = null;
-                            System.Collections.Generic.List<SwiftString>? result = null;
+                            System.Collections.Generic.List<string>? result = null;
 
                             try
                             {
-                                // Deserialize Array<String> from flat buffer into SwiftString instances
+                                // Deserialize Array<String> from flat buffer into string instances
                                 // Buffer format: [count: Int64][len0: Int64]...[lenN-1: Int64][str0 bytes]...[strN-1 bytes]
                                 if (bufferLen <= sizeof(long))
                                 {
                                     // Empty array or just count field
-                                    result = new System.Collections.Generic.List<SwiftString>();
+                                    result = new System.Collections.Generic.List<string>();
                                 }
                                 else
                                 {
@@ -1159,7 +1159,7 @@ namespace BindingsGeneration
 
                                     if (count == 0)
                                     {
-                                        result = new System.Collections.Generic.List<SwiftString>();
+                                        result = new System.Collections.Generic.List<string>();
                                     }
                                     else
                                     {
@@ -1183,8 +1183,8 @@ namespace BindingsGeneration
                                         if (headerSize + totalDataLen > bufferLen)
                                             throw new InvalidOperationException($"Buffer too small for array data: need {headerSize + totalDataLen}, have {bufferLen}");
 
-                                        // Read strings and wrap in SwiftString (casts are safe after validation)
-                                        result = new System.Collections.Generic.List<SwiftString>((int)count);
+                                        // Read strings from buffer (casts are safe after validation)
+                                        result = new System.Collections.Generic.List<string>((int)count);
                                         int dataOffset = headerSize;
                                         for (int i = 0; i < count; i++)
                                         {
@@ -1192,7 +1192,7 @@ namespace BindingsGeneration
                                             string s = strLen == 0
                                                 ? string.Empty
                                                 : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(bufferPtr + dataOffset, strLen)!;
-                                            result.Add(new SwiftString(s));
+                                            result.Add(s);
                                             dataOffset += strLen;
                                         }
                                     }

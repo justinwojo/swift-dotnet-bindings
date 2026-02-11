@@ -340,6 +340,9 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleArguments()
         {
+            // Pre-compute deduplicated parameter names so all consumers see consistent names
+            NameProvider.DeduplicateParameterNames(_env.MethodDecl.CSSignature);
+
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
             {
                 var csParamName = NameProvider.GetCSharpParameterName(argument);

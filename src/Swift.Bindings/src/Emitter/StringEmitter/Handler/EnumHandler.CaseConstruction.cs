@@ -54,7 +54,7 @@ namespace BindingsGeneration
             }
 
             var parameterString = string.Join(", ", parameters.Select(p => $"{p.type} {p.name}"));
-            csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}({parameterString})");
+            csWriter.WriteLine($"public static unsafe {enumTypeName} {capitalizedName}({parameterString})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine($"var result = new {enumTypeName}();");

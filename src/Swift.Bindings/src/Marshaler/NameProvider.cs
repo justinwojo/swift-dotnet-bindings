@@ -225,6 +225,10 @@ public static class NameProvider
     /// <returns>A valid C# parameter name.</returns>
     public static string GetCSharpParameterName(ArgumentDecl arg)
     {
+        // If a deduplicated name has been precomputed, use it
+        if (arg.CSharpName != null)
+            return arg.CSharpName;
+
         // 1. If PrivateName is populated, prefer it (internal Swift name from swiftinterface)
         if (!string.IsNullOrEmpty(arg.PrivateName))
             return SanitizeForCSharp(arg.PrivateName);
@@ -246,6 +250,35 @@ public static class NameProvider
         // We keep the _ prefix because derived names ({name}Handle, {name}Swift)
         // must be valid identifiers without @ escaping.
         return arg.Name;
+    }
+
+    /// <summary>
+    /// Pre-computes deduplicated C# parameter names for all arguments in a method.
+    /// When two parameters normalize to the same name, appends numeric suffixes (value, value2, value3).
+    /// Stores results in ArgumentDecl.CSharpName so all consumers see consistent names.
+    /// </summary>
+    /// <param name="arguments">The method's CSSignature (first element is return type, skipped).</param>
+    public static void DeduplicateParameterNames(IList<ArgumentDecl> arguments)
+    {
+        var usedNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var arg in arguments.Skip(1))
+        {
+            // Compute the base name using existing logic (bypass CSharpName to get raw name)
+            arg.CSharpName = null;
+            var baseName = GetCSharpParameterName(arg);
+
+            if (usedNames.Add(baseName))
+            {
+                arg.CSharpName = baseName;
+            }
+            else
+            {
+                int suffix = 2;
+                while (!usedNames.Add($"{baseName}{suffix}"))
+                    suffix++;
+                arg.CSharpName = $"{baseName}{suffix}";
+            }
+        }
     }
 
     /// <summary>
@@ -649,6 +682,7 @@ public static class NameProvider
         "Queue", "Schedule", "Postpone", "Defer", "Delay",
         "Broadcast", "Multicast", "Relay", "Forward", "Relay",
         "Put", "Patch", "Post",
+        "Accept", "Accepts", "Pass", "Passes", "Sum", "Sums",
     };
 
     /// <summary>

@@ -337,8 +337,8 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("private static Swift.TestModule.Box handle_callback_", csOutput);
-        Assert.DoesNotContain("private static void* handle_callback_", csOutput);
+        Assert.Contains("private static unsafe Swift.TestModule.Box handle_callback_", csOutput);
+        Assert.DoesNotContain("private static unsafe void* handle_callback_", csOutput);
         Assert.Contains("return del(", csOutput);
         // Closure returns non-primitive struct → falls back to legacy Swift path (not Cdecl-compatible)
         Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, Swift.TestModule.Box>", csOutput);
@@ -368,8 +368,8 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("private static System.Double sample_callback_", csOutput);
-        Assert.DoesNotContain("private static void* sample_callback_", csOutput);
+        Assert.Contains("private static unsafe System.Double sample_callback_", csOutput);
+        Assert.DoesNotContain("private static unsafe void* sample_callback_", csOutput);
         // Closure returns mapped scalar (frozen struct mapped to Double, but TypeSpec is TestModule.Scalar)
         // Falls back to legacy Swift path because the raw TypeSpec is non-primitive
         Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, System.Double>", csOutput);
@@ -399,11 +399,11 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("private static void tint_callback_", csOutput);
+        Assert.Contains("private static unsafe void tint_callback_", csOutput);
         // Closure returns non-frozen struct → falls back to legacy Swift path (not Cdecl-compatible)
         Assert.Contains("(void* indirectResult, double arg0, SwiftSelf context)", csOutput);
         Assert.Contains("delegate* unmanaged[Swift]<void*, double, SwiftSelf, void>", csOutput);
-        Assert.DoesNotContain("private static void* tint_callback_", csOutput);
+        Assert.DoesNotContain("private static unsafe void* tint_callback_", csOutput);
     }
 
     [Fact]

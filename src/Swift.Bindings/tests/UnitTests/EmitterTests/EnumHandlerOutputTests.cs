@@ -241,7 +241,7 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public static PlaybackMode Paused(", csOutput);
+        Assert.Contains("public static unsafe PlaybackMode Paused(", csOutput);
         Assert.Contains("public static System.Int64 Active", csOutput);
         Assert.DoesNotContain("public static System.Int64 Paused", csOutput);
     }
@@ -265,7 +265,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         Assert.Contains("public class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject", csOutput);
-        Assert.Contains("public static ValueProviderStorage<T0> Boxed(T0 value0)", csOutput);
+        Assert.Contains("public static unsafe ValueProviderStorage<T0> Boxed(T0 value0)", csOutput);
         Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();", csOutput);
         Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);
         Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, (IntPtr)value0SwiftBuffer", csOutput);
