@@ -743,7 +743,7 @@ dotnet new swift-binding -n Nuke.Swift.iOS
 - **No metadata extraction** (iOS version, library version) is implemented in the generator
 - **No `.targets` file generation** — the 4-layer dependency enforcement is entirely on paper
 - **Swift.Runtime is `IsPackable=false`** — external users have no way to get the runtime support library
-- **The main roadmap (roadmap.md) puts Phase 3 DX work *after* Phases B and C** (testing hardening, feature enablement, new library validation)
+- **The main roadmap (roadmap.md) now prioritizes DX work first**, interleaved with test hardening and library validation
 
 ### DX-1: "Hello World" External Consumption (smallest useful increment)
 
@@ -801,7 +801,7 @@ Phases B (enable TestFramework features) and C (new library validation) are abou
 - **Phase C validates generalization** — trying new libraries finds patterns the generator misses
 - **DX-2 and DX-3 benefit from Phase C** — multi-framework packaging is easier to test with real multi-framework libraries
 
-A reasonable interleaving: **DX-1 → Phase B → DX-2 → Phase C → DX-3**. This way external users can start experimenting (DX-1) while generator coverage improves (B), then packaging automation (DX-2) lands alongside new library validation (C).
+Adopted interleaving (see `roadmap.md`): **DX-1 → TH (test hardening) → DX-2 → Phase J (new library) → DX-3**. External users can start experimenting (DX-1) while test gates harden (TH), then packaging automation (DX-2) lands before new library validation (J) exercises the workflow end-to-end.
 
 ---
 
