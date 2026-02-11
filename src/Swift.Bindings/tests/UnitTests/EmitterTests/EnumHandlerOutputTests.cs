@@ -620,6 +620,171 @@ public class EnumHandlerOutputTests
         };
     }
 
+    private static TypeDatabase CreateTypeDatabaseWithProtocol(string protocolModule, string protocolName)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        // Create the test module with the protocol registration
+        var testModuleDb = new ModuleTypeDatabase(protocolModule, $"/tmp/{protocolModule}.dylib");
+        testModuleDb.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{protocolModule}", $"I{protocolName}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
+                MetadataAccessor = $"$s{protocolModule}{protocolName}Ma",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModuleDb);
+
+        return typeDatabase;
+    }
+
+    [Fact]
+    public void Emit_ExistentialWithKnownProxy_FactoryUsesInterfaceType()
+    {
+        // Register ImageProcessing as a known protocol
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "ImageProcessing");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: true);
+
+        var failedCase = CreateCase("processingFailed");
+        // Single-protocol existential associated value
+        failedCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.ImageProcessing") }));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Factory signature should use interface type
+        Assert.Contains("IImageProcessing", csOutput);
+        Assert.Contains("public static unsafe ImageError ProcessingFailed(IImageProcessing", csOutput);
+        // Body should extract container via ISwiftExistentialConvertible
+        Assert.Contains("ISwiftExistentialConvertible", csOutput);
+        Assert.Contains("GetExistentialContainer()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ExistentialWithoutProxy_KeepsExistentialContainer()
+    {
+        // Swift.Error has no TypeRecord → should stay as ExistentialContainer1
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("LoadError", moduleDecl, isFrozen: true);
+
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Should keep ExistentialContainer1 (no proxy)
+        Assert.Contains("ExistentialContainer1", csOutput);
+        // Should NOT contain interface type
+        Assert.DoesNotContain("IError", csOutput);
+        Assert.DoesNotContain("ISwiftExistentialConvertible", csOutput);
+    }
+
+    [Fact]
+    public void Emit_TryGetWithExistentialProxy_WrapsInProxy()
+    {
+        // Register protocol so we get interface types
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "ImageDecoding");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("DecodeResult", moduleDecl, isFrozen: true);
+
+        var decodedCase = CreateCase("decoded");
+        decodedCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.ImageDecoding") }));
+        enumDecl.Cases.Add(decodedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // TryGet out parameter should use interface type
+        Assert.Contains("out IImageDecoding value", csOutput);
+        // Body should marshal to temp container then wrap in proxy
+        Assert.Contains("_value_raw", csOutput);
+        Assert.Contains("new ImageDecodingProxy(", csOutput);
+    }
+
+    [Fact]
+    public void Emit_TupleTryGetWithMixedExistentials_MixesInterfaceAndContainer()
+    {
+        // One known protocol, one unknown protocol in a tuple
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "ImageProcessing");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("PipelineError", moduleDecl, isFrozen: true);
+
+        var failedCase = CreateCase("failed");
+        // Tuple: (known protocol, unknown protocol)
+        failedCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.ImageProcessing") }),
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") })
+        }));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Known protocol → interface type in out param
+        Assert.Contains("out IImageProcessing value0", csOutput);
+        // Unknown protocol → ExistentialContainer1 in out param
+        Assert.Contains("out Swift.Runtime.ExistentialContainer1 value1", csOutput);
+        // Proxy wrapping for known protocol
+        Assert.Contains("new ImageProcessingProxy(", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MultiProtocolCompositionWithUnregistered_KeepsExistentialContainer()
+    {
+        // 2-protocol composition but only one protocol is registered
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "ImageProcessing");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("MixedError", moduleDecl, isFrozen: true);
+
+        var failedCase = CreateCase("failed");
+        // Composition: ImageProcessing & UnknownProtocol (2 protocols)
+        failedCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.ImageProcessing"),
+            new NamedTypeSpec("TestModule.UnknownProtocol")
+        }));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Should keep ExistentialContainer2 (one protocol unregistered → can't build proxy)
+        Assert.Contains("ExistentialContainer2", csOutput);
+        // Should NOT contain a composition interface name
+        Assert.DoesNotContain("IImageProcessingAndUnknownProtocol", csOutput);
+    }
+
     private static (string csOutput, string swiftOutput) EmitEnum(EnumDecl enumDecl, TypeDatabase typeDatabase)
     {
         var csOutput = new StringWriter();

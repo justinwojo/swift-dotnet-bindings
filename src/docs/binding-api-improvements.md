@@ -12,11 +12,15 @@ A major refactor pass addressed the most critical issues from the initial review
 
 **What's fixed**: Real C# constructors, `string` properties, `T?` for optionals, `nint` for integers, `internal` Payload, non-throwing Equals/GetHashCode, clean interface names, no property Value suffixes, `IDisposable` via `ISwiftObject`, simple enums, verb-prefixed method names, type-derived parameter names, array/subscript element conversion, `unsafe` removed from public surface.
 
-**What remains from the review**: ExistentialContainer still in some public APIs (R6).
+**What remains from the review**: ExistentialContainer in some closure parameters and proxy constructors (R6 partial — enum associated values now use typed interfaces).
 
 **Post-WU Codex review fixes**: Protocol proxy getter/setter type asymmetry (interface uses idiomatic types, receivers marshal Swift ABI types), Optional<Array<String>> element conversion in WrapperEmitter.Marshalling, GetSwiftWrapperType raw element type safety, async-void Get prefix ordering, protocol param name normalization.
 
 **AnyType reduction pass**: Eliminated 7 unique AnyType occurrences (optional existential bug fix, Bundle/CTFont/AnyHashable TypeDB registrations). Nuke AnyType lines 10→4. Remaining instances are structural.
+
+**Enum existential promotion**: Enum associated values with protocol-typed parameters now use typed interfaces (`IImageProcessing`, `IImageDecoding`) instead of `ExistentialContainer{N}` in factory methods, TryGet out-parameters, and marshalling. Only applies when all protocols in the composition have TypeRecords with `Kind == Protocol` — unknown/unregistered protocols (e.g., `Swift.Error`) correctly keep their container types.
+
+**#nullable enable**: All generated C# files (main bindings + SwiftUI bridge) now emit `#nullable enable`.
 
 **New issues found post-review**: AnyType fallback has no type info (R7, partially addressed), async naming edge cases (N5), property collision logic (N6), default parameters/overloads.
 
@@ -45,7 +49,7 @@ A major refactor pass addressed the most critical issues from the initial review
 | # | Issue | Status | Implementation Notes |
 |---|-------|--------|---------------------|
 | R5 | Simple enums are classes | **Done** | `EnumHandler.IsSimpleEnum` detection (line 94) emits real C# `enum` types for enums without associated values. |
-| R6 | `ExistentialContainer` in public API | **Open** | Still appears in `Error.DataLoadingFailed()`, `Error.DecodingFailed()`, proxy constructors, and some closure parameters. Should be typed as protocol interface. |
+| R6 | `ExistentialContainer` in public API | **Partial** | Enum associated values now use typed interfaces (`IImageProcessing`, `IImageDecoding`) for known protocols. `Error.DataLoadingFailed()` correctly keeps `ExistentialContainer1` (Swift.Error has no proxy). Remaining: closure parameters, some proxy constructors. |
 | R8 | Parameter names: `arg0`, `_for`, `with` | **Done** | WU4: `GetPublicParameterName()` derives names from types, strips `_` prefixes, deduplicates. Internal codegen names unchanged. |
 | — | Default parameters / overloads | **Open** | Swift methods with defaults emit only the full-parameter version. `DefaultParameterOverloadEmitter.cs` exists but scope is limited to wrapper-backed methods. |
 
@@ -344,9 +348,9 @@ These affect multiple waves and should be addressed incrementally:
 
 ### Nullable Reference Annotations
 
-**Current**: Generated code doesn't use `#nullable enable`.
+**Current**: **Done** — All generated C# files emit `#nullable enable`. Main bindings (`ModuleHandler.cs:84`) and SwiftUI bridge (`SwiftUIBridgeEmitter.cs:697`) both emit the directive.
 **Target**: All generated files enable nullable context. Swift non-optional → non-null. Swift optional → nullable.
-**Dependency**: Requires R3 (SwiftOptional → T?) to be meaningful.
+**Dependency**: R3 (SwiftOptional → T?) already complete.
 
 ---
 
@@ -360,7 +364,7 @@ Track these metrics per generator release. All must reach gate value before exte
 | Public `SwiftString` properties | 0 | **Done** (R2) |
 | Public `SwiftOptional<T>` | 0 | **Done** (R3 — subscript edge case fixed by WU3) |
 | Public `IntPtr` for non-pointer semantics | 0 | **Done** (R4) |
-| Public `ExistentialContainer*` | 0 | Open (R6) |
+| Public `ExistentialContainer*` | 0 | **Partial** (R6 — enum associated values promoted to interfaces; closures/proxy ctors remain) |
 | `arg0`/`arg1` parameter names | 0 | **Done** (R8/N2 — WU4) |
 | `Equals`/`GetHashCode` that throw | 0 | **Done** (R10) |
 | Types declaring `IDisposable` on interface list | all | **Done** (R9 — `ISwiftObject : IDisposable` transitive) |
@@ -369,7 +373,7 @@ Track these metrics per generator release. All must reach gate value before exte
 | Double `Async` prefix+suffix | 0 | **Done** (N1 — WU1) |
 | `IReadOnlyList<SwiftString>` (unconverted elements) | 0 | **Done** (N4 — WU2) |
 | Public methods requiring `unsafe` caller context | 0 | **Done** (N3 — WU5, only genuinely needed types retain unsafe) |
-| Missing `#nullable enable` | 0 | Open |
+| Missing `#nullable enable` | 0 | **Done** (main bindings + SwiftUI bridge) |
 | Golden scenarios compile without interop types | 3/3 | 0/3 |
 
 ---
@@ -388,12 +392,13 @@ Based on impact and effort. Items marked **Done** from the refactor pass are exc
 7. ~~**N3 — Remove public unsafe**~~: **Done** (WU5) — `unsafe` moved to body blocks, kept only where genuinely needed.
 
 **Next (structural changes):**
-8. **R6 — ExistentialContainer → typed interface**: Requires protocol resolution in emitter. Still appears in Error factories, proxy constructors.
+8. ~~**R6 partial — ExistentialContainer in enum associated values**~~: **Done** — `GetPublicCSharpTypeNameForEnumCase()` + `AllProtocolsHaveTypeRecords()` gate. Factory signatures, TryGet out-params, and marshalling all use typed interfaces for known protocols. Remaining: closure parameters, proxy constructors.
 9. **R7 — AnyType original type attribute**: Add `[OriginalSwiftType("Module.TypeName")]` when falling back to AnyType. Most Nuke instances resolved by AnyType reduction pass; remaining instances are structural (ArraySlice in protocols, Self type, generic params).
+10. ~~**Nullable annotations**~~: **Done** — `#nullable enable` in main bindings + SwiftUI bridge.
 
 **Polish:**
-10. **N5/N6 — Async naming edge cases, property collision logic**
-11. **Nullable annotations** — `#nullable enable` in all generated files
+11. **N5/N6 — Async naming edge cases, property collision logic**
+12. **R6 remaining — ExistentialContainer in closures and proxy constructors**
 
 ---
 

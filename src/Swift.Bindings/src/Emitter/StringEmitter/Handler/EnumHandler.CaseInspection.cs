@@ -125,7 +125,7 @@ namespace BindingsGeneration
 
             // Determine the output type based on associated values
             string outType;
-            List<(string type, string name, TypeSpec typeSpec)> parameters = new();
+            List<(string type, string publicType, string name, TypeSpec typeSpec)> parameters = new();
 
             for (int i = 0; i < caseDecl.AssociatedValues.Count; i++)
             {
@@ -139,24 +139,26 @@ namespace BindingsGeneration
                     return;
                 }
 
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+
                 // Use type label if available, otherwise generate a name
                 var paramName = typeSpec.TypeLabel ?? $"value{i}";
                 paramName = SanitizeParameterName(paramName);
-                parameters.Add((csharpType, paramName, typeSpec));
+                parameters.Add((csharpType, publicType, paramName, typeSpec));
             }
 
-            // Single value: output is just that type
+            // Single value: output is just that type (public type for the API surface)
             // Multiple values: output is a tuple
             if (parameters.Count == 1)
             {
-                outType = parameters[0].type;
+                outType = parameters[0].publicType;
             }
             else
             {
                 var tupleElements = parameters.Select(p =>
                     !string.IsNullOrEmpty(p.typeSpec.TypeLabel)
-                        ? $"{p.type} {SanitizeParameterName(p.typeSpec.TypeLabel)}"
-                        : p.type);
+                        ? $"{p.publicType} {SanitizeParameterName(p.typeSpec.TypeLabel)}"
+                        : p.publicType);
                 outType = $"({string.Join(", ", tupleElements)})";
             }
 
@@ -217,7 +219,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("// Marshal the payload to C# type(s)");
             if (parameters.Count == 1)
             {
-                var (type, name, typeSpec) = parameters[0];
+                var (type, publicType, name, typeSpec) = parameters[0];
                 EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase);
             }
             else
@@ -230,7 +232,7 @@ namespace BindingsGeneration
                 var valueNames = new List<string>();
                 for (int i = 0; i < parameters.Count; i++)
                 {
-                    var (_, _, typeSpec) = parameters[i];
+                    var (_, _, _, typeSpec) = parameters[i];
                     var valueName = $"_val{i}";
                     valueNames.Add(valueName);
 
@@ -280,7 +282,7 @@ namespace BindingsGeneration
             }
 
             // Validate and build parameter list from tuple elements
-            var parameters = new List<(string type, string name, TypeSpec typeSpec)>();
+            var parameters = new List<(string type, string publicType, string name, TypeSpec typeSpec)>();
             for (int i = 0; i < tupleSpec.Elements.Count; i++)
             {
                 var element = tupleSpec.Elements[i];
@@ -302,21 +304,23 @@ namespace BindingsGeneration
                     return;
                 }
 
+                var publicType = GetPublicCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler);
+
                 // Use element label if available, otherwise generate a name
                 var paramName = element.TypeLabel ?? $"value{i}";
                 paramName = SanitizeParameterName(paramName);
-                parameters.Add((csharpType, paramName, element));
+                parameters.Add((csharpType, publicType, paramName, element));
             }
 
-            // Build the out parameter list for the method signature
-            var outParams = parameters.Select(p => $"[MaybeNullWhen(false)] out {p.type} {p.name}");
+            // Build the out parameter list for the method signature (use public types)
+            var outParams = parameters.Select(p => $"[MaybeNullWhen(false)] out {p.publicType} {p.name}");
             var outParamString = string.Join(", ", outParams);
 
             // Emit the TryGet method
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine($"/// Attempts to extract the associated value(s) for the '{caseName}' case.");
             csWriter.WriteLine("/// </summary>");
-            foreach (var (_, name, _) in parameters)
+            foreach (var (_, _, name, _) in parameters)
             {
                 csWriter.WriteLine($"/// <param name=\"{name}\">When this method returns true, contains the associated value.</param>");
             }
@@ -332,7 +336,7 @@ namespace BindingsGeneration
             csWriter.WriteLine($"if (Tag != CaseTag.{capitalizedName})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            foreach (var (_, name, _) in parameters)
+            foreach (var (_, _, name, _) in parameters)
             {
                 csWriter.WriteLine($"{name} = default;");
             }
@@ -380,7 +384,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("// Marshal each tuple element from its computed offset");
             for (int i = 0; i < parameters.Count; i++)
             {
-                var (_, name, typeSpec) = parameters[i];
+                var (_, _, name, typeSpec) = parameters[i];
                 csWriter.WriteLine($"var offset{i} = tupleMetadata->GetElementOffset({i});");
                 EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, "enumCopy", $"offset{i}", typeDatabase);
             }

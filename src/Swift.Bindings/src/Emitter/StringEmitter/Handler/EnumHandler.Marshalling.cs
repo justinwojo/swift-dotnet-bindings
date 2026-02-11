@@ -10,7 +10,7 @@ namespace BindingsGeneration
         /// Emits a cached tuple metadata accessor for a specific enum case.
         /// This generates the tuple type metadata once and caches it for efficiency.
         /// </summary>
-        private void EmitTupleMetadataAccessor(CSharpWriter csWriter, string capitalizedCaseName, List<(string type, string name, TypeSpec typeSpec)> parameters, ITypeDatabase typeDatabase)
+        private void EmitTupleMetadataAccessor(CSharpWriter csWriter, string capitalizedCaseName, List<(string type, string publicType, string name, TypeSpec typeSpec)> parameters, ITypeDatabase typeDatabase)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -35,7 +35,7 @@ namespace BindingsGeneration
 
             for (int i = 0; i < parameters.Count; i++)
             {
-                var (_, _, typeSpec) = parameters[i];
+                var (_, _, _, typeSpec) = parameters[i];
                 EmitGetTypeMetadataForElement(csWriter, typeSpec, i, typeDatabase);
             }
             csWriter.WriteLine();
@@ -115,6 +115,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits code to marshal a payload value from Swift memory at a specific offset.
+        /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
         private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase)
         {
@@ -131,7 +132,17 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                    if (AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                    {
+                        // Known proxy: marshal to temp container, then wrap in proxy
+                        var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw);");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                    }
                     return;
                 }
             }
@@ -141,6 +152,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits code to marshal a payload value from Swift memory to a C# variable (with assignment).
+        /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
         private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase)
         {
@@ -154,7 +166,17 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                    if (AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                    {
+                        // Known proxy: marshal to temp container, then wrap in proxy
+                        var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw);");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                    }
                     return;
                 }
             }
@@ -166,6 +188,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits code to marshal a payload value from Swift memory with a variable declaration.
+        /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
         private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase)
         {
@@ -182,7 +205,17 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    csWriter.WriteLine($"var {varName} = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                    if (AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                    {
+                        // Known proxy: marshal to temp container, then wrap in proxy
+                        var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        csWriter.WriteLine($"var {varName} = new {proxyClassName}(_{varName}_raw);");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"var {varName} = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                    }
                     return;
                 }
             }

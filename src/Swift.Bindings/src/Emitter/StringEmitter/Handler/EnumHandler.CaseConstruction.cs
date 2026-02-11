@@ -21,7 +21,8 @@ namespace BindingsGeneration
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Build parameter list from associated values
-            var parameters = new List<(string type, string name, TypeSpec typeSpec)>();
+            // Track both internal type (for validation/P/Invoke) and public type (for method signatures)
+            var parameters = new List<(string type, string publicType, string name, TypeSpec typeSpec)>();
             for (int i = 0; i < caseDecl.AssociatedValues.Count; i++)
             {
                 var typeSpec = caseDecl.AssociatedValues[i];
@@ -34,11 +35,13 @@ namespace BindingsGeneration
                     return false;
                 }
 
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+
                 // Use type label if available, otherwise generate a name
                 var paramName = typeSpec.TypeLabel ?? $"value{i}";
                 // Sanitize parameter name (remove invalid characters, ensure starts with letter)
                 paramName = SanitizeParameterName(paramName);
-                parameters.Add((csharpType, paramName, typeSpec));
+                parameters.Add((csharpType, publicType, paramName, typeSpec));
             }
 
             // Generate the static method for this case — prefer symbol graph doc over synthetic
@@ -53,7 +56,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"/// </summary>");
             }
 
-            var parameterString = string.Join(", ", parameters.Select(p => $"{p.type} {p.name}"));
+            var parameterString = string.Join(", ", parameters.Select(p => $"{p.publicType} {p.name}"));
             csWriter.WriteLine($"public static unsafe {enumTypeName} {capitalizedName}({parameterString})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -71,7 +74,7 @@ namespace BindingsGeneration
             var argList = new List<string> { "indirectResult" };
             for (int i = 0; i < parameters.Count; i++)
             {
-                var (type, name, typeSpec) = parameters[i];
+                var (type, _, name, typeSpec) = parameters[i];
                 if (typeSpec is NamedTypeSpec genericParamType &&
                     TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
                 {
@@ -108,7 +111,7 @@ namespace BindingsGeneration
             var pInvokeParams = new List<string> { "SwiftIndirectResult result" };
             for (int i = 0; i < parameters.Count; i++)
             {
-                var (_, name, typeSpec) = parameters[i];
+                var (_, _, name, typeSpec) = parameters[i];
                 var pInvokeType = GetPInvokeType(typeSpec, typeDatabase);
                 pInvokeParams.Add($"{pInvokeType} {name}");
             }
@@ -196,6 +199,74 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Gets the public C# type name for an enum case associated value type.
+        /// For existentials where all protocols have TypeRecords, returns the interface type (e.g., "IImageProcessing").
+        /// For existentials with unknown/unregistered protocols, falls back to the container type (ExistentialContainer{N}).
+        /// For tuples, recurses per element.
+        /// For everything else, delegates to GetCSharpTypeNameForEnumCase.
+        /// </summary>
+        private static string GetPublicCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
+        {
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+
+            // Handle existential types (any Protocol) - return interface if all protocols are known
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null && AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                {
+                    return existentialHandler.GetPublicExistentialType(protocolList);
+                }
+            }
+
+            // Handle protocol list types (protocol composition)
+            if (typeSpec is ProtocolListTypeSpec protocolListSpec)
+            {
+                if (AllProtocolsHaveTypeRecords(protocolListSpec, typeDatabase))
+                {
+                    return existentialHandler.GetPublicExistentialType(protocolListSpec);
+                }
+            }
+
+            // Handle tuple types - recurse per element
+            if (typeSpec is TupleTypeSpec tupleType)
+            {
+                var tupleHandler = new TupleHandler(typeDatabase);
+                return tupleHandler.GetCSharpTupleType(tupleType, elementTypeSpec =>
+                    GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler));
+            }
+
+            // Everything else: delegate to the internal type
+            return GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);
+        }
+
+        /// <summary>
+        /// Checks whether ALL protocols in a composition have TypeRecords with Kind == Protocol.
+        /// Returns false if any protocol is unknown/unregistered or not a Protocol kind.
+        /// </summary>
+        private static bool AllProtocolsHaveTypeRecords(ProtocolListTypeSpec protocolList, ITypeDatabase typeDatabase)
+        {
+            if (protocolList.Protocols.Count == 0)
+                return false;
+
+            foreach (var protocol in protocolList.Protocols.Keys)
+            {
+                try
+                {
+                    var swiftTypeName = SwiftTypeName.FromTypeSpec(protocol);
+                    if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) ||
+                        typeRecord.Kind != TypeRecordKind.Protocol)
+                        return false;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Gets the P/Invoke argument expression for a parameter.
         /// </summary>
         private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase)
@@ -206,10 +277,18 @@ namespace BindingsGeneration
                 return $"{paramName}.Payload.DangerousGetHandle()";
             }
 
-            // Handle existential types - pass the container directly (it's a blittable struct)
+            // Handle existential types
             var existentialHandler = new ExistentialHandler(typeDatabase);
             if (existentialHandler.IsExistential(typeSpec))
             {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null && AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                {
+                    // Interface-typed parameter: extract the container via ISwiftExistentialConvertible
+                    var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
+                    return $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){paramName}).GetExistentialContainer()";
+                }
+                // Unknown protocol: pass the container directly (it's a blittable struct)
                 return paramName;
             }
 
