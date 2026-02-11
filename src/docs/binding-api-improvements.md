@@ -14,6 +14,8 @@ A major refactor pass addressed the most critical issues from the initial review
 
 **What remains from the review**: ExistentialContainer still in some public APIs (R6).
 
+**Post-WU Codex review fixes**: Protocol proxy getter/setter type asymmetry (interface uses idiomatic types, receivers marshal Swift ABI types), Optional<Array<String>> element conversion in WrapperEmitter.Marshalling, GetSwiftWrapperType raw element type safety, async-void Get prefix ordering, protocol param name normalization.
+
 **New issues found post-review**: AnyType fallback has no type info (R7), async naming edge cases (N5), property collision logic (N6), default parameters/overloads.
 
 ---
@@ -273,6 +275,27 @@ In C#, the compiler can disambiguate `response.CacheType` (property access) from
 
 ---
 
+### Post-WU Codex Review Fixes (**Done**)
+
+**Priority**: P0/P1
+**Status**: **Done** — 3 P0 fixes + 2 P1 fixes + 1 additional bug found during testing. 17 regression tests added.
+
+Codex review of the WU1-WU6 changes identified marshalling correctness issues in protocol proxy receivers and the parameter conversion pipeline. All fixes verified against 4 real-world libraries (0 binding errors each).
+
+| # | Severity | Issue | Fix |
+|---|----------|-------|-----|
+| CR1 | P0 | Protocol proxy getter receivers marshal idiomatic C# types (string, IReadOnlyList) into MarshalToSwiftBuffer, which requires Swift ABI types (SwiftString, SwiftArray) | Added `GetParameterConversion` reverse-conversion in `ProtocolProxyEmitter.Receivers.cs` getter path |
+| CR2 | P0 | Optional<Array<String>> parameter in WrapperEmitter.Marshalling missing `.Select(e => new SwiftString(e))` element projection | Added IsSwiftString check on inner array element type in Optional<Array> branch |
+| CR3 | P1 | Protocol proxy setter `GetReturnConversion` didn't handle Optional<Array<String>> | Added Optional<Array<T>> handling in `TypeConversionHandler.GetReturnConversion` before generic fallback |
+| CR4 | P1 | `GetSwiftWrapperType` used `GetElementType()` (eagerly converts SwiftString→string) instead of `GetRawElementType()` for Optional/Array marshalling | Fixed to use `GetRawElementType()` — only public API return type uses converted names |
+| CR5 | P1 | `hasReturnValue` captured AFTER async conversion turns void→Task, causing wrong `Get` prefix on async void methods | Captured `hasReturnValue` BEFORE async type conversion |
+| CR6 | — | `GetParameterConversion` for Optional<String> passed raw `string` to `NewSome()` where `SwiftString` expected | Added IsSwiftString inner check to wrap with `new SwiftString()` in the NewSome call |
+
+**Files modified**: `ProtocolProxyEmitter.Receivers.cs`, `WrapperEmitter.Marshalling.cs`, `TypeConversionHandler.cs`
+**Tests added**: 5 in TypeConversionHandlerTests, 4 in ProtocolProxyEmitterTests
+
+---
+
 ## Cross-Cutting Concerns
 
 These affect multiple waves and should be addressed incrementally:
@@ -358,4 +381,4 @@ Based on impact and effort. Items marked **Done** from the refactor pass are exc
 | `roadmap.md` | This work is a prerequisite for DX-1 (external consumption). Updates needed to reflect this phase. |
 | `developer-experience.md` | DX-1 through DX-4 assume a usable API surface. This plan gets the API there. |
 | `testframework-review.md` | TestFramework hardening (compile gate, baseline budgets) should run in parallel to catch regressions from these changes. |
-| `CURRENT-STATUS.md` | Needs update to reflect current baselines (stale — shows 1,603 unit tests, actual is 1,912). |
+| `CURRENT-STATUS.md` | Tracks current baselines and development history. |

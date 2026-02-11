@@ -324,10 +324,22 @@ namespace BindingsGeneration
             }
             else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
             {
-                // SwiftArray<T> -> IReadOnlyList<T>
-                // SwiftArray already implements IReadOnlyList, so marshal and return directly
                 var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(&result));");
+                var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
+
+                if (returnConversion != null && returnConversion != "swiftResult")
+                {
+                    // Element type requires conversion (e.g., SwiftArray<SwiftString> → IReadOnlyList<string>)
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(&result));
+                        return {{returnConversion}};
+                        """);
+                }
+                else
+                {
+                    // No element conversion — SwiftArray<T> implements IReadOnlyList<T>
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(&result));");
+                }
             }
             else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
             {
@@ -374,9 +386,20 @@ namespace BindingsGeneration
             }
             else if (_env.TypeConversionHandler.IsSwiftArray(returnArg.SwiftTypeSpec))
             {
-                // SwiftArray<T> -> IReadOnlyList<T> via indirect result
                 var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(swiftIndirectResult.Value));");
+                var returnConversion = _env.TypeConversionHandler.GetReturnConversion("swiftResult", returnArg.SwiftTypeSpec);
+
+                if (returnConversion != null && returnConversion != "swiftResult")
+                {
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(new IntPtr(swiftIndirectResult.Value));
+                        return {{returnConversion}};
+                        """);
+                }
+                else
+                {
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{swiftType}>(new IntPtr(swiftIndirectResult.Value));");
+                }
             }
             else if (_env.TypeConversionHandler.IsSwiftOptional(returnArg.SwiftTypeSpec))
             {

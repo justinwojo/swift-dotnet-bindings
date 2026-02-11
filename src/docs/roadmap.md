@@ -13,8 +13,9 @@ For deferred/aspirational work, see `Future/`.
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 1753 passing |
+| Unit tests | 1,929 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
+| Runtime tests | 185 passing at Tier 2 safe-only (28 pre-existing failures) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 
 | Library | Binding Errors | Simulator Tests | Notes |
@@ -85,9 +86,9 @@ The async callback handler used `SwiftMarshal.MarshalFromSwift<T>()` which threw
 
 Added 20 unit tests for Apple framework type detection + 3 emitter tests for async ObjC callback generation + 3 XML Kind parsing regression tests.
 
-### I2. Generator: auto-route closure+CallConvSwift to wrapper library
+### I2. Generator: auto-route closure+CallConvSwift to wrapper library — Partially Done (Strategy B)
 
-Extend the `UsesWrapperLibrary` routing so that methods with closure parameters are automatically emitted through `@_cdecl` wrapper functions instead of direct `CallConvSwift` P/Invoke. This eliminates the "non-blittable types" error for closure-taking APIs across all libraries, not just Nuke.
+Strategy B (Closure Cdecl Expansion) covers primitive-arg closures via standalone `@_silgen_name` wrappers with `@convention(c)` function pointers. Non-primitive closures (String, class, struct args) remain on the legacy `CallConvSwift` path. See Mono JIT Mitigation Strategy B section above.
 
 ### I3. Generator: route instance methods through `@_cdecl` wrappers
 
@@ -108,6 +109,53 @@ Extracts Swift doc comments from `swift-symbolgraph-extract` output and emits C#
 **Modified**: `BaseDecl.cs` (`Documentation` property), `SwiftABIParser.cs` (`usr` field + `PopulateDocumentation` in all 9 `Create*Decl` methods), `Program.cs` (`--symbolgraph` option), 8 handler files (emission insertion points), `build-xcframework.sh` + `regenerate-bindings.sh` (pipeline integration).
 
 **Tests**: 30 new unit tests (13 parser + 17 emitter). Verified end-to-end: TestFramework symbol graph extraction → doc comments on generated C# types (e.g., `TaskStatus`, `INamed`, `NamedItem`).
+
+---
+
+## Mono JIT Mitigation: Strategy D (Signature Risk Detection)
+
+**Status**: Done
+**Priority**: High
+
+Added `MonoJitRiskDetector` — a static analysis pass that flags methods with signatures that trigger the Mono JIT crash (`jit-info.c:918`). Detects closure parameters, existential parameters, and SwiftString returns (including Optional-wrapped variants). Consumed by Strategy B for closure Cdecl wrapper decisions. 34 unit tests.
+
+---
+
+## Mono JIT Mitigation: Strategy B (Closure Cdecl Expansion)
+
+**Status**: Done
+**Priority**: High
+
+Generator emits `CallConvCdecl` callbacks for non-async escaping closures with primitive args/returns. For each qualifying method, a Swift `@_silgen_name` wrapper accepts `@convention(c)` function pointer + context as separate IntPtr parameters, creating a native closure adapter on the Swift side. Mono only sees `CallConvCdecl`. 38 unit tests. See `known-issues-workarounds.md` Workaround B for details.
+
+---
+
+## Tier Promotion Pass
+
+**Status**: Done
+**Priority**: High
+
+Added `Tj` dispatch thunks for non-final class methods (library evolution), `IsFinal` detection on both `ClassDecl` and `MethodDecl`, and promoted multiple test classes from Tier 3 to Tier 2: closure tests, composition tests, string property tests. Runtime tests grew from 172 to 185 passing.
+
+---
+
+## Binding API WU1-WU6: Idiomatic C# Surface
+
+**Status**: Done
+**Priority**: High
+
+Major API surface improvements tracked in `binding-api-improvements.md`:
+
+| Work Unit | Change |
+|-----------|--------|
+| WU1 | Verb prefix (`Get` for noun-only return methods), async `Async` prefix stripping |
+| WU2 | Array element type conversion (`IReadOnlyList<SwiftString>` → `IReadOnlyList<string>`) |
+| WU3 | Subscript type conversion (subscript element types also converted) |
+| WU4 | Parameter name normalization (type-derived names, strip `_` prefixes, dedup) |
+| WU5 | `unsafe` removed from public surface (moved to body-level blocks) |
+| WU6 | Doc comment generation (Phase K, `--symbolgraph` option) |
+
+Post-WU Codex review fixes: protocol proxy getter/setter type asymmetry, Optional<Array<String>> element conversion, GetSwiftWrapperType raw element types, async-void Get prefix ordering. 6 library binding bugs fixed during regeneration + 17 regression tests.
 
 ---
 

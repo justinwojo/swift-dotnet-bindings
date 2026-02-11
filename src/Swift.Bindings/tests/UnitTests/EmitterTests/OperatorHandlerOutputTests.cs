@@ -496,6 +496,55 @@ public class OperatorHandlerOutputTests
         };
     }
 
+    [Fact]
+    public void EmitOperator_IndirectResult_EmitsUnsafeBlock()
+    {
+        // Regression: After WU5 removed unsafe from class declarations, operators with
+        // indirect result (non-frozen return types) need their own unsafe { } block.
+        // Without this, pointer operations in the operator body produce CS0214.
+        var typeDatabase = CreateTypeDatabaseWithType("TestModule", "BigNum", TypeRecordFlags.None, TypeRecordKind.Struct);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentType = new StructDecl
+        {
+            Name = "BigNum",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BigNum"),
+            MangledName = "$s10TestModule6BigNumVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = false,
+            MetadataAccessor = "$s10TestModule6BigNumVMa"
+        };
+
+        var op = CreateBinaryOperator("+", parentType, moduleDecl, "TestModule.BigNum",
+            "TestModule.BigNum", "TestModule.BigNum");
+
+        var output = EmitOperator(op, typeDatabase);
+
+        Assert.Contains("unsafe {", output);
+    }
+
+    [Fact]
+    public void EmitOperator_FrozenReturn_NoUnsafeBlock()
+    {
+        // Frozen struct return types don't need indirect result, so no unsafe block needed.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool");
+
+        var output = EmitOperator(op, typeDatabase);
+
+        Assert.DoesNotContain("unsafe {", output);
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithType(string moduleName, string typeName,
         TypeRecordFlags flags, TypeRecordKind kind)
     {

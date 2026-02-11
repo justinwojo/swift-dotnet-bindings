@@ -11,12 +11,12 @@ This document tracks known testing gaps to be addressed incrementally. Each gap 
 
 | Layer | What It Tests | Count | Location |
 |-------|---------------|-------|----------|
-| **Unit Tests** | Component logic (marshaler, emitter, parser) | 1,107+ tests, 50 files | `src/Swift.Bindings/tests/UnitTests/` |
-| **Runtime Library Tests** | SwiftArray, SwiftString, metadata | 116 tests, 12 files | `src/Swift.Runtime/tests/` |
-| **Integration Tests** | Full Swift↔.NET interop | 14 files | `src/Swift.Bindings/tests/IntegrationTests/` |
-| **TestFramework Layer 1** | Generator correctness across feature matrix | 99 must-pass features | `TestFramework/` |
-| **TestFramework Layer 2** | Runtime behavior on iOS simulator | 64+ tests, 16 files | `TestFramework/RuntimeTestsApp/` |
-| **Real-World Bindings** | End-to-end against shipping libraries | Nuke, Lottie, BlinkID | `BindingTesting/` |
+| **Unit Tests** | Component logic (marshaler, emitter, parser) | 1,929 tests | `src/Swift.Bindings/tests/UnitTests/` |
+| **Runtime Library Tests** | SwiftArray, SwiftString, metadata | 116 tests | `src/Swift.Runtime/tests/` |
+| **Integration Tests** | Full Swift↔.NET interop | 699 tests (11 skipped) | `src/Swift.Bindings/tests/IntegrationTests/` |
+| **TestFramework Layer 1** | Generator correctness across feature matrix | 94/94 must-pass features | `TestFramework/` |
+| **TestFramework Layer 2** | Runtime behavior on iOS simulator | 185 tests at Tier 2 | `TestFramework/RuntimeTestsApp/` |
+| **Real-World Bindings** | End-to-end against shipping libraries | Nuke, Lottie, BlinkID, CryptoSwift | `BindingTesting/` |
 
 ---
 

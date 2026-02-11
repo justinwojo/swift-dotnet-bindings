@@ -429,6 +429,9 @@ public static class TypeDatabaseExtensions
         // UIKit structs
         "UIKit.UIEdgeInsets", "UIKit.UIOffset", "UIKit.UIFloatRange",
         "UIKit.NSDirectionalEdgeInsets",
+        // UIKit nested enums/structs (flattened in .NET: UIView.ContentMode → UIViewContentMode)
+        "UIKit.UIView.ContentMode", "UIKit.UIControl.State", "UIKit.UIControl.Event",
+        "UIKit.UIAccessibilityTraits",
         // AVFoundation structs
         "AVFoundation.AVAudioFramePosition", "AVFoundation.AVAudioFrameCount",
         "AVFoundation.AVAudioPacketCount", "AVFoundation.AVAudioChannelCount",
@@ -458,9 +461,21 @@ public static class TypeDatabaseExtensions
             ? "Foundation"
             : swiftTypeName.Module;
 
+        // For nested ObjC types (e.g., UIKit.UIView.ContentMode), .NET iOS bindings flatten
+        // the parent type into the name: UIView + ContentMode = UIViewContentMode.
+        // SwiftTypeName.Name only has the leaf ("ContentMode"), so extract parent components
+        // from the ModuleQualifiedName.
+        var csharpName = swiftTypeName.Name;
+        var parts = swiftTypeName.ModuleQualifiedName.Split('.');
+        if (parts.Length > 2)
+        {
+            // parts[0] = module, parts[1..n-1] = parent types, parts[n] = leaf
+            csharpName = string.Concat(parts.Skip(1));
+        }
+
         return new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csharpNamespace, swiftTypeName.Name),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csharpNamespace, csharpName),
             SwiftTypeName = swiftTypeName,
             MetadataAccessor = string.Empty,
             Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,

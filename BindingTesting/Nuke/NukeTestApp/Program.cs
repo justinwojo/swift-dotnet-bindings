@@ -750,9 +750,9 @@ public class MainViewController : UIViewController
         try
         {
             var request = new ImageRequest("https://example.com/test.jpg");
-            var desc = request.Description.ToString();
+            var desc = request.Description;
             TestLogger.Info($"ImageRequest description: {desc.Substring(0, Math.Min(60, desc.Length))}...");
-            request.Payload.Dispose();
+            request.Dispose();
             results.Pass("ImageRequest construction");
         }
         catch (Exception ex)
@@ -968,11 +968,11 @@ public class MainViewController : UIViewController
             }
 
             // Clean up
-            veryLow.Payload.Dispose();
-            low.Payload.Dispose();
-            normal.Payload.Dispose();
-            high.Payload.Dispose();
-            veryHigh.Payload.Dispose();
+            veryLow.Dispose();
+            low.Dispose();
+            normal.Dispose();
+            high.Dispose();
+            veryHigh.Dispose();
 
             results.Pass("Priority enum cases");
         }
@@ -1013,10 +1013,10 @@ public class MainViewController : UIViewController
 
             // Try to access URL property
             TestLogger.Info("Accessing ImageRequest properties...");
-            var desc = request.Description.ToString();
+            var desc = request.Description;
             TestLogger.Info($"Description available, length: {desc.Length}");
 
-            request.Payload.Dispose();
+            request.Dispose();
             results.Pass("ImageRequest property access");
         }
         catch (Exception ex)
@@ -1050,7 +1050,7 @@ public class MainViewController : UIViewController
         {
             var request = new ImageRequest("not-a-valid-url");
             TestLogger.Info("ImageRequest created with invalid URL (no exception on creation)");
-            request.Payload.Dispose();
+            request.Dispose();
             results.Pass("ImageRequest with invalid URL format");
         }
         catch (Exception ex)
@@ -1089,7 +1089,7 @@ public class MainViewController : UIViewController
             finally
             {
                 // Explicit dispose to avoid finalizer crash
-                request.Payload.Dispose();
+                request.Dispose();
             }
         }
         catch (Exception ex)
@@ -1137,7 +1137,7 @@ public class MainViewController : UIViewController
             {
                 var request = new ImageRequest($"https://example.com/image{i}.jpg");
                 var _ = request.Description; // Access to ensure it's initialized
-                request.Payload.Dispose();
+                request.Dispose();
                 MemoryTracker.TrackAllocation("ImageRequest");
             }
 
@@ -1254,7 +1254,7 @@ public class MainViewController : UIViewController
             for (int i = 0; i < iterations; i++)
             {
                 var request = new ImageRequest($"https://example.com/image{i}.jpg");
-                request.Payload.Dispose();
+                request.Dispose();
             }
 
             sw.Stop();
@@ -1315,7 +1315,7 @@ public class MainViewController : UIViewController
             {
                 var request = new ImageRequest("https://example.com/test.jpg");
                 var _ = request.Description;
-                request.Payload.Dispose();
+                request.Dispose();
             }
 
             sw.Stop();
@@ -1519,8 +1519,8 @@ public class MainViewController : UIViewController
             TestLogger.Info("  ✓ ImageRequest.OptionsInfo(0) created");
 
             // Clean up
-            priority.Payload.Dispose();
-            options.Payload.Dispose();
+            priority.Dispose();
+            options.Dispose();
 
             results.Pass("Async+throwing closure constructor binding exists");
         }
@@ -1537,7 +1537,7 @@ public class MainViewController : UIViewController
         {
             TestLogger.Info("Testing ImageRequestFactory.FromUrlString wrapper...");
             var wrapperRequest = ImageRequestFactory.FromUrlString("https://picsum.photos/50/50");
-            var desc = wrapperRequest.Description.ToString();
+            var desc = wrapperRequest.Description;
             TestLogger.Info($"  Wrapper request created: {desc.Substring(0, Math.Min(50, desc.Length))}...");
 
             // Verify we can actually use the wrapper-created request with ImagePipeline
@@ -1546,7 +1546,7 @@ public class MainViewController : UIViewController
             var image = await pipeline.LoadImageAsync(wrapperRequest);
             TestLogger.Info($"  Image loaded via wrapper: {image.Size.Width}x{image.Size.Height}");
 
-            wrapperRequest.Payload.Dispose();
+            wrapperRequest.Dispose();
             results.Pass("ImageRequestFactory.FromUrlString wrapper");
         }
         catch (Exception ex)
@@ -1571,9 +1571,9 @@ public class MainViewController : UIViewController
                 try
                 {
                     var wrapperRequest = ImageRequestFactory.FromUrl(url);
-                    var desc = wrapperRequest.Description.ToString();
+                    var desc = wrapperRequest.Description;
                     TestLogger.Info($"  FromUrl request created: {desc.Substring(0, Math.Min(50, desc.Length))}...");
-                    wrapperRequest.Payload.Dispose();
+                    wrapperRequest.Dispose();
                     results.Pass("ImageRequestFactory.FromUrl wrapper");
                 }
                 catch (InvalidProgramException)

@@ -188,6 +188,18 @@ public class TypeConversionHandler
     }
 
     /// <summary>
+    /// Gets the raw (unconverted) element type name from a SwiftArray type spec.
+    /// Public wrapper for <see cref="GetRawElementType"/> — used by emitters that need
+    /// the array element type for FromEnumerable() conversion.
+    /// </summary>
+    public string? GetRawArrayElementType(NamedTypeSpec arrayTypeSpec, Func<TypeSpec, string>? typeTranslator = null)
+    {
+        if (!IsSwiftArray(arrayTypeSpec))
+            return null;
+        return GetRawElementType(arrayTypeSpec, typeTranslator);
+    }
+
+    /// <summary>
     /// Gets the raw (unconverted) element type name from a generic Swift type.
     /// Unlike GetElementType(), this does NOT apply idiomatic conversion to the element.
     /// Used when constructing SwiftArray&lt;SwiftString&gt; in parameter conversion.
@@ -236,6 +248,18 @@ public class TypeConversionHandler
             if (rawElementType == null)
                 return null;
 
+            // Check if element type is itself a SwiftArray (nested arrays)
+            // IReadOnlyList<IReadOnlyList<T>> → SwiftArray<SwiftArray<T>> needs inner conversion
+            var innerSpec = namedTypeSpec.GenericParameters.FirstOrDefault();
+            if (innerSpec is NamedTypeSpec innerNamed && IsSwiftArray(innerNamed))
+            {
+                var innerRawElementType = GetRawElementType(innerNamed, typeTranslator);
+                if (innerRawElementType != null)
+                {
+                    return $"SwiftArray<{rawElementType}>.FromEnumerable({paramName}.Select(inner => SwiftArray<{innerRawElementType}>.FromEnumerable(inner)))";
+                }
+            }
+
             // If element type was converted (e.g., string → SwiftString), wrap with .Select()
             if (IsElementTypeConverted(namedTypeSpec, typeTranslator))
             {
@@ -268,6 +292,34 @@ public class TypeConversionHandler
             // SwiftOptional<T>.FromNullable(T?) with unconstrained T doesn't accept Nullable<T>
             // for value types, so we use `is {} val` to unwrap nullables universally.
             var patternVar = $"{paramName}Val";
+
+            // If the inner type is a SwiftArray, the C# parameter type is IReadOnlyList<T>?
+            // which can't implicitly convert to SwiftArray<T>. Use FromEnumerable() to convert.
+            var innerSpec = namedTypeSpec.GenericParameters.FirstOrDefault();
+            if (innerSpec is NamedTypeSpec innerNamed && IsSwiftArray(innerNamed))
+            {
+                var rawArrayElementType = GetRawElementType(innerNamed, typeTranslator);
+                if (rawArrayElementType != null)
+                {
+                    string arrayConversion;
+                    if (IsElementTypeConverted(innerNamed, typeTranslator) && IsSwiftString(innerNamed.GenericParameters.FirstOrDefault()))
+                    {
+                        arrayConversion = $"SwiftArray<{rawArrayElementType}>.FromEnumerable({patternVar}.Select(e => new SwiftString(e)))";
+                    }
+                    else
+                    {
+                        arrayConversion = $"SwiftArray<{rawArrayElementType}>.FromEnumerable({patternVar})";
+                    }
+                    return $"({paramName} is {{}} {patternVar} ? SwiftOptional<{innerType}>.NewSome({arrayConversion}) : SwiftOptional<{innerType}>.NewNone())";
+                }
+            }
+
+            // If the inner type is SwiftString, the C# parameter is string? — wrap with new SwiftString()
+            if (innerSpec != null && IsSwiftString(innerSpec))
+            {
+                return $"({paramName} is {{}} {patternVar} ? SwiftOptional<{innerType}>.NewSome(new SwiftString({patternVar})) : SwiftOptional<{innerType}>.NewNone())";
+            }
+
             return $"({paramName} is {{}} {patternVar} ? SwiftOptional<{innerType}>.NewSome({patternVar}) : SwiftOptional<{innerType}>.NewNone())";
         }
 
@@ -322,6 +374,14 @@ public class TypeConversionHandler
             if (elementTypeSpec != null && IsSwiftString(elementTypeSpec))
             {
                 return $"((SwiftString?){resultVar})?.ToString()";
+            }
+
+            // Handle Optional<Array<T>> — can't cast SwiftOptional<SwiftArray<T>> to IReadOnlyList<T>?
+            // Must unwrap via .Case/.Some and apply inner array conversion (element projection if needed)
+            if (elementTypeSpec is NamedTypeSpec elementNamed && IsSwiftArray(elementNamed))
+            {
+                var arrayReturnConversion = GetReturnConversion($"{resultVar}.Some", elementTypeSpec, typeTranslator);
+                return $"({resultVar}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType})null : {arrayReturnConversion})";
             }
 
             return $"(({idiomaticType}){resultVar})";

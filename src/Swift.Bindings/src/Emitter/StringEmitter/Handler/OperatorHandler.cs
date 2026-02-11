@@ -314,8 +314,13 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Wrap in unsafe block when indirect result uses pointer operations
+                if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
+
                 // Emit P/Invoke call and return
                 EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult);
+
+                if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -339,8 +344,13 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
+                // Wrap in unsafe block when indirect result uses pointer operations
+                if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
+
                 // Emit P/Invoke call and return
                 EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult);
+
+                if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");

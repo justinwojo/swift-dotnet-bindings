@@ -1,8 +1,9 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Phase B1 Error Handling + Phase 62 + ArraySlice normalization + CryptoSwift validation + all 9 fix steps complete + protocol composition + swiftinterface parsing)
-**Unit Tests**: 1,603 passed
-**Runtime Tests**: 68 passing on iOS Simulator at Tier 2 (incl. 24 error handling + 13 SwiftUI bridge)
+**Last Updated**: February 2026 (Binding API WU1-WU6 + Codex review fixes + Mono JIT mitigation + Tier promotion + Doc comments)
+**Unit Tests**: 1,929 passed
+**Runtime Tests**: 185 passing on iOS Simulator at Tier 2 safe-only (28 pre-existing failures)
+**Integration Tests**: 699 passing (11 skipped, pre-existing)
 **Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie, CryptoSwift
 
 ---
@@ -36,17 +37,13 @@ Remaining member gaps are primarily unsupported existential type arguments in bo
 
 | Metric | Value |
 |--------|-------|
-| Must-pass features | 119 |
-| Passing | 64 |
+| Must-pass features | 94/94 passing |
 | Degraded | 0 |
-| Missing | 51 (disabled dirs) |
-| Known-unsupported | 59 |
-| Types emitted | 62/72 |
-| Members emitted | 308/359 |
+| Compiled-out | See disabled dirs |
+| Known-unsupported | See testing-gaps.md |
+| Runtime tests | 185 passing at Tier 2 safe-only |
 
-Phase B1 added 3 must-pass features: `synchronous_throws`, `static_throws`, `custom_error_type`. 3 known-unsupported: `typed_throws`, `typed_throws_on_struct`, `typed_async_throws` (compiled out). 24 runtime tests passing at Tier 2 (10 deferred to Tier 3 — Mono JIT crashes, non-blittable types, missing entry points).
-
-4 ArraySlice features added in Phase 62: `array_slice_parameter`, `array_slice_multiple_params`, `array_slice_class_method`, `array_slice_throwing`.
+Tier promotion pass added runtime tests across string/enum/class/closure/composition/blittable marshalling. Coverage includes error handling, SwiftUI bridge, operators, optionals, tuples, pointers, arrays, closures, and protocol proxies.
 
 ---
 
@@ -86,6 +83,9 @@ Phase B1 added 3 must-pass features: `synchronous_throws`, `static_throws`, `cus
 - Skip reasons in report (UnsupportedSignature, AnyTypeFallback, AsyncProperty, etc.)
 - Configurable namespace mapping
 - Async property detection via TBD symbol analysis
+- Idiomatic C# API surface: verb-prefixed methods, `string` properties, `T?` optionals, `nint` integers, `IDisposable`, real constructors, clean interface names
+- XML doc comments from Swift symbol graphs (opt-in via `--symbolgraph`)
+- Mono JIT crash mitigation: SwiftString wrappers, closure Cdecl expansion, existential metadata wrappers, signature risk detection
 
 ---
 
@@ -116,7 +116,7 @@ Phase B1 added 3 must-pass features: `synchronous_throws`, `static_throws`, `cus
 
 ## Development History
 
-61 phases of improvements tracked in git history. Key milestones:
+70+ phases of improvements tracked in git history. Key milestones:
 
 | Phase | Highlights |
 |-------|------------|
@@ -145,6 +145,14 @@ Phase B1 added 3 must-pass features: `synchronous_throws`, `static_throws`, `cus
 | 60 | Async complex type callback marshalling (BlinkID 18/18) |
 | 61 | Fix IntPtr\<T> generic emission bug (integration tests 0 compile errors) |
 | 62 | ArraySlice parameter normalization via Swift wrappers, CryptoSwift validation (91.6%), `IsMutating` + `UsesWrapperLibrary` model additions |
+| H1-H2 | Unit test gaps + 6 library binding bugs → all 4 libraries 0 errors |
+| I1/I1a/I1b | Mono JIT mitigation: Nuke wrapper path, BitwiseCopyable fix, ObjC async callback marshalling |
+| K | Swift doc comments → C# XML doc comments (30 unit tests) |
+| Strategy D | MonoJitRiskDetector static analysis (34 unit tests) |
+| Strategy B | Closure Cdecl expansion for Mono JIT crash mitigation (38 unit tests) |
+| Tier Promo | Tj dispatch thunks + IsFinal + closure/composition/string tier promotions (185 runtime tests) |
+| WU1-WU6 | Idiomatic C# binding API: verb prefixes, async stripping, array element conversion, subscript conversion, parameter normalization, unsafe removal |
+| Codex Fixes | Protocol proxy type asymmetry, Optional<Array<String>> marshalling, GetSwiftWrapperType raw elements, async-void Get prefix |
 
 SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
 

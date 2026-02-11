@@ -187,7 +187,7 @@ public class MainViewController : UIViewController
         {
             // SHA-256 of "hello" = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
             var input = Encoding.UTF8.GetBytes("hello");
-            var hash = Digest.Sha256(input);
+            var hash = Digest.GetSha256(input);
             var hex = ToHex(hash);
             TestLogger.Info($"  SHA256('hello') = {hex}");
 
@@ -210,7 +210,7 @@ public class MainViewController : UIViewController
         {
             // MD5 of "hello" = 5d41402abc4b2a76b9719d911017c592
             var input = Encoding.UTF8.GetBytes("hello");
-            var hash = Digest.Md5(input);
+            var hash = Digest.GetMd5(input);
             var hex = ToHex(hash);
             TestLogger.Info($"  MD5('hello') = {hex}");
 
@@ -233,7 +233,7 @@ public class MainViewController : UIViewController
         {
             // SHA-1 of "hello" = aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d
             var input = Encoding.UTF8.GetBytes("hello");
-            var hash = Digest.Sha1(input);
+            var hash = Digest.GetSha1(input);
             var hex = ToHex(hash);
             TestLogger.Info($"  SHA1('hello') = {hex}");
 

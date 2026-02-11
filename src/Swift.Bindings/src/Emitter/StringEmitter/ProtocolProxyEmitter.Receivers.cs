@@ -79,17 +79,31 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_get";
             if (emittedReceivers.Add(receiverName))
             {
-                writer.WriteLines($$"""
-                    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                    private static IntPtr {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer)
-                    {
-                        var container = *(ExistentialContainer1*)selfContainer;
-                        var proxy = SwiftObjectRegistry.GetProxyFromContainer<{{proxyClassName}}>(container);
-                        var result = proxy._csharpImpl!.{{pascalPropertyName}};
-                        return MarshalToSwiftBuffer(result);
-                    }
+                // The interface property uses idiomatic C# types (e.g., string, string?, IReadOnlyList<string>)
+                // but MarshalToSwiftBuffer expects Swift ABI types (SwiftString, SwiftOptional<SwiftString>, etc.).
+                // Use GetParameterConversion to convert the idiomatic value back to the Swift wrapper type.
+                var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
+                var getterConversion = typeConversionHandler.GetParameterConversion("result", property.SwiftTypeSpec);
 
-                    """);
+                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]");
+                writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
+                writer.WriteLine("{");
+                writer.Indent++;
+                writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
+                writer.WriteLine($"var proxy = SwiftObjectRegistry.GetProxyFromContainer<{proxyClassName}>(container);");
+                writer.WriteLine($"var result = proxy._csharpImpl!.{pascalPropertyName};");
+                if (getterConversion != null)
+                {
+                    writer.WriteLine($"var swiftResult = {getterConversion};");
+                    writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                }
+                else
+                {
+                    writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                }
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.WriteLine();
             }
         }
 
@@ -98,6 +112,12 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_set";
             if (emittedReceivers.Add(receiverName))
             {
+                // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
+                // The receiver marshals the Swift ABI type, but the interface uses the idiomatic C# type
+                var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
+                var returnConversion = typeConversionHandler.GetReturnConversion("value", property.SwiftTypeSpec);
+                var assignmentExpr = returnConversion ?? "value";
+
                 writer.WriteLines($$"""
                     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
                     private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
@@ -105,7 +125,7 @@ public partial class ProtocolProxyEmitter
                         var container = *(ExistentialContainer1*)selfContainer;
                         var proxy = SwiftObjectRegistry.GetProxyFromContainer<{{proxyClassName}}>(container);
                         var value = MarshalFromSwift<{{csharpTypeName}}>(valuePtr);
-                        proxy._csharpImpl!.{{pascalPropertyName}} = value;
+                        proxy._csharpImpl!.{{pascalPropertyName}} = {{assignmentExpr}};
                     }
 
                     """);

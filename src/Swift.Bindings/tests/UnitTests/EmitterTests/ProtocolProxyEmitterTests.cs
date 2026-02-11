@@ -188,6 +188,66 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_SetterReceiver_OptionalString_AppliesConversion()
+    {
+        // Regression: Protocol property setter receiver marshals Swift ABI type (SwiftOptional<SwiftString>)
+        // but the C# interface property uses idiomatic type (string?). The receiver must apply
+        // GetReturnConversion to bridge the two — without this, assignment fails at compile time.
+        var optionalString = new NamedTypeSpec("Swift.Optional");
+        optionalString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var protocolDecl = CreateProtocolWithProperty("ConvertProto", "label", hasGetter: false, hasSetter: true, optionalString);
+        var output = EmitProxyClass(protocolDecl);
+
+        // The receiver should apply type conversion in the assignment (not just raw "value")
+        Assert.Contains("Receive_label_set", output);
+        Assert.Contains("?.ToString()", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GetterReceiver_String_ConvertsToSwiftString()
+    {
+        // Regression (P0 #1): Getter receiver returns idiomatic C# value (string) from
+        // _csharpImpl but MarshalToSwiftBuffer expects Swift ABI type (SwiftString).
+        // Without reverse conversion, Unsafe.Write writes a managed reference instead of
+        // SwiftString layout → garbage across the Swift boundary.
+        var typeSpec = new NamedTypeSpec("Swift.String");
+        var protocolDecl = CreateProtocolWithProperty("StringProto", "name", hasGetter: true, hasSetter: false, typeSpec);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Getter should convert string → SwiftString before marshalling
+        Assert.Contains("Receive_name_get", output);
+        Assert.Contains("new SwiftString(result)", output);
+        Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GetterReceiver_OptionalString_ConvertsToSwiftOptional()
+    {
+        // Regression (P0 #1): Optional<String> getter must convert string? → SwiftOptional<SwiftString>
+        var optionalString = new NamedTypeSpec("Swift.Optional");
+        optionalString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var protocolDecl = CreateProtocolWithProperty("OptStringProto", "label", hasGetter: true, hasSetter: false, optionalString);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_label_get", output);
+        Assert.Contains("SwiftOptional<", output);
+        Assert.Contains("new SwiftString(", output);
+        Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_GetterReceiver_BlittableType_NoConversion()
+    {
+        // Non-convertible (blittable) types should NOT get intermediate conversion
+        var protocolDecl = CreateProtocolWithProperty("IntProto", "count", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_count_get", output);
+        Assert.Contains("MarshalToSwiftBuffer(result)", output);
+        Assert.DoesNotContain("swiftResult", output.Substring(output.IndexOf("Receive_count_get")));
+    }
+
+    [Fact]
     public void EmitProxyClass_ReceiverUsesSwiftObjectRegistry()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);

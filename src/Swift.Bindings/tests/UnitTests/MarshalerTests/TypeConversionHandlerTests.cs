@@ -288,6 +288,37 @@ public class TypeConversionHandlerTests
         Assert.Equal("((SwiftString?)result)?.ToString()", result);
     }
 
+    [Fact]
+    public void GetReturnConversion_OptionalArray_UnwrapsViaCaseAndSome()
+    {
+        // Regression: SwiftOptional<SwiftArray<Int>> can't be directly cast to IReadOnlyList<long>?.
+        // Must unwrap via .Case/.Some check.
+        var innerArray = new NamedTypeSpec("Swift.Array");
+        innerArray.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(innerArray);
+        var result = _handler.GetReturnConversion("value", typeSpec, _ => "long");
+        Assert.NotNull(result);
+        Assert.Contains("SwiftOptionalCases.None", result);
+        Assert.Contains("value.Some", result);
+    }
+
+    [Fact]
+    public void GetReturnConversion_OptionalArrayString_ProjectsElements()
+    {
+        // Regression: SwiftOptional<SwiftArray<SwiftString>> → IReadOnlyList<string>?
+        // Must unwrap Optional AND project SwiftString elements to string.
+        var innerArray = new NamedTypeSpec("Swift.Array");
+        innerArray.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(innerArray);
+        var result = _handler.GetReturnConversion("value", typeSpec);
+        Assert.NotNull(result);
+        Assert.Contains("SwiftOptionalCases.None", result);
+        Assert.Contains(".Select(", result);
+        Assert.Contains(".ToString()", result);
+    }
+
     #endregion
 
     #region GetSwiftWrapperType Tests
@@ -494,6 +525,85 @@ public class TypeConversionHandlerTests
         typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
         var result = _handler.GetReturnConversion("result", typeSpec);
         Assert.Equal("result", result);
+    }
+
+    #endregion
+
+    #region Optional<Array<T>> Parameter Conversion Regression
+
+    [Fact]
+    public void GetParameterConversion_OptionalSwiftArray_WrapsWithFromEnumerable()
+    {
+        // Regression: Optional<Array<UInt8>> parameter must convert inner IReadOnlyList<byte>
+        // to SwiftArray<byte> via FromEnumerable before wrapping in SwiftOptional.NewSome.
+        // Without this, C# passes IReadOnlyList<byte> where SwiftArray<byte> is expected → CS1503.
+        var innerArray = new NamedTypeSpec("Swift.Array");
+        innerArray.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(innerArray);
+
+        var result = _handler.GetParameterConversion("data", typeSpec, _ => "long");
+        Assert.NotNull(result);
+        Assert.Contains("SwiftArray<long>.FromEnumerable", result);
+        Assert.Contains("SwiftOptional<", result);
+    }
+
+    [Fact]
+    public void GetParameterConversion_OptionalSwiftArraySwiftString_ConvertsElements()
+    {
+        // Regression: Optional<Array<String>> must create SwiftString elements via constructor
+        var innerArray = new NamedTypeSpec("Swift.Array");
+        innerArray.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(innerArray);
+
+        var result = _handler.GetParameterConversion("names", typeSpec);
+        Assert.NotNull(result);
+        Assert.Contains("SwiftArray<", result);
+        Assert.Contains("FromEnumerable", result);
+        Assert.Contains("new SwiftString", result);
+    }
+
+    #endregion
+
+    #region Nested Array Parameter Conversion Regression
+
+    [Fact]
+    public void GetParameterConversion_NestedSwiftArray_ConvertsInnerArray()
+    {
+        // Regression: SwiftArray<SwiftArray<UInt8>> parameter must convert inner IReadOnlyList<byte>
+        // elements to SwiftArray<byte> via .Select(inner => SwiftArray<byte>.FromEnumerable(inner)).
+        // Without this, C# passes IReadOnlyList<IReadOnlyList<byte>> where SwiftArray<SwiftArray<byte>> is expected → CS1503.
+        var innerArray = new NamedTypeSpec("Swift.Array");
+        innerArray.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var outerArray = new NamedTypeSpec("Swift.Array");
+        outerArray.GenericParameters.Add(innerArray);
+
+        var result = _handler.GetParameterConversion("blocks", outerArray, _ => "long");
+        Assert.NotNull(result);
+        Assert.Contains(".Select(", result);
+        Assert.Contains("SwiftArray<long>.FromEnumerable", result);
+    }
+
+    #endregion
+
+    #region GetRawArrayElementType Tests
+
+    [Fact]
+    public void GetRawArrayElementType_SwiftArraySwiftString_ReturnsSwiftString()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var result = _handler.GetRawArrayElementType(typeSpec);
+        Assert.Equal("Swift.SwiftString", result);
+    }
+
+    [Fact]
+    public void GetRawArrayElementType_NonArray_ReturnsNull()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Int");
+        var result = _handler.GetRawArrayElementType(typeSpec);
+        Assert.Null(result);
     }
 
     #endregion

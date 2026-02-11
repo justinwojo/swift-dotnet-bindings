@@ -336,7 +336,7 @@ namespace BindingsGeneration
                     var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
                         argumentDecl.SwiftTypeSpec,
                         typeSpec => TranslateTypeSpecForConversion(typeSpec));
-                    // Check if inner element type was converted (e.g., string → SwiftString)
+                    // Check if inner element type was converted (e.g., string → SwiftString, IReadOnlyList → SwiftArray)
                     var optNamedType = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
                     var innerElementSpec = optNamedType?.GenericParameters.FirstOrDefault();
                     if (innerElementSpec != null && _env.TypeConversionHandler.IsSwiftString(innerElementSpec))
@@ -345,6 +345,27 @@ namespace BindingsGeneration
                         // Use named intermediate so the temporary SwiftString is deterministically disposed
                         csWriter.WriteLine($"using var {csName}Str = {csName} is {{}} {csName}Value ? new SwiftString({csName}Value) : null;");
                         csWriter.WriteLine($"using var {csName}Swift = {csName}Str != null ? {swiftType}.NewSome({csName}Str) : {swiftType}.NewNone();");
+                    }
+                    else if (innerElementSpec is NamedTypeSpec innerNamed && _env.TypeConversionHandler.IsSwiftArray(innerNamed))
+                    {
+                        // Public API is IReadOnlyList<T>?, but SwiftOptional<SwiftArray<T>>.NewSome needs SwiftArray<T>
+                        // Convert using FromEnumerable before wrapping in Optional
+                        var rawArrayElement = _env.TypeConversionHandler.GetRawArrayElementType(innerNamed);
+                        string arrayConversion;
+                        if (rawArrayElement != null)
+                        {
+                            // Check if element type needs conversion (e.g., string → SwiftString)
+                            var innerArrayElementSpec = innerNamed.GenericParameters.FirstOrDefault();
+                            if (innerArrayElementSpec != null && _env.TypeConversionHandler.IsSwiftString(innerArrayElementSpec))
+                                arrayConversion = $"SwiftArray<{rawArrayElement}>.FromEnumerable({csName}Value.Select(e => new SwiftString(e)))";
+                            else
+                                arrayConversion = $"SwiftArray<{rawArrayElement}>.FromEnumerable({csName}Value)";
+                        }
+                        else
+                        {
+                            arrayConversion = $"{csName}Value";
+                        }
+                        csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({arrayConversion}) : {swiftType}.NewNone();");
                     }
                     else
                     {
