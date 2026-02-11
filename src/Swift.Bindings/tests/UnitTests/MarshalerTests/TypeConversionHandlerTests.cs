@@ -277,6 +277,17 @@ public class TypeConversionHandlerTests
         Assert.Null(result);
     }
 
+    [Fact]
+    public void GetReturnConversion_SwiftOptional_SwiftString_UsesTwoStepConversion()
+    {
+        // SwiftOptional<SwiftString> cannot be directly cast to string?.
+        // Must use two-step: ((SwiftString?)result)?.ToString()
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var result = _handler.GetReturnConversion("result", typeSpec);
+        Assert.Equal("((SwiftString?)result)?.ToString()", result);
+    }
+
     #endregion
 
     #region GetSwiftWrapperType Tests

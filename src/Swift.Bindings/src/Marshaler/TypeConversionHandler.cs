@@ -314,6 +314,16 @@ public class TypeConversionHandler
             var idiomaticType = GetIdiomaticCSharpType(namedTypeSpec, false, typeTranslator);
             if (idiomaticType == null)
                 return null;
+
+            // If the element type is itself convertible (e.g., SwiftString → string),
+            // we need a two-step conversion: SwiftOptional<SwiftString> → SwiftString? → string?
+            // A direct cast to string? from SwiftOptional<SwiftString> is invalid.
+            var elementTypeSpec = namedTypeSpec.GenericParameters.FirstOrDefault();
+            if (elementTypeSpec != null && IsSwiftString(elementTypeSpec))
+            {
+                return $"((SwiftString?){resultVar})?.ToString()";
+            }
+
             return $"(({idiomaticType}){resultVar})";
         }
 

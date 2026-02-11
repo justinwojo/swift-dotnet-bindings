@@ -671,7 +671,16 @@ namespace BindingsGeneration
             bool isAsyncConstructor = _env.MethodDecl.IsConstructor && _env.MethodDecl.IsAsync;
 
             var staticKeyword = _env.MethodDecl.MethodType == MethodType.Static || _env.ParentDecl is ModuleDecl || isAsyncConstructor ? "static " : "";
-            _needsUnsafeBody = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _requiresSwiftError || methodOwnParams.Count > 0 || containsBoundGenerics || hasClosureParams;
+            // Class-type returns use sizeof(IntPtr) + pointer dereference for payload allocation
+            var returnArg = _env.MethodDecl.CSSignature.First();
+            bool hasClassReturn = !returnArg.SwiftTypeSpec.IsEmptyTuple && !returnArg.IsGeneric &&
+                !_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec) &&
+                !_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec) &&
+                !_env.TupleHandler.IsTuple(returnArg) &&
+                _env.TypeDatabase.TryGetTypeRecord(returnArg.SwiftTypeSpec, out var returnTypeRecord) &&
+                returnTypeRecord.Kind == TypeRecordKind.Class && !MarshallingHelpers.IsObjCBridged(returnTypeRecord);
+
+            _needsUnsafeBody = _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _requiresSwiftError || methodOwnParams.Count > 0 || containsBoundGenerics || hasClosureParams || hasClassReturn;
 
             var returnType = _wrapperSignature.ReturnType;
             if (_requiresSwiftAsync)

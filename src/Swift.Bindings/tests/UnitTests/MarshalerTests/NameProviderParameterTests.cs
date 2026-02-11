@@ -245,5 +245,27 @@ public class NameProviderParameterTests
         Assert.Equal("name", NameProvider.GetCSharpParameterName(arg));
     }
 
+    [Fact]
+    public void GetCSharpParameterName_NestedType_UsesLeafName()
+    {
+        // Nested types like "Nuke.ImageRequest.ThumbnailOptions" must produce
+        // "thumbnailOptions" (leaf name only), not "imageRequest.ThumbnailOptions"
+        // (which contains a dot and is an invalid C# identifier).
+        var arg = MakeArgWithType("arg0", "Nuke.ImageRequest.ThumbnailOptions");
+        var result = NameProvider.GetCSharpParameterName(arg);
+        Assert.Equal("thumbnailOptions", result);
+        Assert.DoesNotContain(".", result);
+    }
+
+    [Fact]
+    public void GetCSharpParameterName_DeeplyNestedType_UsesLeafName()
+    {
+        // Even deeper nesting should still use only the leaf type name.
+        var arg = MakeArgWithType("arg0", "Module.Outer.Middle.Inner");
+        var result = NameProvider.GetCSharpParameterName(arg);
+        Assert.Equal("inner", result);
+        Assert.DoesNotContain(".", result);
+    }
+
     #endregion
 }

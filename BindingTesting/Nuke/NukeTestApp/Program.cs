@@ -1651,7 +1651,7 @@ public static class ImagePipelineExtensions
     public static Task<UIKit.UIImage> LoadImageAsync(this ImagePipeline pipeline, ImageRequest request)
     {
         // Route through the generated async wrapper which uses @_cdecl callbacks
-        return pipeline.ImageAsync(request);
+        return pipeline.GetImageAsync(request);
     }
 }
 

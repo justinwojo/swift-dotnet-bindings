@@ -293,6 +293,12 @@ public static class NameProvider
 
         var typeName = namedType.NameWithoutModule;
 
+        // For nested types (e.g., "ImageRequest.ThumbnailOptions"), use only the
+        // leaf type name to avoid dots in the derived parameter name.
+        var lastDot = typeName.LastIndexOf('.');
+        if (lastDot >= 0)
+            typeName = typeName.Substring(lastDot + 1);
+
         // Primitives → generic "value"
         if (_primitiveTypeNames.Contains(typeName))
             return "value";

@@ -1009,6 +1009,39 @@ public class ClosureCdeclEmitterTests
 
     #endregion
 
+    #region Unsafe Body Detection for Class Returns
+
+    [Fact]
+    public void StaticMethodReturningClass_EmitsUnsafeBody()
+    {
+        // Static method returning a class type (e.g., ImageCache.Shared getter).
+        // No SwiftSelf, no IndirectResult, no SwiftAsync, no generics, no closures —
+        // class-return marshalling (sizeof(IntPtr) + pointer deref) is the ONLY
+        // reason unsafe is required.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var method = CreateMethodDecl("shared", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("TestModule.Loader"), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // The method body must contain unsafe { } because class-return marshalling
+        // uses sizeof(IntPtr) and *(IntPtr*) pointer dereference.
+        var lines = csOutput.Split('\n').Select(l => l.Trim()).ToArray();
+        var methodLineIdx = Array.FindIndex(lines, l => l.Contains("GetShared("));
+        Assert.True(methodLineIdx >= 0, "Expected wrapper method 'GetShared' in output");
+
+        var bodyLines = lines.Skip(methodLineIdx + 1).ToArray();
+        var unsafeIdx = Array.FindIndex(bodyLines, l => l == "unsafe");
+        Assert.True(unsafeIdx >= 0, "Expected 'unsafe' block inside GetShared method body");
+        Assert.Equal("{", bodyLines[unsafeIdx + 1]);
+    }
+
+    #endregion
+
     #region Test Helpers
 
     private static TypeDatabase CreateTypeDatabase()
