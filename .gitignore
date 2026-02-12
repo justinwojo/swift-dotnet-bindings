@@ -229,6 +229,10 @@ BindingTesting/CryptoSwift/CryptoSwiftSource/
 # Include abi.json files inside xcframeworks (needed for binding generation)
 !BindingTesting/**/*.xcframework/**/*.abi.json
 
+# SDK build artifacts (published generator tooling, rebuilt by build-sdk.sh)
+src/Swift.Bindings.Sdk/tools/
+src/Swift.Bindings.Sdk/bin/
+
 # Claude Code local settings
 .claude/settings.local.json
 
