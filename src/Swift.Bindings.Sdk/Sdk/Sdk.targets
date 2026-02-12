@@ -105,10 +105,20 @@
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_GenerateSwiftBindings"
           BeforeTargets="CoreCompile"
-          DependsOnTargets="_ComputeSwiftFingerprint"
-          Condition="'$(_SwiftBindingUpToDate)' != 'true' AND '@(SwiftFramework)' != ''">
+          DependsOnTargets="_ComputeSwiftFingerprint">
+    <!--
+      No Target-level Condition on @(SwiftFramework): MSBuild evaluates Target
+      Conditions at evaluation time, but SwiftFramework items may only exist at
+      execution time (populated by _DiscoverSwiftFrameworks). A Target Condition
+      would prevent the DependsOnTargets chain from firing, so discovery would
+      never run. Instead, gate the tasks inside on @(SwiftFramework).
 
-    <PropertyGroup>
+      Similarly, the fingerprint gate is on tasks, not the Target, because
+      MSBuild evaluates Target Conditions using evaluation-phase property values.
+      Properties set during execution (in _ComputeSwiftFingerprint) are only
+      visible to task-level Conditions, not target-level Conditions.
+    -->
+    <PropertyGroup Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'">
       <_SwiftGenCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --xcframework "%(SwiftFramework.Identity)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftGenCmd>
@@ -122,7 +132,8 @@
       <_SwiftGenCmd Condition="'%(SwiftFramework.SwiftInterface)' != ''">$(_SwiftGenCmd) -s "%(SwiftFramework.SwiftInterface)"</_SwiftGenCmd>
     </PropertyGroup>
 
-    <Exec Command="$(_SwiftGenCmd)" ConsoleToMSBuild="true"
+    <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'"
+          Command="$(_SwiftGenCmd)" ConsoleToMSBuild="true"
           StandardOutputImportance="low" StandardErrorImportance="high" />
   </Target>
 
@@ -197,9 +208,9 @@
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ResolveSwiftNativeReferences"
           BeforeTargets="ResolveNativeReferences"
-          Condition="'@(SwiftFramework)' != ''">
+          DependsOnTargets="_DiscoverSwiftFrameworks">
 
-    <ItemGroup>
+    <ItemGroup Condition="'@(SwiftFramework)' != ''">
       <NativeReference Include="%(SwiftFramework.Identity)">
         <Kind>Framework</Kind>
       </NativeReference>

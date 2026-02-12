@@ -233,10 +233,11 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Targets_FingerprintUsedViaDependsOnTargets()
+        public void Targets_FingerprintGatesExecNotTarget()
         {
-            // _ComputeSwiftFingerprint must NOT have BeforeTargets (evaluated too late)
-            // _GenerateSwiftBindings must use DependsOnTargets (evaluated before Condition)
+            // MSBuild evaluates Target Condition with evaluation-phase property values,
+            // so _SwiftBindingUpToDate (set at execution time in _ComputeSwiftFingerprint)
+            // can't gate the Target. Instead, the fingerprint gates the Exec task.
             Assert.Contains("DependsOnTargets=\"_ComputeSwiftFingerprint\"", TargetsContent);
 
             // _ComputeSwiftFingerprint target should not declare BeforeTargets
@@ -245,6 +246,35 @@ namespace BindingsGeneration.Tests
             var endOfTag = fingerprintTarget.IndexOf('>', StringComparison.Ordinal);
             var targetTag = fingerprintTarget.Substring(0, endOfTag);
             Assert.DoesNotContain("BeforeTargets", targetTag);
+
+            // The Exec task must have both SwiftFramework and fingerprint conditions
+            Assert.Contains("Exec Condition=\"'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'\"", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_GenerateHasNoTargetLevelSwiftFrameworkCondition()
+        {
+            // MSBuild evaluates Target Conditions at evaluation time, but SwiftFramework
+            // items may only exist at execution time (populated by _DiscoverSwiftFrameworks).
+            // A Target-level Condition would prevent the DependsOnTargets chain from firing.
+            var generateTarget = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_GenerateSwiftBindings\"", StringComparison.Ordinal));
+            var endOfTag = generateTarget.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = generateTarget.Substring(0, endOfTag);
+            Assert.DoesNotContain("@(SwiftFramework)", targetTag);
+        }
+
+        [Fact]
+        public void Targets_NativeReferenceDependsOnDiscovery()
+        {
+            // _ResolveSwiftNativeReferences must depend on _DiscoverSwiftFrameworks
+            // so auto-discovered items are available before ResolveNativeReferences
+            var nativeRefTarget = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_ResolveSwiftNativeReferences\"", StringComparison.Ordinal));
+            var endOfTag = nativeRefTarget.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = nativeRefTarget.Substring(0, endOfTag);
+            Assert.Contains("DependsOnTargets=\"_DiscoverSwiftFrameworks\"", targetTag);
+            Assert.DoesNotContain("@(SwiftFramework)", targetTag);
         }
 
         [Fact]
