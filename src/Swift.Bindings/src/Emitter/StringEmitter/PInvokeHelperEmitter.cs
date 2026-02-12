@@ -50,7 +50,31 @@ public class PInvokeHelperContext
             .Select((_, i) => $"T{i}")
             .ToList();
 
-        return new PInvokeHelperContext(typeDecl.Name, typeParams);
+        // Use qualified name (e.g., "Outer_Inner") to avoid helper class name collisions
+        // when deferred helpers from different parent types share the same simple name.
+        return new PInvokeHelperContext(GetQualifiedTypeName(typeDecl), typeParams);
+    }
+
+    /// <summary>
+    /// Builds a qualified type name by walking the parent type chain.
+    /// For nested types, produces "Parent_Child" to ensure unique helper class names
+    /// when multiple nested types with the same simple name exist under different parents.
+    /// </summary>
+    private static string GetQualifiedTypeName(TypeDecl typeDecl)
+    {
+        var parts = new List<string>();
+        BaseDecl? current = typeDecl;
+        while (current is TypeDecl td)
+        {
+            parts.Add(td.Name);
+            current = td.ParentDecl;
+        }
+
+        if (parts.Count <= 1)
+            return typeDecl.Name;
+
+        parts.Reverse();
+        return string.Join("_", parts);
     }
 
     /// <summary>

@@ -410,6 +410,15 @@ public partial class ProtocolProxyEmitter
             returnTypeName = "void";
         }
 
+        // Wrap return type for async methods to match interface declaration
+        if (method.IsAsync)
+        {
+            if (returnTypeName == "void")
+                returnTypeName = "Task";
+            else
+                returnTypeName = $"Task<{returnTypeName}>";
+        }
+
         // Build parameter list - apply idiomatic type conversions and native type remapping to match interface
         var parameters = new List<string>();
         var argNames = new List<string>();
@@ -607,15 +616,27 @@ public partial class ProtocolProxyEmitter
             }
             else
             {
-                writer.WriteLines($$"""
-                    if (_csharpImpl != null)
-                    {
-                        _csharpImpl.{{methodName}}({{argsString}});
-                        return;
-                    }
-                    fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
-                    {
-                    """);
+                if (method.IsAsync)
+                {
+                    writer.WriteLines($$"""
+                        if (_csharpImpl != null)
+                            return _csharpImpl.{{methodName}}({{argsString}});
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                        """);
+                }
+                else
+                {
+                    writer.WriteLines($$"""
+                        if (_csharpImpl != null)
+                        {
+                            _csharpImpl.{{methodName}}({{argsString}});
+                            return;
+                        }
+                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        {
+                        """);
+                }
                 writer.Indent++;
 
                 // Declare pin handles before try for exception-safe cleanup
@@ -672,16 +693,29 @@ public partial class ProtocolProxyEmitter
             }
             else
             {
-                writer.WriteLines($$"""
-                    if (_csharpImpl != null)
-                    {
-                        _csharpImpl.{{methodName}}({{argsString}});
-                        return;
-                    }
-                    throw new NotSupportedException(
-                        "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
-                        "Protocol member access is only supported when wrapping a C# implementation.");
-                    """);
+                if (method.IsAsync)
+                {
+                    writer.WriteLines($$"""
+                        if (_csharpImpl != null)
+                            return _csharpImpl.{{methodName}}({{argsString}});
+                        throw new NotSupportedException(
+                            "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
+                            "Protocol member access is only supported when wrapping a C# implementation.");
+                        """);
+                }
+                else
+                {
+                    writer.WriteLines($$"""
+                        if (_csharpImpl != null)
+                        {
+                            _csharpImpl.{{methodName}}({{argsString}});
+                            return;
+                        }
+                        throw new NotSupportedException(
+                            "Cannot call method '{{methodName}}' on a Swift-backed existential container. " +
+                            "Protocol member access is only supported when wrapping a C# implementation.");
+                        """);
+                }
             }
         }
 

@@ -84,12 +84,14 @@ namespace BindingsGeneration
             csWriter.WriteLine("#nullable enable");
             csWriter.WriteLine();
             csWriter.WriteLine($"using System;");
+            csWriter.WriteLine($"using System.Collections.Generic;");
             csWriter.WriteLine($"using System.Diagnostics;");
             csWriter.WriteLine($"using System.Diagnostics.CodeAnalysis;");
             csWriter.WriteLine($"using System.Linq;");
             csWriter.WriteLine($"using System.Runtime.CompilerServices;");
             csWriter.WriteLine($"using System.Runtime.InteropServices;");
             csWriter.WriteLine($"using System.Runtime.InteropServices.Swift;");
+            csWriter.WriteLine($"using System.Threading.Tasks;");
             csWriter.WriteLine($"using Swift;");
             csWriter.WriteLine($"using Swift.Runtime;");
             csWriter.WriteLine($"using Swift.Runtime.InteropServices;");

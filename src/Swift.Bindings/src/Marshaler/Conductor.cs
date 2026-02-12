@@ -33,6 +33,14 @@ namespace BindingsGeneration
         public PInvokeHelperContext? CurrentPInvokeHelperContext { get; set; }
 
         /// <summary>
+        /// Helper contexts from nested generic types that must be emitted outside the outermost
+        /// generic parent. When a generic type is nested inside another generic type, its helper
+        /// class cannot be emitted inline (still inside the outer generic → CS7042). Instead it
+        /// is deferred here and emitted by the outermost generic type handler.
+        /// </summary>
+        public List<PInvokeHelperContext> DeferredPInvokeHelperContexts { get; } = new();
+
+        /// <summary>
         /// Gets or sets the current nested type rename map.
         /// Set by type handlers to rename nested types that collide with property names.
         /// Maps original type name → renamed type name (e.g., "Configuration" → "ConfigurationInfo").

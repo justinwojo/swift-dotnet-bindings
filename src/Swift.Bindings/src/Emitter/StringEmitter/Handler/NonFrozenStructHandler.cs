@@ -96,8 +96,9 @@ namespace BindingsGeneration
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics);
             // Create P/Invoke helper context for generic types (to avoid CS7042)
             // Set it on the conductor so nested method handlers can access it
-            var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
+            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
             var previousContext = conductor.CurrentPInvokeHelperContext;
+            var pinvokeHelperContext = ownPInvokeContext ?? previousContext;
             conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
 
             // Compute nested type renames to resolve property/nested-type name collisions
@@ -190,8 +191,21 @@ namespace BindingsGeneration
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
 
-                // Emit the P/Invoke helper class after the main class
-                pinvokeHelperContext?.EmitHelperClass(csWriter);
+                // Emit P/Invoke helper class(es) after the main class.
+                // If this is a nested generic inside a generic parent, defer emission
+                // (emitting here would still be inside the outer generic type → CS7042).
+                if (ownPInvokeContext != null)
+                {
+                    if (previousContext != null)
+                        conductor.DeferredPInvokeHelperContexts.Add(ownPInvokeContext);
+                    else
+                    {
+                        ownPInvokeContext.EmitHelperClass(csWriter);
+                        foreach (var deferred in conductor.DeferredPInvokeHelperContexts)
+                            deferred.EmitHelperClass(csWriter);
+                        conductor.DeferredPInvokeHelperContexts.Clear();
+                    }
+                }
             }
             finally
             {

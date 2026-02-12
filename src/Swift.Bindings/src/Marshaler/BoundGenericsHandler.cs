@@ -346,6 +346,7 @@ public class BoundGenericsHandler
         {
             NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext),
             ClosureTypeSpec closureTypeSpec => TranslateClosureTypeToCSharp(closureTypeSpec),
+            TupleTypeSpec { IsEmptyTuple: true } => "Swift.SwiftVoid",
             TupleTypeSpec tupleTypeSpec => _tupleHandler.GetCSharpTupleType(tupleTypeSpec,
                 ts => TranslateTypeSpecToCSharp(ts, genericContext)),
             _ => throw new NotSupportedException(

@@ -77,10 +77,12 @@ public partial class ProtocolProxyEmitter
         }
         catch
         {
+            // Unrecognized bound generic (e.g., SwiftDictionary<K,V>) — return AnyType
+            // to avoid bare type name without generic args (CS0305)
+            if (typeSpec is NamedTypeSpec { ContainsGenericParameters: true })
+                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
             if (typeSpec is NamedTypeSpec namedType)
-            {
                 return namedType.NameWithoutModule;
-            }
             return "object";
         }
     }

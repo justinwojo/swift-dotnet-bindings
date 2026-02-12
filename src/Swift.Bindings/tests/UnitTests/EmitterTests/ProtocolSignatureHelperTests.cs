@@ -124,6 +124,24 @@ public class ProtocolSignatureHelperTests
         Assert.Equal("Foundation.NSUrl", result);
     }
 
+    [Fact]
+    public void ProjectTypeToCSharp_UnrecognizedBoundGeneric_ReturnsAnyType()
+    {
+        // SwiftDictionary<K,V> has ContainsGenericParameters=true but BoundGenericsHandler
+        // doesn't recognize it. Should return AnyType, not bare type name without args.
+        var typeDatabase = CreateTypeDatabase();
+
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("UnknownModule.Foo"));
+
+        // Should not throw NotSupportedException
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(dictTypeSpec, typeDatabase);
+
+        // Returns AnyType instead of bare "SwiftDictionary" (which causes CS0305)
+        Assert.Contains("AnyType", result);
+    }
+
     #endregion
 
     #region Helper Methods

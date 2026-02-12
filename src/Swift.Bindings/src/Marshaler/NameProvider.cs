@@ -487,9 +487,20 @@ public static class NameProvider
     /// <returns>A dictionary mapping original nested type name → renamed name.</returns>
     public static Dictionary<string, string> ComputeAndApplyNestedTypeRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
-        var propertyNames = typeDecl.Properties.Select(p => GetPropertyName(p.Name, typeDecl.Name));
+        var memberNames = typeDecl.Properties.Select(p => GetPropertyName(p.Name, typeDecl.Name));
+
+        // For enums, include PascalCase'd case names in the collision set.
+        // Enum cases produce factory methods (e.g., case "pong" → static method "Pong()"),
+        // which collide with nested types of the same PascalCase name (CS0102).
+        if (typeDecl is EnumDecl enumDecl)
+        {
+            var caseNames = enumDecl.Cases.Select(c =>
+                char.ToUpper(c.Name[0]) + c.Name.Substring(1));
+            memberNames = memberNames.Concat(caseNames);
+        }
+
         var nestedTypeNames = typeDecl.Types.Select(t => t.Name);
-        var renames = ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+        var renames = ComputeNestedTypeRenames(memberNames, nestedTypeNames);
 
         foreach (var (originalName, renamedName) in renames)
         {

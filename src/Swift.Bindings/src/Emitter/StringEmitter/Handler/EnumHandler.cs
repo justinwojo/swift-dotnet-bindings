@@ -101,8 +101,9 @@ namespace BindingsGeneration
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
 
             // Create P/Invoke helper context for generic enums (to avoid CS7042).
-            var pinvokeHelperContext = PInvokeHelperContext.CreateIfGeneric(enumDecl);
+            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(enumDecl);
             var previousContext = conductor.CurrentPInvokeHelperContext;
+            var pinvokeHelperContext = ownPInvokeContext ?? previousContext;
             conductor.CurrentPInvokeHelperContext = pinvokeHelperContext;
 
             // Compute nested type renames to resolve property/nested-type name collisions
@@ -247,8 +248,21 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-                // Emit the P/Invoke helper class after the main enum.
-                pinvokeHelperContext?.EmitHelperClass(csWriter);
+                // Emit P/Invoke helper class(es) after the main enum.
+                // If this is a nested generic inside a generic parent, defer emission
+                // (emitting here would still be inside the outer generic type → CS7042).
+                if (ownPInvokeContext != null)
+                {
+                    if (previousContext != null)
+                        conductor.DeferredPInvokeHelperContexts.Add(ownPInvokeContext);
+                    else
+                    {
+                        ownPInvokeContext.EmitHelperClass(csWriter);
+                        foreach (var deferred in conductor.DeferredPInvokeHelperContexts)
+                            deferred.EmitHelperClass(csWriter);
+                        conductor.DeferredPInvokeHelperContexts.Clear();
+                    }
+                }
             }
             finally
             {

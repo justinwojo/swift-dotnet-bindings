@@ -95,7 +95,22 @@ internal static class ProtocolSignatureHelper
         for (int i = 1; i < methodDecl.CSSignature.Count; i++)
         {
             var arg = methodDecl.CSSignature[i];
-            paramTypes.Add(ProjectTypeToCSharp(arg.SwiftTypeSpec, typeDatabase, protocolContext, isParameter: true));
+            var projected = ProjectTypeToCSharp(arg.SwiftTypeSpec, typeDatabase, protocolContext, isParameter: true);
+
+            // Normalize nullable reference types for C# overload identity.
+            // In C#, nullability annotations don't affect overload resolution for reference types —
+            // only value types produce distinct Nullable<T> overloads.
+            // If the Swift type is Optional<T> where T is a reference type (class/protocol),
+            // strip the trailing '?' so T and T? produce the same overload key.
+            if (arg.SwiftTypeSpec is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional"
+                && optNamed.GenericParameters.Count == 1)
+            {
+                var innerRecord = typeDatabase.GetTypeRecordOrAnyType(optNamed.GenericParameters[0]);
+                if (innerRecord.Kind != TypeRecordKind.Struct && innerRecord.Kind != TypeRecordKind.Enum)
+                    projected = projected.TrimEnd('?');
+            }
+
+            paramTypes.Add(projected);
         }
         return $"{methodName}({string.Join(",", paramTypes)})";
     }
@@ -147,23 +162,35 @@ internal static class ProtocolSignatureHelper
         // Bound generics (Optional<T>, Array<T>, etc.)
         if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
         {
-            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-            var tempProperty = new PropertyDecl
-            {
-                Name = "_temp",
-                SwiftTypeSpec = typeSpec,
-                IsStatic = false,
-                HasStorage = false,
-                Accessors = new List<AccessorDecl>(),
-                ParentDecl = null,
-                ModuleDecl = null
-            };
-            var projected = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-
-            // Apply idiomatic conversion (SwiftString→string, SwiftArray→IEnumerable/IReadOnlyList, etc.)
+            // Try idiomatic conversion first (SwiftString→string, SwiftArray→IEnumerable/IReadOnlyList, etc.)
             var typeConversion = new TypeConversionHandler(typeDatabase);
             var idiomaticType = typeConversion.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter);
-            return idiomaticType ?? projected;
+            if (idiomaticType != null)
+                return idiomaticType;
+
+            // Try BoundGenericsHandler for recognized bound generics (Optional<T>, Array<T>, etc.)
+            // Falls back to raw type lookup for unrecognized generics (SwiftDictionary<K,V>, etc.)
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            try
+            {
+                var tempProperty = new PropertyDecl
+                {
+                    Name = "_temp",
+                    SwiftTypeSpec = typeSpec,
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                };
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+            }
+            catch (NotSupportedException)
+            {
+                // Unrecognized bound generic (e.g., SwiftDictionary<K,V>) — return AnyType
+                // to avoid bare type name without generic args (CS0305)
+                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+            }
         }
 
         // Standard named type lookup with idiomatic + native remapping

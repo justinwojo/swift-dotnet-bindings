@@ -399,7 +399,14 @@ namespace BindingsGeneration
                     ParentDecl = null,
                     ModuleDecl = null
                 };
-                returnTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                try
+                {
+                    returnTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                }
+                catch (NotSupportedException)
+                {
+                    returnTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                }
             }
             else
             {
@@ -634,7 +641,16 @@ namespace BindingsGeneration
                     ParentDecl = null,
                     ModuleDecl = null
                 };
-                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                try
+                {
+                    return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                }
+                catch (NotSupportedException)
+                {
+                    // Unrecognized bound generic (e.g., SwiftDictionary<K,V>) — return AnyType
+                    // to avoid bare type name without generic args (CS0305)
+                    return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                }
             }
 
             // For non-generic types, use the standard lookup
@@ -754,7 +770,14 @@ namespace BindingsGeneration
                     ParentDecl = null,
                     ModuleDecl = null
                 };
-                returnTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                try
+                {
+                    returnTypeName = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                }
+                catch (NotSupportedException)
+                {
+                    returnTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                }
             }
             else
             {
