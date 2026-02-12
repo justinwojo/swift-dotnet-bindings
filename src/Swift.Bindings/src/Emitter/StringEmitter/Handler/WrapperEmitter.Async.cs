@@ -41,6 +41,11 @@ namespace BindingsGeneration
                 .Where(p =>
                 {
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
+                    // C4: ObjC-bridged types (UIViewController, etc.) are .NET GC-managed objects,
+                    // not Swift value types — they don't need copy-buffer treatment and emitting
+                    // SwiftObjectHelper<T> for them causes CS0311/CS1061.
+                    if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                        return false;
                     return !MarshallingHelpers.IsTypeFrozen(typeRecord) || typeRecord.Kind == TypeRecordKind.Enum;
                 })
                 .ToList();

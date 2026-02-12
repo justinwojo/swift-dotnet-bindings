@@ -57,10 +57,12 @@ namespace BindingsGeneration
             }
 
             var parameterString = string.Join(", ", parameters.Select(p => $"{p.publicType} {p.name}"));
+            // C10: Use unique local variable name to avoid CS0136 if a parameter is also named "result"
+            var resultVarName = parameters.Any(p => p.name == "result") ? "__enumResult" : "result";
             csWriter.WriteLine($"public static unsafe {enumTypeName} {capitalizedName}({parameterString})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine($"var result = new {enumTypeName}();");
+            csWriter.WriteLine($"var {resultVarName} = new {enumTypeName}();");
 
             // Swift enum case constructors use indirect return - allocate buffer and pass it
             var getMetadataCall = pinvokeHelperContext != null
@@ -101,14 +103,17 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"{pInvokeName}({invokeArgList});");
             }
-            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
-            csWriter.WriteLine("return result;");
+            csWriter.WriteLine($"{resultVarName}._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
+            csWriter.WriteLine($"return {resultVarName};");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
             // P/Invoke declaration for the case constructor with associated values - uses indirect result
-            var pInvokeParams = new List<string> { "SwiftIndirectResult result" };
+            // C5: Use unique name for indirect result param to avoid CS0100 if an associated value
+            // is also named "result"
+            var indirectResultParamName = parameters.Any(p => p.name == "result") ? "__result" : "result";
+            var pInvokeParams = new List<string> { $"SwiftIndirectResult {indirectResultParamName}" };
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (_, _, name, typeSpec) = parameters[i];

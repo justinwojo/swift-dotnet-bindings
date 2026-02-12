@@ -5,7 +5,13 @@ namespace BindingsGeneration;
 
 public partial class ProtocolProxyEmitter
 {
-    private string GetCSharpTypeName(TypeSpec? typeSpec)
+    /// <summary>
+    /// Resolves a Swift type to its C# name. When <paramref name="forAbiMarshalling"/> is true,
+    /// returns the Swift ABI wrapper type (e.g., SwiftString, SwiftOptional&lt;Boolean&gt;) suitable
+    /// for MarshalFromSwift&lt;T&gt;. When false (default), returns the idiomatic C# type (e.g., string, bool?)
+    /// used in interface/implementation signatures.
+    /// </summary>
+    private string GetCSharpTypeName(TypeSpec? typeSpec, bool forAbiMarshalling = false)
     {
         if (typeSpec == null) return "object";
 
@@ -42,6 +48,21 @@ public partial class ProtocolProxyEmitter
             }
             // Keep fallback behavior consistent with ProtocolHandler interface emission.
             // Unsupported existentials flow through to type database fallback (typically Swift.AnyType).
+        }
+
+        // C9: Check for idiomatic type conversions (e.g., Optional<Bool> → bool?, Array<String> → IReadOnlyList<string>)
+        // This ensures proxy method signatures match the protocol interface declarations, which use the same
+        // idiomatic check in ProtocolHandler.GetCSharpTypeName(). Without this, the interface declares
+        // Action<bool?> but the proxy implements Action<SwiftOptional<Boolean>>, causing CS0535.
+        // P0 fix: Skip for ABI marshalling — MarshalFromSwift<T> needs the Swift wrapper type (SwiftString,
+        // SwiftOptional<Boolean>), not the idiomatic C# type (string, bool?). Reading Swift ABI memory
+        // as an idiomatic type (e.g., Unsafe.Read<string>) causes runtime corruption.
+        if (!forAbiMarshalling && typeSpec is NamedTypeSpec namedTypeForIdiom)
+        {
+            var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true);
+            if (idiomaticType != null)
+                return idiomaticType;
         }
 
         // Note: Optional-wrapped existentials (e.g., (any ImageDecoding)?) are NOT handled here.

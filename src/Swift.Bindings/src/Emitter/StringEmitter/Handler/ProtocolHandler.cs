@@ -693,29 +693,39 @@ namespace BindingsGeneration
                 return GetTupleCSharpType(tupleTypeSpec, typeDatabase, protocolContext);
             }
 
-            // Handle bound generics (e.g., Optional<T>, Array<T>)
-            if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+            // C9: Check for idiomatic type conversions first (e.g., Optional<Bool> → bool?, Array<String> → IReadOnlyList<string>)
+            // This ensures protocol interface signatures match concrete implementations which use GetIdiomaticCSharpType.
+            if (typeSpec is NamedTypeSpec namedTypeSpec)
             {
-                // Create a temporary property to use the BoundGenericsHandler
-                var tempProperty = new PropertyDecl
+                var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true);
+                if (idiomaticType != null)
+                    return idiomaticType;
+
+                // Handle bound generics (e.g., Optional<T>, Array<T>)
+                if (namedTypeSpec.ContainsGenericParameters)
                 {
-                    Name = "_temp",
-                    SwiftTypeSpec = typeSpec,
-                    IsStatic = false,
-                    HasStorage = false,
-                    Accessors = new List<AccessorDecl>(),
-                    ParentDecl = null,
-                    ModuleDecl = null
-                };
-                try
-                {
-                    return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
-                }
-                catch (NotSupportedException)
-                {
-                    // Unrecognized bound generic (e.g., SwiftDictionary<K,V>) — return AnyType
-                    // to avoid bare type name without generic args (CS0305)
-                    return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                    // Create a temporary property to use the BoundGenericsHandler
+                    var tempProperty = new PropertyDecl
+                    {
+                        Name = "_temp",
+                        SwiftTypeSpec = typeSpec,
+                        IsStatic = false,
+                        HasStorage = false,
+                        Accessors = new List<AccessorDecl>(),
+                        ParentDecl = null,
+                        ModuleDecl = null
+                    };
+                    try
+                    {
+                        return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+                    }
+                    catch (NotSupportedException)
+                    {
+                        // Unrecognized bound generic (e.g., SwiftDictionary<K,V>) — return AnyType
+                        // to avoid bare type name without generic args (CS0305)
+                        return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                    }
                 }
             }
 

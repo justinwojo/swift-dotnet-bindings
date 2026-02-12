@@ -198,6 +198,21 @@ namespace BindingsGeneration
                         continue;
                     }
 
+                    // Check for specific conditions that cause compilation errors but aren't
+                    // caught by the downstream method handler (which has its own UnsupportedSwiftType fallback).
+                    // NOTE: CanEmitMethod is too strict for main emission (blocks ContainsPlaceholder which
+                    // the handler intentionally emits via [UnsupportedSwiftType]). Only check emission-critical
+                    // conditions: B18 non-simple enum .Buffer, B19 SwiftUI refs, C6 async enum tuple.
+                    var methodSkipReason = MemberEmissionValidator.ShouldSkipMethodEmission(methodDecl, typeDatabase, out var methodSkipDetails);
+                    if (methodSkipReason != null)
+                    {
+                        if (!methodDecl.IsAccessor)
+                        {
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, methodSkipReason.Value, methodSkipDetails ?? "");
+                        }
+                        continue;
+                    }
+
                     // Annotate with Mono JIT risk patterns (informational, does not affect routing)
                     MonoJitRiskDetector.ApplyRiskDetection(methodDecl);
 
@@ -205,6 +220,9 @@ namespace BindingsGeneration
                     {
                         // Pass property names and P/Invoke helper context to the method environment
                         var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, pinvokeHelperContext);
+                        // C6/C7: Share projected signature set so DefaultParameterOverloadEmitter
+                        // can dedup against methods already emitted from the main pass
+                        env.EmittedProjectedSignatures = emittedProjectedSignatures;
                         handler.Emit(csWriter, swiftWriter, env, conductor);
                     }
                     else
@@ -244,7 +262,18 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
-                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(arg.SwiftTypeSpec, isParameter: true);
+                // C11: Optional<Closure> and bare Closure are the same overload in C#
+                // (nullable reference types don't affect overload resolution).
+                // Unwrap Optional<Closure> so both produce the same projected key.
+                var typeSpecForKey = arg.SwiftTypeSpec;
+                if (typeSpecForKey is NamedTypeSpec optionalClosureSpec &&
+                    optionalClosureSpec.Name == "Swift.Optional" &&
+                    optionalClosureSpec.GenericParameters.Count == 1 &&
+                    optionalClosureSpec.GenericParameters[0] is ClosureTypeSpec)
+                {
+                    typeSpecForKey = optionalClosureSpec.GenericParameters[0];
+                }
+                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpecForKey, isParameter: true);
                 if (idiomaticType != null)
                 {
                     paramTypes.Add(idiomaticType);
@@ -253,12 +282,12 @@ namespace BindingsGeneration
                 {
                     try
                     {
-                        var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
+                        var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey);
                         paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
                     }
                     catch
                     {
-                        paramTypes.Add(arg.SwiftTypeSpec?.ToString() ?? "unknown");
+                        paramTypes.Add(typeSpecForKey?.ToString() ?? "unknown");
                     }
                 }
             }

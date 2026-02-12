@@ -92,6 +92,18 @@ public static class DefaultParameterOverloadEmitter
                 continue;
             }
 
+            // C6/C7: Check projected C# signature against already-emitted methods from the main pass
+            // Different Swift overloads can produce identical C# signatures after normalization
+            if (env.EmittedProjectedSignatures != null)
+            {
+                var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase);
+                if (!env.EmittedProjectedSignatures.Add(projectedKey))
+                {
+                    logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — projected signature collides: {Key}", trim, methodDecl.Name, projectedKey);
+                    continue;
+                }
+            }
+
             // Emit Swift wrapper
             EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env);
 
@@ -358,6 +370,55 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
         }
+    }
+
+    /// <summary>
+    /// Creates a projected C# method key for an overload, matching the format used by
+    /// HandleBaseDecl's GetProjectedCSharpMethodKey. (C6/C7)
+    /// </summary>
+    private static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase)
+    {
+        var returnTypeSpec = overloadDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
+        var methodName = overloadDecl.IsConstructor
+            ? "ctor"
+            : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue);
+
+        var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+        var paramTypes = new List<string>();
+        for (int i = 1; i < overloadDecl.CSSignature.Count; i++)
+        {
+            var arg = overloadDecl.CSSignature[i];
+            // P1: Unwrap Optional<Closure> to bare Closure, matching the main pass (C11 in IHandler.cs).
+            // Nullable reference types don't affect C# overload resolution — Action<T>? and Action<T>
+            // are the same signature. Without this, cross-pass dedup misses collisions.
+            var typeSpecForKey = arg.SwiftTypeSpec;
+            if (typeSpecForKey is NamedTypeSpec optionalClosureSpec &&
+                optionalClosureSpec.Name == "Swift.Optional" &&
+                optionalClosureSpec.GenericParameters.Count == 1 &&
+                optionalClosureSpec.GenericParameters[0] is ClosureTypeSpec)
+            {
+                typeSpecForKey = optionalClosureSpec.GenericParameters[0];
+            }
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpecForKey, isParameter: true);
+            if (idiomaticType != null)
+            {
+                paramTypes.Add(idiomaticType);
+            }
+            else
+            {
+                try
+                {
+                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey);
+                    paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                }
+                catch
+                {
+                    paramTypes.Add(typeSpecForKey?.ToString() ?? "unknown");
+                }
+            }
+        }
+        return $"{methodName}({string.Join(",", paramTypes)})";
     }
 
     /// <summary>

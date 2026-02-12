@@ -147,6 +147,13 @@ namespace BindingsGeneration
                         continue;
                     }
 
+                    var skipReason = MemberEmissionValidator.CanEmitProperty(propertyDecl, env.TypeDatabase, out var skipDetails, out _);
+                    if (skipReason != null)
+                    {
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, classDecl, skipReason.Value, skipDetails ?? "");
+                        continue;
+                    }
+
                     if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                     {
                         var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);

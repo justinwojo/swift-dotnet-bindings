@@ -749,6 +749,12 @@ namespace BindingsGeneration
         private static string ResolveCSharpTypeName(TypeSpec typeSpec, ITypeDatabase typeDatabase,
             BoundGenericsHandler boundGenericsHandler, ExistentialHandler existentialHandler)
         {
+            // C9b: Apply idiomatic type conversion for nested types (e.g., closure params like Array<UInt8> → IEnumerable<byte>).
+            // Without this, composition proxy stubs emit Action<SwiftArray<byte>> while the interface declares Action<IEnumerable<byte>>.
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true);
+            if (idiomaticType != null) return idiomaticType;
+
             // Handle existential types (any Protocol, protocol compositions)
             if (existentialHandler.IsExistential(typeSpec))
             {

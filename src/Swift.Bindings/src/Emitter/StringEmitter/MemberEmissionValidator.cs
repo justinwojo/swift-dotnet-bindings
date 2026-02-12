@@ -87,10 +87,28 @@ public static class MemberEmissionValidator
                 skipDetails = "Closure parameters are not invokable from C#.";
                 return SkipReason.UnsupportedClosure;
             }
+            // C12: Closure return types that map to void* in function pointers can't be marshalled
+            // back to managed types by the invoker. Only primitive types (and void) are safe.
+            if (!closureTypeSpec.ReturnType.IsEmptyTuple)
+            {
+                var returnPInvokeType = closureHandler.TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType);
+                if (returnPInvokeType == "void*")
+                {
+                    skipDetails = "Closure return type requires marshalling not supported by the closure invoker.";
+                    return SkipReason.UnsupportedClosure;
+                }
+            }
             bool isOptionalClosure = closureHandler.IsOptionalClosure(property.SwiftTypeSpec);
             projectedTypeName = isOptionalClosure
                 ? closureHandler.GetCSharpOptionalDelegateType(property.SwiftTypeSpec)
                 : closureHandler.GetCSharpDelegateType(closureTypeSpec);
+        }
+
+        // C1: Check for tuples (including inside Optional/generic wrappers) with unsupported elements
+        if (ContainsUnsupportedTupleElement(property.SwiftTypeSpec, typeDatabase))
+        {
+            skipDetails = "Type contains tuple with unsupported element (closure or AnyType).";
+            return SkipReason.UnsupportedSignature;
         }
 
         // Type resolution
@@ -188,9 +206,8 @@ public static class MemberEmissionValidator
         // Check for non-simple enum return types that require memory management
         // Non-simple enums don't emit a .Buffer nested struct, so PInvokeEmitter's
         // RequiresMemoryManagement path would emit invalid `.Buffer` suffix (B18)
-        if (typeRecord != null && typeRecord.Kind == TypeRecordKind.Enum &&
-            !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum) &&
-            MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+        // C8: Also check inside Optional<Enum> — unwrap Swift.Optional to inspect inner type
+        if (IsNonSimpleEnumWithMemoryManagement(typeRecord, property.SwiftTypeSpec, typeDatabase))
         {
             skipDetails = "Non-simple enum with memory management has no .Buffer type for marshalling.";
             return SkipReason.UnsupportedSignature;
@@ -368,21 +385,69 @@ public static class MemberEmissionValidator
         }
 
         // Check for non-simple enum return types that require memory management (B18)
-        if (method.CSSignature.Count > 0)
+        // C8: Also check inside Optional<Enum> — unwrap Swift.Optional to inspect inner type
+        // Only applies to synchronous methods — async methods use callback-based return, not .Buffer
+        if (!method.IsAsync && method.CSSignature.Count > 0)
         {
             var returnArg = method.CSSignature[0];
-            if (returnArg.SwiftTypeSpec is not TupleTypeSpec { IsEmptyTuple: true } &&
-                returnArg.SwiftTypeSpec is NamedTypeSpec returnNamedType &&
-                returnNamedType.HasModule() && !returnNamedType.ContainsGenericParameters)
+            if (returnArg.SwiftTypeSpec is not TupleTypeSpec { IsEmptyTuple: true })
             {
-                var returnSwiftName = SwiftTypeName.FromModuleQualifiedName(returnNamedType.Name);
-                if (typeDatabase.TryGetTypeRecord(returnSwiftName, out var returnTypeRecord) &&
-                    returnTypeRecord.Kind == TypeRecordKind.Enum &&
-                    !returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum) &&
-                    MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord))
+                // Check the type directly and also unwrap Optional
+                var typeSpecToCheck = returnArg.SwiftTypeSpec;
+                if (typeSpecToCheck is NamedTypeSpec optionalType &&
+                    optionalType.Name == "Swift.Optional" &&
+                    optionalType.GenericParameters.Count == 1)
                 {
-                    skipDetails = "Non-simple enum return with memory management has no .Buffer type for marshalling.";
-                    return SkipReason.UnsupportedSignature;
+                    typeSpecToCheck = optionalType.GenericParameters[0];
+                }
+
+                if (typeSpecToCheck is NamedTypeSpec returnNamedType &&
+                    returnNamedType.HasModule() && !returnNamedType.ContainsGenericParameters)
+                {
+                    var returnSwiftName = SwiftTypeName.FromModuleQualifiedName(returnNamedType.Name);
+                    if (typeDatabase.TryGetTypeRecord(returnSwiftName, out var returnTypeRecord) &&
+                        returnTypeRecord.Kind == TypeRecordKind.Enum &&
+                        !returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum) &&
+                        MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord))
+                    {
+                        skipDetails = "Non-simple enum return with memory management has no .Buffer type for marshalling.";
+                        return SkipReason.UnsupportedSignature;
+                    }
+                }
+            }
+        }
+
+        // C6: For async methods with tuple returns, the tuple elements are flattened into
+        // [UnmanagedCallersOnly] callback parameters. Non-simple enums (managed classes) are
+        // non-blittable and cause CS8894 in callback signatures. Check tuple elements.
+        if (method.IsAsync && method.CSSignature.Count > 0)
+        {
+            var returnArg = method.CSSignature[0];
+            if (returnArg.SwiftTypeSpec is TupleTypeSpec tupleReturn && !tupleReturn.IsEmptyTuple)
+            {
+                foreach (var element in tupleReturn.Elements)
+                {
+                    // Unwrap Optional<T> to check inner type
+                    var elementToCheck = element;
+                    if (element is NamedTypeSpec optionalElement &&
+                        optionalElement.Name == "Swift.Optional" &&
+                        optionalElement.GenericParameters.Count == 1)
+                    {
+                        elementToCheck = optionalElement.GenericParameters[0];
+                    }
+
+                    if (elementToCheck is NamedTypeSpec namedElement &&
+                        namedElement.HasModule() && !namedElement.ContainsGenericParameters)
+                    {
+                        var elementSwiftName = SwiftTypeName.FromModuleQualifiedName(namedElement.Name);
+                        if (typeDatabase.TryGetTypeRecord(elementSwiftName, out var elementRecord) &&
+                            elementRecord.Kind == TypeRecordKind.Enum &&
+                            !elementRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                        {
+                            skipDetails = $"Async tuple return contains non-simple enum '{namedElement.Name}' which is non-blittable in callback.";
+                            return SkipReason.UnsupportedSignature;
+                        }
+                    }
                 }
             }
         }
@@ -621,6 +686,100 @@ public static class MemberEmissionValidator
     }
 
     /// <summary>
+    /// Lightweight method emission check for the main HandleBaseDecl path.
+    /// Only checks conditions that cause compilation errors and aren't handled by the
+    /// downstream method handler's UnsupportedSwiftType fallback mechanism.
+    /// For full validation (e.g., conformance checking), use CanEmitMethod instead.
+    /// </summary>
+    public static SkipReason? ShouldSkipMethodEmission(
+        MethodDecl method,
+        ITypeDatabase typeDatabase,
+        out string? skipDetails)
+    {
+        skipDetails = null;
+
+        // Skip constructors (always allowed through)
+        if (method.IsConstructor)
+            return null;
+
+        // B19: Skip methods whose return type or parameters reference SwiftUI/Combine types
+        foreach (var arg in method.CSSignature)
+        {
+            if (ReferencesUnsupportedModule(arg.SwiftTypeSpec))
+            {
+                skipDetails = $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.";
+                return SkipReason.SwiftUIConstraint;
+            }
+        }
+
+        // B18: Non-simple enum return with .Buffer suffix (sync only — async uses callbacks)
+        // C8: Also check inside Optional<Enum>
+        if (!method.IsAsync && method.CSSignature.Count > 0)
+        {
+            var returnArg = method.CSSignature[0];
+            if (returnArg.SwiftTypeSpec is not TupleTypeSpec { IsEmptyTuple: true })
+            {
+                var typeSpecToCheck = returnArg.SwiftTypeSpec;
+                if (typeSpecToCheck is NamedTypeSpec optionalType &&
+                    optionalType.Name == "Swift.Optional" &&
+                    optionalType.GenericParameters.Count == 1)
+                {
+                    typeSpecToCheck = optionalType.GenericParameters[0];
+                }
+
+                if (typeSpecToCheck is NamedTypeSpec returnNamedType &&
+                    returnNamedType.HasModule() && !returnNamedType.ContainsGenericParameters)
+                {
+                    var returnSwiftName = SwiftTypeName.FromModuleQualifiedName(returnNamedType.Name);
+                    if (typeDatabase.TryGetTypeRecord(returnSwiftName, out var returnTypeRecord) &&
+                        returnTypeRecord.Kind == TypeRecordKind.Enum &&
+                        !returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum) &&
+                        MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord))
+                    {
+                        skipDetails = "Non-simple enum return with memory management has no .Buffer type for marshalling.";
+                        return SkipReason.UnsupportedSignature;
+                    }
+                }
+            }
+        }
+
+        // C6: Async methods with tuple returns containing non-simple enums
+        // (flattened into [UnmanagedCallersOnly] callback — non-blittable CS8894)
+        if (method.IsAsync && method.CSSignature.Count > 0)
+        {
+            var returnArg = method.CSSignature[0];
+            if (returnArg.SwiftTypeSpec is TupleTypeSpec tupleReturn && !tupleReturn.IsEmptyTuple)
+            {
+                foreach (var element in tupleReturn.Elements)
+                {
+                    var elementToCheck = element;
+                    if (element is NamedTypeSpec optionalElement &&
+                        optionalElement.Name == "Swift.Optional" &&
+                        optionalElement.GenericParameters.Count == 1)
+                    {
+                        elementToCheck = optionalElement.GenericParameters[0];
+                    }
+
+                    if (elementToCheck is NamedTypeSpec namedElement &&
+                        namedElement.HasModule() && !namedElement.ContainsGenericParameters)
+                    {
+                        var elementSwiftName = SwiftTypeName.FromModuleQualifiedName(namedElement.Name);
+                        if (typeDatabase.TryGetTypeRecord(elementSwiftName, out var elementRecord) &&
+                            elementRecord.Kind == TypeRecordKind.Enum &&
+                            !elementRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                        {
+                            skipDetails = $"Async tuple return contains non-simple enum '{namedElement.Name}' which is non-blittable in callback.";
+                            return SkipReason.UnsupportedSignature;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Gets the projected C# type for a property using the same resolution as PropertyHandler.
     /// </summary>
     public static string? GetProjectedPropertyType(
@@ -657,5 +816,83 @@ public static class MemberEmissionValidator
         if (skipReason != null)
             return null;
         return projectedReturnTypeName;
+    }
+
+    /// <summary>
+    /// Recursively checks whether a TypeSpec contains a tuple with unsupported elements
+    /// (closures or types that resolve to AnyType). Also checks inside Optional/generic wrappers. (C1)
+    /// </summary>
+    private static bool ContainsUnsupportedTupleElement(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec == null)
+            return false;
+
+        switch (typeSpec)
+        {
+            case TupleTypeSpec tuple when !tuple.IsEmptyTuple:
+                foreach (var element in tuple.Elements)
+                {
+                    if (element is ClosureTypeSpec)
+                        return true;
+                    if (element is TupleTypeSpec)
+                        return true;
+                    if (element is NamedTypeSpec namedElement && namedElement.HasModule())
+                    {
+                        var record = typeDatabase.GetTypeRecordOrAnyType(namedElement);
+                        if (record.CSharpTypeName.FullyQualifiedName.Contains("AnyType"))
+                            return true;
+                    }
+                    if (ContainsUnsupportedTupleElement(element, typeDatabase))
+                        return true;
+                }
+                return false;
+
+            case NamedTypeSpec named when named.GenericParameters.Count > 0:
+                // Check inside Optional<T> and other generic wrappers
+                foreach (var genericParam in named.GenericParameters)
+                {
+                    if (ContainsUnsupportedTupleElement(genericParam, typeDatabase))
+                        return true;
+                }
+                return false;
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a type (or the inner type if Optional-wrapped) is a non-simple enum
+    /// with memory management. Such enums don't emit .Buffer and cause B18 errors. (C8)
+    /// </summary>
+    private static bool IsNonSimpleEnumWithMemoryManagement(
+        TypeRecord? typeRecord, TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        // Direct check
+        if (typeRecord != null && typeRecord.Kind == TypeRecordKind.Enum &&
+            !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum) &&
+            MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+        {
+            return true;
+        }
+
+        // C8: Unwrap Swift.Optional and check inner type
+        if (typeSpec is NamedTypeSpec optionalType &&
+            optionalType.Name == "Swift.Optional" &&
+            optionalType.GenericParameters.Count == 1 &&
+            optionalType.GenericParameters[0] is NamedTypeSpec innerType &&
+            innerType.HasModule() && !innerType.ContainsGenericParameters)
+        {
+            var innerSwiftName = SwiftTypeName.FromModuleQualifiedName(innerType.Name);
+            if (typeDatabase.TryGetTypeRecord(innerSwiftName, out var innerRecord) &&
+                innerRecord.Kind == TypeRecordKind.Enum &&
+                !innerRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum) &&
+                MarshallingHelpers.RequiresMemoryManagement(innerRecord))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

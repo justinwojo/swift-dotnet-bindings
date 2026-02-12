@@ -145,6 +145,13 @@ namespace BindingsGeneration
         /// Indicates whether the containing type is generic and P/Invoke must be emitted in a helper class.
         /// </summary>
         public bool IsContainingTypeGeneric => PInvokeHelperContext != null;
+
+        /// <summary>
+        /// Shared set of projected C# method signatures already emitted, used to deduplicate
+        /// default parameter overloads against the main emission pass. (C6/C7)
+        /// Set by HandleBaseDecl before method emission; null if not available.
+        /// </summary>
+        public HashSet<string>? EmittedProjectedSignatures { get; set; }
     }
 
     /// <summary>

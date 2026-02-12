@@ -311,6 +311,10 @@ public class TypeConversionHandler
                 var rawArrayElementType = GetRawElementType(innerNamed, typeTranslator);
                 if (rawArrayElementType != null)
                 {
+                    // C12: Build fully-qualified generic type for SwiftOptional. When typeTranslator
+                    // is provided, innerType already includes generic args (e.g., "SwiftArray<Byte>").
+                    // Without translator, GetRawElementType returns the bare type and we append them.
+                    var fullArrayType = typeTranslator != null ? innerType : $"{innerType}<{rawArrayElementType}>";
                     string arrayConversion;
                     if (IsElementTypeConverted(innerNamed, typeTranslator) && IsSwiftString(innerNamed.GenericParameters.FirstOrDefault()))
                     {
@@ -320,7 +324,7 @@ public class TypeConversionHandler
                     {
                         arrayConversion = $"SwiftArray<{rawArrayElementType}>.FromEnumerable({patternVar})";
                     }
-                    return $"({paramName} is {{}} {patternVar} ? SwiftOptional<{innerType}>.NewSome({arrayConversion}) : SwiftOptional<{innerType}>.NewNone())";
+                    return $"({paramName} is {{}} {patternVar} ? SwiftOptional<{fullArrayType}>.NewSome({arrayConversion}) : SwiftOptional<{fullArrayType}>.NewNone())";
                 }
             }
 

@@ -750,8 +750,11 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
-    /// Returns true when a type has a NativeTypeName mapping in the TypeDB (e.g., Foundation.Date → DateTimeOffset)
-    /// indicating it maps to a .NET type that doesn't implement ISwiftObject.
+    /// Returns true when a type maps to a .NET type that doesn't implement ISwiftObject.
+    /// Catches NativeTypeName mappings (e.g., Foundation.URL → NSUrl) and non-Swift module types
+    /// mapped to System.* namespace (e.g., Foundation.Date → System.DateTimeOffset, Foundation.UUID → System.Guid).
+    /// Swift module types like Swift.Bool → System.Boolean are excluded — they're primitives
+    /// handled by special marshalling paths and never appear in bound generic constraints.
     /// </summary>
     private bool IsNonSwiftObjectMappedType(NamedTypeSpec typeSpec)
     {
@@ -759,7 +762,20 @@ public class BoundGenericsHandler
             return false;
 
         if (_typeDatabase.TryGetTypeRecord(typeSpec, out var record))
-            return record.NativeTypeName != null;
+        {
+            if (record.NativeTypeName != null)
+                return true;
+
+            // C3: Non-Swift module types mapped to System.* (e.g., Foundation.Date → DateTimeOffset)
+            // don't implement ISwiftObject. Exclude Swift module types (Swift.Bool → System.Boolean,
+            // Swift.Int → System.Int32) which are primitives handled by special marshalling paths.
+            if (record.CSharpTypeName.Namespace == "System")
+            {
+                var module = typeSpec.Name.Split('.')[0];
+                if (module != "Swift")
+                    return true;
+            }
+        }
 
         return false;
     }

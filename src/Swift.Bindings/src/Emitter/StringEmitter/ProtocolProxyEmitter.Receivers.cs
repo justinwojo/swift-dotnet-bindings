@@ -74,7 +74,9 @@ public partial class ProtocolProxyEmitter
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
         var proxyClassName = GetProxyClassName(protocolDecl);
-        var csharpTypeName = GetCSharpTypeName(property.SwiftTypeSpec);
+        // P0: Use ABI type for MarshalFromSwift (setter reads Swift memory layout),
+        // not the idiomatic type used for signatures.
+        var abiTypeName = GetCSharpTypeName(property.SwiftTypeSpec, forAbiMarshalling: true);
 
         var pascalPropertyName = NameProvider.GetPropertyName(property.Name);
 
@@ -128,7 +130,7 @@ public partial class ProtocolProxyEmitter
                     {
                         var container = *(ExistentialContainer1*)selfContainer;
                         var proxy = SwiftObjectRegistry.GetProxyFromContainer<{{proxyClassName}}>(container);
-                        var value = MarshalFromSwift<{{csharpTypeName}}>(valuePtr);
+                        var value = MarshalFromSwift<{{abiTypeName}}>(valuePtr);
                         proxy._csharpImpl!.{{pascalPropertyName}} = {{assignmentExpr}};
                     }
 
@@ -140,7 +142,8 @@ public partial class ProtocolProxyEmitter
     private void EmitSubscriptReceivers(CSharpWriter writer, SubscriptDecl subscript, ProtocolDecl protocolDecl, string interfaceName, int index, HashSet<string> emittedReceivers)
     {
         var proxyClassName = GetProxyClassName(protocolDecl);
-        var returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec);
+        // P0: Use ABI type for MarshalFromSwift (reads Swift memory layout)
+        var returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec, forAbiMarshalling: true);
         var paramCount = subscript.IndexParameters.Count;
 
         if (subscript.HasGetter)
@@ -160,11 +163,11 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
                 writer.WriteLine($"var proxy = SwiftObjectRegistry.GetProxyFromContainer<{proxyClassName}>(container);");
 
-                // Unmarshal index parameters
+                // Unmarshal index parameters — P0: use ABI types for MarshalFromSwift
                 for (int i = 0; i < subscript.IndexParameters.Count; i++)
                 {
                     var param = subscript.IndexParameters[i];
-                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
@@ -196,11 +199,11 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"var proxy = SwiftObjectRegistry.GetProxyFromContainer<{proxyClassName}>(container);");
                 writer.WriteLine($"var value = MarshalFromSwift<{returnTypeName}>(valuePtr);");
 
-                // Unmarshal index parameters
+                // Unmarshal index parameters — P0: use ABI types for MarshalFromSwift
                 for (int i = 0; i < subscript.IndexParameters.Count; i++)
                 {
                     var param = subscript.IndexParameters[i];
-                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+                    var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
@@ -272,12 +275,13 @@ public partial class ProtocolProxyEmitter
         // Unmarshal parameters - use param{i} for local variable names to avoid conflicts with rawArg{i}
         // B10: After unmarshalling, apply type conversion from ABI to idiomatic C# types
         // (e.g., SwiftOptional<SwiftString> → string?) to match the interface method signature.
+        // P0: Use ABI types for MarshalFromSwift — idiomatic types (string, bool?) can't read Swift memory.
         var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
         var argNames = new List<string>();
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
+            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
             var rawArgName = $"rawParam{argIndex}";
             var argName = $"param{argIndex}";
             var returnConversion = typeConversionHandler.GetReturnConversion(rawArgName, param.SwiftTypeSpec);

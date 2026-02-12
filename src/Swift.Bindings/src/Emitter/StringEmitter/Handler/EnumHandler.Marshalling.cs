@@ -109,6 +109,9 @@ namespace BindingsGeneration
                 "nuint" or "System.UIntPtr" => true,
                 "float" or "System.Single" => true,
                 "double" or "System.Double" => true,
+                // C3b: Foundation types mapped to System.* that don't implement ISwiftObject
+                "System.DateTimeOffset" => true,
+                "System.Guid" => true,
                 _ => false
             };
         }

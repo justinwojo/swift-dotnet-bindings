@@ -1565,6 +1565,66 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region P0 — Receiver ABI Type Marshalling (Codex review fix)
+
+    [Fact]
+    public void EmitProxyClass_SetterReceiver_String_UsesAbiType()
+    {
+        // P0: MarshalFromSwift<T> in setter must use Swift ABI type (Swift.SwiftString),
+        // not idiomatic C# type (string). Reading Swift ABI memory as a C# string corrupts at runtime.
+        RegisterSwiftString();
+        var typeSpec = new NamedTypeSpec("Swift.String");
+        var protocolDecl = CreateProtocolWithProperty("StringPropProto", "label", hasGetter: false, hasSetter: true, typeSpec);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_label_set", output);
+        // Must use ABI type for MarshalFromSwift, not idiomatic "string"
+        Assert.Contains("MarshalFromSwift<Swift.SwiftString>", output);
+        Assert.DoesNotContain("MarshalFromSwift<string>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_StringParam_UsesAbiType()
+    {
+        // P0: Method param unmarshalling must use ABI type for MarshalFromSwift.
+        RegisterSwiftString();
+        var protocol = CreateSimpleProtocol("MethodStringProto");
+        var method = CreateMethodDecl("greet");
+        // Add a String parameter (CSSignature[0] is return, [1+] are params)
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "name",
+            PrivateName = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsGeneric = false,
+            IsInOut = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_greet_0", output);
+        // Must use ABI type for MarshalFromSwift
+        Assert.Contains("MarshalFromSwift<Swift.SwiftString>", output);
+        Assert.DoesNotContain("MarshalFromSwift<string>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SetterReceiver_Int_StillUsesCorrectType()
+    {
+        // Primitives should be unaffected by the P0 fix — Int has no idiomatic conversion.
+        RegisterSwiftInt32();
+        var typeSpec = new NamedTypeSpec("Swift.Int32");
+        var protocolDecl = CreateProtocolWithProperty("IntPropProto", "count", hasGetter: false, hasSetter: true, typeSpec);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Receive_count_set", output);
+        Assert.Contains("MarshalFromSwift<System.Int32>", output);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitProxyClass(ProtocolDecl protocolDecl)

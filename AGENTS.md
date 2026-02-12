@@ -3,6 +3,11 @@
 ## Scope
 Instructions for Codex in this repository.
 
+## Default agent mode
+- Codex is primarily a focused plan and code reviewer in this repository.
+- Do not execute a plan, run implementation steps, or make code changes unless the user explicitly asks for execution/implementation.
+- If a request is ambiguous, stay in review mode and ask for confirmation before making edits or running execution workflows.
+
 ## Hard constraints
 - Detect runtime first (`uname -s`).
 - If runtime is not macOS (`Darwin`), do not run mac-only tooling or scripts (for example: `xcodebuild`, iOS simulator validation scripts, or any script that requires Xcode/simulator runtimes).
