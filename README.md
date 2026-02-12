@@ -15,23 +15,11 @@ Apple is moving away from Objective-C. Every year, more frameworks ship as Swift
 - **WeatherKit**, **App Intents**, **Swift Charts** — all Swift-only
 - Third-party libraries increasingly drop ObjC support entirely
 
-This is a growing problem for .NET developers on Apple platforms. Without Swift interop, **.NET on iOS becomes progressively less capable with each Xcode release.**
+Without Swift interop, **.NET on iOS becomes progressively less capable with each Xcode release.**
 
-### The Current State of .NET + Swift
+Today's options — Objective Sharpie, Native Library Interop (Slim Bindings), hand-written P/Invoke — all require a human to manually translate between Swift and C#, method by method, type by type. They don't scale, don't support Swift-only APIs, and the tooling hasn't kept pace with modern Xcode.
 
-Today, if you need to call a Swift API from .NET, your options are painful:
-
-**Objective Sharpie / Classic Bindings** — The traditional Xamarin approach. Write a Swift "proxy" library, annotate it with `@objc`, generate an Objective-C bridging header, then run Objective Sharpie to produce a C# binding. This doubles your maintenance burden, doesn't work for Swift-only APIs that can't be exposed via `@objc`, and the tooling has not kept pace with modern Xcode versions. Many developers report Objective Sharpie failing outright on recent SDKs.
-
-**Native Library Interop (formerly Slim Bindings)** — A newer approach that uses `[LibraryImport]` to call C-compatible functions. While simpler, it requires you to manually write a C-compatible Swift wrapper for every API you want to expose, then manually write the corresponding C# declarations. For a library with hundreds of methods, this is weeks of tedious, error-prone work — and you lose type safety, async support, and any API that can't be flattened to C types.
-
-**Hand-rolled P/Invoke** — Some developers skip the tooling entirely and write raw interop code. This requires deep knowledge of the Swift ABI, calling conventions, name mangling, and memory management. It's not realistic for anything beyond a handful of functions.
-
-**All of these approaches share the same fundamental problem: they require a human to manually translate between Swift and C#, method by method, type by type.**
-
-### What Swift Bindings Does Differently
-
-Swift Bindings reads the compiled ABI metadata that Swift already produces and generates the entire C# binding automatically. There's no intermediate Objective-C layer, no manual proxy code, and no reliance on Objective Sharpie or bridging headers.
+Swift Bindings automates the entire process:
 
 ```
 Traditional approach:
@@ -45,11 +33,9 @@ Swift Bindings approach:
 
 ### Where This Project Comes From
 
-This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort to explore Swift/.NET interoperability. That experiment established the foundational architecture: ABI JSON parsing, Swift symbol demangling, a type database, and the beginnings of a code emitter.
+This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-However, the runtimelab branch was never intended as a shipping product. Development slowed and eventually stopped, leaving the project in an early experimental state. At the time it went inactive, the generator could handle a narrow set of Swift types — basic classes and structs, simple method signatures, and a subset of Foundation types. It could not handle generics, protocols, closures, tuples, operators, async methods, enums with associated values, or most of the Swift type system features that real-world libraries actually use. There was no runtime validation against real Swift libraries and no mechanism to assess binding completeness.
-
-This fork picks up where runtimelab left off and extends the generator substantially. Since forking, over 60 phases of development have added support for the full range of Swift types, protocols with witness dispatch, async methods, closures, generics, SwiftUI bridge generation, and much more — validated against real-world libraries (Nuke, BlinkID, Lottie) with zero generator errors and full runtime test suites. The core architecture from Microsoft's original work remains, but the generator's capabilities and real-world readiness are fundamentally different from the experimental state it was left in.
+This fork extends the generator substantially. Over 70 phases of development have added protocols, generics, closures, async, SwiftUI bridging, and much more — validated against real-world libraries with zero generator errors and full runtime test suites.
 
 ---
 
@@ -65,28 +51,9 @@ The generator handles the full breadth of Swift's type system:
 - **Closures** (`@convention(c)`, `@escaping`) with automatic delegate marshalling
 - **Tuples**, **operators**, **subscripts**, **inout parameters**, **failable initializers**
 - **Existential containers** (`any Protocol`) and protocol composition types
-- **SwiftUI Views** — automatic UIHostingController bridge generation (see below)
+- **SwiftUI Views** — automatic UIHostingController bridge generation
 
-### Idiomatic Type Conversions
-
-Generated bindings don't just expose raw Swift types — method signatures are automatically converted to idiomatic C#/.NET types so the API feels native:
-
-| Swift Type | C# Type (in methods) | Notes |
-|------------|----------------------|-------|
-| `String` | `string` | Automatic `SwiftString` ↔ `string` conversion |
-| `Array<T>` | `IReadOnlyList<T>` (return) / `IEnumerable<T>` (param) | Standard .NET collection interfaces |
-| `Optional<T>` | `T?` | C# nullable syntax |
-| `Int` / `Int32` / `Int64` | `nint` / `int` / `long` | .NET numeric types |
-| `Bool` | `bool` | Direct mapping |
-| `Float` / `Double` | `float` / `double` | Direct mapping |
-| `URL` | `NSUrl` | Familiar Foundation type |
-| `Date` | `DateTimeOffset` | Standard .NET date type |
-| `UUID` | `Guid` | Standard .NET GUID |
-| `UnsafePointer<T>`, `OpaquePointer`, etc. | `IntPtr` | All Swift pointer types |
-
-For example, a Swift method `func fetchName() -> String` becomes `string FetchName()` in C# — not `SwiftString FetchName()`. You work with regular .NET types throughout your code.
-
-Properties retain their Swift wrapper types (`SwiftString`, `SwiftArray<T>`) for consistency with getter/setter patterns, while methods use the idiomatic conversions above.
+Method signatures are automatically converted to idiomatic C# types — `String` → `string`, `Array<T>` → `IReadOnlyList<T>`, `Optional<T>` → `T?`, and more. See the [full type conversion table](docs/Supported-Features.md#type-conversions) and [complete feature reference](docs/Supported-Features.md).
 
 ### Real-World Validation
 
@@ -98,113 +65,44 @@ The generator produces **zero compilation errors** across every library tested:
 | **BlinkID** | Document scanning SDK | 99.1% | 18/18 passing |
 | **Lottie** | Animation framework | 90.4% | 15/15 passing |
 
-The remaining coverage gaps are primarily exotic type patterns (existential arguments in bound generics, Combine publishers) that have clear diagnostics and documented workarounds.
-
 ### Examples
 
-**Async image loading with [Nuke](https://github.com/kean/Nuke)** — a popular Swift image library, bound and running from C#:
+**Async image loading with [Nuke](https://github.com/kean/Nuke):**
 
 ```csharp
-// Load an image asynchronously using Nuke's pipeline
 var pipeline = ImagePipeline.Shared;
 var request = new ImageRequest("https://picsum.photos/200/200");
 var image = await pipeline.Image(request);
 Console.WriteLine($"Image loaded: {image.Size.Width}x{image.Size.Height}");
 ```
 
-**Animation loading with [Lottie](https://github.com/airbnb/lottie-ios)** — parsing a Lottie JSON animation file:
+**Implementing a Swift protocol from C#:**
 
 ```csharp
-// Load a Lottie animation from a bundled JSON file
-using var data = NSData.FromFile("animation.json");
-var animation = LottieAnimation.From(data, DecodingStrategy.DictionaryBased);
-Console.WriteLine($"Animation: {animation.Duration}s at {animation.Framerate}fps");
-```
-
-**Implementing a Swift protocol from C#** — passing a C# object back to Swift:
-
-```csharp
-// C# class that implements a Swift protocol
 public class MyImageProcessor : ISwiftImageProcessing
 {
     public SwiftString Identifier => new SwiftString("my-processor");
-
-    public UIImage? Process(UIImage image)
-    {
-        // Apply custom processing
-        return image;
-    }
+    public UIImage? Process(UIImage image) => image;
 }
 
-// Create a proxy and pass it to Swift code that expects the protocol
 var proxy = new ImageProcessingProxy(new MyImageProcessor());
 ```
 
-No proxy libraries. No bridging headers. These are generated C# bindings calling Swift directly — validated on iOS Simulator.
+No proxy libraries. No bridging headers. Generated C# calling Swift directly — validated on iOS Simulator.
 
 ---
 
 ## SwiftUI Interop
 
-SwiftUI Views can't be bound through conventional interop — they rely on opaque return types, property wrappers (`@State`, `@Binding`), and a declarative rendering pipeline that has no C# equivalent.
+SwiftUI Views can't be bound through conventional interop — they rely on opaque return types, property wrappers, and a declarative rendering pipeline with no C# equivalent.
 
-Swift Bindings takes a different approach: **automatic bridge generation**. When the generator encounters a SwiftUI View, it emits a Swift bridge layer that wraps the View in a `UIHostingController`, exposing it as a `UIViewController` that .NET can embed in any UIKit-based layout (including .NET MAUI).
+Swift Bindings generates a bridge layer that wraps SwiftUI Views in `UIHostingController`, exposing them as `UIViewController` instances that .NET can embed in any UIKit-based layout (including .NET MAUI). This bridge generation is fully automatic — the generator analyzes View initializer parameters and produces the correct interop code for primitives, strings, closures, enums, class references, and async factory patterns.
 
-This bridge generation is fully automatic. The generator analyzes View initializer parameters — primitives, strings, closures, enums, class references — and produces the correct interop code for each. For Views with async factory patterns (common in SDK-style frameworks), the generator infers the construction chain from the ABI and emits data-driven bridge code.
-
-The result: SwiftUI Views are usable from .NET without writing any Swift wrapper code by hand.
-
-### Bridge Hints
-
-When auto-detection needs adjustment — for example, to skip a View that requires an unsupported parameter type, or to select a specific initializer — you can provide a `bridge-hints.json` sidecar file instead of writing a manual bridge:
-
-```json
-{
-  "$schema": "bridge-hints-v1",
-  "views": {
-    "CameraPreview": {
-      "skip": true,
-      "reason": "Requires live camera preview source"
-    },
-    "CustomView": {
-      "preferredInit": 1,
-      "extraSwiftImports": ["SomeFramework"]
-    }
-  },
-  "globalSettings": {
-    "extraSwiftImports": ["SharedLib"]
-  }
-}
-```
-
-Supported per-view hints: `skip`, `forceTemplate`, `preferredInit` (constructor index), `asyncPattern` (force async classification), `extraSwiftImports`.
-
-The file is discovered automatically as `{module}.bridge-hints.json` or `bridge-hints.json` in the output directory, or specified explicitly with `--bridge-hints path/to/hints.json`.
-
----
-
-## Purpose-Built Test Framework
-
-Real-world Swift libraries exercise the full complexity of the language — generics nested inside protocols, closures returning tuples, async methods with existential parameters. Isolated unit tests can't catch the interactions between these features.
-
-Swift Bindings includes a **comprehensive test library** of 93 must-pass feature scenarios drawn from patterns encountered in real bindings (Nuke, BlinkID, Lottie, and others). This test framework:
-
-- Contains 67 Swift source files across 18 categories (types, closures, generics, protocols, async, operators, tuples, pointers, and more)
-- Produces a coverage matrix showing exactly which features pass, which are degraded, and why
-- Runs after every generator change to catch regressions immediately
-- Includes 184+ runtime tests on iOS Simulator validating actual cross-language calls
-
-Current status: **92 of 93 must-pass features passing (98.9%)**. The single degraded feature requires runtime support for `SwiftArray<ExistentialContainer>`, which is tracked.
-
-This test framework is what gives confidence that changes to the generator don't break real-world bindings. It's not a toy test suite — it simulates the actual complexity you'll encounter binding production Swift libraries.
+For customization options (bridge hints, constructor selection, import overrides), see the [SwiftUI Interop docs](docs/SwiftUI-Interop.md).
 
 ---
 
 ## Getting Started
-
-> **This section is under construction.** Detailed usage instructions, project templates, and walkthrough guides are coming as the tooling matures toward its v1.0 release.
-
-The end-state workflow will be:
 
 ```bash
 # 1. Create a binding project
@@ -219,56 +117,43 @@ dotnet build
 dotnet add package MyLibrary.Bindings
 ```
 
-Currently, the generator works with pre-compiled xcframeworks. **Swift Package Manager integration** is on the roadmap — the goal is to accept a Package.swift URL or dependency declaration and have the tooling resolve, build, and bind the package automatically. This would cover the large number of Swift libraries distributed exclusively through SPM.
-
-For now, see the `CLAUDE.md` file for build instructions and the helper scripts in `BindingTesting/` for working examples of the full pipeline.
+For prerequisites, CLI usage, and a full walkthrough, see the [Getting Started guide](docs/Getting-Started.md).
 
 ---
 
 ## Let AI Create Your Binding
 
-One of the goals of this project is to make binding creation so well-structured that an AI agent can do it for you.
+The repository includes structured scripts and diagnostic reports designed so AI coding assistants (Claude Code, Codex, etc.) can generate bindings, resolve issues, build test apps, and validate on a simulator — automatically.
 
-The repository includes an AI instruction file that guides tools like Claude Code, Codex, or other AI coding assistants through the full binding workflow: generating bindings from your xcframework, resolving any issues, building a test app, and validating it on a simulator — all automatically.
-
-The vision: **point an AI agent at your Swift framework, and get back a working, tested NuGet package.** The structured scripts, diagnostic reports, and validation tooling in this repo are designed to make that loop tight enough for an AI to close without human intervention.
-
-This is aspirational but grounded — the test infrastructure and binding reports already provide the feedback signals an AI agent needs to iterate toward a working binding.
+The vision: **point an AI agent at your Swift framework, and get back a working, tested NuGet package.**
 
 ---
 
-## Reporting Issues
+## Documentation
 
-If you run into a problem generating bindings for a Swift library, please [open an issue](../../issues) and include:
-
-1. **Generator logs** — Run with `-v 2` for verbose output and attach the full log
-2. **The binding report** — The `binding-report.json` file from the output directory shows exactly which members were skipped and why
-3. **The xcframework** (if possible) — Having the actual framework lets us reproduce the issue and validate the fix. If the framework is proprietary, include at minimum the ABI JSON (`-a` output) and TBD file
-
-The more context you provide, the faster we can diagnose and fix the issue. The binding report alone often contains enough information to identify the root cause.
+| Page | Description |
+|------|-------------|
+| [Getting Started](docs/Getting-Started.md) | Prerequisites, installation, first binding walkthrough |
+| [Supported Features](docs/Supported-Features.md) | Full feature reference with type conversion tables |
+| [SwiftUI Interop](docs/SwiftUI-Interop.md) | SwiftUI bridge usage, bridge hints, async views |
+| [Customization](docs/Customization.md) | CLI options, MSBuild properties, namespace control |
+| [Troubleshooting](docs/Troubleshooting.md) | Error codes, common issues, binding report analysis |
+| [Known Limitations](docs/Known-Limitations.md) | Platform requirements, Mono JIT workarounds, unsupported patterns |
+| [Architecture](docs/Architecture.md) | Generator pipeline, type mapping, memory management |
 
 ---
 
 ## Known Limitations
 
-Swift Bindings targets .NET 10 on Apple platforms, which currently uses the Mono runtime for iOS deployment. Mono's JIT compiler has a known defect (`jit-info.c:918`) that causes process-fatal crashes when it encounters `CallConvSwift` in certain P/Invoke frame types. This affects three categories of Swift interop: string operations, closure callbacks, and existential type metadata.
+Swift Bindings targets .NET 10 on Apple platforms, which currently uses the Mono runtime. Mono's JIT compiler has a known defect that causes crashes with `CallConvSwift` in certain P/Invoke frame types. Four transparent workarounds are built into the generator and runtime — generated bindings work correctly without manual intervention.
 
-Four workarounds (A through D) have been implemented in this project to route around the crash. These workarounds are transparent to the end user — generated bindings work correctly on Mono without any manual intervention. However, they introduce a runtime dependency on `libSwiftBindingsRuntime.dylib`, which must be included in the application bundle.
-
-For full details on each workaround, affected files, and a revert checklist for when the upstream fix lands, see [`src/docs/known-issues-workarounds.md`](src/docs/known-issues-workarounds.md).
-
-Other documented limitations:
-- **Non-blittable types**: .NET's `CallConvSwift` requires all P/Invoke parameters to be blittable. Types like `SwiftOptional<T>` and `SafeHandle` require wrapper-based marshalling.
-- **SafeHandle in async P/Invoke**: The .NET runtime doesn't preserve `SafeHandle` references across async continuations. Singleton and IntPtr-based workarounds are implemented.
-- **VWT Destroy on Mono**: Explicit `Dispose()` on structs with reference-type fields (e.g., a struct containing a `String`) can trigger the JIT crash through `ValueWitnessTable->Destroy()`. This remains an open issue for a small number of types.
+For full details, see [Known Limitations](docs/Known-Limitations.md).
 
 ---
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator is functional and validated against real-world libraries. Work is ongoing toward the v1.0 developer experience (MSBuild SDK, project templates, NuGet packaging automation).
-
-See [`north-star.md`](north-star.md) for the full technical roadmap.
+Swift Bindings is under active development. The core generator is functional and validated against real-world libraries. See [`north-star.md`](north-star.md) for the full technical roadmap.
 
 | Milestone | Status |
 |-----------|--------|
@@ -278,11 +163,21 @@ See [`north-star.md`](north-star.md) for the full technical roadmap.
 | Closures, tuples, operators | Complete |
 | SwiftUI bridge generation | Complete |
 | Real-world library validation | 5 libraries, 0 errors |
-| MSBuild SDK and project templates | Planned |
-| NuGet packaging automation | Planned |
+| MSBuild SDK and project templates | In progress |
+| NuGet packaging automation | In progress |
 | Swift Package Manager integration | Planned |
-| Additional library validation (StoreKit, HealthKit, etc.) | Planned |
-| Public documentation and guides | In progress |
+
+---
+
+## Reporting Issues
+
+Please [open an issue](../../issues) with:
+
+1. **Generator logs** — run with `-v 2` for verbose output
+2. **The binding report** — `binding-report.json` from the output directory
+3. **The xcframework** (if possible) — or at minimum the ABI JSON and TBD file
+
+See [Troubleshooting](docs/Troubleshooting.md) for common issues and solutions.
 
 ---
 

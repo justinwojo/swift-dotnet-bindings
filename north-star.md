@@ -260,7 +260,7 @@ Swift Framework (.xcframework)
 ## References
 
 ### In This Repository
-- `/docs/binding-overview.md` - Binding philosophy
+- `/docs/design/binding-overview.md` - Binding philosophy
 - `/src/docs/CURRENT-STATUS.md` - Current compilation status and coverage
 - `/src/docs/roadmap.md` - Active work queue
 - `/src/docs/Future/emitter-redesign-proposal.md` - Architecture improvements
