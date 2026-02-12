@@ -80,6 +80,11 @@ public class ProtocolConformanceValidator
         if (!visited.Add(qualifiedName))
             return true;
 
+        // A7: If the protocol interface has unemittable members (AnyType fallback),
+        // concrete types can't implement it — skip conformance entirely.
+        if (HasUnemittableInterfaceMembers(protocolDecl))
+            return false;
+
         // Track interface requirements (mirrors ProtocolHandler dedup)
         var requiredProperties = new HashSet<string>();
         var requiredSubscripts = new HashSet<string>();
@@ -149,11 +154,16 @@ public class ProtocolConformanceValidator
         }
 
         // For each INTERFACE METHOD requirement:
+        var emittedCSharpKeys = new HashSet<string>();
         foreach (var protoMethod in protocolDecl.Methods)
         {
             if (protoMethod.IsConstructor || protoMethod.MethodType == MethodType.Static) continue;
             var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolDecl);
             if (!requiredMethods.Add(methodKey)) continue;
+
+            var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(protoMethod, _typeDatabase, protocolDecl);
+            if (!emittedCSharpKeys.Add(projectedKey))
+                continue;
 
             // Find matching method in CONCRETE TYPE
             var concreteMethod = FindMatchingMethod(concreteType, protoMethod, protocolDecl);
@@ -362,4 +372,66 @@ public class ProtocolConformanceValidator
 
     private static string NormalizeTypeName(string typeName)
         => typeName.Replace(" ", "").Trim();
+
+    /// <summary>
+    /// Checks if a protocol has interface members that would project to AnyType,
+    /// making it impossible for concrete types to implement the interface.
+    /// </summary>
+    private bool HasUnemittableInterfaceMembers(ProtocolDecl protocolDecl)
+    {
+        var closureHandler = new ClosureHandler(_typeDatabase);
+
+        foreach (var method in protocolDecl.Methods)
+        {
+            if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
+
+            foreach (var arg in method.CSSignature)
+            {
+                // Check via TryFindFallbackInfo (catches complex fallbacks)
+                if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(_typeDatabase, closureHandler, arg.SwiftTypeSpec, out _))
+                    return true;
+
+                // Check via projection (catches generic params → AnyType, including nested:
+                // Action<AnyType>, Func<AnyType, ...>, tuples with AnyType, etc.)
+                var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(arg.SwiftTypeSpec, _typeDatabase, protocolDecl);
+                if (ContainsAnyTypeFallback(projected))
+                    return true;
+            }
+        }
+
+        foreach (var property in protocolDecl.Properties)
+        {
+            if (property.IsStatic) continue;
+
+            if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(_typeDatabase, closureHandler, property.SwiftTypeSpec, out _))
+                return true;
+
+            var projected = ProtocolSignatureHelper.ProjectTypeToCSharp(property.SwiftTypeSpec, _typeDatabase, protocolDecl);
+            if (ContainsAnyTypeFallback(projected))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a projected C# type name contains an AnyType fallback, either at the top level
+    /// or nested inside generic wrappers (Action&lt;AnyType&gt;, Func&lt;AnyType, ...&gt;, tuples, etc.).
+    /// Uses word-boundary matching to avoid false positives on user types containing "AnyType" as a substring.
+    /// </summary>
+    private static bool ContainsAnyTypeFallback(string projected)
+    {
+        // Fast path: exact match (most common case)
+        if (projected is "AnyType" or "Swift.AnyType")
+            return true;
+
+        // Check for AnyType nested inside generic types (Action<AnyType>, Func<AnyType, int>, etc.)
+        // Word boundary: AnyType must be preceded/followed by non-word chars or string boundaries
+        if (projected.Contains("AnyType"))
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(projected, @"\bAnyType\b");
+        }
+
+        return false;
+    }
 }

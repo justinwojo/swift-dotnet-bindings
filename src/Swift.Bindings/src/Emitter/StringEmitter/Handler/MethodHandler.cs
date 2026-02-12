@@ -96,6 +96,24 @@ namespace BindingsGeneration
                 methodEnv = new MethodEnvironment(methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
             }
 
+            // Skip constructors that need [UnmanagedCallersOnly] callbacks in generic types.
+            // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
+            if (methodEnv.PInvokeHelperContext != null)
+            {
+                bool hasThunkClosure = methodEnv.MethodDecl.CSSignature.Skip(1)
+                    .Where(arg => methodEnv.ClosureHandler.IsClosure(arg))
+                    .Any(arg => methodEnv.ClosureHandler.RequiresThunk(
+                        methodEnv.ClosureHandler.GetClosureTypeSpec(arg)!));
+                if (hasThunkClosure)
+                {
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method, methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.ParentDecl, SkipReason.GenericTypeCallback,
+                        "Constructor requires [UnmanagedCallersOnly] callback inside generic type.");
+                    return;
+                }
+            }
+
             var isAccessor = methodEnv.MethodDecl.IsAccessor;
 
             bool hasExistentialArg = false;
@@ -292,6 +310,26 @@ namespace BindingsGeneration
             if (conductor.CurrentPInvokeHelperContext != null && methodEnv.PInvokeHelperContext == null)
             {
                 methodEnv = new MethodEnvironment(methodEnv.MethodDecl, methodEnv.TypeDatabase, methodEnv.SiblingPropertyNames, conductor.CurrentPInvokeHelperContext);
+            }
+
+            // Skip methods that need [UnmanagedCallersOnly] callbacks in generic types.
+            // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
+            if (methodEnv.PInvokeHelperContext != null)
+            {
+                bool hasThunkClosure = methodEnv.MethodDecl.CSSignature.Skip(1)
+                    .Where(arg => methodEnv.ClosureHandler.IsClosure(arg))
+                    .Any(arg => methodEnv.ClosureHandler.RequiresThunk(
+                        methodEnv.ClosureHandler.GetClosureTypeSpec(arg)!));
+                bool isAsync = methodEnv.MethodDecl.IsAsync;
+                if (hasThunkClosure || isAsync)
+                {
+                    if (!methodEnv.MethodDecl.IsAccessor)
+                        ReportCollector.RecordMemberSkipped(
+                            BindingItemKind.Method, methodEnv.MethodDecl.Name,
+                            methodEnv.MethodDecl.ParentDecl, SkipReason.GenericTypeCallback,
+                            "Member requires [UnmanagedCallersOnly] callback inside generic type.");
+                    return;
+                }
             }
 
             var isAccessor = methodEnv.MethodDecl.IsAccessor;

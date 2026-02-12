@@ -230,7 +230,17 @@ namespace BindingsGeneration
         /// <returns>The module name.</returns>
         public string GetModuleName()
         {
-            return _moduleRoot.ABIRoot.Children.FirstOrDefault()?.ModuleName ?? string.Empty;
+            var moduleName = _moduleRoot.ABIRoot.Children.FirstOrDefault()?.ModuleName ?? string.Empty;
+
+            if (string.IsNullOrEmpty(moduleName) || moduleName == "NO_MODULE")
+            {
+                throw new InvalidOperationException(
+                    $"ABI JSON has invalid module name '{moduleName}'. " +
+                    "The Swift library must be compiled with BUILD_LIBRARY_FOR_DISTRIBUTION=YES " +
+                    "(swiftc -enable-library-evolution) to produce valid ABI metadata.");
+            }
+
+            return moduleName;
         }
 
         /// <summary>

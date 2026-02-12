@@ -28,6 +28,20 @@ namespace BindingsGeneration
         /// </summary>
         public static PostProcessingResult Process(string sourceContent)
         {
+            return Process(sourceContent, internalTypeNames: null);
+        }
+
+        /// <summary>
+        /// Post-processes Swift source content, stripping known-broken wrapper patterns
+        /// and functions that reference internal (non-public) types.
+        /// </summary>
+        /// <param name="sourceContent">Swift source code to process.</param>
+        /// <param name="internalTypeNames">
+        /// Set of internal type names to strip. Contains both short names ("SkeletonLayer")
+        /// and qualified names ("SkeletonView.SkeletonLayer"). Null to skip internal type stripping.
+        /// </param>
+        public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames)
+        {
             if (string.IsNullOrEmpty(sourceContent))
                 return new PostProcessingResult { CleanedContent = sourceContent, StrippedBlockCount = 0 };
 
@@ -56,7 +70,8 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    if (IsSilgenNameBroken(lines, i, end, body))
+                    if (IsSilgenNameBroken(lines, i, end, body) ||
+                        ReferencesInternalType(body, internalTypeNames))
                     {
                         removedCount++;
                         i = end + 1;
@@ -71,7 +86,8 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    if (IsExtensionBroken(lines, i, end, body))
+                    if (IsExtensionBroken(lines, i, end, body) ||
+                        ReferencesInternalType(body, internalTypeNames))
                     {
                         removedCount++;
                         i = end + 1;
@@ -86,7 +102,8 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    if (IsStandaloneFuncBroken(body))
+                    if (IsStandaloneFuncBroken(body) ||
+                        ReferencesInternalType(body, internalTypeNames))
                     {
                         removedCount++;
                         i = end + 1;
@@ -221,6 +238,26 @@ namespace BindingsGeneration
                 body.Contains("existential.") &&
                 body.Contains(".load(as: (any "))
                 return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if a block body references any internal (non-public) type names.
+        /// Uses word-boundary matching to avoid false positives (e.g., "Layer" won't match "Player").
+        /// </summary>
+        private static bool ReferencesInternalType(string body, HashSet<string>? internalTypeNames)
+        {
+            if (internalTypeNames == null || internalTypeNames.Count == 0)
+                return false;
+
+            foreach (var typeName in internalTypeNames)
+            {
+                // Use word-boundary regex to avoid false positives
+                var pattern = @"\b" + Regex.Escape(typeName) + @"\b";
+                if (Regex.IsMatch(body, pattern))
+                    return true;
+            }
 
             return false;
         }

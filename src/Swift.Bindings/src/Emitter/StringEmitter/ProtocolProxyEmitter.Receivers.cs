@@ -43,6 +43,7 @@ public partial class ProtocolProxyEmitter
         // Method receivers
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
@@ -55,6 +56,9 @@ public partial class ProtocolProxyEmitter
                 methodIndices[methodKey] = idx;
                 // Skip receivers for methods that the interface skipped due to AnyType generic args
                 if (_skippedMethodKeys.Contains(methodKey))
+                    continue;
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
                 // Only emit receiver for new methods
                 EmitMethodReceiver(writer, method, protocolDecl, interfaceName, idx, emittedReceivers);

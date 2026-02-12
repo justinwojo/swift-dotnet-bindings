@@ -79,6 +79,149 @@ internal static class ProtocolSignatureHelper
     }
 
     /// <summary>
+    /// Creates a projected C# method signature key for dedup purposes.
+    /// Two methods that would produce the same C# interface signature get the same key.
+    /// Key format: "MethodName(paramType1,paramType2,...)" — no return type (C# overload identity).
+    /// </summary>
+    public static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
+    {
+        // Compute the public method name the same way EmitInterfaceMethod does
+        var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
+        // Capture hasReturnValue BEFORE async conversion turns void→Task
+        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue);
+
+        var paramTypes = new List<string>();
+        for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+        {
+            var arg = methodDecl.CSSignature[i];
+            paramTypes.Add(ProjectTypeToCSharp(arg.SwiftTypeSpec, typeDatabase, protocolContext, isParameter: true));
+        }
+        return $"{methodName}({string.Join(",", paramTypes)})";
+    }
+
+    /// <summary>
+    /// Projects a Swift TypeSpec to the C# type name that would appear in a protocol interface.
+    /// Mirrors ProtocolHandler.GetCSharpTypeName() resolution chain.
+    /// </summary>
+    /// <param name="typeSpec">The Swift type specification.</param>
+    /// <param name="typeDatabase">Type database for lookups.</param>
+    /// <param name="protocolContext">Protocol context for associated type resolution.</param>
+    /// <param name="isParameter">True for parameter types (arrays → IEnumerable), false for return types (arrays → IReadOnlyList).</param>
+    public static string ProjectTypeToCSharp(TypeSpec typeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null, bool isParameter = false)
+    {
+        // Associated type references → generic param
+        if (typeSpec is AssociatedTypeReferenceSpec assocRef)
+            return MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+
+        var existentialHandler = new ExistentialHandler(typeDatabase);
+
+        // Existential types (any Protocol)
+        if (existentialHandler.IsExistential(typeSpec))
+        {
+            var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+                return existentialHandler.GetPublicExistentialType(protocolList);
+        }
+
+        // Optional-wrapped existential
+        if (existentialHandler.IsOptionalExistential(typeSpec))
+        {
+            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(typeSpec);
+            if (innerProtocolList != null && existentialHandler.IsSupportedExistential(innerProtocolList))
+            {
+                var publicInnerType = existentialHandler.GetPublicExistentialType(innerProtocolList);
+                if (publicInnerType != "object")
+                    return existentialHandler.GetPublicOptionalExistentialType(innerProtocolList);
+            }
+        }
+
+        // Closures → Action/Func
+        if (typeSpec is ClosureTypeSpec closureTypeSpec)
+            return ProjectClosureToCSharp(closureTypeSpec, typeDatabase, protocolContext, isParameter);
+
+        // Tuples → ValueTuple
+        if (typeSpec is TupleTypeSpec tupleTypeSpec && !tupleTypeSpec.IsEmptyTuple)
+            return ProjectTupleToCSharp(tupleTypeSpec, typeDatabase, protocolContext, isParameter);
+
+        // Bound generics (Optional<T>, Array<T>, etc.)
+        if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var tempProperty = new PropertyDecl
+            {
+                Name = "_temp",
+                SwiftTypeSpec = typeSpec,
+                IsStatic = false,
+                HasStorage = false,
+                Accessors = new List<AccessorDecl>(),
+                ParentDecl = null,
+                ModuleDecl = null
+            };
+            var projected = boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+
+            // Apply idiomatic conversion (SwiftString→string, SwiftArray→IEnumerable/IReadOnlyList, etc.)
+            var typeConversion = new TypeConversionHandler(typeDatabase);
+            var idiomaticType = typeConversion.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter);
+            return idiomaticType ?? projected;
+        }
+
+        // Standard named type lookup with idiomatic + native remapping
+        {
+            var record = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+            var rawType = record.CSharpTypeName.FullyQualifiedName;
+            var typeConversion = new TypeConversionHandler(typeDatabase);
+            var idiomaticType = typeConversion.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter);
+            if (idiomaticType != null)
+                return idiomaticType;
+            // Native type remapping (Foundation.URL → NSUrl, Foundation.Data → NSData)
+            if (typeConversion.HasNativeTypeRemapping(typeSpec))
+            {
+                var nativeType = typeConversion.GetNativeTypeName(typeSpec);
+                if (nativeType != null)
+                    return nativeType;
+            }
+            return rawType;
+        }
+    }
+
+    private static string ProjectClosureToCSharp(ClosureTypeSpec closureTypeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext, bool isParameter = false)
+    {
+        var paramTypes = new List<string>();
+        foreach (var arg in closureTypeSpec.EachArgument())
+            paramTypes.Add(ProjectTypeToCSharp(arg, typeDatabase, protocolContext, isParameter));
+
+        var returnType = closureTypeSpec.ReturnType;
+        bool hasReturn = !returnType.IsEmptyTuple;
+
+        if (!hasReturn)
+        {
+            if (paramTypes.Count == 0) return "Action";
+            return $"Action<{string.Join(", ", paramTypes)}>";
+        }
+        else
+        {
+            var returnTypeName = ProjectTypeToCSharp(returnType, typeDatabase, protocolContext, isParameter);
+            if (paramTypes.Count == 0) return $"Func<{returnTypeName}>";
+            return $"Func<{string.Join(", ", paramTypes)}, {returnTypeName}>";
+        }
+    }
+
+    private static string ProjectTupleToCSharp(TupleTypeSpec tupleTypeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext, bool isParameter = false)
+    {
+        var elements = new List<string>();
+        foreach (var element in tupleTypeSpec.Elements)
+        {
+            var typeName = ProjectTypeToCSharp(element, typeDatabase, protocolContext, isParameter);
+            if (!string.IsNullOrEmpty(element.TypeLabel))
+                elements.Add($"{typeName} {element.TypeLabel}");
+            else
+                elements.Add(typeName);
+        }
+        return $"({string.Join(", ", elements)})";
+    }
+
+    /// <summary>
     /// Maps an associated type reference to a C# generic parameter name.
     /// For example, "Self.Element" in a protocol with associated type "Element" becomes "TElement".
     /// </summary>

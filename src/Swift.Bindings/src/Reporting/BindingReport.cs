@@ -57,6 +57,7 @@ public enum SkipReason
     MissingHandler,
     SwiftUIView,
     StaticProtocolMember,
+    GenericTypeCallback,
     Unknown,
 }
 

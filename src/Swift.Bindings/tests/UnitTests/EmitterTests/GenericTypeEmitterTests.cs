@@ -156,6 +156,132 @@ public class GenericTypeEmitterTests
         Assert.Equal("Box<T0> where T0 : ISwiftObject", result);
     }
 
+    #region Cross-Module Constraint Stripping Tests
+
+    [Fact]
+    public void GetWhereClause_StdlibDecodableConstraint_IsStripped()
+    {
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("RequestInterceptor", "Alamofire",
+            new List<string> { "Swift.Decodable" });
+        var typeDatabase = new TypeDatabase();
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        Assert.DoesNotContain("Decodable", result);
+        Assert.Contains("ISwiftObject", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_StdlibErrorConstraint_IsStripped()
+    {
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("ErrorWrapper", "Alamofire",
+            new List<string> { "Swift.Error" });
+        var typeDatabase = new TypeDatabase();
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        Assert.DoesNotContain("Error", result);
+        Assert.Contains("ISwiftObject", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_SameModuleProtocol_IsKept()
+    {
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Container", "Alamofire",
+            new List<string> { "Alamofire.RequestInterceptor" });
+        var typeDatabase = new TypeDatabase();
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        // Same-module constraint is kept even without TypeDB registration
+        Assert.Contains("IRequestInterceptor", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_CrossModuleRegisteredProtocol_IsKept()
+    {
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Wrapper", "Alamofire",
+            new List<string> { "Foundation.NSCoding" });
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Foundation.NSCoding"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "INSCoding"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.NSCoding"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        Assert.Contains("INSCoding", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_MultipleMixedConstraints_OnlyKnownKept()
+    {
+        // T has both Decodable (cross-module, unregistered) and ISwiftObject (baseline)
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("Swift.Decodable"),
+                ConformanceKind.Protocol),
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("Alamofire.RequestInterceptor"),
+                ConformanceKind.Protocol)
+        };
+
+        var genericParams = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_0_0", "T", conformances, new List<GenericParameterConformance>())
+        };
+
+        var moduleDecl = CreateModuleDecl("Alamofire");
+        var typeDecl = new StructDecl
+        {
+            Name = "MixedBox",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.MixedBox"),
+            MangledName = "$s9Alamofire8MixedBoxV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s9Alamofire8MixedBoxVMa",
+            GenericParameters = genericParams
+        };
+
+        var typeDatabase = new TypeDatabase();
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        Assert.DoesNotContain("Decodable", result);
+        Assert.Contains("IRequestInterceptor", result);
+        Assert.Contains("ISwiftObject", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_NoTypeDatabase_EmitsAll()
+    {
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Box", "Alamofire",
+            new List<string> { "Swift.Decodable" });
+
+        // null typeDatabase → preserves existing behavior (no filtering)
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, null);
+
+        Assert.Contains("IDecodable", result);
+    }
+
+    #endregion
+
     private static StructDecl CreateNonGenericStruct()
     {
         return new StructDecl
@@ -202,6 +328,59 @@ public class GenericTypeEmitterTests
             ModuleDecl = null,
             IsFrozen = true,
             MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = genericParams
+        };
+    }
+
+    private static ModuleDecl CreateModuleDecl(string name)
+    {
+        return new ModuleDecl
+        {
+            Name = name,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            Dependencies = new List<string>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static StructDecl CreateGenericStructWithConstraintsAndModule(string name, string moduleName, List<string> protocols)
+    {
+        var conformances = protocols.Select(p => new GenericParameterConformance(
+            new[] { "τ_0_0" },
+            SwiftTypeName.FromModuleQualifiedName(p),
+            ConformanceKind.Protocol
+        )).ToList();
+
+        var genericParams = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                "τ_0_0",
+                "T",
+                conformances,
+                new List<GenericParameterConformance>()
+            )
+        };
+
+        var moduleDecl = CreateModuleDecl(moduleName);
+
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{name}"),
+            MangledName = $"$s{moduleName.Length}{moduleName}{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s{moduleName.Length}{moduleName}{name.Length}{name}VMa",
             GenericParameters = genericParams
         };
     }

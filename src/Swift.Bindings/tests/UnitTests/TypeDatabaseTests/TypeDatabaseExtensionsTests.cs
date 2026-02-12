@@ -476,4 +476,76 @@ public class TypeDatabaseExtensionsTests
         Assert.Throws<Exception>(() =>
             typeDatabase.GetTypeRecordOrThrow(new NamedTypeSpec("SomeUnknownModule.SomeType")));
     }
+
+    // --- Bare generic type guard tests (WU5) ---
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_BareDictionary_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Swift.Dictionary"));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_BoundDictionary_ReturnsRecord()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftDictionary"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"),
+                MetadataAccessor = "$sSDMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var boundDict = new NamedTypeSpec("Swift.Dictionary");
+        boundDict.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        boundDict.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(boundDict);
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal("Swift.SwiftDictionary", record.CSharpTypeName.FullyQualifiedName);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_BareArray_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Swift.Array"));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_NonGenericType_ReturnsRecord()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Swift.Int32"));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal("System.Int32", record.CSharpTypeName.FullyQualifiedName);
+    }
 }

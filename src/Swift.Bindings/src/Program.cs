@@ -259,7 +259,7 @@ namespace BindingsGeneration
                 var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
                 var effectiveNamespacePattern = ResolveNamespacePattern(namespacePattern, configPath, logger);
 
-                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory);
+                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames);
 
                 // Validate --wrapper-architectures
                 var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
@@ -291,7 +291,8 @@ namespace BindingsGeneration
 
                             compilationResult = SwiftWrapperCompiler.CompileAll(
                                 outputDirectory, resolution.ModuleName,
-                                simResolution, deviceResolution, logger);
+                                simResolution, deviceResolution, logger,
+                                internalTypeNames: internalTypeNames);
                         }
                         else if (wrapperArchNormalized == "device")
                         {
@@ -314,14 +315,16 @@ namespace BindingsGeneration
                                 outputDirectory, resolution.ModuleName,
                                 deviceOnlyResolution.FrameworkSearchPath,
                                 deviceOnlyResolution.DylibPath,
-                                "device", "iphoneos", logger);
+                                "device", "iphoneos", logger,
+                                internalTypeNames: internalTypeNames);
                         }
                         else
                         {
                             // Simulator-only (default)
                             compilationResult = SwiftWrapperCompiler.Compile(
                                 outputDirectory, resolution.ModuleName,
-                                resolution.FrameworkSearchPath, resolution.DylibPath, logger);
+                                resolution.FrameworkSearchPath, resolution.DylibPath, logger,
+                                internalTypeNames: internalTypeNames);
                         }
                     }
                     catch (Exception ex)
@@ -425,6 +428,12 @@ namespace BindingsGeneration
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
         public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
         {
+            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _);
+        }
+
+        private static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames)
+        {
+            internalTypeNames = null;
             var typeDatabase = new TypeDatabase();
             typeDatabase.AsyncLibraryName = asyncLibraryName;
             string[] moduleDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "AppKitDatabase.xml", "CoreImageDatabase.xml", "UIKitDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml" };
@@ -477,6 +486,7 @@ namespace BindingsGeneration
             {
                 // Parse the Swift ABI file and generate declarations
                 var (decl, moduleTypes) = swiftParser.ParseModule();
+                internalTypeNames = CollectInternalTypeNames(decl);
                 ReportCollector.Start(decl);
 
                 // dylibPath is used for metadata extraction, runtimeLibraryName is used in generated DllImport
@@ -516,6 +526,41 @@ namespace BindingsGeneration
             return isSimulatorSlice
                 || wrapperArchitectures == "device"
                 || wrapperArchitectures == "all";
+        }
+
+        /// <summary>
+        /// Collects internal (non-public) type names from a parsed module.
+        /// Returns both short names and module-qualified names for word-boundary matching.
+        /// Short names that collide with public type names are removed to avoid over-stripping.
+        /// </summary>
+        internal static HashSet<string> CollectInternalTypeNames(ModuleDecl module)
+        {
+            var internalNames = new HashSet<string>();
+            var publicNames = new HashSet<string>();
+            CollectTypeNames(module.Types, internalNames, publicNames);
+            // Remove short names that collide with public type names to avoid over-stripping
+            internalNames.ExceptWith(publicNames);
+            return internalNames;
+        }
+
+        private static void CollectTypeNames(IEnumerable<TypeDecl> types, HashSet<string> internalNames, HashSet<string> publicNames)
+        {
+            foreach (var t in types)
+            {
+                if (t.IsModuleInternal)
+                {
+                    // Always add qualified name (unique, no collision risk)
+                    if (t.SwiftTypeName != null)
+                        internalNames.Add(t.SwiftTypeName.ToString());
+                    // Add short name tentatively (may be removed if it collides with a public name)
+                    internalNames.Add(t.Name);
+                }
+                else
+                {
+                    publicNames.Add(t.Name);  // Track public short names for collision detection
+                }
+                CollectTypeNames(t.Types, internalNames, publicNames);  // Recurse ALL children
+            }
         }
 
         private static string ResolveNamespacePattern(string? cliNamespacePattern, string? configPath, ILogger logger)

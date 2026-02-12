@@ -108,6 +108,11 @@ public static class TypeDatabaseExtensions
             return IntPtrType;
         }
 
+        // Guard: known-generic types used without type arguments produce bare
+        // C# types like "SwiftDictionary" (CS0305). Return AnyType to trigger skip.
+        if (!typeSpec.ContainsGenericParameters && IsKnownGenericType(typeSpec.Name))
+            return AnyType;
+
         // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         return typeDatabase.GetTypeRecordOrAnyType(typeName);
@@ -540,6 +545,14 @@ public static class TypeDatabaseExtensions
     /// Determines whether the specified NamedTypeSpec represents a Swift pointer type
     /// that should be mapped to System.IntPtr.
     /// </summary>
+    private static readonly HashSet<string> KnownGenericTypes = new(StringComparer.Ordinal)
+    {
+        "Dictionary", "Array", "Set", "Optional", "Result",
+        "Swift.Dictionary", "Swift.Array", "Swift.Set", "Swift.Optional", "Swift.Result"
+    };
+
+    private static bool IsKnownGenericType(string name) => KnownGenericTypes.Contains(name);
+
     private static bool IsPointerType(NamedTypeSpec typeSpec)
     {
         return typeSpec.Name is "Swift.OpaquePointer" or "Swift.UnsafePointer"

@@ -99,6 +99,7 @@ public partial class ProtocolProxyEmitter
         // Method receivers
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
@@ -111,6 +112,9 @@ public partial class ProtocolProxyEmitter
                 methodIndices[methodKey] = idx;
                 // Skip assignment for methods that the interface skipped (field stays default/null)
                 if (_skippedMethodKeys.Contains(methodKey))
+                    continue;
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
                 EmitLocalVtableMethodAssignment(writer, method, idx);
             }
@@ -164,6 +168,7 @@ public partial class ProtocolProxyEmitter
         // Method function pointers
         methodIndex = 0;
         methodIndices.Clear();
+        emittedCSharpKeys.Clear();
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
@@ -176,6 +181,9 @@ public partial class ProtocolProxyEmitter
                 methodIndices[methodKey] = idx;
                 // Skip assignment for methods that the interface skipped (field stays IntPtr.Zero)
                 if (_skippedMethodKeys.Contains(methodKey))
+                    continue;
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
                 EmitSwiftVtableMethodAssignment(writer, method, idx);
             }

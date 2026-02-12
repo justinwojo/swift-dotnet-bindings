@@ -50,6 +50,7 @@ public partial class ProtocolProxyEmitter
         // Methods - track by signature to handle overloads
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
@@ -62,6 +63,9 @@ public partial class ProtocolProxyEmitter
                 methodIndices[methodKey] = idx;
                 // Skip methods that the interface skipped due to AnyType generic args
                 if (_skippedMethodKeys.Contains(methodKey))
+                    continue;
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
                 EmitMethodImplementation(writer, method, protocolDecl, dispatchEmitter, idx);
             }

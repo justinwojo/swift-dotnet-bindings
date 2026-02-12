@@ -125,8 +125,17 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
+                var emittedPropertyNames = new HashSet<string>();
                 foreach (PropertyDecl propertyDecl in structDecl.Properties)
                 {
+                    var csPropertyName = NameProvider.GetPropertyName(propertyDecl.Name, structDecl.Name);
+                    if (!emittedPropertyNames.Add(csPropertyName))
+                    {
+                        _logger.LogInformation($"Skipping duplicate property '{structDecl.Name}.{csPropertyName}'.");
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, structDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted.");
+                        continue;
+                    }
+
                     if (conductor.TryGetPropertyHandler(propertyDecl, out var propertyHandler))
                     {
                         var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);

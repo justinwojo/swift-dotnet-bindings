@@ -38,6 +38,8 @@ public static class WorkaroundRecommendations
             "Write a Swift wrapper that converts stream elements to a supported type.",
         SkipReason.DuplicateSignature =>
             "Rename one member via a Swift extension to disambiguate.",
+        SkipReason.GenericTypeCallback =>
+            "Write a Swift wrapper that avoids closures or async in generic type members.",
         SkipReason.MissingHandler =>
             "No handler exists for this declaration kind.",
         SkipReason.UnsupportedType =>

@@ -491,4 +491,175 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region G. Internal Type Stripping (WU2)
+
+    public class PostProcessorInternalTypeTests
+    {
+        [Fact]
+        public void Process_FunctionReferencingInternalType_IsStripped()
+        {
+            var input = """
+                @_silgen_name("wrapper_create")
+                public func SBW_create(_self: UnsafeMutableRawPointer) -> SkeletonLayer {
+                    return SkeletonLayer()
+                }
+
+                @_silgen_name("wrapper_update")
+                public func SBW_update(_self: UnsafeMutableRawPointer) {
+                    let x = _self
+                }
+
+                """;
+            var internalTypes = new HashSet<string> { "SkeletonLayer" };
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("SkeletonLayer", result.CleanedContent);
+            Assert.Contains("SBW_update", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_FunctionReferencingPublicType_IsKept()
+        {
+            var input = """
+                @_silgen_name("wrapper_create")
+                public func SBW_create(_self: UnsafeMutableRawPointer) -> SkeletonView {
+                    return SkeletonView()
+                }
+
+                """;
+            var internalTypes = new HashSet<string> { "SkeletonLayer" };
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SkeletonView", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_SimilarNameNotFalseMatch_IsKept()
+        {
+            // "SkeletonLayerView" should NOT be stripped when "SkeletonLayer" is internal
+            // — word boundary prevents substring match.
+            var input = """
+                @_silgen_name("wrapper_render")
+                public func SBW_render(_self: UnsafeMutableRawPointer) -> SkeletonLayerView {
+                    return SkeletonLayerView()
+                }
+
+                """;
+            var internalTypes = new HashSet<string> { "SkeletonLayer" };
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SkeletonLayerView", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_NoInternalTypes_BehaviorUnchanged()
+        {
+            var input = """
+                @_silgen_name("wrapper_foo")
+                public func SBW_foo(_self: UnsafeMutableRawPointer) {
+                    let x = _self
+                }
+
+                """;
+            // null set → no internal type stripping
+            var result = SwiftWrapperPostProcessor.Process(input, null);
+
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_foo", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_NestedInternalType_IsStripped()
+        {
+            var input = """
+                @_silgen_name("wrapper_nested")
+                public func SBW_nested(_self: UnsafeMutableRawPointer) -> Outer.InnerInternal {
+                    return Outer.InnerInternal()
+                }
+
+                @_silgen_name("wrapper_clean")
+                public func SBW_clean(_self: UnsafeMutableRawPointer) {
+                    let x = _self
+                }
+
+                """;
+            var internalTypes = new HashSet<string> { "Outer.InnerInternal" };
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("InnerInternal", result.CleanedContent);
+            Assert.Contains("SBW_clean", result.CleanedContent);
+        }
+    }
+
+    public class CollectInternalTypeNamesTests
+    {
+        [Fact]
+        public void CollectInternalTypeNames_ShortNameCollision_UsesQualifiedOnly()
+        {
+            // Internal "Layer" + public "Layer" → short name removed from set
+            var moduleDecl = new ModuleDecl
+            {
+                Name = "TestModule",
+                Properties = new List<PropertyDecl>(),
+                Methods = new List<MethodDecl>(),
+                Dependencies = new List<string>(),
+                Protocols = new List<ProtocolDecl>(),
+                ParentDecl = null,
+                ModuleDecl = null,
+                Types = new List<TypeDecl>
+                {
+                    new StructDecl
+                    {
+                        Name = "Layer",
+                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Layer"),
+                        MangledName = "$s10TestModule5Outer5LayerVN",
+                        IsModuleInternal = true,
+                        Properties = new List<PropertyDecl>(),
+                        Methods = new List<MethodDecl>(),
+                        Types = new List<TypeDecl>(),
+                        Operators = new List<OperatorDecl>(),
+                        Subscripts = new List<SubscriptDecl>(),
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        Conformances = new List<TypeConformance>(),
+                        ParentDecl = null,
+                        ModuleDecl = null,
+                        IsFrozen = false,
+                        MetadataAccessor = ""
+                    },
+                    new StructDecl
+                    {
+                        Name = "Layer",
+                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Layer"),
+                        MangledName = "$s10TestModule5LayerVN",
+                        IsModuleInternal = false,
+                        Properties = new List<PropertyDecl>(),
+                        Methods = new List<MethodDecl>(),
+                        Types = new List<TypeDecl>(),
+                        Operators = new List<OperatorDecl>(),
+                        Subscripts = new List<SubscriptDecl>(),
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        Conformances = new List<TypeConformance>(),
+                        ParentDecl = null,
+                        ModuleDecl = null,
+                        IsFrozen = false,
+                        MetadataAccessor = ""
+                    }
+                }
+            };
+
+            var result = BindingsGenerator.CollectInternalTypeNames(moduleDecl);
+
+            // Short name "Layer" should be removed (collides with public type)
+            Assert.DoesNotContain("Layer", result);
+            // Qualified name should remain
+            Assert.Contains("TestModule.Outer.Layer", result);
+        }
+    }
+
+    #endregion
 }

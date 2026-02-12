@@ -205,6 +205,7 @@ public partial class ProtocolProxyEmitter
         // Methods
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
@@ -216,6 +217,10 @@ public partial class ProtocolProxyEmitter
 
             var idx = methodIndex++;
             methodIndices[methodKey] = idx;
+
+            var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+            if (!emittedCSharpKeys.Add(projectedKey))
+                continue;
 
             if (dispatchEmitter.IsMethodDispatchable(method))
             {

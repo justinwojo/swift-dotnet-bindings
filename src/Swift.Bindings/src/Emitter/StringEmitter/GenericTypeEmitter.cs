@@ -88,6 +88,15 @@ public static class GenericTypeEmitter
                     if (typeDatabase != null && HasAssociatedTypes(typeDatabase, conformance.ConformanceTarget))
                         continue;
 
+                    // Skip cross-module protocol constraints not registered in TypeDatabase.
+                    // Same-module protocols are always registered during module processing.
+                    if (typeDatabase != null
+                        && conformance.ConformanceTarget.Module != (typeDecl.ModuleDecl?.Name ?? ""))
+                    {
+                        if (!typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out _))
+                            continue;
+                    }
+
                     // Convert Swift protocol name to C# interface name
                     var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: conformance.ConformanceTarget.Module);
                     paramConstraints.Add(interfaceName);

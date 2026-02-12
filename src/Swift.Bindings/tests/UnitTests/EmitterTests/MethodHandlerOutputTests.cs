@@ -649,6 +649,200 @@ public class MethodHandlerOutputTests
         Assert.DoesNotContain("Proxy(result)", csOutput);
     }
 
+    #region Generic Type Callback Guards (WU4)
+
+    [Fact]
+    public void MethodHandler_ThunkClosureInGenericType_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Create a closure that requires thunk (escaping, non-@convention(c))
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl(
+            name: "handle",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethodInGenericContext(method, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void MethodHandler_ConventionCClosureInGenericType_EmitsNormally()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Create a @convention(c) closure — RequiresThunk returns false
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var conventionAttr = new TypeSpecAttribute("convention");
+        conventionAttr.Parameters.Add("c");
+        closureType.Attributes.Add(conventionAttr);
+
+        var method = CreateMethodDecl(
+            name: "handleCCallback",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (csOutput, _) = EmitMethodInGenericContext(method, typeDatabase);
+
+        // @convention(c) closures don't need thunks — emission should proceed
+        Assert.NotEqual(string.Empty, csOutput);
+    }
+
+    [Fact]
+    public void MethodHandler_AsyncMethodInGenericType_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var method = CreateMethodDecl(
+            name: "fetch",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: true,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, swiftOutput) = EmitMethodInGenericContext(method, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void MethodHandler_NoClosureInGenericType_EmitsNormally()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var method = CreateMethodDecl(
+            name: "count",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethodInGenericContext(method, typeDatabase);
+
+        // Method without closures/async should emit normally (DllImport hoisting handles it)
+        Assert.NotEqual(string.Empty, csOutput);
+        Assert.Contains("GetCount()", csOutput);
+    }
+
+    [Fact]
+    public void ConstructorHandler_ThunkClosureInGenericType_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var ctor = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule6LoaderCyACSi_tYaKcfc",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("TestModule.Loader"), moduleDecl),
+                CreateArgument("callback", closureType, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(ctor);
+
+        var (csOutput, swiftOutput) = EmitConstructorInGenericContext(ctor, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void WorkaroundRecommendations_GenericTypeCallback_ReturnsRecommendation()
+    {
+        var recommendation = WorkaroundRecommendations.GetRecommendation(SkipReason.GenericTypeCallback);
+
+        Assert.NotNull(recommendation);
+        Assert.NotEmpty(recommendation);
+    }
+
+    private static (string csOutput, string swiftOutput) EmitMethodInGenericContext(
+        MethodDecl methodDecl,
+        TypeDatabase typeDatabase)
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = new MethodEnvironment(methodDecl, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
+        conductor.CurrentPInvokeHelperContext = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        handler.Emit(csWriter, swiftWriter, env, conductor);
+
+        return (csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    private static (string csOutput, string swiftOutput) EmitConstructorInGenericContext(
+        MethodDecl methodDecl,
+        TypeDatabase typeDatabase)
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
+        var env = new MethodEnvironment(methodDecl, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
+        conductor.CurrentPInvokeHelperContext = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        handler.Emit(csWriter, swiftWriter, env, conductor);
+
+        return (csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    #endregion
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();

@@ -92,10 +92,11 @@ namespace BindingsGeneration
             string frameworkSearchPath,
             string dylibPath,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            HashSet<string>? internalTypeNames = null)
         {
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
-                "simulator", "iphonesimulator", logger, commandRunner);
+                "simulator", "iphonesimulator", logger, commandRunner, internalTypeNames);
         }
 
         /// <summary>
@@ -109,7 +110,8 @@ namespace BindingsGeneration
             XCFrameworkResolution simulatorResolution,
             XCFrameworkResolution? deviceResolution,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            HashSet<string>? internalTypeNames = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -138,7 +140,7 @@ namespace BindingsGeneration
                 foreach (var swiftFile in swiftFiles)
                 {
                     var content = File.ReadAllText(swiftFile);
-                    var result = SwiftWrapperPostProcessor.Process(content);
+                    var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames);
                     totalStripped += result.StrippedBlockCount;
 
                     if (result.StrippedBlockCount > 0)
@@ -254,7 +256,8 @@ namespace BindingsGeneration
             string platformVariant,
             string sdkName,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            HashSet<string>? internalTypeNames = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -284,7 +287,7 @@ namespace BindingsGeneration
                 foreach (var swiftFile in swiftFiles)
                 {
                     var content = File.ReadAllText(swiftFile);
-                    var result = SwiftWrapperPostProcessor.Process(content);
+                    var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames);
                     totalStripped += result.StrippedBlockCount;
 
                     if (result.StrippedBlockCount > 0)

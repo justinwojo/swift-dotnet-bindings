@@ -45,6 +45,7 @@ public partial class ProtocolProxyEmitter
         // Method fields
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        var emittedCSharpKeys = new HashSet<string>();
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
@@ -55,6 +56,9 @@ public partial class ProtocolProxyEmitter
             {
                 idx = methodIndex++;
                 methodIndices[methodKey] = idx;
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                if (!emittedCSharpKeys.Add(projectedKey))
+                    continue;
                 // Only emit the field for new methods
                 EmitMethodVtableSwiftField(writer, method, idx, emittedFields);
             }
@@ -99,6 +103,7 @@ public partial class ProtocolProxyEmitter
         // Method delegates
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
+        var emittedCSharpKeys2 = new HashSet<string>();
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
@@ -109,6 +114,9 @@ public partial class ProtocolProxyEmitter
             {
                 idx = methodIndex++;
                 methodIndices[methodKey] = idx;
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                if (!emittedCSharpKeys2.Add(projectedKey))
+                    continue;
                 // Only emit the field for new methods
                 EmitMethodLocalVtableField(writer, method, protocolDecl, idx, emittedFields);
             }

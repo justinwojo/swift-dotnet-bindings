@@ -84,6 +84,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 SkipProperty(SkipReason.UnsupportedAsyncStream, "AsyncStream element type is not supported.");
                 return;
             }
+            if (conductor.CurrentPInvokeHelperContext != null)
+            {
+                SkipProperty(SkipReason.GenericTypeCallback,
+                    "AsyncStream property requires [UnmanagedCallersOnly] callback inside generic type.");
+                return;
+            }
             EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl);
             ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
             return;

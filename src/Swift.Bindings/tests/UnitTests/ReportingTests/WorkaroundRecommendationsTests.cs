@@ -21,6 +21,7 @@ public class WorkaroundRecommendationsTests
     [InlineData(SkipReason.UnsupportedClosure)]
     [InlineData(SkipReason.UnsupportedAsyncStream)]
     [InlineData(SkipReason.DuplicateSignature)]
+    [InlineData(SkipReason.GenericTypeCallback)]
     [InlineData(SkipReason.MissingHandler)]
     [InlineData(SkipReason.UnsupportedType)]
     [InlineData(SkipReason.Unknown)]

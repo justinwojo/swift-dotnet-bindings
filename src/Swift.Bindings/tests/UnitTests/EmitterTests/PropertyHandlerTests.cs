@@ -1211,6 +1211,45 @@ public class PropertyHandlerTests
         Assert.Equal("IDataCaching", result);
     }
 
+    #region WU4 — Generic Type AsyncStream Guard
+
+    [Fact]
+    public void PropertyHandler_AsyncStreamInGenericType_SkipsEmission()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Container", moduleDecl);
+
+        // Create an AsyncStream<Int> property
+        var asyncStreamType = new NamedTypeSpec("_Concurrency.AsyncStream", new NamedTypeSpec("Swift.Int"));
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "values", "Swift.Int", hasGetter: true, hasSetter: false);
+        property.SwiftTypeSpec = asyncStreamType;
+
+        // Emit in a generic type context
+        var (csOutput, swiftOutput) = EmitPropertyInGenericContext(property, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    private static (string csOutput, string swiftOutput) EmitPropertyInGenericContext(PropertyDecl property, TypeDatabase typeDatabase)
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var handler = new PropertyHandler(new NullLogger<PropertyHandler>());
+        var env = handler.Marshal(property, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
+        conductor.CurrentPInvokeHelperContext = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        handler.Emit(csWriter, swiftWriter, env, conductor);
+
+        return (csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    #endregion
+
     private class MockPropertyTypeDatabase : ITypeDatabase
     {
         public string AsyncLibraryName => null!;

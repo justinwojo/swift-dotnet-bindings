@@ -70,6 +70,33 @@ public class SwiftABIParserRuntimeTests
         Assert.Empty(result.TypeDecls);
     }
 
+    #region NO_MODULE Guard Tests
+
+    [Fact]
+    public void GetModuleName_NoModule_ThrowsDescriptiveError()
+    {
+        using var fixture = CreateParserWithNodes(
+            CreateNode(kind: "Import", moduleName: "NO_MODULE", name: "NO_MODULE"));
+        var parser = fixture.Parser;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => parser.GetModuleName());
+        Assert.Contains("NO_MODULE", ex.Message);
+        Assert.Contains("BUILD_LIBRARY_FOR_DISTRIBUTION", ex.Message);
+    }
+
+    [Fact]
+    public void GetModuleName_EmptyModule_ThrowsDescriptiveError()
+    {
+        using var fixture = CreateParserWithNodes(
+            CreateNode(kind: "Import", moduleName: "", name: ""));
+        var parser = fixture.Parser;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => parser.GetModuleName());
+        Assert.Contains("BUILD_LIBRARY_FOR_DISTRIBUTION", ex.Message);
+    }
+
+    #endregion
+
     #region funcSelfKind → IsMutating Tests
 
     [Fact]

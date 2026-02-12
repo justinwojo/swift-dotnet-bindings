@@ -88,6 +88,7 @@ namespace BindingsGeneration
             // Track emitted members to avoid duplicates
             var emittedProperties = new HashSet<string>();
             var emittedMethods = new HashSet<string>();
+            var emittedCSharpKeys = new HashSet<string>();
             var emittedSubscripts = new HashSet<string>();
 
             // Emit properties as interface members
@@ -192,6 +193,16 @@ namespace BindingsGeneration
                     continue;
                 }
                 emittedMethods.Add(methodKey);
+
+                // Secondary dedup: different Swift types can project to the same C# type
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, protocolDecl);
+                if (!emittedCSharpKeys.Add(projectedKey))
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' - projected C# signature collides with already-emitted method.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Projected C# method signature collides with already-emitted method.");
+                    continue;
+                }
 
                 // Check for AnyType as a generic type argument in the method signature
                 // (e.g., BatchedCollection<AnyType> violates where T0 : ISwiftCollection)

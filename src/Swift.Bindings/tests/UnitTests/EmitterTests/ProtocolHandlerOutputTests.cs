@@ -1276,6 +1276,153 @@ public class ProtocolHandlerOutputTests
 
     #endregion
 
+    #region A6 — Projected C# Signature Dedup Tests
+
+    [Fact]
+    public void ProtocolHandler_DuplicateAfterAnyTypeFallback_SecondSkipped()
+    {
+        // Two methods with different unknown types that both collapse to AnyType
+        // produce duplicate C# signatures — second should be skipped.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Converter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Converter"),
+            MangledName = "$s10TestModule9ConverterP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDeclWithReturn("convert", new NamedTypeSpec("UnknownModule.Foo"), moduleDecl),
+                CreateMethodDeclWithReturn("convert", new NamedTypeSpec("UnknownModule.Bar"), moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Only one Convert() should appear on the interface (second is projected-duplicate)
+        var interfacePart = csOutput.Substring(0, csOutput.IndexOf("class ConverterProxy"));
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(interfacePart, "Convert()"));
+    }
+
+    [Fact]
+    public void ProtocolHandler_DistinctMethods_BothEmitted()
+    {
+        // Two methods with different resolvable return types should both be emitted.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Calculator",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Calculator"),
+            MangledName = "$s10TestModule10CalculatorP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDecl("reset", moduleDecl),
+                CreateMethodDeclWithReturn("result", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        var interfacePart = csOutput.Substring(0, csOutput.IndexOf("class CalculatorProxy"));
+        Assert.Contains("void Reset()", interfacePart);
+        Assert.Contains("System.Int64 GetResult()", interfacePart);
+    }
+
+    [Fact]
+    public void InterfaceImpl_ProjectedCollision_PreservesMethodIndex()
+    {
+        // Protocol with 3 methods where method 2 is AnyType-duplicate of method 1 (same primary key).
+        // Method 3 (cleanup) should still get vtable index 1 (not 0), preserving sequential alignment.
+        // The duplicate handle method is primary-skipped (both resolve to same AnyType param key).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Handler",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Handler"),
+            MangledName = "$s10TestModule7HandlerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                // Method 0: handle(UnknownModule.Foo) → handle(AnyType)
+                CreateMethodDeclWithParam("handle", "UnknownModule.Foo", moduleDecl),
+                // Method 1: handle(UnknownModule.Bar) → handle(AnyType) — primary dup of method 0
+                CreateMethodDeclWithParam("handle", "UnknownModule.Bar", moduleDecl),
+                // Method 2: cleanup() — distinct, gets next vtable index
+                CreateMethodDecl("cleanup", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Vtable should have handle at index 0 and cleanup at index 1
+        Assert.Contains("func_handle_0", csOutput);
+        Assert.Contains("func_cleanup_1", csOutput);
+        // Interface should only have one Handle (duplicate skipped)
+        var interfacePart = csOutput.Substring(0, csOutput.IndexOf("class HandlerProxy"));
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(interfacePart, "Handle("));
+    }
+
+    #endregion
+
+    private static MethodDecl CreateMethodDeclWithParam(string name, string paramTypeName, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name}yyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("input", new NamedTypeSpec(paramTypeName), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
     private static MethodDecl CreateMethodDeclWithReturn(string name, TypeSpec returnTypeSpec, ModuleDecl moduleDecl)
     {
         return new MethodDecl
