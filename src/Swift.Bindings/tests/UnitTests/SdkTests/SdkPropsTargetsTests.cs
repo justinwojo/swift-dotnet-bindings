@@ -95,6 +95,13 @@ namespace BindingsGeneration.Tests
             Assert.Contains(">0.1.0-preview.1</SwiftRuntimeVersion>", PropsContent);
         }
 
+        [Fact]
+        public void Props_DefaultsSwiftGenerateDocComments()
+        {
+            Assert.Contains("<SwiftGenerateDocComments Condition=", PropsContent);
+            Assert.Contains(">true</SwiftGenerateDocComments>", PropsContent);
+        }
+
         private static string FindRepoRoot()
         {
             var dir = AppDomain.CurrentDomain.BaseDirectory;
@@ -294,6 +301,24 @@ namespace BindingsGeneration.Tests
             Assert.Contains("SwiftPlatformTarget", TargetsContent);
             Assert.Contains("SwiftWrapperArchitectures", TargetsContent);
             Assert.Contains("PackageId", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_FingerprintIncludesDocCommentsProperty()
+        {
+            Assert.Contains("SwiftGenerateDocComments", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_NoDocsFlag_UsesCaseInsensitiveCompare()
+        {
+            // The condition must use case-insensitive comparison so that
+            // True/true/TRUE all work correctly as MSBuild boolean values.
+            Assert.Contains("--no-docs", TargetsContent);
+            // Must NOT use literal string compare against 'true'
+            Assert.DoesNotContain("'$(SwiftGenerateDocComments)' != 'true'", TargetsContent);
+            // Must use MSBuild case-insensitive comparison
+            Assert.Contains("OrdinalIgnoreCase", TargetsContent);
         }
 
         private static string FindRepoRoot()

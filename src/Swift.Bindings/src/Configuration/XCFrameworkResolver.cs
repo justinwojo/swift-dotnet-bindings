@@ -40,6 +40,10 @@ namespace BindingsGeneration
         /// True when the resolved slice has SupportedPlatformVariant == "simulator".
         /// </summary>
         public required bool IsSimulatorSlice { get; init; }
+        /// <summary>
+        /// The architecture selected for this resolution (e.g., "arm64", "x86_64").
+        /// </summary>
+        public required string SelectedArchitecture { get; init; }
     }
 
     /// <summary>
@@ -197,7 +201,8 @@ namespace BindingsGeneration
                 XCFrameworkPath = xcframeworkPath,
                 FrameworkSearchPath = Path.Combine(xcframeworkPath, slice.LibraryIdentifier),
                 LibraryIdentifier = slice.LibraryIdentifier,
-                IsSimulatorSlice = string.Equals(slice.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase)
+                IsSimulatorSlice = string.Equals(slice.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase),
+                SelectedArchitecture = selectedArch
             };
         }
 

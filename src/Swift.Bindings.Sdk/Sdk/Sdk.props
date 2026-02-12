@@ -22,6 +22,8 @@
     <SwiftWrapperArchitectures Condition="'$(SwiftWrapperArchitectures)' == ''">all</SwiftWrapperArchitectures>
     <!-- Property-driven version floor — users can override to use newer runtime -->
     <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.1.0-preview.1</SwiftRuntimeVersion>
+    <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->
+    <SwiftGenerateDocComments Condition="'$(SwiftGenerateDocComments)' == ''">true</SwiftGenerateDocComments>
   </PropertyGroup>
 
   <!-- Implicit Swift.Runtime reference with minimum version floor -->

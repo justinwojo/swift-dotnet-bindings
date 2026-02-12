@@ -76,7 +76,7 @@
       for f in &quot;%(SwiftFramework.SymbolGraph)&quot; &quot;%(SwiftFramework.BridgeHints)&quot; &quot;%(SwiftFramework.SwiftInterface)&quot;; do \
         if [ -n &quot;$$f&quot; ] &amp;&amp; [ -e &quot;$$f&quot; ]; then shasum -a 256 &quot;$$f&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface)&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -130,6 +130,7 @@
       <_SwiftGenCmd Condition="'%(SwiftFramework.SymbolGraph)' != ''">$(_SwiftGenCmd) --symbolgraph "%(SwiftFramework.SymbolGraph)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftFramework.BridgeHints)' != ''">$(_SwiftGenCmd) --bridge-hints "%(SwiftFramework.BridgeHints)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftFramework.SwiftInterface)' != ''">$(_SwiftGenCmd) -s "%(SwiftFramework.SwiftInterface)"</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="!$([System.String]::Equals('$(SwiftGenerateDocComments)','true','OrdinalIgnoreCase'))">$(_SwiftGenCmd) --no-docs</_SwiftGenCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'"

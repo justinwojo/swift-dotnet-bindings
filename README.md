@@ -52,6 +52,7 @@ The generator handles the full breadth of Swift's type system:
 - **Tuples**, **operators**, **subscripts**, **inout parameters**, **failable initializers**
 - **Existential containers** (`any Protocol`) and protocol composition types
 - **SwiftUI Views** — automatic UIHostingController bridge generation
+- **XML doc comments** — Swift documentation automatically extracted and converted to C# IntelliSense docs
 
 Method signatures are automatically converted to idiomatic C# types — `String` → `string`, `Array<T>` → `IReadOnlyList<T>`, `Optional<T>` → `T?`, and more. See the [full type conversion table](docs/Supported-Features.md#type-conversions) and [complete feature reference](docs/Supported-Features.md).
 

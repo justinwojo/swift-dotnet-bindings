@@ -52,6 +52,11 @@ namespace BindingsGeneration
             Option<string> symbolGraphOption = new(
                 aliases: new[] { "--symbolgraph" },
                 description: "Path to symbol graph JSON file or directory. Used to extract Swift doc comments for C# XML doc comment generation.");
+            Option<bool> noDocsOption = new(
+                aliases: new[] { "--no-docs" },
+                description: "Disable automatic symbol graph extraction for doc comment generation. " +
+                             "Does not affect explicit --symbolgraph paths.",
+                getDefaultValue: () => false);
             Option<string> bridgeHintsOption = new(
                 aliases: new[] { "--bridge-hints" },
                 description: "Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
@@ -87,6 +92,7 @@ namespace BindingsGeneration
                 asyncLibraryOption,
                 swiftInterfaceOption,
                 symbolGraphOption,
+                noDocsOption,
                 bridgeHintsOption,
                 namespacePatternOption,
                 sdkModeOption,
@@ -109,6 +115,7 @@ namespace BindingsGeneration
                 var asyncLibrary = parseResult.GetValueForOption(asyncLibraryOption);
                 var swiftInterface = parseResult.GetValueForOption(swiftInterfaceOption);
                 var symbolGraph = parseResult.GetValueForOption(symbolGraphOption);
+                var noDocs = parseResult.GetValueForOption(noDocsOption);
                 var bridgeHints = parseResult.GetValueForOption(bridgeHintsOption);
                 var namespacePattern = parseResult.GetValueForOption(namespacePatternOption);
                 var sdkMode = parseResult.GetValueForOption(sdkModeOption);
@@ -131,6 +138,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  --async-library      Optional. Library name for async wrapper functions. Default uses module library.");
                     Console.WriteLine("  -s, --swiftinterface Optional. Path to .swiftinterface file for internal member detection.");
                     Console.WriteLine("  --symbolgraph        Optional. Path to symbol graph JSON file or directory for doc comments.");
+                    Console.WriteLine("  --no-docs            Optional. Disable automatic symbol graph extraction. Does not affect explicit --symbolgraph.");
                     Console.WriteLine("  --bridge-hints       Optional. Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
                     Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
                     Console.WriteLine("  --sdk-mode           Optional. Skips .csproj emission (used when the SDK IS the project system).");
@@ -258,6 +266,9 @@ namespace BindingsGeneration
                 // Use the provided library name, or fall back to the dylib path
                 var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
                 var effectiveNamespacePattern = ResolveNamespacePattern(namespacePattern, configPath, logger);
+
+                // Auto-extract symbol graph for doc comments (xcframework mode only)
+                symbolGraph = ResolveSymbolGraphPath(symbolGraph, noDocs, resolution, outputDirectory, logger);
 
                 GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames);
 
@@ -526,6 +537,36 @@ namespace BindingsGeneration
             return isSimulatorSlice
                 || wrapperArchitectures == "device"
                 || wrapperArchitectures == "all";
+        }
+
+        /// <summary>
+        /// Resolves the symbol graph path for doc comment generation.
+        /// Priority: explicit --symbolgraph > --no-docs suppression > auto-extraction.
+        /// </summary>
+        /// <param name="explicitSymbolGraph">Explicit --symbolgraph path from CLI.</param>
+        /// <param name="noDocs">True if --no-docs was passed.</param>
+        /// <param name="resolution">XCFramework resolution (null in manual mode).</param>
+        /// <param name="outputDirectory">Output directory for auto-extracted files.</param>
+        /// <param name="logger">Logger instance.</param>
+        /// <param name="commandRunner">Optional command runner for testing.</param>
+        internal static string? ResolveSymbolGraphPath(
+            string? explicitSymbolGraph, bool noDocs,
+            XCFrameworkResolution? resolution, string outputDirectory,
+            ILogger logger, ICommandRunner? commandRunner = null)
+        {
+            // 1. Explicit --symbolgraph always wins
+            if (!string.IsNullOrWhiteSpace(explicitSymbolGraph))
+                return explicitSymbolGraph;
+
+            // 2. --no-docs disables auto-extraction
+            if (noDocs)
+                return null;
+
+            // 3. Auto-extract (xcframework mode only)
+            if (resolution == null)
+                return null;
+
+            return SymbolGraphExtractor.Extract(resolution, outputDirectory, logger, commandRunner);
         }
 
         /// <summary>

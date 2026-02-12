@@ -15,7 +15,8 @@ The generator accepts these options:
 | `-l, --library-name <name>` | Runtime library name for `DllImport`. Defaults to dylib path. |
 | `--async-library <name>` | Library name for async wrapper functions. Usually `SwiftBindings`. |
 | `-s, --swiftinterface <path>` | Path to `.swiftinterface` file. Detects `@inlinable internal` members. |
-| `--symbolgraph <path>` | Path to symbol graph JSON. Generates C# XML doc comments from Swift docs. |
+| `--symbolgraph <path>` | Path to symbol graph JSON. Generates C# XML doc comments from Swift docs. In xcframework mode, extracted automatically if not provided. |
+| `--no-docs` | Disable automatic symbol graph extraction. Does not affect explicit `--symbolgraph` paths. |
 | `--bridge-hints <path>` | Path to [bridge hints JSON](SwiftUI-Interop#bridge-hints) for SwiftUI views. |
 | `--namespace-pattern <pattern>` | C# namespace pattern. Supports `{Module}` and `{Framework}`. Default: `Swift.{Module}` |
 | `--sdk-mode` | Skip `.csproj` emission (used when the MSBuild SDK is the project system). |
@@ -32,6 +33,7 @@ When using the `Swift.Bindings.Sdk`, these MSBuild properties are available in y
 | `SwiftPlatformTarget` | `simulator` | Platform slice for generation |
 | `SwiftWrapperArchitectures` | `all` | Wrapper compilation scope: `simulator`, `device`, or `all` |
 | `SwiftRuntimeVersion` | `0.1.0-preview.1` | Version of `Swift.Runtime` package |
+| `SwiftGenerateDocComments` | `true` | Auto-extract symbol graph for C# XML doc comments |
 
 ### SwiftFramework Item Metadata
 
@@ -77,21 +79,28 @@ Or in the MSBuild SDK:
 
 ## XML Doc Comments
 
-To include Swift documentation as C# XML doc comments (for IntelliSense), generate a symbol graph from your framework and pass it to the generator:
+In xcframework mode, the generator **automatically** extracts symbol graph data from the framework's `.swiftmodule` and converts Swift documentation into C# XML doc comments (for IntelliSense). No extra steps needed — `dotnet build` produces bindings with full documentation.
+
+To disable automatic extraction:
 
 ```bash
-# Generate symbol graph
-swift symbolgraph-extract -module-name MyLib \
-  -target arm64-apple-ios17.0-simulator \
-  -sdk $(xcrun --show-sdk-path --sdk iphonesimulator) \
-  -F MyLib.xcframework/ios-arm64_x86_64-simulator/ \
-  -output-dir symbolgraph/
+# CLI
+--no-docs
 
-# Pass to generator
-dotnet run --project src/Swift.Bindings/src -- \
-  --xcframework MyLib.xcframework \
-  --symbolgraph symbolgraph/ \
-  -o output/
+# MSBuild SDK
+<SwiftGenerateDocComments>false</SwiftGenerateDocComments>
+```
+
+To provide a pre-extracted symbol graph instead (overrides auto-extraction even with `--no-docs`):
+
+```bash
+# CLI
+--symbolgraph path/to/symbolgraph/
+
+# MSBuild SDK
+<SwiftFramework Include="MyLib.xcframework">
+  <SymbolGraph>path/to/symbolgraph/</SymbolGraph>
+</SwiftFramework>
 ```
 
 ## Incremental Builds
