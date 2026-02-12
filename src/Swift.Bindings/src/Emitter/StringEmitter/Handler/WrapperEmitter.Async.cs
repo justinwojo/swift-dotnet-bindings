@@ -53,6 +53,9 @@ namespace BindingsGeneration
                 // Create copy buffers for non-frozen parameters
                 foreach (var p in nonFrozenParams)
                 {
+                    // Use normalized C# name (prefers PrivateName over ABI Name)
+                    // to match the method signature emitted by WrapperEmitter.Marshalling
+                    var csName = NameProvider.GetCSharpParameterName(p);
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
                     var typeName = typeRecord.CSharpTypeName.FullyQualifiedName;
 
@@ -62,30 +65,30 @@ namespace BindingsGeneration
                     if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(p.SwiftTypeSpec))
                     {
                         // Convert native type to Swift type, then copy from Swift type
-                        var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(p.Name, p.SwiftTypeSpec);
+                        var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(csName, p.SwiftTypeSpec);
                         csWriter.WriteLines($"""
-                            var {p.Name}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
-                            IntPtr {p.Name}CopyBuffer = (IntPtr)NativeMemory.Alloc({p.Name}Metadata.Size);
-                            using var {p.Name}SwiftTemp = {conversion};
-                            {p.Name}Metadata.ValueWitnessTable->InitializeWithCopy(
-                                (void*){p.Name}CopyBuffer,
-                                (void*){p.Name}SwiftTemp.Payload.DangerousGetHandle(),
-                                {p.Name}Metadata);
-                            IntPtr {p.Name}Handle = {p.Name}CopyBuffer;
-                            var {p.Name}CopyBufferWrapper = new CopyBufferWithType({p.Name}CopyBuffer, {p.Name}Metadata);
+                            var {csName}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
+                            IntPtr {csName}CopyBuffer = (IntPtr)NativeMemory.Alloc({csName}Metadata.Size);
+                            using var {csName}SwiftTemp = {conversion};
+                            {csName}Metadata.ValueWitnessTable->InitializeWithCopy(
+                                (void*){csName}CopyBuffer,
+                                (void*){csName}SwiftTemp.Payload.DangerousGetHandle(),
+                                {csName}Metadata);
+                            IntPtr {csName}Handle = {csName}CopyBuffer;
+                            var {csName}CopyBufferWrapper = new CopyBufferWithType({csName}CopyBuffer, {csName}Metadata);
                             """);
                     }
                     else
                     {
                         csWriter.WriteLines($"""
-                            var {p.Name}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
-                            IntPtr {p.Name}CopyBuffer = (IntPtr)NativeMemory.Alloc({p.Name}Metadata.Size);
-                            {p.Name}Metadata.ValueWitnessTable->InitializeWithCopy(
-                                (void*){p.Name}CopyBuffer,
-                                (void*){p.Name}.Payload.DangerousGetHandle(),
-                                {p.Name}Metadata);
-                            IntPtr {p.Name}Handle = {p.Name}CopyBuffer;
-                            var {p.Name}CopyBufferWrapper = new CopyBufferWithType({p.Name}CopyBuffer, {p.Name}Metadata);
+                            var {csName}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
+                            IntPtr {csName}CopyBuffer = (IntPtr)NativeMemory.Alloc({csName}Metadata.Size);
+                            {csName}Metadata.ValueWitnessTable->InitializeWithCopy(
+                                (void*){csName}CopyBuffer,
+                                (void*){csName}.Payload.DangerousGetHandle(),
+                                {csName}Metadata);
+                            IntPtr {csName}Handle = {csName}CopyBuffer;
+                            var {csName}CopyBufferWrapper = new CopyBufferWithType({csName}CopyBuffer, {csName}Metadata);
                             """);
                     }
                 }
@@ -95,8 +98,8 @@ namespace BindingsGeneration
                 // while the async task is still running (InitializeWithCopy increments ref count,
                 // but if original is destroyed, the internal storage could be freed prematurely)
                 // Also keep 'this' alive for instance methods since SwiftSelf doesn't prevent GC
-                var copyBufferList = string.Join(", ", nonFrozenParams.Select(p => $"{p.Name}CopyBufferWrapper"));
-                var originalParamList = string.Join(", ", nonFrozenParams.Select(p => $"(object){p.Name}"));
+                var copyBufferList = string.Join(", ", nonFrozenParams.Select(p => $"{NameProvider.GetCSharpParameterName(p)}CopyBufferWrapper"));
+                var originalParamList = string.Join(", ", nonFrozenParams.Select(p => $"(object){NameProvider.GetCSharpParameterName(p)}"));
 
                 // For Swift classes, Arc.Retain the self pointer before async call.
                 // SwiftSelf passes a raw pointer - no ARC semantics. By the time Swift's Task{}

@@ -1,6 +1,10 @@
-# Developer Experience: Multi-Framework Packaging & NuGet Distribution
+# Developer Experience: Multi-Framework Packaging & Future Design Reference
 
-> Phase 3 design document for the Swift Bindings NuGet packaging system.
+> Forward-looking design reference for multi-framework dependencies (DX-3),
+> multi-platform support, and advanced packaging scenarios.
+>
+> **For the current SDK implementation (Steps 1-5), see `dx-msbuild-sdk-design.md`.**
+>
 > See also: `/north-star.md` for the overall project vision.
 
 ## Table of Contents
@@ -10,11 +14,9 @@
 - [Package Architecture](#package-architecture)
 - [Dependency Enforcement](#dependency-enforcement)
 - [Automatic iOS Version Detection](#automatic-ios-version-detection)
-- [Automatic Library Version Extraction](#automatic-library-version-extraction)
 - [NuGet Package Structure](#nuget-package-structure)
-- [MSBuild SDK Vision](#msbuild-sdk-vision)
 - [Platform Coverage](#platform-coverage)
-- [Implementation Roadmap](#implementation-roadmap)
+- [Open Questions](#open-questions)
 
 ---
 
@@ -140,23 +142,26 @@ The binding project's `.csproj` declares `PackageReference` items. `dotnet pack`
 
 #### Layer 2: NativeReference Injection via `.targets` (Automatic)
 
-Each package ships a `.targets` file in both `build/` and `buildTransitive/` directories. This injects the xcframework as a `NativeReference` into the consuming project at build time.
+Each package ships a `.targets` file in `buildTransitive/` (not duplicated in `build/` — see Decision 3 in `dx-msbuild-sdk-design.md`). This injects the xcframework as a `NativeReference` into the consuming project at build time.
 
 ```xml
-<!-- NukeUI.Swift.iOS.targets (shipped in both build/ and buildTransitive/) -->
+<!-- NukeUI.Swift.iOS.targets (shipped in buildTransitive/net10.0-ios/) -->
 <Project>
-  <Target Name="_ResolveNukeUINativeReferences" BeforeTargets="ResolveNativeReferences">
+  <Target Name="_ResolveNukeUINativeReferences" BeforeTargets="ResolveNativeReferences"
+          Condition="'$(_SwiftBinding_NukeUI_Injected)' == ''">
+    <PropertyGroup>
+      <_SwiftBinding_NukeUI_Injected>true</_SwiftBinding_NukeUI_Injected>
+    </PropertyGroup>
     <ItemGroup>
-      <NativeReference Include="$(MSBuildThisFileDirectory)..\..\runtimes\ios-arm64\native\NukeUI.xcframework">
+      <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/NukeUI.xcframework">
         <Kind>Framework</Kind>
-        <SmartLink>True</SmartLink>
       </NativeReference>
     </ItemGroup>
   </Target>
 </Project>
 ```
 
-The `buildTransitive/` folder (NuGet 5.0+) ensures the `.targets` file is imported even by projects that consume the package transitively — not just direct consumers.
+Since we target .NET 10.0 (NuGet 5.0+), `buildTransitive/` is sufficient for both direct and transitive consumers. The idempotency guard prevents duplicate NativeReference injection.
 
 #### Layer 3: Build-Time Validation Target (Our Addition)
 
@@ -264,17 +269,16 @@ With all four layers, **a missing framework dependency is caught at build time**
 
 ## Automatic iOS Version Detection
 
-### Problem
+> **Status**: Info.plist extraction is implemented (Step 4 in `dx-msbuild-sdk-design.md`).
+> The Mach-O fallback chain below is documented for future edge-case support.
 
-Each xcframework has a minimum iOS deployment target baked into it. Today, developers must manually discover this and set `SupportedOSPlatformVersion` in their `.csproj`. If they get it wrong, the app either:
-- Fails to build (version too high for the framework)
-- Crashes on older devices (version too low, framework uses unavailable APIs)
+### Implemented: Info.plist Extraction
 
-### Solution: Extract from xcframework at generation time
+The generator extracts `MinimumOSVersion` from the inner framework's `Info.plist` via `PlistReader` (handles both binary and XML plists). The value is clamped to `max(raw, 15.0)` for the .NET 10 iOS floor and emitted in `binding-metadata.props`. The SDK's `_ImportSwiftBindingMetadata` target reads it via `XmlPeek` and sets `SupportedOSPlatformVersion`. Consumer `.targets` emit `SWIFTBIND010` if the consumer's version is too low.
 
-The generator will automatically extract the minimum iOS version from the xcframework and embed it in the generated bindings and NuGet package metadata.
+### Future: Mach-O Fallback Chain
 
-### Extraction Sources (Fallback Chain)
+For edge cases where `MinimumOSVersion` is missing from the plist (e.g., self-built xcframeworks with minimal config), the deployment target can be extracted from the Mach-O binary directly. This is not yet implemented.
 
 The minimum deployment target is available in three locations within an xcframework, in order of preference:
 
@@ -333,31 +337,6 @@ Can be extracted via `otool -l` or by parsing the Mach-O binary directly in C#. 
 
 In practice, any framework targeting iOS 13+ will have `LC_BUILD_VERSION`, and our .NET 10 floor is iOS 15.0. But the parser should handle both to avoid hard failures on edge-case binaries (e.g., a static library compiled with an older toolchain and repackaged into an xcframework).
 
-### Implementation
-
-The generator will:
-
-1. **At generation time**: Extract the minimum iOS version using the fallback chain above
-2. **Emit metadata**: Include the version in `binding-report.json` and a new `binding-metadata.json`
-3. **Apply to generated `.csproj`**: Set `SupportedOSPlatformVersion` in the binding project's `.csproj`. This is a **build-time project property**, not a `.nuspec` field — NuGet itself has no concept of platform version constraints. The enforcement happens at build time via the .NET SDK's platform compatibility analyzer (`CA1416`) and the iOS build toolchain.
-4. **Propagate via `.targets`**: The package's `.targets` file emits an MSBuild warning if the consuming project's `SupportedOSPlatformVersion` is lower than the framework's minimum (see [Multi-Framework Version Resolution](#multi-framework-version-resolution) below).
-5. **Enforce floor**: Apply `max(framework_min, dotnet_runtime_min)` — .NET 10 on iOS requires iOS 15.0 minimum, so even if a framework supports iOS 13.0, the effective minimum is 15.0
-
-```json
-// binding-metadata.json (generated alongside bindings)
-// See "Automatic Library Version Extraction" for full schema with version fields
-{
-  "framework": "NukeUI",
-  "libraryVersion": "12.8.0",
-  "libraryVersionSource": "CFBundleShortVersionString",
-  "libraryVersionConfidence": "high",
-  "minimumPlatformVersions": { "ios": "13.0" },
-  "effectiveMinimumOSVersion": "15.0",
-  "sdkVersion": "17.5",
-  "platforms": ["ios-arm64", "ios-arm64_x86_64-simulator"]
-}
-```
-
 ### Multi-Framework Version Resolution
 
 When multiple frameworks are composed into one app, the **effective minimum is the highest minimum across all frameworks**:
@@ -382,161 +361,23 @@ iOS 15.x devices. Update SupportedOSPlatformVersion to 16.0 or remove this packa
 
 ---
 
-## Automatic Library Version Extraction
-
-### Decision: NuGet Package Version Matches Upstream Library Version
-
-The NuGet package version defaults to the upstream Swift library's version. This makes it immediately clear to consumers which native version they're getting — `Nuke.Swift.iOS 12.8.0` wraps Nuke 12.8.0. Developers can override this in the generated `.csproj` if they need independent versioning, but the auto-detected value is the sensible default.
-
-### Where the Version Lives in xcframeworks
-
-The upstream library version is stored in `CFBundleShortVersionString` in the inner framework's Info.plist. This is Apple's standard "marketing version" field.
-
-**Verified extraction from real frameworks:**
-
-| Framework | CFBundleShortVersionString | Actual Upstream Version | Match? |
-|-----------|---------------------------|------------------------|--------|
-| Nuke | `12.8.0` | 12.8.0 | Yes |
-| NukeUI | `12.8.0` | 12.8.0 | Yes |
-| Lottie | `4.6.0` | 4.6.0 | Yes |
-| BlinkID | `1.0` | 7.6.2 | **No** (placeholder) |
-| BlinkIDUX | `1.0` | 7.6.2 | **No** (placeholder) |
-
-**Other version sources investigated:**
-
-| Source | Reliability | Notes |
-|--------|-------------|-------|
-| `CFBundleShortVersionString` | Best available | Standard Apple convention; most well-maintained libraries populate correctly |
-| `CFBundleVersion` | Poor | Often `1` (placeholder) or encoded (Lottie: `460` for 4.6.0) |
-| Mach-O `LC_ID_DYLIB` current_version | Poor | `0.0.0` or `1.0.0` for all tested frameworks; Swift/SPM builds rarely set this |
-| `.swiftinterface` headers | None | Contains Swift compiler version, not library version |
-| Top-level xcframework Info.plist | None | Only has `XCFrameworkFormatVersion: 1.0` |
-
-### Extraction Strategy
-
-```
-1. Read CFBundleShortVersionString from inner Info.plist
-   └── If valid semver (not "1.0" or "1.0.0" placeholder) → use it
-       └── If placeholder or missing → emit warning, default to "0.0.0"
-```
-
-**Placeholder detection heuristic**: `CFBundleShortVersionString` values of exactly `"1.0"` or `"1.0.0"` are treated as likely Xcode defaults (not real versions) and trigger the warning path. This heuristic can produce false positives for libraries genuinely at version 1.0 — in that case, the developer confirms the version and it's stored in an override.
-
-When the version cannot be auto-detected:
-
-```
-warning SWIFTBIND020: Could not determine upstream version for BlinkID.xcframework.
-CFBundleShortVersionString is "1.0" (likely an Xcode default).
-Package version defaulting to 0.0.0. Set <PackageVersion> in the .csproj to override:
-  <PackageVersion>7.6.2</PackageVersion>
-```
-
-### Version Override
-
-The generated `.csproj` includes the auto-detected version with a comment explaining its source:
-
-```xml
-<PropertyGroup>
-  <!-- Auto-detected from Nuke.xcframework CFBundleShortVersionString -->
-  <PackageVersion>12.8.0</PackageVersion>
-</PropertyGroup>
-```
-
-Or when detection fails:
-
-```xml
-<PropertyGroup>
-  <!-- WARNING: Could not detect version from BlinkID.xcframework (CFBundleShortVersionString="1.0").
-       Set this to the actual upstream library version. -->
-  <PackageVersion>0.0.0</PackageVersion>
-</PropertyGroup>
-```
-
-### Metadata Output
-
-The `binding-metadata.json` includes the version extraction result:
-
-```json
-{
-  "framework": "Nuke",
-  "libraryVersion": "12.8.0",
-  "libraryVersionSource": "CFBundleShortVersionString",
-  "libraryVersionConfidence": "high",
-  "minimumPlatformVersions": { "ios": "13.0" },
-  "effectiveMinimumOSVersion": "15.0",
-  "sdkVersion": "17.5",
-  "platforms": ["ios-arm64", "ios-arm64_x86_64-simulator"]
-}
-```
-
-For undetectable versions:
-
-```json
-{
-  "framework": "BlinkID",
-  "libraryVersion": "0.0.0",
-  "libraryVersionSource": "CFBundleShortVersionString",
-  "libraryVersionConfidence": "low",
-  "libraryVersionRaw": "1.0",
-  "minimumPlatformVersions": { "ios": "15.0" },
-  "effectiveMinimumOSVersion": "15.0",
-  "sdkVersion": "26.0",
-  "platforms": ["ios-arm64", "ios-arm64_x86_64-simulator"]
-}
-```
-
-### Dependent Package Versioning
-
-For multi-framework libraries, dependent packages use **semver ranges matching the major version** of the base package:
-
-```
-Nuke.Swift.iOS         version 12.8.0
-NukeUI.Swift.iOS       version 12.8.0, depends on Nuke.Swift.iOS [12.0.0, 13.0.0)
-```
-
-This allows independent patch releases (e.g., NukeUI.Swift.iOS 12.8.1 for a binding-only fix) while preventing ABI-breaking mismatches across major versions. When all frameworks come from the same upstream release, their versions start aligned. Binding-only fixes increment the patch version.
-
----
-
 ## NuGet Package Structure
 
-### Single-Framework Package Layout
+> **Note**: Single-framework packaging is implemented (see Step 4-5 in `dx-msbuild-sdk-design.md`).
+> The layouts below document the multi-framework and SwiftUI bridge scenarios for DX-3.
 
-```
-Nuke.Swift.iOS.12.8.0.nupkg/
-├── Nuke.Swift.iOS.nuspec              # Package metadata + dependencies
-├── lib/
-│   └── net10.0-ios/
-│       └── Nuke.Swift.iOS.dll         # Generated C# binding assembly
-├── build/
-│   └── net10.0-ios/
-│       └── Nuke.Swift.iOS.targets     # NativeReference injection + validation
-├── buildTransitive/
-│   └── net10.0-ios/
-│       └── Nuke.Swift.iOS.targets     # Same targets, for transitive consumers
-└── runtimes/
-    └── ios-arm64/
-        └── native/
-            └── Nuke.xcframework/      # The original xcframework
-                ├── Info.plist
-                ├── ios-arm64/
-                │   └── Nuke.framework/
-                └── ios-arm64_x86_64-simulator/
-                    └── Nuke.framework/
-```
-
-### Dependent Package Layout (NukeUI)
+### Dependent Package Layout (NukeUI) — DX-3
 
 ```
 NukeUI.Swift.iOS.12.8.0.nupkg/
 ├── NukeUI.Swift.iOS.nuspec
 │   └── <dependencies>
 │       └── <dependency id="Nuke.Swift.iOS" version="[12.0.0,13.0.0)" />
-│       └── <dependency id="Swift.Runtime" version="[1.0.0,)" />
+│       └── <dependency id="Swift.Runtime" version="[0.1.0-preview.1,)" />
 ├── lib/
 │   └── net10.0-ios/
 │       └── NukeUI.Swift.iOS.dll
-├── build/ + buildTransitive/
+├── buildTransitive/
 │   └── net10.0-ios/
 │       └── NukeUI.Swift.iOS.targets   # Includes Layer 3 validation
 └── runtimes/
@@ -580,228 +421,44 @@ NukeUI.Swift.iOS.Bridge.12.8.0.nupkg/
 
 ---
 
-## MSBuild SDK Vision
+## Multi-Framework Dependency Detection (DX-3 — Future)
 
-The end goal (Phase 3 milestone) is an MSBuild SDK that automates the entire pipeline:
+> This section is the design blueprint for automatic dependency detection between
+> multi-framework libraries (e.g., Nuke + NukeUI). Not yet implemented.
 
-```xml
-<Project Sdk="Swift.Bindings.Sdk/1.0.0">
-  <PropertyGroup>
-    <TargetFramework>net10.0-ios</TargetFramework>
-    <PackageId>Nuke.Swift.iOS</PackageId>
-    <!-- SupportedOSPlatformVersion auto-detected from xcframework -->
-  </PropertyGroup>
+The SDK can detect dependencies through **two complementary methods**:
 
-  <ItemGroup>
-    <!-- Just point at xcframeworks — the SDK does the rest -->
-    <SwiftFramework Include="Nuke.xcframework" />
-  </ItemGroup>
-
-  <!-- Optional: declare dependency on another Swift binding package -->
-  <ItemGroup>
-    <PackageReference Include="Swift.Runtime" Version="1.0.0" />
-  </ItemGroup>
-</Project>
-```
-
-The SDK would:
-1. Extract ABI JSON from the xcframework (`swift-frontend -dump-api`)
-2. Run the binding generator
-3. Compile the generated C# into the assembly
-4. Extract minimum iOS version and set `SupportedOSPlatformVersion`
-5. Generate the `.targets` file with NativeReference injection and validation
-6. Package everything into a `.nupkg` with correct structure
-
-### Multi-Framework Project
-
-For libraries with multiple dependent frameworks:
-
-```xml
-<!-- Nuke.Swift.iOS.csproj -->
-<ItemGroup>
-  <SwiftFramework Include="Nuke.xcframework" />
-</ItemGroup>
-
-<!-- NukeUI.Swift.iOS.csproj -->
-<ItemGroup>
-  <SwiftFramework Include="NukeUI.xcframework" />
-  <PackageReference Include="Nuke.Swift.iOS" Version="12.8.0" />
-</ItemGroup>
-```
-
-The SDK detects dependencies through **two complementary methods**:
-
-**1. Type-level analysis** (during binding generation):
-- Cross-framework type references in the ABI (e.g., NukeUI methods that accept Nuke types)
-- Generates correct `using` directives for cross-framework types
-- Emits the Layer 3 validation target automatically
-
-**2. Binary linkage analysis** (from the Mach-O binary):
+**1. Binary linkage analysis** (from the Mach-O binary — authoritative source):
 - Inspects `LC_LOAD_DYLIB` / `LC_LOAD_WEAK_DYLIB` load commands in the framework binary
-- These record the dylib install names the framework links against at the binary level
-- Catches dependencies that don't surface in public API signatures (e.g., internal use of a companion framework, or Objective-C runtime dependencies)
+- Catches dependencies that don't surface in public API signatures
 - Extraction: `otool -L <binary>` lists all linked dylibs
 
 ```bash
 $ otool -L NukeUI.xcframework/ios-arm64/NukeUI.framework/NukeUI
   @rpath/Nuke.framework/Nuke (compatibility version 0.0.0)
   /usr/lib/libobjc.A.dylib (compatibility version 1.0.0)
-  /usr/lib/libSystem.B.dylib (compatibility version 1.0.0)
   ...
 ```
 
-The `@rpath/Nuke.framework/Nuke` entry tells us NukeUI has a binary dependency on Nuke, even if no public NukeUI API exposes a Nuke type. System dylibs (`/usr/lib/*`, `/System/Library/*`) are filtered out — only `@rpath` entries indicate companion framework dependencies.
+Only `@rpath` entries indicate companion framework dependencies — system dylibs (`/usr/lib/*`) are filtered out.
 
-Both analysis methods feed into the `dependency-manifest.json`. The binary linkage check is the authoritative source; type-level analysis provides additional detail about *which* types are referenced.
+**2. Type-level analysis** (during binding generation):
+- Cross-framework type references in the ABI (e.g., NukeUI methods that accept Nuke types)
+- Generates correct `using` directives for cross-framework types
+- Provides detail about *which* types are referenced
 
----
+Both methods feed into a `dependency-manifest.json` that drives Layer 3 validation target generation and NuGet dependency declarations.
 
-## Implementation Roadmap
+### Dependent Package Versioning
 
-### Phase 3A: Generator Metadata Emission (Foundation)
+For multi-framework libraries, dependent packages use **semver ranges matching the major version** of the base package:
 
-**Goal**: The generator emits all metadata needed for packaging, without building the full MSBuild SDK yet.
-
-1. **Platform version extraction** — Add `--extract-metadata` flag to the generator CLI
-   - Implement fallback chain: Info.plist → .swiftinterface → Mach-O (`LC_BUILD_VERSION` + `LC_VERSION_MIN_*`)
-   - Output `binding-metadata.json` alongside `binding-report.json`
-   - Extract per-platform (iOS, MacCatalyst) minimum versions from xcframework slices
-2. **Dependency manifest** — When generating multiple frameworks, emit a `dependency-manifest.json`:
-   ```json
-   {
-     "frameworks": [
-       {
-         "name": "Nuke",
-         "minimumPlatformVersions": { "ios": "13.0", "maccatalyst": "13.1" },
-         "providedTypes": ["Nuke.ImagePipeline", "Nuke.ImageRequest", ...],
-         "binaryDependencies": [],
-         "requiredFrameworks": []
-       },
-       {
-         "name": "NukeUI",
-         "minimumPlatformVersions": { "ios": "13.0", "maccatalyst": "13.1" },
-         "providedTypes": ["NukeUI.LazyImage", ...],
-         "binaryDependencies": ["Nuke"],
-         "requiredFrameworks": ["Nuke"],
-         "requiredTypes": ["Nuke.ImagePipeline", ...]
-       }
-     ]
-   }
-   ```
-   The `binaryDependencies` field is populated from `LC_LOAD_DYLIB` analysis; `requiredFrameworks` combines binary + type-level analysis.
-3. **`.targets` template generation** — Generator emits a `.targets` file per framework with NativeReference injection and Layer 3 validation pre-configured
-
-### Phase 3B: NuGet Packaging Scripts
-
-**Goal**: Shell scripts that take generator output and produce correct `.nupkg` files.
-
-1. **`pack-binding.sh`** — Takes a framework's generated output and produces a `.nupkg`
-   - Creates correct directory structure (lib/, build/, buildTransitive/, runtimes/)
-   - Injects dependency declarations from `dependency-manifest.json`
-   - Sets `SupportedOSPlatformVersion` from `binding-metadata.json`
-2. **`pack-all.sh`** — Processes multiple frameworks in dependency order
-   - Topological sort from `dependency-manifest.json`
-   - Builds packages bottom-up (Nuke before NukeUI)
-3. **Validation** — Install generated packages into a test project and verify:
-   - `dotnet restore` pulls transitive dependencies
-   - Removing a dependency causes build error (not runtime crash)
-   - `SupportedOSPlatformVersion` is correctly applied
-
-### Phase 3C: MSBuild SDK
-
-**Goal**: Full `Swift.Bindings.Sdk` that automates the pipeline end-to-end.
-
-1. **SDK package structure** — MSBuild SDK distributed as NuGet package
-2. **`SwiftFramework` item type** — MSBuild target that triggers ABI extraction and generation
-3. **Automatic dependency detection** — Binary linkage (`otool -L`) + type-level analysis combined
-4. **`dotnet pack` integration** — Correct `.nupkg` structure from `dotnet pack`
-5. **IDE integration** — IntelliSense, build errors surfaced in VS/Rider
-6. **Resource bundle / linker flag handling** — `<SwiftFrameworkAsset>` item type for resource bundles, privacy manifests, and linker flags (`-ObjC`, `-lz`, etc.) that some vendor SDKs require alongside their frameworks
-
-### Phase 3D: Project Templates
-
-**Goal**: `dotnet new` templates for creating binding projects.
-
-```bash
-dotnet new swift-binding -n Nuke.Swift.iOS
-# Creates:
-#   Nuke.Swift.iOS/
-#   ├── Nuke.Swift.iOS.csproj  (with Swift.Bindings.Sdk reference)
-#   └── README.md              (instructions to add xcframework)
+```
+Nuke.Swift.iOS         version 12.8.0
+NukeUI.Swift.iOS       version 12.8.0, depends on Nuke.Swift.iOS [12.0.0, 13.0.0)
 ```
 
----
-
-## Pragmatic Implementation Sequence
-
-> Added February 2026. The 3A → 3B → 3C → 3D roadmap above is the right *logical* decomposition, but for getting external users consuming bindings, the work should be reordered by what unblocks real usage first.
-
-### Current State Assessment
-
-- **Binding generation works** but requires manual orchestration (5+ shell scripts per framework: `regenerate-bindings.sh`, `build-swift-wrapper.sh`, `build-testapp.sh`, etc.)
-- **No NuGet packaging pipeline exists** — only `generate.sh`'s `CreateProject()` produces a basic `.csproj` for Apple framework bindings
-- **No metadata extraction** (iOS version, library version) is implemented in the generator
-- **No `.targets` file generation** — the 4-layer dependency enforcement is entirely on paper
-- **Swift.Runtime is `IsPackable=false`** — external users have no way to get the runtime support library
-- **The main roadmap (roadmap.md) now prioritizes DX work first**, interleaved with test hardening and library validation
-
-### DX-1: "Hello World" External Consumption (smallest useful increment)
-
-**Goal**: An external user can take a generated binding + xcframework and use it in their .NET iOS app.
-
-**Prerequisite**: None. Can start immediately.
-
-1. **Package Swift.Runtime as a NuGet** — currently `IsPackable=false` in Swift.Runtime.csproj. External users need this as a dependency. Flip the flag, add package metadata (id, description, license), publish.
-2. **Generator emits a compilable `.csproj`** — today the generator outputs loose `.cs` files + a `Swift/` runtime copy. Instead, emit a ready-to-use binding project that references `Swift.Runtime` via PackageReference and compiles the generated `.cs` files. This replaces the manual project setup users currently have to do.
-3. **Document the manual workflow** — a clear "Getting Started" guide that walks through: obtain xcframework → extract ABI JSON (`swift-frontend -compile-module-from-interface`) → run generator → build Swift wrapper (`xcrun swiftc`) → reference in app. Codify what `build-all.sh` does into a reproducible guide for someone who doesn't have the repo.
-
-**Success criteria**: Someone outside the project can follow the guide, generate bindings for Nuke, and call `ImagePipeline.shared` from a .NET iOS app.
-
-### DX-2: NuGet Packaging (automate distribution)
-
-**Goal**: `dotnet pack` on the generated project produces a correct `.nupkg`.
-
-**Prerequisite**: DX-1 (compilable generated project exists).
-
-1. **`.targets` file generation** from the generator — emit `build/` and `buildTransitive/` targets with NativeReference injection (Layer 2) and `SwiftBindingFramework` validation (Layer 3)
-2. **iOS version extraction** — implement the fallback chain: Info.plist `MinimumOSVersion` → `.swiftinterface` target triple → Mach-O `LC_BUILD_VERSION`/`LC_VERSION_MIN_*`
-3. **Library version extraction** — `CFBundleShortVersionString` with placeholder detection heuristic
-4. **`binding-metadata.json` emission** — alongside `binding-report.json`
-5. **Pack script** (`pack-binding.sh`) — arranges the correct NuGet directory structure (lib/, build/, buildTransitive/, runtimes/) and runs `dotnet pack`
-
-**Success criteria**: `./pack-binding.sh` produces a `.nupkg` that a consumer can install and get working NativeReference injection automatically.
-
-### DX-3: Multi-Framework Dependencies
-
-**Goal**: Libraries like Nuke (Nuke + NukeUI + NukeExtensions) package correctly with dependency tracking.
-
-**Prerequisite**: DX-2 (single-framework packaging works).
-
-1. **Dependency manifest generation** — `dependency-manifest.json` from binary linkage (`otool -L` / `LC_LOAD_DYLIB`) + type-level cross-reference analysis
-2. **`SwiftBindingFramework` MSBuild item** — cross-package registration and validation (Layer 3 in the design)
-3. **`pack-all.sh`** — topological sort from dependency manifest, builds packages bottom-up
-4. **End-to-end validation** — install generated packages in a clean project, verify all 4 enforcement layers work (NuGet restore fails without deps, build error with `SWIFTBIND001`, `CS0012` on missing assembly)
-
-**Success criteria**: Install `NukeUI.Swift.iOS` without `Nuke.Swift.iOS` → clear build error. Install both → app runs.
-
-### DX-4: MSBuild SDK + Templates (the full vision)
-
-**Goal**: `dotnet new swift-binding` + `dotnet build` = NuGet package.
-
-**Prerequisite**: DX-1 through DX-3 validated with real users.
-
-This maps to Phase 3C + 3D from the original roadmap. Only pursue once the script-based workflow is proven and user feedback confirms the automation is worth the MSBuild SDK complexity.
-
-### Relationship to Roadmap Phases B and C
-
-Phases B (enable TestFramework features) and C (new library validation) are about **generator completeness** — making the bindings cover more Swift patterns. The DX phases are about **consumability** — making existing bindings usable by people outside the project. These are largely independent tracks:
-
-- **DX-1 can start immediately** — it doesn't require more features, just packaging of what already works
-- **Phase B improves confidence** — more test coverage means fewer surprises for external users
-- **Phase C validates generalization** — trying new libraries finds patterns the generator misses
-- **DX-2 and DX-3 benefit from Phase C** — multi-framework packaging is easier to test with real multi-framework libraries
-
-Adopted interleaving (see `roadmap.md`): **DX-1 → TH (test hardening) → DX-2 → Phase J (new library) → DX-3**. External users can start experimenting (DX-1) while test gates harden (TH), then packaging automation (DX-2) lands before new library validation (J) exercises the workflow end-to-end.
+This allows independent patch releases while preventing ABI-breaking mismatches across major versions.
 
 ---
 
@@ -855,7 +512,7 @@ Nuke.Swift.nupkg/
 │   │   └── Nuke.Swift.dll              # iOS bindings
 │   └── net10.0-maccatalyst/
 │       └── Nuke.Swift.dll              # Mac Catalyst bindings (may be same DLL)
-├── build/
+├── buildTransitive/
 │   ├── net10.0-ios/
 │   │   └── Nuke.Swift.targets
 │   └── net10.0-maccatalyst/
@@ -881,15 +538,19 @@ Mac Catalyst apps use iOS frameworks built for macOS. Key differences from iOS:
 
 ## Resolved Decisions
 
-These were previously open questions that have been resolved:
+1. **Version alignment** — **Match upstream version.** NuGet package version defaults to the upstream Swift library version, auto-extracted from `CFBundleShortVersionString`. Implemented in Step 4. See `dx-msbuild-sdk-design.md`.
 
-1. **Version alignment** — **Resolved: Match upstream version.** NuGet package version defaults to the upstream Swift library version, auto-extracted from `CFBundleShortVersionString`. Developers can override in the `.csproj` if needed. See [Automatic Library Version Extraction](#automatic-library-version-extraction).
+2. **Dependency versioning strategy** — **Semver ranges with matching major versions.** Dependent packages use `[major.0.0, (major+1).0.0)` ranges. Design for DX-3.
 
-2. **Dependency versioning strategy** — **Resolved: Semver ranges with matching major versions.** Dependent packages use `[major.0.0, (major+1).0.0)` ranges (e.g., NukeUI.Swift.iOS depends on `Nuke.Swift.iOS [12.0.0, 13.0.0)`). This allows independent binding-only patch releases while preventing ABI-breaking mismatches.
+3. **Simulator slices** — **Include them.** xcframeworks bundle both device and simulator slices. `SwiftWrapperArchitectures=all` is the SDK default.
 
-3. **Simulator slices** — **Resolved: Include them.** The developer experience improvement (build without a physical device) outweighs the size cost. xcframeworks bundle both device and simulator slices by convention.
+4. **Swift runtime libraries** — **No action needed.** Swift stdlib ships with iOS 12.2+. Our .NET 10 floor is iOS 15.0.
 
-4. **Swift runtime libraries** — **Resolved: No action needed.** The Swift standard library ships with iOS 12.2+. Our .NET 10 floor is iOS 15.0, so Swift runtime availability is guaranteed on all supported platforms.
+5. **Swift.Runtime packaging** — **Separate NuGet, independent versioning.** `Swift.Runtime` 0.1.0-preview.1, SDK injects `PackageReference` via `Sdk.props`. Implemented in Step 3.
+
+6. **Consumer targets placement** — **`buildTransitive/` only** (not duplicated in `build/`). NuGet 5.0+ covers both direct and transitive consumers. Idempotency guard as defense-in-depth.
+
+7. **Architecture slices** — **User-controlled via `<SwiftWrapperArchitectures>`**, defaults to `all`. Pack-time validation (`SWIFTBIND030`) enforces both slices for NuGet packaging.
 
 ---
 
@@ -897,12 +558,8 @@ These were previously open questions that have been resolved:
 
 1. **Package naming convention**: `{Library}.Swift.iOS` vs `{Library}.Swift` (multi-platform) vs `Swift.{Library}`? The `{Library}.Swift.iOS` pattern follows the `AdamE.Firebase.iOS.*` precedent. Multi-platform packages could drop the platform suffix.
 
-2. **SwiftUI bridge packaging**: Bundle bridge xcframework in the main package, or separate `*.Bridge` package? Depends on whether the bridge adds significant size.
+2. **SwiftUI bridge packaging**: Bundle bridge xcframework in the main package (Option A above), or separate `*.Bridge` package? Depends on whether the bridge adds significant size.
 
-3. **Source-module / overlay packaging**: For extension libraries like NukeExtensions that may be distributed as source (SPM target) rather than a prebuilt binary, do we need a source-compilation path in the packaging pipeline? Or do we require all inputs to be prebuilt xcframeworks?
+3. **Source-module / overlay packaging**: For extension libraries like NukeExtensions that may be distributed as source (SPM target) rather than a prebuilt binary, do we need a source-compilation path? Or require all inputs to be prebuilt xcframeworks? (v2 SPM support in `dx-msbuild-sdk-design.md` addresses this partially.)
 
-4. **Swift.Runtime packaging strategy**: Should Swift.Runtime be a separate NuGet package (as the architecture assumes with `Swift.Runtime` at the bottom of the dependency graph) or bundled into each binding package? Separate is cleaner and avoids duplication, but adds a dependency for users to manage. If separate, what's the versioning strategy — does it version independently from bindings, or lock-step?
-
-5. **Target audience for DX-1**: Are we targeting binding *authors* (someone who builds their own bindings from an xcframework) or binding *consumers* (someone who installs a pre-made NuGet)? The DX phases assume authors first, since there's no binding marketplace yet. But if the immediate goal is to publish a few "reference" packages (Nuke, StoreKit) for consumers, the priorities shift toward packaging quality over workflow documentation.
-
-6. **DX work vs. generator completeness sequencing**: DX-1 can start immediately without more generator features. But should DX-2/DX-3 wait for Phases B and C (test coverage + new library validation), or proceed in parallel? Risk of doing DX too early: packaging a generator that still has coverage gaps. Risk of waiting: nobody outside the project can use the tool until everything is polished. See [Pragmatic Implementation Sequence](#pragmatic-implementation-sequence) for a proposed interleaving.
+4. **Resource bundles and linker flags**: Some vendor SDKs require non-framework assets (resource bundles, privacy manifests, linker flags like `-ObjC`). A `<SwiftFrameworkAsset>` item type and corresponding validation layer is needed for DX-3.

@@ -13,7 +13,6 @@
     <!-- SDK internal paths -->
     <_SwiftBindingSdkVersion>0.1.0-preview.1</_SwiftBindingSdkVersion>
     <_SwiftBindingGeneratorDir>$(MSBuildThisFileDirectory)../tools/net10.0/any/</_SwiftBindingGeneratorDir>
-    <_SwiftBindingIntermediateDir>$(IntermediateOutputPath)swift-binding/</_SwiftBindingIntermediateDir>
 
     <!-- User-configurable -->
     <SwiftPlatformTarget Condition="'$(SwiftPlatformTarget)' == ''">simulator</SwiftPlatformTarget>

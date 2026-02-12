@@ -314,6 +314,43 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_AsyncMethodWithPrivateName_UsesNormalizedNameInBody()
+    {
+        // Regression test for Bug 2: async body used ABI p.Name (e.g. "_for")
+        // instead of normalized NameProvider.GetCSharpParameterName (e.g. "request")
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "fetchWithVariant",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: true,
+            throws: false,
+            methodType: MethodType.Instance);
+        // Add param with ABI Name="_for" and PrivateName="request"
+        method.CSSignature.Add(CreateArgument("_for", new NamedTypeSpec("TestModule.Variant"), moduleDecl, privateName: "request"));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // C# body must use normalized name "request" (from PrivateName), not ABI "_for"
+        Assert.Contains("requestMetadata", csOutput);
+        Assert.Contains("requestCopyBuffer", csOutput);
+        Assert.Contains("requestHandle", csOutput);
+        Assert.Contains("requestCopyBufferWrapper", csOutput);
+        Assert.DoesNotContain("_forMetadata", csOutput);
+        Assert.DoesNotContain("_forCopyBuffer", csOutput);
+
+        // Method signature should use normalized name
+        Assert.Contains("request", csOutput);
+
+        // Swift wrapper should use ABI name (_for) — this is correct
+        Assert.Contains("_for", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_MethodWithEscapingClosureReturningFrozenStruct_EmitsTypedCallbackReturn()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -875,13 +912,13 @@ public class MethodHandlerOutputTests
         });
     }
 
-    private static ArgumentDecl CreateArgument(string name, TypeSpec typeSpec, ModuleDecl moduleDecl)
+    private static ArgumentDecl CreateArgument(string name, TypeSpec typeSpec, ModuleDecl moduleDecl, string? privateName = null)
     {
         return new ArgumentDecl
         {
             SwiftTypeSpec = typeSpec,
             Name = name,
-            PrivateName = string.Empty,
+            PrivateName = privateName ?? string.Empty,
             IsInOut = false,
             IsGeneric = false,
             ParentDecl = null,

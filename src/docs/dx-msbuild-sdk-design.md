@@ -52,7 +52,7 @@ dotnet pack
 </Project>
 ```
 
-**xcframework discovery:** The SDK's `Sdk.props` auto-populates `SwiftFramework` items by globbing `*.xcframework` in the project directory. If exactly one is found, it's used automatically (zero edits after `dotnet new`). If zero are found, `dotnet build` emits a clear error: *"No xcframework found. Copy an xcframework into the project directory or add `<SwiftFramework Include="path/to/Library.xcframework" />`."* If multiple are found and none are explicitly declared, the build errors with a list of found frameworks and instructions to declare them explicitly.
+**xcframework discovery:** The SDK's `Sdk.targets` auto-populates `SwiftFramework` items by globbing `*.xcframework` in the project directory (discovery runs in `.targets`, not `.props`, so user-declared items in the project body are seen first). If exactly one is found, it's used automatically (zero edits after `dotnet new`). If zero are found, `dotnet build` emits a clear error: *"No xcframework found. Copy an xcframework into the project directory or add `<SwiftFramework Include="path/to/Library.xcframework" />`."* If multiple are found and none are explicitly declared, the build errors with a list of found frameworks and instructions to declare them explicitly.
 
 For explicit control (multiple frameworks or non-standard paths):
 ```xml
@@ -168,19 +168,21 @@ All four test libraries (Nuke, Lottie, BlinkID, CryptoSwift) follow this pattern
 
 ```
 BindingTesting/{Library}/
-├── {Library}.xcframework/           # Pre-built framework
-├── output-ios/                      # Generator output
-│   ├── Swift.{Library}.cs           # Generated bindings
-│   ├── Swift.{Library}.swift        # Swift wrapper source
-│   ├── SwiftBindings.xcframework/   # Compiled Swift wrapper (currently fixed name — will become module-unique)
-│   └── Swift/                       # Runtime source copy
-├── {Library}TestApp/                # iOS test app
-│   └── {Library}TestApp.csproj      # References everything manually
-├── regenerate-bindings.sh           # Runs generator with correct flags
-├── build-swift-wrapper.sh           # Compiles Swift wrapper → xcframework
-├── build-testapp.sh                 # Builds the .NET iOS app
-├── build-all.sh                     # Orchestrates all three
-└── validate-sim.sh                  # Runs on iOS Simulator
+├── {Library}.xcframework/                    # Pre-built framework
+├── output-ios/                               # Generator output
+│   ├── Swift.{Library}.cs                    # Generated bindings
+│   ├── Swift.{Library}.swift                 # Swift wrapper source
+│   ├── {Library}SwiftBindings.xcframework/   # Compiled Swift wrapper (module-unique name)
+│   ├── {Library}.Swift.iOS.csproj            # Ready-to-build project (Step 4)
+│   ├── {Library}.Swift.iOS.targets           # Consumer .targets (Step 4)
+│   └── binding-metadata.json                 # Extracted metadata (Step 4)
+├── {Library}TestApp/                         # iOS test app
+│   └── {Library}TestApp.csproj               # References everything manually
+├── regenerate-bindings.sh                    # Runs generator with correct flags
+├── build-swift-wrapper.sh                    # Compiles Swift wrapper → xcframework
+├── build-testapp.sh                          # Builds the .NET iOS app
+├── build-all.sh                              # Orchestrates all three
+└── validate-sim.sh                           # Runs on iOS Simulator
 ```
 
 Test app `.csproj` references:
@@ -267,72 +269,17 @@ When a project declares `Sdk="Swift.Bindings.Sdk/1.0.0"`, MSBuild automatically:
 
 ## What `dotnet build` Does Under the Hood
 
-When the binding author runs `dotnet build`, the SDK's targets execute in this order:
+When the binding author runs `dotnet build`, the SDK's targets execute automatically. The full target chain (9 targets) is documented in [Step 5](#step-5-msbuild-sdk-package-) above, covering:
 
-### Target 1: ExtractSwiftABI
+1. **Validate + Discover** — auto-discover `*.xcframework`, validate inputs (SWIFTBIND001/002/003/100)
+2. **Fingerprint** — hash all build-affecting inputs into a stamp file (~50ms)
+3. **Generate** — invoke the generator via `dotnet exec` (skipped if fingerprint unchanged)
+4. **Import metadata** — `XmlPeek` reads `binding-metadata.props` for version/module info
+5. **Compile** — add generated `.cs` to `Compile` item group → standard `CoreCompile`
+6. **NativeReference** — inject xcframework references for the .NET iOS linker
+7. **Pack** (during `dotnet pack`) — validate wrapper slices, arrange NuGet layout
 
-**Input:** `<SwiftFramework Include="Nuke.xcframework" />`
-**Output:** ABI JSON, dylib path, TBD path, swiftinterface path
-
-Reads the xcframework's `Info.plist` to find platform slices, then:
-1. Locates the `.swiftinterface` file inside the framework's `Modules/` directory
-2. Runs `swift-frontend -compile-module-from-interface` to produce ABI JSON
-3. Locates the dylib and TBD files inside the framework bundle
-4. Passes all paths to the next target
-
-**Open question:** Can we reliably find `.swiftinterface` in all xcframework layouts? Need to verify against multiple xcframework structures (SPM-built, Xcode-built, Carthage-built, manual `xcodebuild -create-xcframework`).
-
-### Target 2: GenerateBindings
-
-**Input:** ABI JSON, dylib, TBD, optional swiftinterface/symbolgraph/bridge-hints
-**Output:** Generated `.cs` files, generated `.swift` wrapper file, `binding-report.json`
-
-Invokes the generator (shipped in `tools/` inside the SDK package). This is the existing generator with one key change: it no longer copies the `Swift/` runtime directory (Swift.Runtime comes from a PackageReference instead).
-
-### Target 3: CompileSwiftWrapper
-
-**Input:** Generated `Swift.{Module}.swift` file, original xcframework (for linking)
-**Output:** `{Module}SwiftBindings.xcframework` (module-specific compiled Swift wrapper)
-
-The wrapper framework name is derived from the Swift module name (e.g., `NukeSwiftBindings.xcframework` for the Nuke module). This prevents collisions when an app references multiple Swift binding packages — each package's wrapper has a unique name.
-
-Runs `xcrun swiftc` to compile the generated Swift wrapper code into a framework, then `xcodebuild -create-xcframework` to produce a multi-architecture xcframework (device + simulator).
-
-This target encodes the knowledge currently in `build-swift-wrapper.sh`:
-- Correct swiftc flags for library-evolution, target architecture
-- Linking against the original framework
-- Multi-arch xcframework creation
-- Module-unique framework product name
-
-**Open question:** Should this produce both device and simulator slices, or only the architecture matching the current build configuration? For NuGet packaging, we need both. For local development/debugging, only simulator may be needed.
-
-### Target 4: CoreCompile (Standard .NET)
-
-The generated `.cs` files are automatically included in compilation (the SDK's targets add them to the `Compile` item group). Standard .NET compilation produces the DLL.
-
-### Target 5: EmitNuGetMetadata (runs during `dotnet pack`)
-
-**Input:** xcframework
-**Output:** `binding-metadata.json` with iOS version, library version, platform slices
-
-Extracts metadata using the fallback chain from `developer-experience.md`:
-- iOS version: Info.plist `MinimumOSVersion` → `.swiftinterface` target triple → Mach-O `LC_BUILD_VERSION`
-- Library version: `CFBundleShortVersionString` with placeholder detection
-
-### Target 6: GenerateConsumerTargets (runs during `dotnet pack`)
-
-**Output:** `.targets` file for package consumers
-
-Generates a single `.targets` file placed in `buildTransitive/` only (not duplicated in `build/`). Since we target .NET 10.0 (NuGet 5.0+), `buildTransitive/` is sufficient for both direct and transitive consumers. Duplicating into `build/` risks double-importing targets and injecting duplicate `NativeReference` items.
-
-The generated targets file:
-- Injects `NativeReference` items for the xcframework and `{Module}SwiftBindings` wrapper, guarded by `Condition="'@(_SwiftBinding_{Module}_Injected)' == ''"` for idempotency
-- Registers a `SwiftBindingFramework` item for dependency validation (Layer 3)
-- Emits a warning if consumer's `SupportedOSPlatformVersion` is too low
-
-### Target 7: Pack (Standard .NET + customization)
-
-Arranges the NuGet package structure:
+The resulting NuGet package structure:
 ```
 Nuke.Swift.iOS.12.8.0.nupkg/
 ├── lib/net10.0-ios/
@@ -563,19 +510,29 @@ How does the SDK handle libraries with multiple dependent frameworks?
 
 **Recommendation:** Start with one project per framework. Multi-framework is a DX-3 concern.
 
-### Q7: Error Experience
+### Q7: Error Experience ✅ Partially Resolved
 
-What happens when things go wrong?
+**Implemented SWIFTBIND error codes:**
 
-**Key failure modes:**
-- xcframework doesn't contain a Swift library (no `.swiftinterface`) → clear error with explanation
-- Xcode not installed or wrong version → clear error pointing to Xcode installation
-- `swift-frontend` fails on the swiftinterface → surface Swift compiler error with context
-- Generator produces binding errors → surface `binding-report.json` summary as build warnings
-- Swift wrapper compilation fails → surface `swiftc` errors with context
-- Consumer's iOS version is too low → build warning from `.targets` file
+| Code | Target | Condition |
+|------|--------|-----------|
+| `SWIFTBIND001` | `_DiscoverSwiftFrameworks` | No xcframework found |
+| `SWIFTBIND002` | `_DiscoverSwiftFrameworks` | Multiple xcframeworks (ambiguous) |
+| `SWIFTBIND003` | `_DiscoverSwiftFrameworks` | xcframework path doesn't exist |
+| `SWIFTBIND010` | Consumer `.targets` | Consumer's `SupportedOSPlatformVersion` too low |
+| `SWIFTBIND020` | `_ImportSwiftBindingMetadata` | Version placeholder detected (Xcode default "1.0") |
+| `SWIFTBIND030` | `_ValidateSwiftBindingPackSlices` | Pack without `SwiftWrapperArchitectures=all` |
+| `SWIFTBIND031` | `_ValidateSwiftBindingPackSlices` | Wrapper xcframework missing device or simulator slice |
+| `SWIFTBIND100` | `_ValidateSwiftPackageItems` | `<SwiftPackage>` used (v2 stub) |
 
-Each failure should explain what went wrong AND what the user should do to fix it.
+**Also handled by the generator** (non-SWIFTBIND errors surfaced as build output):
+- Static xcframework detection (no dylib) → clear error
+- ObjC-only framework (no `.swiftinterface`) → clear error
+- `swift-frontend` failure → compiler stderr surfaced
+- `swiftc` wrapper compilation failure → compiler stderr surfaced
+- All code stripped by post-processor → warning with context
+
+**Not yet implemented:** Xcode version validation (detecting too-old Xcode), `binding-report.json` summary as MSBuild warnings.
 
 ### Q8: What About Existing Binding Test Projects?
 

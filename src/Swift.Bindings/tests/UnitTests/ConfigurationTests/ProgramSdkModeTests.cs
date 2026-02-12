@@ -163,5 +163,54 @@ namespace BindingsGeneration.Tests
             Assert.True(BindingsGenerator.ShouldCompileWrapper(
                 isSimulatorSlice: false, wrapperArchitectures: "all"));
         }
+
+        // ── full matrix (Theory-based) ──
+
+        [Theory]
+        [InlineData(true, "simulator", true)]
+        [InlineData(true, "device", true)]
+        [InlineData(true, "all", true)]
+        [InlineData(false, "simulator", false)]
+        [InlineData(false, "device", true)]
+        [InlineData(false, "all", true)]
+        public void FullMatrix_MatchesExpected(bool isSimulatorSlice, string wrapperArchitectures, bool expected)
+        {
+            Assert.Equal(expected, BindingsGenerator.ShouldCompileWrapper(
+                isSimulatorSlice: isSimulatorSlice, wrapperArchitectures: wrapperArchitectures));
+        }
+
+        // ── edge cases ──
+
+        [Fact]
+        public void UnknownArchitectures_SimulatorSlice_ReturnsTrue()
+        {
+            // Unknown value doesn't match device/all, but simulator slice is true → true
+            Assert.True(BindingsGenerator.ShouldCompileWrapper(
+                isSimulatorSlice: true, wrapperArchitectures: "unknown"));
+        }
+
+        [Fact]
+        public void UnknownArchitectures_DeviceSlice_ReturnsFalse()
+        {
+            // Unknown value doesn't match device/all, and no simulator slice → false
+            Assert.False(BindingsGenerator.ShouldCompileWrapper(
+                isSimulatorSlice: false, wrapperArchitectures: "unknown"));
+        }
+
+        [Fact]
+        public void EmptyArchitectures_DeviceSlice_ReturnsFalse()
+        {
+            // Empty string doesn't match device/all, and no simulator slice → false
+            Assert.False(BindingsGenerator.ShouldCompileWrapper(
+                isSimulatorSlice: false, wrapperArchitectures: ""));
+        }
+
+        [Fact]
+        public void CaseMismatch_SimulatorArch_DeviceSlice_ReturnsFalse()
+        {
+            // "Simulator" != "simulator" — case-sensitive, doesn't match
+            Assert.False(BindingsGenerator.ShouldCompileWrapper(
+                isSimulatorSlice: false, wrapperArchitectures: "Simulator"));
+        }
     }
 }

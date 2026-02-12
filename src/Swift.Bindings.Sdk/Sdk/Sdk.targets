@@ -1,6 +1,13 @@
 <Project>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
+  <!-- Intermediate dir must be defined in .targets (not .props) so that
+       $(IntermediateOutputPath) is fully resolved (e.g. obj/Debug/net10.0-ios/).
+       In .props it evaluates to empty, causing output to land in project root. -->
+  <PropertyGroup>
+    <_SwiftBindingIntermediateDir>$(IntermediateOutputPath)swift-binding/</_SwiftBindingIntermediateDir>
+  </PropertyGroup>
+
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 0: Validate no SwiftPackage items (v2 stub)                     -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -14,10 +21,14 @@
   <!-- Target 1: Auto-discover xcframeworks (in .targets, not .props)         -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_DiscoverSwiftFrameworks" BeforeTargets="_ComputeSwiftFingerprint">
-    <!-- Auto-discover only if user hasn't declared any -->
-    <ItemGroup Condition="'@(SwiftFramework)' == ''">
-      <SwiftFramework Include="$(MSBuildProjectDirectory)/*.xcframework" />
-    </ItemGroup>
+    <!-- Auto-discover only if user hasn't declared any.
+         Uses find -type d because *.xcframework are directories, not files,
+         and MSBuild glob patterns only match files. -->
+    <Exec Condition="'@(SwiftFramework)' == ''"
+          Command="find &quot;$(MSBuildProjectDirectory)&quot; -maxdepth 1 -type d -name '*.xcframework' 2>/dev/null || true"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="SwiftFramework" />
+    </Exec>
 
     <!-- Validation: no frameworks found -->
     <Error Condition="'@(SwiftFramework)' == ''"
@@ -38,7 +49,7 @@
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 2: Fingerprint-based incremental build                          -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <Target Name="_ComputeSwiftFingerprint" BeforeTargets="_GenerateSwiftBindings">
+  <Target Name="_ComputeSwiftFingerprint">
     <PropertyGroup>
       <_SwiftStampFile>$(_SwiftBindingIntermediateDir)swift-binding.stamp</_SwiftStampFile>
     </PropertyGroup>
@@ -94,6 +105,7 @@
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_GenerateSwiftBindings"
           BeforeTargets="CoreCompile"
+          DependsOnTargets="_ComputeSwiftFingerprint"
           Condition="'$(_SwiftBindingUpToDate)' != 'true' AND '@(SwiftFramework)' != ''">
 
     <PropertyGroup>

@@ -81,6 +81,14 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Props_DoesNotDefineIntermediateDir()
+        {
+            // _SwiftBindingIntermediateDir must be in .targets, not .props
+            // ($(IntermediateOutputPath) is empty at props evaluation time)
+            Assert.DoesNotContain("_SwiftBindingIntermediateDir", PropsContent);
+        }
+
+        [Fact]
         public void Props_DefaultsSwiftRuntimeVersion()
         {
             Assert.Contains("<SwiftRuntimeVersion Condition=", PropsContent);
@@ -206,10 +214,14 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Targets_AutoDiscoveryUsesXCFrameworkGlob()
+        public void Targets_AutoDiscoveryUsesShellFind()
         {
+            // Auto-discovery uses find -type d because xcframeworks are directories
+            Assert.Contains("find", TargetsContent);
+            Assert.Contains("-type d", TargetsContent);
             Assert.Contains("*.xcframework", TargetsContent);
             Assert.Contains("_DiscoverSwiftFrameworks", TargetsContent);
+            Assert.Contains("ConsoleToMSBuild", TargetsContent);
         }
 
         [Fact]
@@ -218,6 +230,30 @@ namespace BindingsGeneration.Tests
             Assert.Contains("--sdk-mode", TargetsContent);
             Assert.Contains("--wrapper-architectures", TargetsContent);
             Assert.Contains("--xcframework", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_FingerprintUsedViaDependsOnTargets()
+        {
+            // _ComputeSwiftFingerprint must NOT have BeforeTargets (evaluated too late)
+            // _GenerateSwiftBindings must use DependsOnTargets (evaluated before Condition)
+            Assert.Contains("DependsOnTargets=\"_ComputeSwiftFingerprint\"", TargetsContent);
+
+            // _ComputeSwiftFingerprint target should not declare BeforeTargets
+            var fingerprintTarget = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_ComputeSwiftFingerprint\"", StringComparison.Ordinal));
+            var endOfTag = fingerprintTarget.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = fingerprintTarget.Substring(0, endOfTag);
+            Assert.DoesNotContain("BeforeTargets", targetTag);
+        }
+
+        [Fact]
+        public void Targets_DefinesIntermediateDir()
+        {
+            // _SwiftBindingIntermediateDir must be in .targets (not .props) so
+            // $(IntermediateOutputPath) resolves to obj/ correctly
+            Assert.Contains("_SwiftBindingIntermediateDir", TargetsContent);
+            Assert.Contains("$(IntermediateOutputPath)swift-binding/", TargetsContent);
         }
 
         [Fact]
