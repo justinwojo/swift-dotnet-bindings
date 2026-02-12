@@ -168,6 +168,13 @@ public class ClosureHandler
     /// <returns><c>true</c> if the closure is supported; otherwise, <c>false</c>.</returns>
     public bool IsSupportedClosure(ClosureTypeSpec closureTypeSpec)
     {
+        // B13: Async+throwing closures WITH parameters are not supported.
+        // AsyncThrowingClosureState<T>.AsyncFunc is Func<Task<T>> (parameterless).
+        // A closure like (String) async throws -> String produces Func<SwiftString, Task<SwiftString>>
+        // which can't be assigned to Func<Task<SwiftString>>.
+        if (closureTypeSpec.IsAsync && closureTypeSpec.Throws && closureTypeSpec.EachArgument().Any())
+            return false;
+
         // Async+throwing closures are now supported via Swift continuation wrapper pattern (Phase 28)
         // The C# side provides a synchronous "start" callback that spawns Task.Run,
         // while Swift uses withCheckedThrowingContinuation to create the actual async closure.
@@ -329,6 +336,18 @@ public class ClosureHandler
 
                     if (!IsSupportedClosureParameterType(genericParam))
                         return false;
+
+                    // B7: Generic parameters that require memory management (e.g., SwiftString inside Optional)
+                    // The P/Invoke uses void* for these (line 868) but the C# delegate expects the actual struct.
+                    if (genericParam is NamedTypeSpec innerNamed && !innerNamed.ContainsGenericParameters && innerNamed.HasModule())
+                    {
+                        var innerTypeName = SwiftTypeName.FromModuleQualifiedName(innerNamed.Name);
+                        if (_typeDatabase.TryGetTypeRecord(innerTypeName, out var innerRecord) &&
+                            MarshallingHelpers.RequiresMemoryManagement(innerRecord))
+                        {
+                            return false;
+                        }
+                    }
                 }
                 return true;
             }
@@ -393,6 +412,16 @@ public class ClosureHandler
         // Named types should be resolvable in the type database
         if (typeSpec is NamedTypeSpec namedType)
         {
+            // B16: C# enums are non-blittable and cannot be used in [UnmanagedCallersOnly] callbacks
+            if (!namedType.ContainsGenericParameters && namedType.HasModule())
+            {
+                var enumSwiftName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (_typeDatabase.TryGetTypeRecord(enumSwiftName, out var enumRecord) &&
+                    enumRecord.Kind == TypeRecordKind.Enum)
+                {
+                    return false;
+                }
+            }
             // Generic type parameters (τ_0_0, τ_0_1, T, etc.) are not supported in closures
             // because their concrete types aren't known at binding generation time
             if (IsGenericTypeParameter(namedType.Name))
@@ -817,6 +846,14 @@ public class ClosureHandler
         var translatedParams = new List<string>();
         foreach (var genericParam in namedType.GenericParameters)
         {
+            // Map Swift.Void (empty tuple) to SwiftVoid for generic type arguments (B8)
+            // Mirrors the B3 fix in BoundGenericsHandler.TranslateBoundGenericTypeToCSharp
+            if (genericParam.IsEmptyTuple)
+            {
+                translatedParams.Add("Swift.SwiftVoid");
+                continue;
+            }
+
             // Handle existential generic parameters (e.g., Optional<any Protocol>)
             if (_existentialHandler.IsExistential(genericParam))
             {

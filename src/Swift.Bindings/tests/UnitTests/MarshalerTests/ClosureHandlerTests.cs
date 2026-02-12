@@ -491,21 +491,39 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void IsSupportedClosure_WithAsyncThrowingClosure_ReturnsTrue()
+    public void IsSupportedClosure_WithAsyncThrowingClosureNoParams_ReturnsTrue()
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Async + throwing closures are now supported via Swift continuation wrapper pattern (Phase 28)
-        // The C# side provides a synchronous "start" callback that spawns Task.Run,
-        // while Swift uses withCheckedThrowingContinuation to create the actual async closure.
+        // Async + throwing closures WITHOUT parameters are supported via Swift continuation wrapper pattern.
+        // AsyncThrowingClosureState<T>.AsyncFunc is Func<Task<T>> (parameterless),
+        // so closures with parameters produce arity mismatches (B13).
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Bool"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithAsyncThrowingClosureWithParams_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Async + throwing closures WITH parameters are NOT supported (B13).
+        // AsyncThrowingClosureState<T>.AsyncFunc is Func<Task<T>> (parameterless),
+        // so (Int) async throws -> Bool would produce Func<Int, Task<Bool>> vs Func<Task<Bool>>.
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
             new NamedTypeSpec("Swift.Bool"));
         closureTypeSpec.IsAsync = true;
         closureTypeSpec.Throws = true;
 
-        Assert.True(handler.IsSupportedClosure(closureTypeSpec));
+        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
     }
 
     [Fact]

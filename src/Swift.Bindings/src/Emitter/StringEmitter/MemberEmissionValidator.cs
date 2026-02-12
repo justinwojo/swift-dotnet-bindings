@@ -26,6 +26,13 @@ public static class MemberEmissionValidator
         var closureHandler = new ClosureHandler(typeDatabase);
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
+        // B19: Skip properties referencing SwiftUI/Combine types
+        if (ReferencesUnsupportedModule(property.SwiftTypeSpec))
+        {
+            skipDetails = "Property type references unsupported module (SwiftUI/Combine).";
+            return SkipReason.SwiftUIConstraint;
+        }
+
         // Check AsyncStream properties
         if (asyncStreamHandler.IsAsyncStream(property.SwiftTypeSpec))
         {
@@ -178,6 +185,17 @@ public static class MemberEmissionValidator
             return SkipReason.UnsupportedSignature;
         }
 
+        // Check for non-simple enum return types that require memory management
+        // Non-simple enums don't emit a .Buffer nested struct, so PInvokeEmitter's
+        // RequiresMemoryManagement path would emit invalid `.Buffer` suffix (B18)
+        if (typeRecord != null && typeRecord.Kind == TypeRecordKind.Enum &&
+            !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum) &&
+            MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+        {
+            skipDetails = "Non-simple enum with memory management has no .Buffer type for marshalling.";
+            return SkipReason.UnsupportedSignature;
+        }
+
         // Check for async properties
         if (property.Accessors.Any(a => a.Method.IsAsync))
         {
@@ -266,6 +284,16 @@ public static class MemberEmissionValidator
         if (method.IsConstructor)
             return null;
 
+        // B19: Skip methods whose return type or parameters reference SwiftUI/Combine types
+        foreach (var arg in method.CSSignature)
+        {
+            if (ReferencesUnsupportedModule(arg.SwiftTypeSpec))
+            {
+                skipDetails = $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.";
+                return SkipReason.SwiftUIConstraint;
+            }
+        }
+
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
         // Check for protocol constraints with associated types
@@ -315,10 +343,47 @@ public static class MemberEmissionValidator
                 return SkipReason.UnsatisfiedGenericConstraint;
             }
 
-            if (boundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
+            // B6: Catch existentials in non-Array bound generics (Dictionary, Set, etc.).
+            // Allow through ONLY if the outermost bound generic is Array AND the element
+            // type is itself an existential (NamedTypeSpec.IsAny or ProtocolListTypeSpec).
+            // WrapperEmitter.Marshalling has dedicated existential handling for direct
+            // Array<any Protocol> elements. All other shapes (nested existentials in
+            // Dictionary, closures/tuples containing existentials, etc.) break.
+            // This matches the same check in MethodHandler.Emit() to keep validator and emitter consistent.
+            if (boundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
             {
-                skipDetails = $"Bound generic contains existential type argument '{existentialType}'.";
-                return SkipReason.UnsupportedExistential;
+                var outerNamedType = argument.SwiftTypeSpec as NamedTypeSpec;
+                var arrayChecker = new TypeConversionHandler(typeDatabase);
+                var existentialChecker = new ExistentialHandler(typeDatabase);
+                bool isArrayWithDirectExistentialElement = outerNamedType != null &&
+                    arrayChecker.IsSwiftArray(outerNamedType) &&
+                    outerNamedType.GenericParameters.Count > 0 &&
+                    existentialChecker.IsExistential(outerNamedType.GenericParameters[0]);
+                if (!isArrayWithDirectExistentialElement)
+                {
+                    skipDetails = $"Bound generic contains existential type argument '{existentialType}'.";
+                    return SkipReason.UnsupportedExistential;
+                }
+            }
+        }
+
+        // Check for non-simple enum return types that require memory management (B18)
+        if (method.CSSignature.Count > 0)
+        {
+            var returnArg = method.CSSignature[0];
+            if (returnArg.SwiftTypeSpec is not TupleTypeSpec { IsEmptyTuple: true } &&
+                returnArg.SwiftTypeSpec is NamedTypeSpec returnNamedType &&
+                returnNamedType.HasModule() && !returnNamedType.ContainsGenericParameters)
+            {
+                var returnSwiftName = SwiftTypeName.FromModuleQualifiedName(returnNamedType.Name);
+                if (typeDatabase.TryGetTypeRecord(returnSwiftName, out var returnTypeRecord) &&
+                    returnTypeRecord.Kind == TypeRecordKind.Enum &&
+                    !returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum) &&
+                    MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord))
+                {
+                    skipDetails = "Non-simple enum return with memory management has no .Buffer type for marshalling.";
+                    return SkipReason.UnsupportedSignature;
+                }
             }
         }
 
@@ -504,6 +569,55 @@ public static class MemberEmissionValidator
 
         return null;
         #pragma warning restore CS0162
+    }
+
+    /// <summary>
+    /// Returns true if the TypeSpec references a type from an unsupported module (SwiftUI, Combine).
+    /// Recursively checks generic parameters, tuple elements, and closure args/return.
+    /// </summary>
+    private static bool ReferencesUnsupportedModule(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return false;
+
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedType:
+                if (namedType.HasModule() && GenericTypeEmitter.IsUnsupportedModule(namedType.Module))
+                    return true;
+                foreach (var genericParam in namedType.GenericParameters)
+                {
+                    if (ReferencesUnsupportedModule(genericParam))
+                        return true;
+                }
+                return false;
+
+            case TupleTypeSpec tupleType:
+                foreach (var element in tupleType.Elements)
+                {
+                    if (ReferencesUnsupportedModule(element))
+                        return true;
+                }
+                return false;
+
+            case ClosureTypeSpec closureType:
+                if (ReferencesUnsupportedModule(closureType.Arguments))
+                    return true;
+                if (ReferencesUnsupportedModule(closureType.ReturnType))
+                    return true;
+                return false;
+
+            case ProtocolListTypeSpec protocolList:
+                foreach (var protocol in protocolList.Protocols.Keys)
+                {
+                    if (ReferencesUnsupportedModule(protocol))
+                        return true;
+                }
+                return false;
+
+            default:
+                return false;
+        }
     }
 
     /// <summary>

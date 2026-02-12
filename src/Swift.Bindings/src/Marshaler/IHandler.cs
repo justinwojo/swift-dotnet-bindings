@@ -96,6 +96,8 @@ namespace BindingsGeneration
         {
             // Track emitted method signatures to avoid duplicates
             var emittedMethodSignatures = new HashSet<string>();
+            // B15: Secondary dedup based on projected C# public signature
+            var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var baseDecl in decl)
             {
@@ -182,6 +184,20 @@ namespace BindingsGeneration
                     }
                     emittedMethodSignatures.Add(signatureKey);
 
+                    // B15: Secondary dedup based on projected C# public method signature.
+                    // Different Swift overloads (e.g., secret: vs clientSecret:) can produce
+                    // identical C# method names after async normalization and parameter projection.
+                    var projectedKey = GetProjectedCSharpMethodKey(methodDecl, typeDatabase);
+                    if (!emittedProjectedSignatures.Add(projectedKey))
+                    {
+                        _logger.LogDebug($"Skipping method '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
+                        if (!methodDecl.IsAccessor)
+                        {
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.DuplicateSignature, $"Projected C# method signature collides: {projectedKey}");
+                        }
+                        continue;
+                    }
+
                     // Annotate with Mono JIT risk patterns (informational, does not affect routing)
                     MonoJitRiskDetector.ApplyRiskDetection(methodDecl);
 
@@ -208,6 +224,45 @@ namespace BindingsGeneration
 
                 csWriter.WriteLine();
             }
+        }
+
+        /// <summary>
+        /// Creates a projected C# method signature key for dedup.
+        /// Uses the public method name and projected C# parameter types,
+        /// so different Swift overloads that produce identical C# signatures are deduplicated.
+        /// </summary>
+        private static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+        {
+            var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
+            var methodName = methodDecl.IsConstructor
+                ? "ctor"
+                : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue);
+
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            var paramTypes = new List<string>();
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var arg = methodDecl.CSSignature[i];
+                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(arg.SwiftTypeSpec, isParameter: true);
+                if (idiomaticType != null)
+                {
+                    paramTypes.Add(idiomaticType);
+                }
+                else
+                {
+                    try
+                    {
+                        var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
+                        paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                    }
+                    catch
+                    {
+                        paramTypes.Add(arg.SwiftTypeSpec?.ToString() ?? "unknown");
+                    }
+                }
+            }
+            return $"{methodName}({string.Join(",", paramTypes)})";
         }
 
         /// <summary>

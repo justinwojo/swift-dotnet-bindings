@@ -270,13 +270,26 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"var proxy = SwiftObjectRegistry.GetProxyFromContainer<{proxyClassName}>(container);");
 
         // Unmarshal parameters - use param{i} for local variable names to avoid conflicts with rawArg{i}
+        // B10: After unmarshalling, apply type conversion from ABI to idiomatic C# types
+        // (e.g., SwiftOptional<SwiftString> → string?) to match the interface method signature.
+        var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
         var argNames = new List<string>();
         int argIndex = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
             var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec);
-            var argName = $"param{argIndex}"; // Always use param{i} to avoid conflicts
-            writer.WriteLine($"var {argName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+            var rawArgName = $"rawParam{argIndex}";
+            var argName = $"param{argIndex}";
+            var returnConversion = typeConversionHandler.GetReturnConversion(rawArgName, param.SwiftTypeSpec);
+            if (returnConversion != null)
+            {
+                writer.WriteLine($"var {rawArgName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+                writer.WriteLine($"var {argName} = {returnConversion};");
+            }
+            else
+            {
+                writer.WriteLine($"var {argName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
+            }
             argNames.Add(argName);
             argIndex++;
         }

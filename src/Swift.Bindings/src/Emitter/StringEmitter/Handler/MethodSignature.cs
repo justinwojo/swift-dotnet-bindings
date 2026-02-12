@@ -170,12 +170,70 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds the signature.
+        /// Builds the signature, deduplicating any parameter name collisions.
         /// </summary>
         /// <returns>The signature.</returns>
         public Signature Build()
         {
+            DeduplicateParameterNames();
             return new Signature(_returnType, _parameters.ToArray());
+        }
+
+        /// <summary>
+        /// Deduplicates parameter names by appending _N suffix when collisions exist.
+        /// This handles cases like SwiftIndirectResult 'result' colliding with a method parameter 'result'.
+        /// </summary>
+        private void DeduplicateParameterNames() => DeduplicateParameterNames(_parameters);
+
+        /// <summary>
+        /// Deduplicates parameter names by appending _N suffix when collisions exist.
+        /// Avoids generating names that collide with existing parameters.
+        /// </summary>
+        internal static void DeduplicateParameterNames(List<Parameter> parameters)
+        {
+            // Collect all names that appear more than once
+            var nameCount = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var param in parameters)
+            {
+                nameCount.TryGetValue(param.Name, out var count);
+                nameCount[param.Name] = count + 1;
+            }
+
+            var duplicateNames = nameCount.Where(kvp => kvp.Value > 1).Select(kvp => kvp.Key).ToHashSet();
+            if (duplicateNames.Count == 0)
+                return;
+
+            // Build set of ALL names (including non-duplicates) to avoid collisions
+            // e.g. params [value, value_1, value] must not produce [value, value_1, value_1]
+            var allNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var param in parameters)
+                allNames.Add(param.Name);
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var param = parameters[i];
+                if (!duplicateNames.Contains(param.Name))
+                {
+                    seen.Add(param.Name);
+                    continue;
+                }
+
+                if (seen.Add(param.Name))
+                    continue; // First occurrence keeps its name
+
+                // Find a unique suffix that doesn't collide with any existing name
+                var suffix = 1;
+                var candidate = $"{param.Name}_{suffix}";
+                while (allNames.Contains(candidate))
+                {
+                    suffix++;
+                    candidate = $"{param.Name}_{suffix}";
+                }
+
+                parameters[i] = param with { Name = candidate };
+                allNames.Add(candidate);
+            }
         }
 
         /// <summary>

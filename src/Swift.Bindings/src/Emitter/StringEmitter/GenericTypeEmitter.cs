@@ -149,6 +149,13 @@ public static class GenericTypeEmitter
         UnsupportedConstraintModules.Contains(moduleName);
 
     /// <summary>
+    /// Returns true if the module is in the unsupported constraint modules set (SwiftUI, Combine).
+    /// Used by MemberEmissionValidator for member-level SwiftUI type filtering.
+    /// </summary>
+    public static bool IsUnsupportedModule(string moduleName) =>
+        UnsupportedConstraintModules.Contains(moduleName);
+
+    /// <summary>
     /// Checks if a protocol has associated types (which would make it a generic interface in C#).
     /// </summary>
     private static bool HasAssociatedTypes(ITypeDatabase typeDatabase, SwiftTypeName protocolTypeName)

@@ -374,7 +374,24 @@ public class BoundGenericsHandler
             if (!outerIsOptional && genericParam is TupleTypeSpec tuple && !tuple.IsEmptyTuple)
                 return true;
 
-            if (genericParam is NamedTypeSpec namedArg && IsObjCBridgedType(namedArg))
+            // B5: Optional tuple with existential element — check tuple elements for unresolvable existentials
+            if (outerIsOptional && genericParam is TupleTypeSpec optTuple && !optTuple.IsEmptyTuple)
+            {
+                foreach (var element in optTuple.Elements)
+                {
+                    if (_existentialHandler.IsExistential(element))
+                    {
+                        var protocolList = _existentialHandler.ToProtocolListTypeSpec(element);
+                        if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
+                            return true;
+                        var publicType = _existentialHandler.GetPublicExistentialType(protocolList);
+                        if (publicType == "object")
+                            return true;
+                    }
+                }
+            }
+
+            if (genericParam is NamedTypeSpec namedArg && (IsObjCBridgedType(namedArg) || IsNonSwiftObjectMappedType(namedArg)))
                 return true;
 
             if (HasNonSwiftObjectGenericArg(genericParam))
@@ -723,10 +740,28 @@ public class BoundGenericsHandler
 
     private bool IsObjCBridgedType(NamedTypeSpec typeSpec)
     {
+        if (!typeSpec.HasModule())
+            return false;
+
         if (_typeDatabase.TryGetTypeRecord(typeSpec, out var record))
             return record.Flags.HasFlag(TypeRecordFlags.ObjCBridged);
 
         return TypeDatabaseExtensions.IsObjCModuleType(typeSpec);
+    }
+
+    /// <summary>
+    /// Returns true when a type has a NativeTypeName mapping in the TypeDB (e.g., Foundation.Date → DateTimeOffset)
+    /// indicating it maps to a .NET type that doesn't implement ISwiftObject.
+    /// </summary>
+    private bool IsNonSwiftObjectMappedType(NamedTypeSpec typeSpec)
+    {
+        if (!typeSpec.HasModule())
+            return false;
+
+        if (_typeDatabase.TryGetTypeRecord(typeSpec, out var record))
+            return record.NativeTypeName != null;
+
+        return false;
     }
 
     private static bool IsBareStdlibGeneric(NamedTypeSpec typeSpec) => s_stdlibGenerics.Contains(typeSpec.Name);

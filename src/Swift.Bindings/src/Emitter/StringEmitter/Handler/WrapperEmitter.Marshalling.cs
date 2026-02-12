@@ -331,6 +331,19 @@ namespace BindingsGeneration
                 else if (_env.TypeConversionHandler.IsSwiftOptional(argumentDecl.SwiftTypeSpec) &&
                          !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
                 {
+                    // B12: Check if inner element is an ObjC-bridged type (e.g., UIViewController)
+                    // ObjC types have .Handle property but not ISwiftObject, so SwiftOptional<T> would be invalid.
+                    // Emit IntPtr fallback using the ObjC .Handle property.
+                    var optNamedTypeB12 = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
+                    var innerElementB12 = optNamedTypeB12?.GenericParameters.FirstOrDefault();
+                    if (innerElementB12 is NamedTypeSpec innerNamedB12 && innerNamedB12.HasModule() &&
+                        TypeDatabaseExtensions.IsObjCModuleType(innerNamedB12))
+                    {
+                        var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}?.Handle ?? IntPtr.Zero;");
+                    }
+                    else
+                    {
                     // T? -> SwiftOptional<T> (but not for optional closures - those are handled by EmitClosureSetup)
                     // Use pattern matching which works for both nullable value types and reference types
                     var swiftType = _env.TypeConversionHandler.GetSwiftWrapperType(
@@ -375,6 +388,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
                     csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                    } // end else (non-ObjC optional element)
                 }
                 else if (_env.TypeConversionHandler.HasNativeTypeRemapping(argumentDecl.SwiftTypeSpec))
                 {

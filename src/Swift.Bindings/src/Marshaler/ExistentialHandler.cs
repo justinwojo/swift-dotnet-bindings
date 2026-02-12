@@ -336,9 +336,25 @@ public class ExistentialHandler
     /// <returns>The combined interface name (e.g., "IDescribableAndTestIdentifiable").</returns>
     public string GetCompositionInterfaceName(ProtocolListTypeSpec protocolList)
     {
+        // B17: Filter out protocols from ObjC root modules (Foundation, ObjectiveC, UIKit, etc.)
+        // No interface is emitted for these types, so including them would produce invalid C# references.
         var protocols = protocolList.Protocols.Keys
+            .Where(p => !TypeDatabaseExtensions.IsObjCModuleType(p))
             .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
             .ToList();
+
+        // If filtering leaves only 1 protocol, return its interface name directly
+        if (protocols.Count == 1)
+        {
+            return NameProvider.GetInterfaceName(protocols[0].NameWithoutModule, moduleName: protocols[0].Module);
+        }
+
+        // If all protocols were filtered out, return object
+        if (protocols.Count == 0)
+        {
+            return "object";
+        }
+
         var names = protocols.Select(p => p.NameWithoutModule).ToList();
         var compositionName = "I" + string.Join("And", names);
 

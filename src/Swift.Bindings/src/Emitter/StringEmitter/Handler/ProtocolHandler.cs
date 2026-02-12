@@ -245,6 +245,20 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // B9: Skip methods with existential parameters — the receiver can't marshal
+                // ExistentialContainer types to/from interface types in [UnmanagedCallersOnly] callbacks.
+                var existentialHandlerB9 = new ExistentialHandler(env.TypeDatabase);
+                bool hasExistentialParam = methodDecl.CSSignature.Skip(1).Any(arg =>
+                    existentialHandlerB9.IsExistential(arg.SwiftTypeSpec) ||
+                    existentialHandlerB9.IsOptionalExistential(arg.SwiftTypeSpec));
+                if (hasExistentialParam)
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - has existential parameter.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsupportedExistential, "Method has existential parameter that can't be marshalled in protocol receiver.");
+                    continue;
+                }
+
                 // Check for AnyType as a generic type argument in the method signature
                 // (e.g., BatchedCollection<AnyType> violates where T0 : ISwiftCollection)
                 if (HasAnyTypeGenericArgInSignature(methodDecl, env.TypeDatabase, protocolDecl))

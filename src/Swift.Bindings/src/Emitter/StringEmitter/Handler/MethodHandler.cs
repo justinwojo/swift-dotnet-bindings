@@ -421,7 +421,7 @@ namespace BindingsGeneration
 
                     if (methodEnv.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
                     {
-                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{existentialType}'.");
+                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bound generic contains existential type argument '{existentialType}'.");
                         ReportCollector.RecordMemberSkipped(
                             BindingItemKind.Method,
                             methodEnv.MethodDecl.Name,
@@ -429,6 +429,37 @@ namespace BindingsGeneration
                             SkipReason.UnsupportedExistential,
                             $"Bound generic contains existential type argument '{existentialType}'.");
                         return;
+                    }
+
+                    // B6: Catch supported existentials in non-Array bound generics.
+                    // Array<any Protocol> has dedicated existential handling in WrapperEmitter.Marshalling
+                    // (line 276-285) that correctly converts interface→container. But Dictionary, Set, and
+                    // Optional-wrapped non-Array types fall to generic marshalling which produces a type
+                    // mismatch between the public interface type and the ABI container type.
+                    if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var supportedExistentialType))
+                    {
+                        // Allow through ONLY if the outermost bound generic is Array AND the
+                        // element type is itself an existential (NamedTypeSpec.IsAny or ProtocolListTypeSpec).
+                        // WrapperEmitter.Marshalling (line 276-285) has dedicated existential
+                        // handling for direct Array<any Protocol> elements that correctly converts
+                        // interface→container. All other shapes (nested existentials in Dictionary,
+                        // closures/tuples containing existentials, etc.) break.
+                        var outerNamedType = argument.SwiftTypeSpec as NamedTypeSpec;
+                        bool isArrayWithDirectExistentialElement = outerNamedType != null &&
+                            methodEnv.TypeConversionHandler.IsSwiftArray(outerNamedType) &&
+                            outerNamedType.GenericParameters.Count > 0 &&
+                            methodEnv.ExistentialHandler.IsExistential(outerNamedType.GenericParameters[0]);
+                        if (!isArrayWithDirectExistentialElement)
+                        {
+                            _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bound generic contains existential type argument '{supportedExistentialType}' in non-Array context.");
+                            ReportCollector.RecordMemberSkipped(
+                                BindingItemKind.Method,
+                                methodEnv.MethodDecl.Name,
+                                methodEnv.MethodDecl.ParentDecl,
+                                SkipReason.UnsupportedExistential,
+                                $"Bound generic contains existential type argument '{supportedExistentialType}'.");
+                            return;
+                        }
                     }
                 }
             }
