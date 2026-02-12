@@ -1,0 +1,5 @@
+<Project Sdk="Swift.Bindings.Sdk/0.1.0-preview.1">
+  <PropertyGroup>
+    <TargetFramework>net10.0-ios</TargetFramework>
+  </PropertyGroup>
+</Project>

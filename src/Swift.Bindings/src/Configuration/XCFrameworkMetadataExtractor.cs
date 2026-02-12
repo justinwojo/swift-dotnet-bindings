@@ -152,6 +152,43 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Writes metadata as an MSBuild .props file (XML) for SDK consumption via XmlPeek.
+        /// </summary>
+        /// <param name="metadata">Extracted xcframework metadata.</param>
+        /// <param name="outputDirectory">Directory to write binding-metadata.props.</param>
+        /// <param name="hasWrapperXCFramework">Whether a wrapper xcframework was compiled.</param>
+        /// <param name="wrapperModuleName">The wrapper module name (e.g., "NukeSwiftBindings").</param>
+        /// <param name="wrapperSliceCount">Number of architecture slices in the wrapper xcframework.</param>
+        /// <param name="logger">Logger instance.</param>
+        public static void EmitMetadataProps(
+            XCFrameworkMetadata metadata,
+            string outputDirectory,
+            bool hasWrapperXCFramework,
+            string wrapperModuleName,
+            int wrapperSliceCount,
+            ILogger logger)
+        {
+            var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
+
+            var content = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>{metadata.PackageVersion}</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>{metadata.EffectiveMinimumOSVersion}</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>{metadata.ModuleName}</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>{metadata.IsVersionPlaceholder}</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>{hasWrapperXCFramework}</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>{wrapperModuleName}</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>
+                  </PropertyGroup>
+                </Project>
+                """;
+
+            File.WriteAllText(propsPath, content);
+            logger.LogInformation("Wrote binding metadata props to {Path}", propsPath);
+        }
+
+        /// <summary>
         /// Writes metadata to a JSON file in the output directory.
         /// </summary>
         public static void EmitMetadataJson(XCFrameworkMetadata metadata, string outputDirectory, ILogger logger)

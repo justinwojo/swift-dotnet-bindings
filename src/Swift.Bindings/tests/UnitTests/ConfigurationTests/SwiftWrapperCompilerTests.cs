@@ -348,7 +348,7 @@ namespace BindingsGeneration.Tests
             var files = new List<string> { "/tmp/a.swift", "/tmp/b.swift" };
             SwiftWrapperCompiler.InvokeSwiftCompiler(
                 files, "/tmp/out/Binary", "TestSwiftBindings",
-                "15.0", "/sdk/path", "/fw/search",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
                 runner, NullLogger.Instance);
 
             Assert.Single(runner.Invocations);
@@ -374,7 +374,7 @@ namespace BindingsGeneration.Tests
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 SwiftWrapperCompiler.InvokeSwiftCompiler(
                     files, "/tmp/out/Binary", "TestSwiftBindings",
-                    "15.0", "/sdk/path", "/fw/search",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
                     runner, NullLogger.Instance));
             Assert.Contains("compilation failed", ex.Message);
             Assert.Contains("cannot find module", ex.Message);

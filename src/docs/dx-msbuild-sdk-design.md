@@ -453,25 +453,54 @@ cd Nuke.Swift.iOS && dotnet build && dotnet pack
 
 **Contributes to SDK:** Targets 5-7 reuse the metadata extraction and `.targets` generation logic.
 
-### Step 5: MSBuild SDK package
+### Step 5: MSBuild SDK package ✅
 
-**What:** Package the generator + targets into an MSBuild SDK NuGet.
+**Status: Complete.**
 
-**What changes:**
-- Create `Swift.Bindings.Sdk` package with `Sdk/Sdk.props` and `Sdk/Sdk.targets`
-- `Sdk.props`:
-  - Defines `SwiftFramework` item type
-  - Injects `PackageReference` to `Swift.Runtime`
-  - Sets default `TargetFramework` to `net10.0-ios`
-  - Sets `IsPackable=true` by default
-- `Sdk.targets`:
-  - `ExtractSwiftABI` target — invokes generator's xcframework extraction
-  - `GenerateBindings` target — invokes generator
-  - `CompileSwiftWrapper` target — invokes Swift wrapper compilation
-  - `ConfigurePack` target — sets up NuGet structure
-  - Incremental build support (skip regeneration if xcframework hasn't changed)
-- Ship generator as a tool inside the SDK package
-- Create `dotnet new swift-binding` project template
+**What was implemented:**
+
+**Generator changes (Phase 1):**
+- `Program.cs` — Three new CLI options: `--sdk-mode` (skips `.csproj` emission — the SDK IS the project system), `--package-id` (overrides default `{Module}.Swift.iOS` in consumer `.targets`), `--wrapper-architectures` (`simulator`/`device`/`all` — CLI default `simulator` for backward compat, SDK default `all` for pack correctness)
+- `XCFrameworkMetadataExtractor.cs` — New `EmitMetadataProps()` writes `binding-metadata.props` as MSBuild-native XML (consumed by `XmlPeek` — `<Import>` inside a `<Target>` doesn't work in MSBuild). Emits 7 properties: `_SwiftBindingPackageVersion`, `_SwiftBindingMinimumOSVersion`, `_SwiftBindingModuleName`, `_SwiftBindingIsVersionPlaceholder`, `_SwiftBindingHasWrapperXCFramework`, `_SwiftBindingWrapperModuleName`, `_SwiftBindingWrapperSliceCount`
+- `SwiftWrapperCompiler.cs` — Major refactor: extracted `CompileSlice()` (public, parameterized target triple + SDK name), added `CompileAll()` for multi-arch orchestration (post-process once → compile simulator + device → assemble multi-slice xcframework with `WriteXCFrameworkPlist()`). `SliceCount` property on result for metadata emission
+- `XCFrameworkResolver.cs` — New `ResolveAll()` returns `(XCFrameworkResolution Simulator, XCFrameworkResolution? Device)`, handles missing device slice gracefully with warning
+- `Program.cs` — Extracted `ShouldCompileWrapper()` as a testable static method covering the `isSimulatorSlice × wrapperArchitectures` matrix. Three branches: `simulator` (existing path), `device` (resolves device slice, calls `CompileSlice` with `iphoneos` SDK), `all` (calls `CompileAll` with both resolutions)
+
+**SDK package (Phase 2):**
+- `src/Swift.Bindings.Sdk/Sdk/Sdk.props` — SDK property defaults: `net10.0-ios`, `AllowUnsafeBlocks`, `IsPackable=true`, `Nullable=enable`, `SwiftWrapperArchitectures=all` (both slices by default), `SwiftPlatformTarget=simulator`, implicit `PackageReference` to `Swift.Runtime` with `$(SwiftRuntimeVersion)` version floor. NO auto-discovery (that's in `.targets`, after project body evaluation)
+- `src/Swift.Bindings.Sdk/Sdk/Sdk.targets` — 9 MSBuild targets:
+
+| # | Target | Fires | Purpose |
+|---|--------|-------|---------|
+| 0 | `_ValidateSwiftPackageItems` | Before `_DiscoverSwiftFrameworks` | Error `SWIFTBIND100` on `<SwiftPackage>` (v2 stub) |
+| 1 | `_DiscoverSwiftFrameworks` | Before `_ComputeSwiftFingerprint` | Auto-discover `*.xcframework`; validate count (`SWIFTBIND001`/`002`/`003`) |
+| 2 | `_ComputeSwiftFingerprint` | Before `_GenerateSwiftBindings` | Hash dylib + Info.plist + swiftinterface + optional inputs + properties → stamp file |
+| 3 | `_GenerateSwiftBindings` | Before `CoreCompile` | Invoke generator (skipped if fingerprint unchanged) |
+| 4 | `_ImportSwiftBindingMetadata` | After `_GenerateSwiftBindings` | `XmlPeek` reads `binding-metadata.props` → sets `PackageVersion`, `SupportedOSPlatformVersion` |
+| 5 | `_IncludeGeneratedSwiftBindings` | After `_ImportSwiftBindingMetadata` | Add generated `.cs` to `Compile` |
+| 6 | `_ResolveSwiftNativeReferences` | Before `ResolveNativeReferences` | Inject `NativeReference` items for source + wrapper xcframeworks |
+| 7a | `_ValidateSwiftBindingPackSlices` | Before `_ConfigureSwiftBindingPack` | Two guards: property check (`SWIFTBIND030`), artifact check (`SWIFTBIND031`) |
+| 7b | `_ConfigureSwiftBindingPack` | Before `GenerateNuspec` | Arrange NuGet pack layout (`.targets` + xcframeworks in `runtimes/`) |
+
+- `src/Swift.Bindings.Sdk/Swift.Bindings.Sdk.csproj` — `PackageType=MSBuildSdk`, `NoBuild=true`, packs `Sdk/` and `tools/net10.0/any/`
+- `src/Swift.Bindings.Sdk/build-sdk.sh` — Publishes generator then packs SDK NuGet
+
+**Fingerprint-based incremental build (Target 2):**
+- Shell-based `shasum -a 256` pipeline covers extensionless framework binaries (`Module.framework/Module`) that `*.dylib` globs would miss
+- Hashes: outer Info.plist, framework binaries, public `.swiftinterface`, optional supplementary inputs (SymbolGraph, BridgeHints, SwiftInterface), all generation-affecting properties
+- Cost: ~50ms per build. Fingerprint stored in `obj/swift-binding/swift-binding.stamp`
+- Optional file loop uses `if/then/fi` with `done;` (not `&&` chaining) to keep property echo unconditional — prevents fingerprint drops when optional files are unset
+
+**Template package (Phase 3):**
+- `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` template with `sdkVersion` parameter
+- Template project: `<Project Sdk="Swift.Bindings.Sdk/0.1.0-preview.1">` with `net10.0-ios`
+
+**Unit tests (51 new tests):**
+- `XCFrameworkMetadataPropsTests.cs` (4 tests): file creation, all properties present, no-wrapper state, valid MSBuild XML
+- `ProgramSdkModeTests.cs` (8 tests): CLI option parsing for `--sdk-mode`, `--package-id`, `--wrapper-architectures`
+- `ShouldCompileWrapperTests.cs` (6 tests): full 2×3 truth table (isSimulatorSlice × wrapperArchitectures)
+- `SdkPropsTargetsTests.cs` (25 tests): Sdk.props content (Microsoft.NET.Sdk import, default properties, Swift.Runtime reference, no auto-discovery), Sdk.targets content (all 9 targets, SWIFTBIND error codes, fingerprint, XmlPeek metadata, pack layout, auto-discovery placement)
+- `SwiftWrapperCompilerTests.cs` (2 updated): `targetTriple` parameter on `InvokeSwiftCompiler`
 
 **After this step:** The full vision works:
 ```bash
@@ -494,66 +523,23 @@ cd Nuke.Swift.iOS && dotnet build && dotnet pack
 
 Actionable errors cover: static xcframeworks, ObjC-only frameworks, missing Info.plist, no iOS slices, multiple Swift modules, missing `file` command.
 
-### Q2: MSBuild SDK Packaging Mechanics
+### Q2: MSBuild SDK Packaging Mechanics ✅ Resolved
 
-How exactly do you ship a .NET tool inside an MSBuild SDK NuGet package?
-
-**Specifics to verify:**
-- Can `Sdk.targets` invoke a tool from the SDK's own `tools/` directory? What's the path resolution?
-- How do platform-specific tools work? (The generator runs on .NET, but `swiftc` and `xcodebuild` are macOS-only executables — these are system tools, not shipped in the package)
-- Does the SDK need to be a meta-package that depends on a separate tool package?
-- How do other SDKs (e.g., `Microsoft.NET.Sdk.Razor`) handle this?
-- What's the minimum NuGet/MSBuild version required for custom SDK support?
+**Answer:** `Sdk.props` sets `_SwiftBindingGeneratorDir` to `$(MSBuildThisFileDirectory)../tools/net10.0/any/`. `Sdk.targets` invokes `dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"` with all CLI flags. The generator runs on .NET; platform tools (`swiftc`, `xcodebuild`, `plutil`) are system tools invoked by the generator via `ICommandRunner`, not shipped in the package. The SDK is a single NuGet (`PackageType=MSBuildSdk`) with `NoBuild=true` — the generator is published to `tools/` at pack time by `build-sdk.sh`.
 
 ### Q3: Swift.Runtime Versioning Strategy ✅ Resolved
 
 **Answer: Independent versioning.** Swift.Runtime 0.1.0-preview.1 (pre-release, signals experimental status), SDK on its own cadence, binding packages use upstream library versions (e.g., Nuke.Swift.iOS 12.8.0). SDK will declare a minimum Swift.Runtime version via version-ranged `PackageReference` in `Sdk.props`.
 
-### Q4: Swift Wrapper Compilation — Architecture Slices
+### Q4: Swift Wrapper Compilation — Architecture Slices ✅ Resolved
 
-Should `CompileSwiftWrapper` always build both device (arm64) and simulator (arm64 + x86_64) slices?
+**Answer: User-controlled via `<SwiftWrapperArchitectures>`.** Defaults to `all` (both device + simulator) in the SDK — so `dotnet pack` always produces correct NuGet output. Fast-iteration users can override to `simulator` for quicker dev builds. The property is included in the fingerprint hash, so changing it triggers regeneration. Pack-time validation (`SWIFTBIND030`) errors if `SwiftWrapperArchitectures != all` during `dotnet pack`. Missing source slices (e.g., simulator-only xcframework) produce `SWIFTBIND031` with clear instructions.
 
-**Context:** Building for multiple architectures takes longer. During development, the binding author may only need the simulator slice. But `dotnet pack` needs both for a complete NuGet package.
+### Q5: Incremental Build Support ✅ Resolved
 
-**Options:**
-- Always build both (simpler, slower)
-- Build only the active configuration's slice during `dotnet build`, both during `dotnet pack`
-- Let the user control via a property (`<SwiftWrapperArchitectures>all</SwiftWrapperArchitectures>`)
+**Answer: Fingerprint-based stamp file.** Implemented as `_ComputeSwiftFingerprint` target (Target 2 in Sdk.targets). Shell-based `shasum -a 256` pipeline hashes: outer `Info.plist`, all framework binaries (extensionless Mach-O inside `*.framework/`), public `.swiftinterface` files, optional supplementary inputs (SymbolGraph, BridgeHints, SwiftInterface), and all generation-affecting properties (`_SwiftBindingSdkVersion`, `SwiftPlatformTarget`, `SwiftWrapperArchitectures`, `NamespacePattern`, `PackageId`). Sorted for determinism. Stamp stored at `obj/swift-binding/swift-binding.stamp`. Generation target (`_GenerateSwiftBindings`) is gated on `'$(_SwiftBindingUpToDate)' != 'true'`. Cost: ~50ms per build.
 
-### Q5: Incremental Build Support
-
-When should the SDK skip regeneration?
-
-**Context:** `dotnet build` should be fast on repeat builds. The SDK should skip ABI extraction + generation + wrapper compilation if the xcframework hasn't changed.
-
-**Approach: Fingerprint file in `obj/`**
-
-xcframeworks are directories, so MSBuild's file-based `Inputs`/`Outputs` doesn't work directly. Instead:
-
-1. **Compute a fingerprint** from all build-affecting inputs:
-   - Inner framework's Mach-O binary (the dylib — this is the artifact that matters)
-   - Inner framework's `Info.plist` (captures version changes)
-   - `.swiftinterface` file (captures API surface changes)
-   - SDK/generator version string (new SDK version → regenerate even if xcframework unchanged)
-   - Relevant MSBuild properties that affect generation (`NamespacePattern`, `TargetFramework`, `SwiftWrapperArchitectures`, etc.)
-   - Hash all inputs with SHA-256, combine into a single fingerprint string
-
-2. **Store the fingerprint** in `obj/{Configuration}/swift-binding.stamp` (a text file containing the hash)
-
-3. **MSBuild targets use the stamp file** as `Inputs`:
-   - `ExtractSwiftABI`: Inputs=`stamp file`, Outputs=`ABI JSON`
-   - `GenerateBindings`: Inputs=`ABI JSON`, Outputs=`generated .cs files`
-   - `CompileSwiftWrapper`: Inputs=`generated .swift file`, Outputs=`wrapper .xcframework sentinel`
-   - If the stamp hasn't changed, all three targets skip
-
-4. **A pre-target recomputes the fingerprint** on every build (fast — just 3 file hashes) and compares to the stored stamp. If different, it updates the stamp, which invalidates downstream targets.
-
-**Cost:** ~50ms per build for the fingerprint check. Acceptable given that a full regeneration takes 10-30 seconds.
-
-**Edge cases:**
-- If the user replaces the xcframework directory with a different framework but the same filename, the dylib hash changes and regeneration triggers correctly.
-- If the user updates the SDK (new generator version), the version string in the fingerprint changes and regeneration triggers even though the xcframework is unchanged.
-- If the user changes `NamespacePattern` or other generation-affecting properties, the property hash changes and regeneration triggers.
+Edge cases all covered: xcframework replacement (dylib hash changes), SDK update (version string changes), property changes (included in hash). Optional file loop uses `if/then/fi` to prevent fingerprint drops when supplementary files are unset.
 
 ### Q6: Multi-Framework Libraries (e.g., Nuke + NukeUI + NukeExtensions)
 

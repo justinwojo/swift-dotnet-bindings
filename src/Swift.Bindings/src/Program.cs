@@ -58,6 +58,17 @@ namespace BindingsGeneration
             Option<string> configOption = new(
                 aliases: new[] { "--config" },
                 description: $"Path to config JSON file. Default: {DefaultConfigFileName} in current directory.");
+            Option<bool> sdkModeOption = new(
+                aliases: new[] { "--sdk-mode" },
+                description: "SDK mode: skips .csproj emission (used when the SDK IS the project system).",
+                getDefaultValue: () => false);
+            Option<string?> packageIdOption = new(
+                aliases: new[] { "--package-id" },
+                description: "Package ID for NuGet packaging. Overrides the default '{Module}.Swift.iOS'.");
+            Option<string> wrapperArchitecturesOption = new(
+                aliases: new[] { "--wrapper-architectures" },
+                description: "Wrapper compilation scope: 'simulator' (default), 'device', or 'all' (both slices).",
+                getDefaultValue: () => "simulator");
             Option<int> verboseOption = new(
                 aliases: new[] { "-v", "--verbose" },
                 description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -78,6 +89,9 @@ namespace BindingsGeneration
                 symbolGraphOption,
                 bridgeHintsOption,
                 namespacePatternOption,
+                sdkModeOption,
+                packageIdOption,
+                wrapperArchitecturesOption,
                 configOption,
                 verboseOption,
                 helpOption,
@@ -97,6 +111,9 @@ namespace BindingsGeneration
                 var symbolGraph = parseResult.GetValueForOption(symbolGraphOption);
                 var bridgeHints = parseResult.GetValueForOption(bridgeHintsOption);
                 var namespacePattern = parseResult.GetValueForOption(namespacePatternOption);
+                var sdkMode = parseResult.GetValueForOption(sdkModeOption);
+                var packageId = parseResult.GetValueForOption(packageIdOption);
+                var wrapperArchitectures = parseResult.GetValueForOption(wrapperArchitecturesOption);
                 var configPath = parseResult.GetValueForOption(configOption);
                 var verbose = parseResult.GetValueForOption(verboseOption);
                 var help = parseResult.GetValueForOption(helpOption);
@@ -116,6 +133,9 @@ namespace BindingsGeneration
                     Console.WriteLine("  --symbolgraph        Optional. Path to symbol graph JSON file or directory for doc comments.");
                     Console.WriteLine("  --bridge-hints       Optional. Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
                     Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
+                    Console.WriteLine("  --sdk-mode           Optional. Skips .csproj emission (used when the SDK IS the project system).");
+                    Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.iOS'.");
+                    Console.WriteLine("  --wrapper-architectures  Optional. Wrapper compilation scope: 'simulator' (default), 'device', or 'all'.");
                     Console.WriteLine($"  --config             Optional. Path to config file. Default: {DefaultConfigFileName}");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
                     return;
@@ -188,16 +208,20 @@ namespace BindingsGeneration
                         return;
                     }
 
-                    // Gate wrapper compilation on resolved simulator slice
-                    shouldCompileWrapper = resolution.IsSimulatorSlice;
+                    // Gate wrapper compilation:
+                    // - simulator/all: needs a simulator slice (always present as primary when --platform-target simulator)
+                    // - device: can compile with just a device slice
+                    // - If the primary resolution is device-only and architectures is 'simulator', skip
+                    var wrapperArchEarly = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
+                    shouldCompileWrapper = ShouldCompileWrapper(resolution.IsSimulatorSlice, wrapperArchEarly);
                     if (!shouldCompileWrapper)
                     {
                         logger.LogInformation(
-                            "Swift wrapper compilation requires a simulator slice. " +
-                            "Pass --async-library manually for device builds.");
+                            "Swift wrapper compilation requires a simulator slice or --wrapper-architectures device/all. " +
+                            "Pass --async-library manually for device-only builds without wrapper compilation.");
                     }
 
-                    // Auto-set --async-library before GenerateBindings() (simulator only)
+                    // Auto-set --async-library whenever wrapper will be compiled
                     if (shouldCompileWrapper && string.IsNullOrWhiteSpace(asyncLibrary))
                     {
                         var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
@@ -237,7 +261,15 @@ namespace BindingsGeneration
 
                 GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory);
 
-                // Compile Swift wrapper (xcframework simulator mode only)
+                // Validate --wrapper-architectures
+                var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
+                if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
+                {
+                    logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
+                    return;
+                }
+
+                // Compile Swift wrapper (xcframework mode only)
                 SwiftWrapperCompilationResult? compilationResult = null;
                 if (shouldCompileWrapper && resolution != null)
                 {
@@ -245,9 +277,52 @@ namespace BindingsGeneration
 
                     try
                     {
-                        compilationResult = SwiftWrapperCompiler.Compile(
-                            outputDirectory, resolution.ModuleName,
-                            resolution.FrameworkSearchPath, resolution.DylibPath, logger);
+                        if (wrapperArchNormalized == "all")
+                        {
+                            // Multi-arch: resolve both slices, compile wrapper for both
+                            var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
+                                xcframeworkPath!, outputDirectory, logger);
+
+                            if (deviceResolution == null)
+                            {
+                                logger.LogWarning(
+                                    "Source xcframework has no device slice; wrapper will contain simulator slice only.");
+                            }
+
+                            compilationResult = SwiftWrapperCompiler.CompileAll(
+                                outputDirectory, resolution.ModuleName,
+                                simResolution, deviceResolution, logger);
+                        }
+                        else if (wrapperArchNormalized == "device")
+                        {
+                            // Device-only: resolve device slice and compile for iphoneos
+                            XCFrameworkResolution deviceOnlyResolution;
+                            try
+                            {
+                                deviceOnlyResolution = XCFrameworkResolver.Resolve(
+                                    xcframeworkPath!, outputDirectory,
+                                    XCFrameworkPlatformTarget.Device, logger);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogError("Cannot compile device wrapper: {Message}", ex.Message);
+                                context.ExitCode = 1;
+                                return;
+                            }
+
+                            compilationResult = SwiftWrapperCompiler.CompileSlice(
+                                outputDirectory, resolution.ModuleName,
+                                deviceOnlyResolution.FrameworkSearchPath,
+                                deviceOnlyResolution.DylibPath,
+                                "device", "iphoneos", logger);
+                        }
+                        else
+                        {
+                            // Simulator-only (default)
+                            compilationResult = SwiftWrapperCompiler.Compile(
+                                outputDirectory, resolution.ModuleName,
+                                resolution.FrameworkSearchPath, resolution.DylibPath, logger);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -289,21 +364,33 @@ namespace BindingsGeneration
 
                         var wrapperXcfwPath = compilationResult?.XCFrameworkPath;
                         var hasWrapperXcfw = wrapperXcfwPath != null && Directory.Exists(wrapperXcfwPath);
+                        var effectivePackageId = packageId ?? $"{resolution.ModuleName}.Swift.iOS";
+                        var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
 
-                        BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                        // Always emit metadata props (used by SDK and standalone)
+                        XCFrameworkMetadataExtractor.EmitMetadataProps(
+                            metadata, outputDirectory, hasWrapperXcfw,
+                            wrapperModuleName,
+                            compilationResult?.SliceCount ?? 0, logger);
+
+                        // Only emit .csproj in non-SDK mode
+                        if (!sdkMode)
                         {
-                            OutputDirectory = outputDirectory,
-                            ModuleName = resolution.ModuleName,
-                            Metadata = metadata,
-                            SourceXCFrameworkPath = resolution.XCFrameworkPath,
-                            WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null
-                        }, logger);
+                            BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                            {
+                                OutputDirectory = outputDirectory,
+                                ModuleName = resolution.ModuleName,
+                                Metadata = metadata,
+                                SourceXCFrameworkPath = resolution.XCFrameworkPath,
+                                WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null
+                            }, logger);
+                        }
 
                         ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                         {
                             OutputDirectory = outputDirectory,
                             ModuleName = resolution.ModuleName,
-                            PackageId = $"{resolution.ModuleName}.Swift.iOS",
+                            PackageId = effectivePackageId,
                             EffectiveMinimumOSVersion = metadata.EffectiveMinimumOSVersion,
                             HasWrapperXCFramework = hasWrapperXcfw
                         }, logger);
@@ -416,6 +503,19 @@ namespace BindingsGeneration
             else
                 logger.LogWarning("Bindings generation already completed for {SwiftAbiPath}.", swiftAbiPath);
 
+        }
+
+        /// <summary>
+        /// Determines whether wrapper compilation should proceed based on the resolved
+        /// slice type and the requested wrapper architecture scope.
+        /// </summary>
+        /// <param name="isSimulatorSlice">True when the primary resolution is a simulator slice.</param>
+        /// <param name="wrapperArchitectures">Normalized value of --wrapper-architectures (simulator/device/all).</param>
+        internal static bool ShouldCompileWrapper(bool isSimulatorSlice, string wrapperArchitectures)
+        {
+            return isSimulatorSlice
+                || wrapperArchitectures == "device"
+                || wrapperArchitectures == "all";
         }
 
         private static string ResolveNamespacePattern(string? cliNamespacePattern, string? configPath, ILogger logger)

@@ -201,6 +201,61 @@ namespace BindingsGeneration
             };
         }
 
+        /// <summary>
+        /// Resolves an xcframework to generator inputs for all available iOS slices (simulator + device).
+        /// Returns the primary (simulator) resolution plus an optional device resolution.
+        /// </summary>
+        public static (XCFrameworkResolution Simulator, XCFrameworkResolution? Device) ResolveAll(
+            string xcframeworkPath,
+            string outputDirectory,
+            ILogger logger,
+            ICommandRunner? commandRunner = null)
+        {
+            commandRunner ??= new SystemCommandRunner();
+            xcframeworkPath = Path.GetFullPath(xcframeworkPath);
+
+            ValidateXCFramework(xcframeworkPath);
+
+            var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
+            var slices = ParseInfoPlist(plistPath);
+
+            // Always resolve simulator (primary)
+            var simSlice = slices.FirstOrDefault(s =>
+                s.SupportedPlatform.Equals("ios", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(s.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase));
+
+            if (simSlice == null)
+            {
+                throw new InvalidOperationException(
+                    "No iOS simulator slice found. The xcframework must contain a simulator slice for binding generation.");
+            }
+
+            var simResolution = Resolve(xcframeworkPath, outputDirectory,
+                XCFrameworkPlatformTarget.Simulator, logger, commandRunner);
+
+            // Try to resolve device slice
+            XCFrameworkResolution? deviceResolution = null;
+            var deviceSlice = slices.FirstOrDefault(s =>
+                s.SupportedPlatform.Equals("ios", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(s.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(s.SupportedPlatformVariant, "maccatalyst", StringComparison.OrdinalIgnoreCase));
+
+            if (deviceSlice != null)
+            {
+                try
+                {
+                    deviceResolution = Resolve(xcframeworkPath, outputDirectory,
+                        XCFrameworkPlatformTarget.Device, logger, commandRunner);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning("Could not resolve device slice: {Message}", ex.Message);
+                }
+            }
+
+            return (simResolution, deviceResolution);
+        }
+
         internal static void ValidateXCFramework(string xcframeworkPath)
         {
             if (!Directory.Exists(xcframeworkPath))

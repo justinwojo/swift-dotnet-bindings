@@ -1,0 +1,36 @@
+<Project>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
+  <PropertyGroup>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0-ios</TargetFramework>
+    <OutputType>Library</OutputType>
+    <IsPackable>true</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);CS0169</NoWarn>
+
+    <!-- SDK internal paths -->
+    <_SwiftBindingSdkVersion>0.1.0-preview.1</_SwiftBindingSdkVersion>
+    <_SwiftBindingGeneratorDir>$(MSBuildThisFileDirectory)../tools/net10.0/any/</_SwiftBindingGeneratorDir>
+    <_SwiftBindingIntermediateDir>$(IntermediateOutputPath)swift-binding/</_SwiftBindingIntermediateDir>
+
+    <!-- User-configurable -->
+    <SwiftPlatformTarget Condition="'$(SwiftPlatformTarget)' == ''">simulator</SwiftPlatformTarget>
+    <SwiftGeneratorVerbosity Condition="'$(SwiftGeneratorVerbosity)' == ''">1</SwiftGeneratorVerbosity>
+    <!-- Default to both slices (device + simulator) so dotnet pack always works -->
+    <!-- Fast-iteration users can override to 'simulator' for quicker dev builds -->
+    <SwiftWrapperArchitectures Condition="'$(SwiftWrapperArchitectures)' == ''">all</SwiftWrapperArchitectures>
+    <!-- Property-driven version floor — users can override to use newer runtime -->
+    <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.1.0-preview.1</SwiftRuntimeVersion>
+  </PropertyGroup>
+
+  <!-- Implicit Swift.Runtime reference with minimum version floor -->
+  <ItemGroup>
+    <PackageReference Include="Swift.Runtime" Version="$(SwiftRuntimeVersion)"
+                      Condition="'$(DisableImplicitSwiftRuntimeReference)' != 'true'" />
+  </ItemGroup>
+
+  <!-- NOTE: Auto-discovery is in Sdk.targets (after project body evaluation) -->
+  <!-- so explicit <SwiftFramework> items in the project are seen first        -->
+</Project>

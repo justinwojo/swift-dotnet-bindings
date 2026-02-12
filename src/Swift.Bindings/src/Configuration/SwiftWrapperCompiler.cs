@@ -24,6 +24,11 @@ namespace BindingsGeneration
         /// Total number of blocks stripped by the post-processor across all files.
         /// </summary>
         public required int StrippedBlockCount { get; init; }
+
+        /// <summary>
+        /// Number of architecture slices in the wrapper xcframework (1 = simulator only, 2 = both).
+        /// </summary>
+        public int SliceCount { get; init; } = 1;
     }
 
     /// <summary>
@@ -41,7 +46,7 @@ namespace BindingsGeneration
 
     /// <summary>
     /// Compiles generated Swift wrapper files into a {Module}SwiftBindings.xcframework.
-    /// Simulator-only (arm64). Device slices are deferred to Step 5.
+    /// Supports single-slice (simulator) and multi-slice (simulator + device) compilation.
     /// </summary>
     public static class SwiftWrapperCompiler
     {
@@ -72,7 +77,7 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Compiles generated Swift wrapper files into an xcframework.
+        /// Compiles generated Swift wrapper files into an xcframework (simulator slice only).
         /// Returns null if no Swift files exist in the output directory.
         /// </summary>
         /// <param name="outputDirectory">Directory containing generated Swift wrapper files.</param>
@@ -86,6 +91,168 @@ namespace BindingsGeneration
             string moduleName,
             string frameworkSearchPath,
             string dylibPath,
+            ILogger logger,
+            ICommandRunner? commandRunner = null)
+        {
+            return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
+                "simulator", "iphonesimulator", logger, commandRunner);
+        }
+
+        /// <summary>
+        /// Compiles generated Swift wrapper files into a multi-slice xcframework (simulator + device).
+        /// If the device resolution is null, produces a simulator-only xcframework.
+        /// Returns null if no Swift files exist in the output directory.
+        /// </summary>
+        public static SwiftWrapperCompilationResult? CompileAll(
+            string outputDirectory,
+            string moduleName,
+            XCFrameworkResolution simulatorResolution,
+            XCFrameworkResolution? deviceResolution,
+            ILogger logger,
+            ICommandRunner? commandRunner = null)
+        {
+            commandRunner ??= new SystemCommandRunner();
+            var wrapperModuleName = $"{moduleName}SwiftBindings";
+
+            // 1. Collect and post-process Swift files (once — source is architecture-agnostic)
+            var swiftFiles = CollectSwiftFiles(outputDirectory);
+            if (swiftFiles.Count == 0)
+            {
+                logger.LogInformation("No Swift wrapper files found in {Dir} — skipping wrapper compilation.", outputDirectory);
+                return null;
+            }
+
+            logger.LogInformation("Compiling {Count} Swift wrapper file(s) into {Module}.xcframework...",
+                swiftFiles.Count, wrapperModuleName);
+
+            var cleanedDir = Path.Combine(outputDirectory, ".wrapper-build");
+            if (Directory.Exists(cleanedDir))
+                Directory.Delete(cleanedDir, true);
+            Directory.CreateDirectory(cleanedDir);
+
+            int totalStripped = 0;
+            var cleanedFiles = new List<string>();
+
+            try
+            {
+                foreach (var swiftFile in swiftFiles)
+                {
+                    var content = File.ReadAllText(swiftFile);
+                    var result = SwiftWrapperPostProcessor.Process(content);
+                    totalStripped += result.StrippedBlockCount;
+
+                    if (result.StrippedBlockCount > 0)
+                    {
+                        logger.LogInformation("  Stripped {Count} broken wrapper(s) from {File}",
+                            result.StrippedBlockCount, Path.GetFileName(swiftFile));
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(result.CleanedContent))
+                    {
+                        var cleanedPath = Path.Combine(cleanedDir, Path.GetFileName(swiftFile));
+                        File.WriteAllText(cleanedPath, result.CleanedContent);
+                        cleanedFiles.Add(cleanedPath);
+                    }
+                }
+
+                if (cleanedFiles.Count == 0)
+                {
+                    logger.LogWarning("All Swift wrapper code was stripped as broken ({Count} block(s)).", totalStripped);
+                    return new SwiftWrapperCompilationResult
+                    {
+                        XCFrameworkPath = "",
+                        CompiledFileCount = 0,
+                        StrippedBlockCount = totalStripped,
+                        SliceCount = 0
+                    };
+                }
+
+                // 2. Resolve deployment target
+                var minOS = ResolveDeploymentTarget(simulatorResolution.DylibPath, logger, commandRunner);
+
+                // 3. Create xcframework directory structure
+                var xcframeworkPath = Path.Combine(outputDirectory, $"{wrapperModuleName}.xcframework");
+                if (Directory.Exists(xcframeworkPath))
+                    Directory.Delete(xcframeworkPath, true);
+
+                var sliceCount = 0;
+
+                // 4. Compile simulator slice
+                var simFrameworkDir = Path.Combine(xcframeworkPath, "ios-arm64-simulator", $"{wrapperModuleName}.framework");
+                Directory.CreateDirectory(simFrameworkDir);
+                WriteFrameworkPlist(simFrameworkDir, wrapperModuleName, minOS, "iPhoneSimulator");
+
+                var simSdkPath = ResolveSdkPath("iphonesimulator", commandRunner);
+                var simBinaryPath = Path.Combine(simFrameworkDir, wrapperModuleName);
+                InvokeSwiftCompiler(
+                    cleanedFiles, simBinaryPath, wrapperModuleName,
+                    $"arm64-apple-ios{minOS}-simulator", simSdkPath,
+                    simulatorResolution.FrameworkSearchPath, commandRunner, logger);
+                sliceCount++;
+
+                logger.LogInformation("Compiled simulator slice for {Module}.", wrapperModuleName);
+
+                // 5. Compile device slice (if available)
+                if (deviceResolution != null)
+                {
+                    var devFrameworkDir = Path.Combine(xcframeworkPath, "ios-arm64", $"{wrapperModuleName}.framework");
+                    Directory.CreateDirectory(devFrameworkDir);
+                    WriteFrameworkPlist(devFrameworkDir, wrapperModuleName, minOS, "iPhoneOS");
+
+                    var devSdkPath = ResolveSdkPath("iphoneos", commandRunner);
+                    var devBinaryPath = Path.Combine(devFrameworkDir, wrapperModuleName);
+                    InvokeSwiftCompiler(
+                        cleanedFiles, devBinaryPath, wrapperModuleName,
+                        $"arm64-apple-ios{minOS}", devSdkPath,
+                        deviceResolution.FrameworkSearchPath, commandRunner, logger);
+                    sliceCount++;
+
+                    logger.LogInformation("Compiled device slice for {Module}.", wrapperModuleName);
+                }
+
+                // 6. Write xcframework Info.plist
+                WriteXCFrameworkPlist(xcframeworkPath, wrapperModuleName, deviceResolution != null);
+
+                logger.LogInformation("{Module}.xcframework built successfully at {Path} ({SliceCount} slice(s)).",
+                    wrapperModuleName, xcframeworkPath, sliceCount);
+
+                return new SwiftWrapperCompilationResult
+                {
+                    XCFrameworkPath = xcframeworkPath,
+                    CompiledFileCount = cleanedFiles.Count,
+                    StrippedBlockCount = totalStripped,
+                    SliceCount = sliceCount
+                };
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(cleanedDir))
+                        Directory.Delete(cleanedDir, true);
+                }
+                catch { /* best-effort cleanup */ }
+            }
+        }
+
+        /// <summary>
+        /// Compiles generated Swift wrapper files into a single-slice xcframework.
+        /// </summary>
+        /// <param name="outputDirectory">Directory containing generated Swift wrapper files.</param>
+        /// <param name="moduleName">The Swift module name (e.g., "Nuke").</param>
+        /// <param name="frameworkSearchPath">The -F flag target (e.g., xcframework slice directory).</param>
+        /// <param name="dylibPath">Path to the source framework's dylib (used to locate Info.plist for min OS).</param>
+        /// <param name="platformVariant">"simulator" or "device".</param>
+        /// <param name="sdkName">"iphonesimulator" or "iphoneos".</param>
+        /// <param name="logger">Logger instance.</param>
+        /// <param name="commandRunner">Optional command runner for testing.</param>
+        public static SwiftWrapperCompilationResult? CompileSlice(
+            string outputDirectory,
+            string moduleName,
+            string frameworkSearchPath,
+            string dylibPath,
+            string platformVariant,
+            string sdkName,
             ILogger logger,
             ICommandRunner? commandRunner = null)
         {
@@ -147,21 +314,28 @@ namespace BindingsGeneration
                 }
 
                 // 3. Resolve deployment target from source framework
-                var minOS = ResolveDeploymentTarget(dylibPath, logger);
+                var minOS = ResolveDeploymentTarget(dylibPath, logger, commandRunner);
 
                 // 4. Create xcframework directory structure
+                var isSimulator = platformVariant == "simulator";
+                var sliceId = isSimulator ? "ios-arm64-simulator" : "ios-arm64";
                 var xcframeworkPath = Path.Combine(outputDirectory, $"{wrapperModuleName}.xcframework");
-                var frameworkDir = Path.Combine(xcframeworkPath, "ios-arm64-simulator", $"{wrapperModuleName}.framework");
+                var frameworkDir = Path.Combine(xcframeworkPath, sliceId, $"{wrapperModuleName}.framework");
                 var outputBinaryPath = Path.Combine(frameworkDir, wrapperModuleName);
                 CreateXCFrameworkStructure(xcframeworkPath, frameworkDir, wrapperModuleName, minOS);
 
                 // 5. Resolve SDK path
-                var sdkPath = ResolveSdkPath(commandRunner);
+                var sdkPath = ResolveSdkPath(sdkName, commandRunner);
 
-                // 6. Invoke swiftc
+                // 6. Build target triple
+                var targetTriple = isSimulator
+                    ? $"arm64-apple-ios{minOS}-simulator"
+                    : $"arm64-apple-ios{minOS}";
+
+                // 7. Invoke swiftc
                 InvokeSwiftCompiler(
                     cleanedFiles, outputBinaryPath, wrapperModuleName,
-                    minOS, sdkPath, frameworkSearchPath, commandRunner, logger);
+                    targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger);
 
                 logger.LogInformation("{Module}.xcframework built successfully at {Path}",
                     wrapperModuleName, xcframeworkPath);
@@ -225,22 +399,32 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Resolves the iOS Simulator SDK path via xcrun.
+        /// Resolves an iOS SDK path via xcrun.
         /// </summary>
-        internal static string ResolveSdkPath(ICommandRunner commandRunner)
+        /// <param name="sdkName">SDK name: "iphonesimulator" or "iphoneos".</param>
+        /// <param name="commandRunner">Command runner.</param>
+        internal static string ResolveSdkPath(string sdkName, ICommandRunner commandRunner)
         {
-            var (exitCode, sdkPath, stderr) = commandRunner.Run("xcrun", "--sdk iphonesimulator --show-sdk-path");
+            var (exitCode, sdkPath, stderr) = commandRunner.Run("xcrun", $"--sdk {sdkName} --show-sdk-path");
             if (exitCode != 0 || string.IsNullOrWhiteSpace(sdkPath))
             {
                 throw new InvalidOperationException(
-                    $"Failed to resolve iOS Simulator SDK path. Ensure Xcode and iOS SDK are installed. " +
+                    $"Failed to resolve iOS SDK path for '{sdkName}'. Ensure Xcode and iOS SDK are installed. " +
                     $"Error: {stderr}");
             }
             return sdkPath;
         }
 
         /// <summary>
-        /// Creates the xcframework directory structure with both Info.plists.
+        /// Resolves the iOS Simulator SDK path via xcrun. Backward-compatible overload.
+        /// </summary>
+        internal static string ResolveSdkPath(ICommandRunner commandRunner)
+        {
+            return ResolveSdkPath("iphonesimulator", commandRunner);
+        }
+
+        /// <summary>
+        /// Creates the xcframework directory structure with both Info.plists (single-slice).
         /// </summary>
         internal static void CreateXCFrameworkStructure(
             string xcframeworkPath, string frameworkDir, string wrapperModuleName, string minOS)
@@ -251,7 +435,16 @@ namespace BindingsGeneration
 
             Directory.CreateDirectory(frameworkDir);
 
-            // Framework Info.plist
+            WriteFrameworkPlist(frameworkDir, wrapperModuleName, minOS, "iPhoneSimulator");
+            WriteXCFrameworkPlist(xcframeworkPath, wrapperModuleName, includeDeviceSlice: false);
+        }
+
+        /// <summary>
+        /// Writes an individual framework slice's Info.plist.
+        /// </summary>
+        internal static void WriteFrameworkPlist(
+            string frameworkDir, string wrapperModuleName, string minOS, string platformName)
+        {
             var frameworkPlist = $"""
                 <?xml version="1.0" encoding="UTF-8"?>
                 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -273,14 +466,38 @@ namespace BindingsGeneration
                     <string>{minOS}</string>
                     <key>CFBundleSupportedPlatforms</key>
                     <array>
-                        <string>iPhoneSimulator</string>
+                        <string>{platformName}</string>
                     </array>
                 </dict>
                 </plist>
                 """;
             File.WriteAllText(Path.Combine(frameworkDir, "Info.plist"), frameworkPlist);
+        }
 
-            // XCFramework Info.plist
+        /// <summary>
+        /// Writes the top-level xcframework Info.plist with one or two slice entries.
+        /// </summary>
+        internal static void WriteXCFrameworkPlist(
+            string xcframeworkPath, string wrapperModuleName, bool includeDeviceSlice)
+        {
+            var deviceSliceEntry = includeDeviceSlice
+                ? $"""
+
+                            <dict>
+                                <key>LibraryIdentifier</key>
+                                <string>ios-arm64</string>
+                                <key>LibraryPath</key>
+                                <string>{wrapperModuleName}.framework</string>
+                                <key>SupportedArchitectures</key>
+                                <array>
+                                    <string>arm64</string>
+                                </array>
+                                <key>SupportedPlatform</key>
+                                <string>ios</string>
+                            </dict>
+                    """
+                : "";
+
             var xcframeworkPlist = $"""
                 <?xml version="1.0" encoding="UTF-8"?>
                 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -301,7 +518,7 @@ namespace BindingsGeneration
                             <string>ios</string>
                             <key>SupportedPlatformVariant</key>
                             <string>simulator</string>
-                        </dict>
+                        </dict>{deviceSliceEntry}
                     </array>
                     <key>CFBundlePackageType</key>
                     <string>XFWK</string>
@@ -320,7 +537,7 @@ namespace BindingsGeneration
             List<string> swiftFiles,
             string outputBinaryPath,
             string wrapperModuleName,
-            string minOS,
+            string targetTriple,
             string sdkPath,
             string frameworkSearchPath,
             ICommandRunner commandRunner,
@@ -328,7 +545,7 @@ namespace BindingsGeneration
         {
             var fileArgs = string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
 
-            var args = $"swiftc -emit-library -target arm64-apple-ios{minOS}-simulator " +
+            var args = $"swiftc -emit-library -target {targetTriple} " +
                        $"-sdk \"{sdkPath}\" " +
                        $"-F \"{frameworkSearchPath}\" " +
                        $"-module-name {wrapperModuleName} " +
