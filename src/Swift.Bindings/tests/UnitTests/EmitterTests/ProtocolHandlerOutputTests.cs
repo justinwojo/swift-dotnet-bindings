@@ -1107,6 +1107,74 @@ public class ProtocolHandlerOutputTests
         Assert.DoesNotContain("string arg0)", csOutput);
     }
 
+    [Fact]
+    public void Emit_ProtocolMethodWithUnderscoreParams_DeduplicatesNames()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Interpolator",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Interpolator"),
+            MangledName = "$s10TestModule12InterpolatorP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "interpolate",
+                    MangledName = "$s10TestModule12InterpolatorP11interpolateyyF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        new ArgumentDecl
+                        {
+                            Name = "_",
+                            PrivateName = string.Empty,
+                            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        },
+                        new ArgumentDecl
+                        {
+                            Name = "_",
+                            PrivateName = string.Empty,
+                            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("void Interpolate(System.Int64 value, string value2);", csOutput);
+    }
+
     #endregion
 
     #region Subscript Type Conversion Tests (WU3)
@@ -1272,6 +1340,73 @@ public class ProtocolHandlerOutputTests
         // Parameter "value" should be sanitized to "_value" (C# contextual keyword)
         Assert.Contains("this[System.Int64 _value]", csOutput);
         Assert.DoesNotContain("this[System.Int64 value]", csOutput);
+    }
+
+    [Fact]
+    public void Emit_InterfaceSubscript_UnderscoreParams_DeduplicatesNames()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "LabelLookup",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LabelLookup"),
+            MangledName = "$s10TestModule11LabelLookupP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>
+            {
+                new()
+                {
+                    Name = "subscript",
+                    MangledName = "$s10TestModule11LabelLookupP9subscriptig",
+                    ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    IndexParameters = new List<ArgumentDecl>
+                    {
+                        new ArgumentDecl
+                        {
+                            Name = "_",
+                            PrivateName = string.Empty,
+                            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        },
+                        new ArgumentDecl
+                        {
+                            Name = "_",
+                            PrivateName = string.Empty,
+                            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl { Method = CreateMethodDecl("subscript_get", moduleDecl) }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("this[System.Int64 value, string value2]", csOutput);
     }
 
     #endregion

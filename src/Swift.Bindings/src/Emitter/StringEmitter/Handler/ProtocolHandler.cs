@@ -89,7 +89,9 @@ namespace BindingsGeneration
             var emittedProperties = new HashSet<string>();
             var emittedMethods = new HashSet<string>();
             var emittedCSharpKeys = new HashSet<string>();
+            var emittedResolvedSignatures = new HashSet<string>(StringComparer.Ordinal);
             var emittedSubscripts = new HashSet<string>();
+            var boundGenericsHandler = new BoundGenericsHandler(env.TypeDatabase);
 
             // Emit properties as interface members
             var skippedPropertyNames = new HashSet<string>();
@@ -113,6 +115,15 @@ namespace BindingsGeneration
                     continue;
                 }
                 emittedProperties.Add(propertyKey);
+
+                // Check for bare generic usage in property type (e.g., SwiftDictionary without <K,V>)
+                if (boundGenericsHandler.HasBareGenericUsage(propertyDecl.SwiftTypeSpec, propertyDecl.ModuleDecl ?? protocolDecl.ModuleDecl))
+                {
+                    skippedPropertyNames.Add(propertyDecl.Name);
+                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - type uses generic declaration without type arguments.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.UnsupportedSignature, "Property type uses generic type without type arguments.");
+                    continue;
+                }
 
                 // Check for AnyType as a generic type argument in the property type
                 if (HasAnyTypeGenericArgInPropertyType(propertyDecl, env.TypeDatabase, protocolDecl))
@@ -151,6 +162,16 @@ namespace BindingsGeneration
                     continue;
                 }
                 emittedSubscripts.Add(subscriptKey);
+
+                // Check for bare generic usage in subscript signature
+                if (HasBareGenericInSubscriptSignature(subscriptDecl, env.TypeDatabase, protocolDecl))
+                {
+                    skippedSubscriptIndices.Add(subscriptIndex);
+                    _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - signature uses generic declaration without type arguments.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.UnsupportedSignature, "Subscript type uses generic type without type arguments.");
+                    subscriptIndex++;
+                    continue;
+                }
 
                 // Check for AnyType as a generic type argument in the subscript signature
                 if (HasAnyTypeGenericArgInSubscriptSignature(subscriptDecl, env.TypeDatabase, protocolDecl))
@@ -204,13 +225,42 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                bool hasNonSwiftObjectArg = methodDecl.CSSignature.Any(arg =>
+                    boundGenericsHandler.IsBoundGeneric(arg) &&
+                    boundGenericsHandler.HasNonSwiftObjectGenericArg(arg.SwiftTypeSpec));
+                if (hasNonSwiftObjectArg)
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - bound generic argument cannot satisfy ISwiftObject.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
+                    continue;
+                }
+
+                // Check for bare generic usage in method signature (e.g., SwiftDictionary without <K,V>)
+                if (HasBareGenericInMethodSignature(methodDecl, env.TypeDatabase, protocolDecl))
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - signature uses generic declaration without type arguments.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.UnsupportedSignature, "Method signature uses generic type without type arguments.");
+                    continue;
+                }
+
                 // Check for AnyType as a generic type argument in the method signature
                 // (e.g., BatchedCollection<AnyType> violates where T0 : ISwiftCollection)
                 if (HasAnyTypeGenericArgInSignature(methodDecl, env.TypeDatabase, protocolDecl))
                 {
-                    skippedMethodKeys.Add(ProtocolSignatureHelper.GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl));
-                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - contains AnyType as generic type argument.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument, which violates generic constraints.");
+                    skippedMethodKeys.Add(methodKey);
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - resolved type contains AnyType as generic argument.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument.");
+                    continue;
+                }
+
+                var emittedSignature = BuildEmittedSignature(methodDecl, env.TypeDatabase, protocolDecl);
+                if (!emittedResolvedSignatures.Add(emittedSignature))
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' - emitted C# signature collides with already-emitted method.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Emitted C# method signature collides with already-emitted method.");
                     continue;
                 }
 
@@ -374,6 +424,7 @@ namespace BindingsGeneration
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            NameProvider.DeduplicateParameterNamesForParameterList(subscriptDecl.IndexParameters);
 
             // Get return type — apply idiomatic type conversion (SwiftOptional → T?, SwiftString → string)
             string returnTypeName;
@@ -477,6 +528,7 @@ namespace BindingsGeneration
             // for methods that pass all pre-checks.
 
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            NameProvider.DeduplicateParameterNames(methodDecl.CSSignature);
 
             // Get return type - apply idiomatic type conversions (SwiftString -> string, etc.)
             // and native type remapping (Foundation.URL -> NSUrl, Foundation.Data -> NSData)
@@ -720,6 +772,53 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Checks if a method signature contains bare generic usage (e.g., SwiftDictionary without type arguments).
+        /// </summary>
+        private static bool HasBareGenericInMethodSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var moduleDecl = methodDecl.ModuleDecl ?? protocolContext?.ModuleDecl;
+
+            if (methodDecl.CSSignature.Count > 0)
+            {
+                var returnArg = methodDecl.CSSignature[0];
+                if (returnArg.SwiftTypeSpec is not TupleTypeSpec tuple || !tuple.IsEmptyTuple)
+                {
+                    if (boundGenericsHandler.HasBareGenericUsage(returnArg.SwiftTypeSpec, moduleDecl))
+                        return true;
+                }
+            }
+
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                if (boundGenericsHandler.HasBareGenericUsage(methodDecl.CSSignature[i].SwiftTypeSpec, moduleDecl))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if a subscript signature contains bare generic usage (e.g., SwiftDictionary without type arguments).
+        /// </summary>
+        private static bool HasBareGenericInSubscriptSignature(SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var moduleDecl = subscriptDecl.ModuleDecl ?? protocolContext?.ModuleDecl;
+
+            if (boundGenericsHandler.HasBareGenericUsage(subscriptDecl.ReturnTypeSpec, moduleDecl))
+                return true;
+
+            foreach (var param in subscriptDecl.IndexParameters)
+            {
+                if (boundGenericsHandler.HasBareGenericUsage(param.SwiftTypeSpec, moduleDecl))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Checks if a property's resolved C# type contains AnyType as a generic type argument.
         /// Uses the same resolution chain as EmitInterfaceProperty.
         /// </summary>
@@ -741,7 +840,10 @@ namespace BindingsGeneration
                 csharpTypeName = typeDatabase.GetTypeRecordOrAnyType(propertyDecl.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName;
             }
 
-            return ContainsAnyTypeGenericArg(csharpTypeName);
+            // IsBareGenericTypeName is a safety net for resolved C# names that slipped through
+            // TypeSpec-level HasBareGenericUsage (checked upstream in emit loop).
+            return ContainsAnyTypeGenericArg(csharpTypeName) ||
+                   TypeDatabaseExtensions.IsBareGenericTypeName(csharpTypeName);
         }
 
         /// <summary>
@@ -784,14 +886,16 @@ namespace BindingsGeneration
                 returnTypeName = typeDatabase.GetTypeRecordOrAnyType(subscriptDecl.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
             }
 
-            if (ContainsAnyTypeGenericArg(returnTypeName))
+            if (ContainsAnyTypeGenericArg(returnTypeName) ||
+                TypeDatabaseExtensions.IsBareGenericTypeName(returnTypeName))
                 return true;
 
             // Check index parameters
             foreach (var param in subscriptDecl.IndexParameters)
             {
                 var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
-                if (ContainsAnyTypeGenericArg(paramTypeName))
+                if (ContainsAnyTypeGenericArg(paramTypeName) ||
+                    TypeDatabaseExtensions.IsBareGenericTypeName(paramTypeName))
                     return true;
             }
 
@@ -799,8 +903,8 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Checks if a protocol method's resolved C# signature contains AnyType as a
-        /// generic type argument (e.g., BatchedCollection&lt;AnyType&gt;), which would
+        /// Checks if a protocol method's resolved C# signature contains AnyType or a bare
+        /// generic type name as a generic type argument (e.g., BatchedCollection&lt;AnyType&gt;), which would
         /// violate generic constraints and produce uncompilable code.
         /// </summary>
         private bool HasAnyTypeGenericArgInSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
@@ -816,7 +920,8 @@ namespace BindingsGeneration
                 {
                     var returnType = ResolveMethodTypeName(returnArg.SwiftTypeSpec, isParameter: false,
                         typeDatabase, boundGenericsHandler, typeConversionHandler, protocolContext);
-                    if (ContainsAnyTypeGenericArg(returnType))
+                    if (ContainsAnyTypeGenericArg(returnType) ||
+                        TypeDatabaseExtensions.IsBareGenericTypeName(returnType))
                         return true;
                 }
             }
@@ -827,7 +932,8 @@ namespace BindingsGeneration
                 var arg = methodDecl.CSSignature[i];
                 var paramType = ResolveMethodTypeName(arg.SwiftTypeSpec, isParameter: true,
                     typeDatabase, boundGenericsHandler, typeConversionHandler, protocolContext);
-                if (ContainsAnyTypeGenericArg(paramType))
+                if (ContainsAnyTypeGenericArg(paramType) ||
+                    TypeDatabaseExtensions.IsBareGenericTypeName(paramType))
                     return true;
             }
 
@@ -853,6 +959,28 @@ namespace BindingsGeneration
             }
 
             return GetCSharpTypeName(swiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
+        }
+
+        private string BuildEmittedSignature(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext)
+        {
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+
+            var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
+            var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue);
+
+            var paramTypes = new List<string>();
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var arg = methodDecl.CSSignature[i];
+                var paramType = ResolveMethodTypeName(arg.SwiftTypeSpec, isParameter: true,
+                    typeDatabase, boundGenericsHandler, typeConversionHandler, protocolContext);
+                paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
+                paramTypes.Add(paramType);
+            }
+
+            return $"{methodName}({string.Join(",", paramTypes)})";
         }
 
         /// <summary>

@@ -233,6 +233,14 @@ public static class NameProvider
         if (!string.IsNullOrEmpty(arg.PrivateName))
             return SanitizeForCSharp(arg.PrivateName);
 
+        // Swift unnamed parameter labels can arrive as literal "_" and should be
+        // converted to an identifier that can be deduplicated.
+        if (arg.Name == "_")
+        {
+            var derived = DeriveParameterNameFromType(arg.SwiftTypeSpec);
+            return derived ?? "param";
+        }
+
         // 2. If Name is a generated name (arg0, arg1), derive from the type
         if (IsGeneratedArgName(arg.Name))
         {
@@ -260,8 +268,21 @@ public static class NameProvider
     /// <param name="arguments">The method's CSSignature (first element is return type, skipped).</param>
     public static void DeduplicateParameterNames(IList<ArgumentDecl> arguments)
     {
+        DeduplicateParameterNamesCore(arguments.Skip(1));
+    }
+
+    /// <summary>
+    /// Pre-computes deduplicated C# parameter names for parameter-only lists (no return slot).
+    /// </summary>
+    public static void DeduplicateParameterNamesForParameterList(IEnumerable<ArgumentDecl> parameters)
+    {
+        DeduplicateParameterNamesCore(parameters);
+    }
+
+    private static void DeduplicateParameterNamesCore(IEnumerable<ArgumentDecl> parameters)
+    {
         var usedNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var arg in arguments.Skip(1))
+        foreach (var arg in parameters)
         {
             // Compute the base name using existing logic (bypass CSharpName to get raw name)
             arg.CSharpName = null;

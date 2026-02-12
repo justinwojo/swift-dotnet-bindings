@@ -163,6 +163,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
+        if (propertyEnv.BoundGenericsHandler.HasBareGenericUsage(propertyDecl.SwiftTypeSpec, propertyDecl.ModuleDecl))
+        {
+            _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} - type '{propertyDecl.SwiftTypeSpec}' contains generic declaration used without type arguments.");
+            SkipProperty(SkipReason.UnsupportedSignature, $"Type '{propertyDecl.SwiftTypeSpec}' contains generic declaration used without type arguments.");
+            return;
+        }
+
         string csTypeName;
         if (isExistential)
         {
@@ -194,6 +201,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
         else if (propertyEnv.BoundGenericsHandler.IsBoundGeneric(propertyDecl))
         {
+            if (propertyEnv.BoundGenericsHandler.HasNonSwiftObjectGenericArg(propertyDecl.SwiftTypeSpec))
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} - bound generic contains non-ISwiftObject type argument.");
+                SkipProperty(SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
+                return;
+            }
+
             if (propertyEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(propertyDecl.SwiftTypeSpec, propertyDecl, out var constraintDetails))
             {
                 _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} - {constraintDetails}");

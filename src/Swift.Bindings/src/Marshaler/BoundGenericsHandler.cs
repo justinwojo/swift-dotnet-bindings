@@ -16,6 +16,10 @@ public class BoundGenericsHandler
         "SwiftUI",
         "Combine",
     };
+    private static readonly HashSet<string> s_stdlibGenerics = new(StringComparer.Ordinal)
+    {
+        "Swift.Dictionary", "Swift.Array", "Swift.Set", "Swift.Optional", "Swift.Result",
+    };
 
     private readonly ITypeDatabase _typeDatabase;
     private readonly ClosureHandler _closureHandler;
@@ -110,7 +114,7 @@ public class BoundGenericsHandler
             throw new NotSupportedException(
                 $"Attempted to translate to C# name for a non-bound generic property {propertyDecl.Name}");
         var namedTypeSpec = (NamedTypeSpec)propertyDecl.SwiftTypeSpec;
-        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext);
+        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, propertyDecl.ModuleDecl);
     }
 
     /// <summary>
@@ -134,7 +138,7 @@ public class BoundGenericsHandler
             throw new NotSupportedException(
                 $"Attempted to translate to C# name for a non-bound generic argument {argumentDecl.Name}");
         var namedTypeSpec = (NamedTypeSpec)argumentDecl.SwiftTypeSpec;
-        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext);
+        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, argumentDecl.ModuleDecl);
     }
 
     /// <summary>
@@ -266,19 +270,147 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// Returns true when a named type is a generic declaration used without type arguments.
+    /// Uses module-local declaration lookup first, then stdlib fallback names.
+    /// </summary>
+    public bool IsBareGenericUsage(TypeSpec typeSpec, ModuleDecl? moduleDecl)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        if (namedTypeSpec.ContainsGenericParameters)
+            return false;
+
+        if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeSpec.Name))
+            return false;
+
+        if (!namedTypeSpec.HasModule())
+            return false;
+
+        if (moduleDecl == null)
+        {
+            if (_typeDatabase.TryGetTypeRecord(namedTypeSpec, out var typeRecord) &&
+                TypeDatabaseExtensions.IsBareGenericTypeName(typeRecord.CSharpTypeName.FullyQualifiedName))
+            {
+                return true;
+            }
+
+            return IsBareStdlibGeneric(namedTypeSpec);
+        }
+
+        var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
+        var typeDecl = FindTypeDecl(moduleDecl, typeName);
+        if (typeDecl != null)
+            return typeDecl.IsGeneric;
+
+        if (_typeDatabase.TryGetTypeRecord(namedTypeSpec, out var record) &&
+            TypeDatabaseExtensions.IsBareGenericTypeName(record.CSharpTypeName.FullyQualifiedName))
+        {
+            return true;
+        }
+
+        return IsBareStdlibGeneric(namedTypeSpec);
+    }
+
+    /// <summary>
+    /// Returns true when any nested type within the specification is a generic declaration
+    /// used without type arguments.
+    /// </summary>
+    public bool HasBareGenericUsage(TypeSpec typeSpec, ModuleDecl? moduleDecl)
+    {
+        if (typeSpec is NamedTypeSpec namedTypeSpec)
+        {
+            if (IsBareGenericUsage(namedTypeSpec, moduleDecl))
+                return true;
+
+            foreach (var genericParameter in namedTypeSpec.GenericParameters)
+            {
+                if (HasBareGenericUsage(genericParameter, moduleDecl))
+                    return true;
+            }
+
+            return false;
+        }
+
+        if (typeSpec is TupleTypeSpec tupleTypeSpec)
+        {
+            foreach (var element in tupleTypeSpec.Elements)
+            {
+                if (HasBareGenericUsage(element, moduleDecl))
+                    return true;
+            }
+
+            return false;
+        }
+
+        if (typeSpec is ClosureTypeSpec closureTypeSpec)
+        {
+            return HasBareGenericUsage(closureTypeSpec.Arguments, moduleDecl) ||
+                   HasBareGenericUsage(closureTypeSpec.ReturnType, moduleDecl);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when any concrete bound generic argument cannot satisfy C#'s implicit
+    /// ISwiftObject constraint. Checks ObjC-bridged types (always blocked) and tuples
+    /// (blocked except in Swift.Optional, which has no ISwiftObject constraint).
+    /// Closures are NOT checked — they fall back to object via AnyType/ContainsPlaceholder,
+    /// so the entire type becomes [UnsupportedSwiftType] object (compiles fine).
+    /// </summary>
+    public bool HasNonSwiftObjectGenericArg(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec || !namedTypeSpec.ContainsGenericParameters)
+            return false;
+
+        // Swift.Optional (SwiftOptional<T>) has no ISwiftObject constraint on T,
+        // so tuples are valid generic args. All other emitted generics have
+        // 'where T : ISwiftObject', making ValueTuple args a CS0311 error.
+        bool outerIsOptional = namedTypeSpec.Name == "Swift.Optional";
+
+        foreach (var genericParam in namedTypeSpec.GenericParameters)
+        {
+            if (!outerIsOptional && genericParam is TupleTypeSpec tuple && !tuple.IsEmptyTuple)
+                return true;
+
+            if (genericParam is NamedTypeSpec namedArg && IsObjCBridgedType(namedArg))
+                return true;
+
+            if (HasNonSwiftObjectGenericArg(genericParam))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Helper method to convert a Swift <see cref="NamedTypeSpec"/> into its corresponding C# type name.
     /// </summary>
     /// <param name="namedTypeSpec">The named type specification.</param>
     /// <returns>The C# type name string.</returns>
     private string TranslateBoundGenericTypeToCSharp(NamedTypeSpec namedTypeSpec) =>
-        TranslateBoundGenericTypeToCSharp(namedTypeSpec, GenericContext.Empty);
+        TranslateBoundGenericTypeToCSharp(namedTypeSpec, GenericContext.Empty, moduleDecl: null);
 
     /// <summary>
     /// Helper method to convert a Swift <see cref="NamedTypeSpec"/> into its corresponding C# type name,
     /// using a generic context to resolve type parameters within generic arguments.
     /// </summary>
     private string TranslateBoundGenericTypeToCSharp(NamedTypeSpec namedTypeSpec, GenericContext genericContext)
+        => TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, moduleDecl: null);
+
+    /// <summary>
+    /// Helper method to convert a Swift <see cref="NamedTypeSpec"/> into its corresponding C# type name,
+    /// using declaration context to qualify nested generic owners when needed.
+    /// </summary>
+    private string TranslateBoundGenericTypeToCSharp(
+        NamedTypeSpec namedTypeSpec,
+        GenericContext genericContext,
+        ModuleDecl? moduleDecl)
     {
+        if (namedTypeSpec.Name == "Swift.Void")
+            return "Swift.SwiftVoid";
+
         // Check if this named type is itself a generic type parameter (e.g., τ_0_0)
         if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeSpec.Name) &&
             genericContext.TryResolve(namedTypeSpec.Name, out var resolvedName))
@@ -300,10 +432,11 @@ public class BoundGenericsHandler
         List<string> translatedGenericParameters = new();
         foreach (var genericParameter in namedTypeSpec.GenericParameters)
         {
-            translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter, genericContext));
+            translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter, genericContext, moduleDecl));
         }
 
-        return typeReference.CSharpTypeName.FullyQualifiedName +
+        var typeName = QualifyNestedGenericOwners(typeReference.CSharpTypeName.FullyQualifiedName, namedTypeSpec, genericContext, moduleDecl);
+        return typeName +
                (translatedGenericParameters.Count > 0
                     ? $"<{string.Join(", ", translatedGenericParameters)}>"
                     : "");
@@ -319,12 +452,12 @@ public class BoundGenericsHandler
     /// Thrown when the type specification is not supported.
     /// </exception>
     private string TranslateTypeSpecToCSharp(TypeSpec typeSpec) =>
-        TranslateTypeSpecToCSharp(typeSpec, GenericContext.Empty);
+        TranslateTypeSpecToCSharp(typeSpec, GenericContext.Empty, moduleDecl: null);
 
     /// <summary>
     /// Translates any TypeSpec to its C# equivalent, using a generic context to resolve type parameters.
     /// </summary>
-    private string TranslateTypeSpecToCSharp(TypeSpec typeSpec, GenericContext genericContext)
+    private string TranslateTypeSpecToCSharp(TypeSpec typeSpec, GenericContext genericContext, ModuleDecl? moduleDecl)
     {
         // Handle existential types (including bare 'Any' with 0 protocols and 'any Protocol' syntax)
         // Always return AnyType for existential type arguments — ExistentialContainer{N} doesn't
@@ -344,14 +477,78 @@ public class BoundGenericsHandler
 
         return typeSpec switch
         {
-            NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext),
+            NamedTypeSpec { Name: "Swift.Void" } => "Swift.SwiftVoid",
+            NamedTypeSpec namedTypeSpec => TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, moduleDecl),
             ClosureTypeSpec closureTypeSpec => TranslateClosureTypeToCSharp(closureTypeSpec),
             TupleTypeSpec { IsEmptyTuple: true } => "Swift.SwiftVoid",
             TupleTypeSpec tupleTypeSpec => _tupleHandler.GetCSharpTupleType(tupleTypeSpec,
-                ts => TranslateTypeSpecToCSharp(ts, genericContext)),
+                ts => TranslateTypeSpecToCSharp(ts, genericContext, moduleDecl)),
             _ => throw new NotSupportedException(
                 $"Type spec {typeSpec.GetType().Name} ({typeSpec}) is not supported as a generic parameter")
         };
+    }
+
+    private string QualifyNestedGenericOwners(
+        string fullyQualifiedTypeName,
+        NamedTypeSpec namedTypeSpec,
+        GenericContext genericContext,
+        ModuleDecl? moduleDecl)
+    {
+        if (moduleDecl == null || !namedTypeSpec.HasModule() || genericContext.IsEmpty)
+            return fullyQualifiedTypeName;
+
+        var typeDecl = FindTypeDecl(moduleDecl, SwiftTypeName.FromTypeSpec(namedTypeSpec));
+        if (typeDecl == null)
+            return fullyQualifiedTypeName;
+
+        var typeChain = GetTypeDeclChain(typeDecl);
+        if (typeChain.Count <= 1)
+            return fullyQualifiedTypeName;
+
+        var segments = fullyQualifiedTypeName.Split('.');
+        if (segments.Length < typeChain.Count)
+            return fullyQualifiedTypeName;
+
+        var firstTypeSegment = segments.Length - typeChain.Count;
+        for (var i = 0; i < typeChain.Count - 1; i++)
+        {
+            var ownerType = typeChain[i];
+            if (!ownerType.IsGeneric)
+                continue;
+
+            var ownerArgs = ResolveTypeDeclGenericArguments(ownerType, genericContext);
+            if (ownerArgs.Count != ownerType.GenericParameters.Count || ownerArgs.Count == 0)
+                continue;
+
+            segments[firstTypeSegment + i] = $"{segments[firstTypeSegment + i]}<{string.Join(", ", ownerArgs)}>";
+        }
+
+        return string.Join(".", segments);
+    }
+
+    private static List<TypeDecl> GetTypeDeclChain(TypeDecl typeDecl)
+    {
+        var chain = new List<TypeDecl>();
+        for (BaseDecl? current = typeDecl; current is TypeDecl currentType; current = currentType.ParentDecl)
+        {
+            chain.Add(currentType);
+        }
+        chain.Reverse();
+        return chain;
+    }
+
+    private static List<string> ResolveTypeDeclGenericArguments(TypeDecl typeDecl, GenericContext genericContext)
+    {
+        var args = new List<string>();
+        foreach (var genericParam in typeDecl.GenericParameters)
+        {
+            if (!genericContext.TryResolve(genericParam.TypeName, out var resolvedArg))
+                return new List<string>();
+
+            args.Add(resolvedArg);
+        }
+
+        return args;
     }
 
     /// <summary>
@@ -523,6 +720,16 @@ public class BoundGenericsHandler
         // General protocol conformance emission is handled in a later task.
         return false;
     }
+
+    private bool IsObjCBridgedType(NamedTypeSpec typeSpec)
+    {
+        if (_typeDatabase.TryGetTypeRecord(typeSpec, out var record))
+            return record.Flags.HasFlag(TypeRecordFlags.ObjCBridged);
+
+        return TypeDatabaseExtensions.IsObjCModuleType(typeSpec);
+    }
+
+    private static bool IsBareStdlibGeneric(NamedTypeSpec typeSpec) => s_stdlibGenerics.Contains(typeSpec.Name);
 
     private static bool HasConformance(TypeDecl typeDecl, SwiftTypeName protocolType) =>
         typeDecl switch

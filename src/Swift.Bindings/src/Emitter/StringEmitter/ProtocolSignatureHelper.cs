@@ -96,20 +96,7 @@ internal static class ProtocolSignatureHelper
         {
             var arg = methodDecl.CSSignature[i];
             var projected = ProjectTypeToCSharp(arg.SwiftTypeSpec, typeDatabase, protocolContext, isParameter: true);
-
-            // Normalize nullable reference types for C# overload identity.
-            // In C#, nullability annotations don't affect overload resolution for reference types —
-            // only value types produce distinct Nullable<T> overloads.
-            // If the Swift type is Optional<T> where T is a reference type (class/protocol),
-            // strip the trailing '?' so T and T? produce the same overload key.
-            if (arg.SwiftTypeSpec is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional"
-                && optNamed.GenericParameters.Count == 1)
-            {
-                var innerRecord = typeDatabase.GetTypeRecordOrAnyType(optNamed.GenericParameters[0]);
-                if (innerRecord.Kind != TypeRecordKind.Struct && innerRecord.Kind != TypeRecordKind.Enum)
-                    projected = projected.TrimEnd('?');
-            }
-
+            projected = NormalizeParamTypeForOverloadIdentity(projected, arg.SwiftTypeSpec, typeDatabase);
             paramTypes.Add(projected);
         }
         return $"{methodName}({string.Join(",", paramTypes)})";
@@ -246,6 +233,28 @@ internal static class ProtocolSignatureHelper
                 elements.Add(typeName);
         }
         return $"({string.Join(", ", elements)})";
+    }
+
+    /// <summary>
+    /// Normalizes a projected C# parameter type for overload identity comparison.
+    /// In C#, nullability annotations don't affect overload resolution for reference types —
+    /// Optional&lt;Class&gt; and Class resolve to the same overload. This strips the trailing '?'
+    /// for reference-like types so that emission dedup correctly detects collisions.
+    /// </summary>
+    public static string NormalizeParamTypeForOverloadIdentity(string projectedType, TypeSpec swiftTypeSpec, ITypeDatabase typeDatabase)
+    {
+        if (swiftTypeSpec is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional" &&
+            optNamed.GenericParameters.Count == 1)
+        {
+            var innerRecord = typeDatabase.GetTypeRecordOrAnyType(optNamed.GenericParameters[0]);
+            if (innerRecord.Kind == TypeRecordKind.Class ||
+                innerRecord.Kind == TypeRecordKind.Protocol ||
+                innerRecord.Kind == TypeRecordKind.Existential ||
+                (innerRecord.Kind == TypeRecordKind.Enum && !innerRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum)))
+                return projectedType.TrimEnd('?');
+        }
+
+        return projectedType;
     }
 
     /// <summary>

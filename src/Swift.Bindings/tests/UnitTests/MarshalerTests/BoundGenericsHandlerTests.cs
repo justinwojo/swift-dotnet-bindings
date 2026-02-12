@@ -337,6 +337,20 @@ public class BoundGenericsHandlerTests
         Assert.Contains("AnyType", result);
     }
 
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_NamedSwiftVoid_MapsToSwiftVoid()
+    {
+        var resultTypeSpec = new NamedTypeSpec("Swift.Result");
+        resultTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Void"));
+        resultTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Error"));
+
+        var argDecl = CreateArgumentDecl(resultTypeSpec);
+        var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
+
+        Assert.Contains("Swift.SwiftVoid", result);
+        Assert.DoesNotContain("<void", result);
+    }
+
     #endregion
 
     #region Property Bound Generic Tests
@@ -384,6 +398,139 @@ public class BoundGenericsHandlerTests
         var result = _handler.GetBufferType(argDecl);
 
         Assert.Equal("IntPtr", result);
+    }
+
+    [Fact]
+    public void IsBareGenericUsage_StdlibGenericWithoutArgs_ReturnsTrue()
+    {
+        var isBare = _handler.IsBareGenericUsage(new NamedTypeSpec("Swift.Dictionary"), moduleDecl: null);
+        Assert.True(isBare);
+    }
+
+    [Fact]
+    public void IsBareGenericUsage_ModuleGenericWithoutArgs_ReturnsTrue()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("Box", moduleDecl, "T", "Swift.Equatable");
+
+        var isBare = _handler.IsBareGenericUsage(new NamedTypeSpec("TestModule.Box"), moduleDecl);
+        Assert.True(isBare);
+    }
+
+    [Fact]
+    public void IsBareGenericUsage_ModuleGenericWithArgs_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("Box", moduleDecl, "T", "Swift.Equatable");
+
+        var bound = new NamedTypeSpec("TestModule.Box");
+        bound.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var isBare = _handler.IsBareGenericUsage(bound, moduleDecl);
+        Assert.False(isBare);
+    }
+
+    [Fact]
+    public void HasBareGenericUsage_NestedInsideOptional_ReturnsTrue()
+    {
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("Swift.Dictionary"));
+
+        Assert.True(_handler.HasBareGenericUsage(optional, moduleDecl: null));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithTupleArgInNonOptional_ReturnsTrue()
+    {
+        // Emitted generics have 'where T : ISwiftObject' — ValueTuple can't satisfy it
+        var tuple = new TupleTypeSpec();
+        tuple.Elements.Add(new NamedTypeSpec("Swift.Int"));
+        tuple.Elements.Add(new NamedTypeSpec("Swift.Int"));
+
+        var generic = new NamedTypeSpec("TestModule.Future");
+        generic.GenericParameters.Add(tuple);
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(generic));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithTupleArgInOptional_ReturnsFalse()
+    {
+        // SwiftOptional<T> has no ISwiftObject constraint — tuples are valid
+        var tuple = new TupleTypeSpec();
+        tuple.Elements.Add(new NamedTypeSpec("Swift.Int"));
+        tuple.Elements.Add(new NamedTypeSpec("Swift.Int"));
+
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(tuple);
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithClosureArg_ReturnsFalse()
+    {
+        // Closures fall back to object via AnyType/ContainsPlaceholder — not blocked
+        var closure = new ClosureTypeSpec(
+            new TupleTypeSpec(),
+            new TupleTypeSpec());
+
+        var generic = new NamedTypeSpec("TestModule.Box");
+        generic.GenericParameters.Add(closure);
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(generic));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithObjCBridgedArg_ReturnsTrue()
+    {
+        var generic = new NamedTypeSpec("TestModule.Future");
+        generic.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(generic));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_WithNestedObjCBridgedArg_ReturnsTrue()
+    {
+        // ObjC-bridged nested inside another generic is still caught
+        var inner = new NamedTypeSpec("Swift.Optional");
+        inner.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+
+        var outer = new NamedTypeSpec("TestModule.Container");
+        outer.GenericParameters.Add(inner);
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(outer));
+    }
+
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_NestedGenericOwner_QualifiesOwnerArguments()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateStructDecl("Outer", moduleDecl);
+        var innerDecl = CreateNestedGenericStructDecl("Inner", moduleDecl, outerDecl, "T", "U");
+        _ = CreateNestedGenericStructDecl("Leaf", moduleDecl, innerDecl, "X", "Y");
+
+        var leafTypeSpec = new NamedTypeSpec("TestModule.Outer.Inner.Leaf");
+        leafTypeSpec.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        leafTypeSpec.GenericParameters.Add(new NamedTypeSpec("τ_0_1"));
+
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "leaf",
+            SwiftTypeSpec = leafTypeSpec,
+            ParentDecl = innerDecl,
+            ModuleDecl = moduleDecl,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>()
+        };
+
+        var result = _handler.TranslateBoundGenericTypeToCSharp(
+            propertyDecl,
+            GenericContext.FromType(innerDecl));
+
+        Assert.Equal("Swift.TestModule.Outer.Inner<T0, T1>.Leaf<T0, T1>", result);
     }
 
     #endregion
@@ -497,6 +644,40 @@ public class BoundGenericsHandlerTests
         return structDecl;
     }
 
+    private static StructDecl CreateNestedGenericStructDecl(
+        string structName,
+        ModuleDecl moduleDecl,
+        TypeDecl parentDecl,
+        params string[] typeParameterNames)
+    {
+        var structDecl = new StructDecl
+        {
+            Name = structName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{parentDecl.SwiftTypeName.ModuleQualifiedName}.{structName}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{structName.Length}{structName}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = typeParameterNames
+                .Select((name, i) => new GenericArgumentDecl(
+                    TypeName: $"τ_0_{i}",
+                    SugaredTypeName: name,
+                    GenericConformances: new List<GenericParameterConformance>(),
+                    AssosiatedTypeConformances: new List<GenericParameterConformance>()))
+                .ToList(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{structName.Length}{structName}VMa"
+        };
+
+        parentDecl.Types.Add(structDecl);
+        return structDecl;
+    }
+
     #endregion
 
     #region MockTypeDatabase
@@ -547,6 +728,30 @@ public class BoundGenericsHandlerTests
                 {
                     CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "SwiftOptional"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["Swift.Result"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "SwiftResult"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Result"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["Swift.Error"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "ISwiftError"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Protocol
+                },
+                ["TestModule.Outer.Inner.Leaf"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Outer.Inner.Leaf"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Inner.Leaf"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
                     Kind = TypeRecordKind.Struct

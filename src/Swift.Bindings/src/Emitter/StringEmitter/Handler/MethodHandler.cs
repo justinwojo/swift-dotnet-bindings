@@ -121,9 +121,35 @@ namespace BindingsGeneration
 
             foreach (var argument in methodEnv.MethodDecl.CSSignature)
             {
+                if (methodEnv.BoundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, methodEnv.MethodDecl.ModuleDecl))
+                {
+                    var details = $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.";
+                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: {details}");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.ParentDecl,
+                        SkipReason.UnsupportedSignature,
+                        details);
+                    return;
+                }
+
                 if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
                 {
                     continue;
+                }
+
+                if (methodEnv.BoundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
+                {
+                    var details = "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.";
+                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: {details}");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.ParentDecl,
+                        SkipReason.UnsatisfiedGenericConstraint,
+                        details);
+                    return;
                 }
 
                 if (methodEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(argument.SwiftTypeSpec, methodEnv.MethodDecl, out var constraintDetails))
@@ -350,9 +376,35 @@ namespace BindingsGeneration
             {
                 foreach (var argument in methodEnv.MethodDecl.CSSignature)
                 {
+                    if (methodEnv.BoundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, methodEnv.MethodDecl.ModuleDecl))
+                    {
+                        var details = $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.";
+                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: {details}");
+                        ReportCollector.RecordMemberSkipped(
+                            BindingItemKind.Method,
+                            methodEnv.MethodDecl.Name,
+                            methodEnv.MethodDecl.ParentDecl,
+                            SkipReason.UnsupportedSignature,
+                            details);
+                        return;
+                    }
+
                     if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
                     {
                         continue;
+                    }
+
+                    if (methodEnv.BoundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
+                    {
+                        var details = "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.";
+                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: {details}");
+                        ReportCollector.RecordMemberSkipped(
+                            BindingItemKind.Method,
+                            methodEnv.MethodDecl.Name,
+                            methodEnv.MethodDecl.ParentDecl,
+                            SkipReason.UnsatisfiedGenericConstraint,
+                            details);
+                        return;
                     }
 
                     if (methodEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(argument.SwiftTypeSpec, methodEnv.MethodDecl, out var constraintDetails))

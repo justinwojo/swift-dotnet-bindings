@@ -12,6 +12,14 @@ namespace BindingsGeneration;
 public static class TypeDatabaseExtensions
 {
     public readonly record struct AnyTypeFallbackInfo(string Reason, string SwiftType);
+    private static readonly HashSet<string> BareGenericCSharpTypeNames = new(StringComparer.Ordinal)
+    {
+        "SwiftDictionary", "Swift.SwiftDictionary", "Swift.Runtime.SwiftDictionary",
+        "SwiftArray", "Swift.SwiftArray", "Swift.Runtime.SwiftArray",
+        "SwiftOptional", "Swift.SwiftOptional", "Swift.Runtime.SwiftOptional",
+        "SwiftResult", "Swift.SwiftResult", "Swift.Runtime.SwiftResult",
+        "SwiftSet", "Swift.SwiftSet", "Swift.Runtime.SwiftSet",
+    };
 
     /// <summary>
     /// Determines whether the specified Swift type has been processed.
@@ -329,6 +337,21 @@ public static class TypeDatabaseExtensions
     }
 
     /// <summary>
+    /// Detects bare generic C# type names (no &lt;...&gt; arguments), including nullable reference suffixes.
+    /// </summary>
+    public static bool IsBareGenericTypeName(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return false;
+
+        var normalized = typeName.Trim();
+        if (normalized.EndsWith("?", StringComparison.Ordinal))
+            normalized = normalized.Substring(0, normalized.Length - 1);
+
+        return !normalized.Contains('<') && BareGenericCSharpTypeNames.Contains(normalized);
+    }
+
+    /// <summary>
     /// Gets the type record for Swift pointer types, mapped to System.IntPtr.
     /// Covers OpaquePointer, UnsafePointer, UnsafeMutablePointer, UnsafeRawPointer,
     /// UnsafeMutableRawPointer, and Builtin.RawPointer.
@@ -498,7 +521,7 @@ public static class TypeDatabaseExtensions
     ///    unless listed in <see cref="AppleFrameworkValueTypes"/>
     /// TypeSpecParser.cs remaps "ObjectiveC.X" → "Foundation.X", so we check both modules.
     /// </summary>
-    private static bool IsObjCModuleType(NamedTypeSpec typeSpec)
+    internal static bool IsObjCModuleType(NamedTypeSpec typeSpec)
     {
         if (!typeSpec.HasModule())
             return false;

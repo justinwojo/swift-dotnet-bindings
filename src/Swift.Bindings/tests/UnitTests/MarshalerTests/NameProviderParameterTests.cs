@@ -80,6 +80,37 @@ public class NameProviderParameterTests
         Assert.Equal("range", NameProvider.GetCSharpParameterName(arg));
     }
 
+    [Fact]
+    public void GetCSharpParameterName_Underscore_DerivesFromType()
+    {
+        var arg = MakeArg("_");
+        Assert.Equal("value", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void GetCSharpParameterName_Underscore_PrivateNameWins()
+    {
+        var arg = MakeArg("_", "count");
+        Assert.Equal("count", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void DeduplicateParameterNamesForParameterList_MultipleUnderscore_GeneratesUniqueNames()
+    {
+        var parameters = new List<ArgumentDecl>
+        {
+            MakeArgWithType("_", "Swift.Int"),
+            MakeArgWithType("_", "Swift.String"),
+            MakeArgWithType("_", "Swift.Int")
+        };
+
+        NameProvider.DeduplicateParameterNamesForParameterList(parameters);
+
+        Assert.Equal("value", parameters[0].CSharpName);
+        Assert.Equal("value2", parameters[1].CSharpName);
+        Assert.Equal("value3", parameters[2].CSharpName);
+    }
+
     #endregion
 
     #region IsGeneratedArgName Tests

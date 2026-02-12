@@ -155,6 +155,7 @@ public class ProtocolConformanceValidator
 
         // For each INTERFACE METHOD requirement:
         var emittedCSharpKeys = new HashSet<string>();
+        var emittedResolvedSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var protoMethod in protocolDecl.Methods)
         {
             if (protoMethod.IsConstructor || protoMethod.MethodType == MethodType.Static) continue;
@@ -163,6 +164,10 @@ public class ProtocolConformanceValidator
 
             var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(protoMethod, _typeDatabase, protocolDecl);
             if (!emittedCSharpKeys.Add(projectedKey))
+                continue;
+
+            var resolvedSignature = BuildInterfaceMethodSignature(protoMethod, protocolDecl);
+            if (!emittedResolvedSignatures.Add(resolvedSignature))
                 continue;
 
             // Find matching method in CONCRETE TYPE
@@ -295,6 +300,28 @@ public class ProtocolConformanceValidator
         }
 
         return returnType;
+    }
+
+    private string BuildInterfaceMethodSignature(MethodDecl protoMethod, ProtocolDecl protocolContext)
+    {
+        var returnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
+        var methodName = NameProvider.GetPublicMethodName(protoMethod.Name, protoMethod.IsAsync, hasReturnValue: hasReturnValue);
+
+        var parameterTypes = new List<string>();
+        for (int i = 1; i < protoMethod.CSSignature.Count; i++)
+        {
+            var arg = protoMethod.CSSignature[i];
+            var projected = ResolveInterfaceMethodTypeName(arg.SwiftTypeSpec, isParameter: true, protocolContext);
+            parameterTypes.Add(ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(projected, arg.SwiftTypeSpec, _typeDatabase));
+        }
+
+        return $"{methodName}({string.Join(",", parameterTypes)})";
+    }
+
+    private string ResolveInterfaceMethodTypeName(TypeSpec swiftTypeSpec, bool isParameter, ProtocolDecl protocolContext)
+    {
+        return ProtocolSignatureHelper.ProjectTypeToCSharp(swiftTypeSpec, _typeDatabase, protocolContext, isParameter);
     }
 
     /// <summary>

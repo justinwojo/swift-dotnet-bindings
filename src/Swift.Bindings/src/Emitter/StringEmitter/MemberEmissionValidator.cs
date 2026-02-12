@@ -106,11 +106,23 @@ public static class MemberEmissionValidator
             return SkipReason.UnsupportedType;
         }
 
+        if (boundGenericsHandler.HasBareGenericUsage(property.SwiftTypeSpec, property.ModuleDecl))
+        {
+            skipDetails = $"Type '{property.SwiftTypeSpec}' contains generic declaration used without type arguments.";
+            return SkipReason.UnsupportedSignature;
+        }
+
         // Calculate projected type name if not already set
         if (projectedTypeName == null)
         {
             if (isBoundGeneric)
             {
+                if (boundGenericsHandler.HasNonSwiftObjectGenericArg(property.SwiftTypeSpec))
+                {
+                    skipDetails = "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.";
+                    return SkipReason.UnsatisfiedGenericConstraint;
+                }
+
                 if (boundGenericsHandler.TryGetFirstUnsatisfiedConstraint(property.SwiftTypeSpec, property, out var constraintDetails))
                 {
                     skipDetails = constraintDetails;
@@ -158,6 +170,12 @@ public static class MemberEmissionValidator
         {
             skipDetails = $"Property type resolved to AnyType ({projectedTypeName}).";
             return SkipReason.AnyTypeFallback;
+        }
+
+        if (projectedTypeName != null && TypeDatabaseExtensions.IsBareGenericTypeName(projectedTypeName))
+        {
+            skipDetails = $"Property type resolved to bare generic type ({projectedTypeName}).";
+            return SkipReason.UnsupportedSignature;
         }
 
         // Check for async properties
@@ -276,8 +294,20 @@ public static class MemberEmissionValidator
         // Check bound generic arguments for issues
         foreach (var argument in method.CSSignature)
         {
+            if (boundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, method.ModuleDecl))
+            {
+                skipDetails = $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.";
+                return SkipReason.UnsupportedSignature;
+            }
+
             if (!boundGenericsHandler.IsBoundGeneric(argument))
                 continue;
+
+            if (boundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
+            {
+                skipDetails = "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.";
+                return SkipReason.UnsatisfiedGenericConstraint;
+            }
 
             if (boundGenericsHandler.TryGetFirstUnsatisfiedConstraint(argument.SwiftTypeSpec, method, out var constraintDetails))
             {
@@ -381,6 +411,12 @@ public static class MemberEmissionValidator
                 projectedReturnTypeName = "Task";
             else
                 projectedReturnTypeName = $"Task<{projectedReturnTypeName}>";
+        }
+
+        if (projectedReturnTypeName != null && TypeDatabaseExtensions.IsBareGenericTypeName(projectedReturnTypeName))
+        {
+            skipDetails = $"Method return type resolved to bare generic type ({projectedReturnTypeName}).";
+            return SkipReason.UnsupportedSignature;
         }
 
         return null;
