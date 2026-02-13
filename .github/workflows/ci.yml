@@ -1,0 +1,215 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # Manual trigger on any branch
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Build solution
+        run: ./build.sh
+
+      - name: Run unit tests
+        run: >
+          dotnet test src/Swift.Bindings/tests/UnitTests
+          --no-build -c Debug
+          --logger "trx;LogFileName=unit-tests.trx"
+          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
+
+      - name: Run integration tests
+        run: >
+          dotnet test src/Swift.Bindings/tests/IntegrationTests
+          --no-build -c Debug
+          --logger "trx;LogFileName=integration-tests.trx"
+          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
+
+      - name: Run runtime library tests
+        run: >
+          dotnet test src/Swift.Runtime/tests
+          --no-build -c Debug
+          --logger "trx;LogFileName=runtime-lib-tests.trx"
+          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            **/TestResults/*.trx
+          retention-days: 7
+
+  testframework:
+    name: TestFramework
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Build and test
+        run: cd TestFramework && ./build-and-test.sh --strict
+
+      - name: Generate coverage report
+        run: cd TestFramework && ./generate-coverage-report.sh
+
+      - name: Check baselines
+        run: cd TestFramework && ./check-baselines.sh
+
+      - name: Verify no degraded must-pass features
+        run: |
+          DEGRADED=$(python3 -c "
+          import json
+          with open('TestFramework/output/coverage-matrix.json') as f:
+              data = json.load(f)
+          mp = data.get('summary', {}).get('must_pass', {})
+          print(mp.get('degraded', 0))
+          ")
+          if [ "$DEGRADED" -gt 0 ]; then
+            echo "ERROR: $DEGRADED must-pass feature(s) are degraded."
+            exit 1
+          fi
+          echo "All must-pass features passing."
+
+      - name: Upload testframework artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: testframework-artifacts
+          include-hidden-files: true
+          path: |
+            TestFramework/.build/SwiftBindingsTestLib.xcframework/
+            TestFramework/output/
+            TestFramework/SwiftBridge/
+          retention-days: 1
+
+  runtime-tests:
+    name: Runtime Tests
+    runs-on: macos-26
+    needs: testframework
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Download testframework artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: testframework-artifacts
+          path: TestFramework/
+
+      - name: Run runtime tests
+        run: >
+          cd TestFramework &&
+          ./run-runtime-tests.sh --tier 2 --timeout 90 --safe-only --skip-regen
+
+      - name: Upload runtime test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-test-results
+          path: TestFramework/RuntimeTestsApp/bin/
+          retention-days: 7
+
+  package-smoke:
+    name: Package Smoke Test
+    runs-on: macos-26
+    needs: build-and-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Pack Swift.Runtime
+        run: dotnet pack src/Swift.Runtime/src/ -c Release -o artifacts/
+
+      - name: Publish generator
+        run: dotnet publish src/Swift.Bindings/src/ -c Release -o src/Swift.Bindings.Sdk/tools/net10.0/any/
+
+      - name: Pack Swift.Bindings.Sdk
+        run: dotnet pack src/Swift.Bindings.Sdk/ -c Release -o artifacts/
+
+      - name: Pack Swift.Bindings.Templates
+        run: dotnet pack src/Swift.Bindings.Templates/ -c Release -o artifacts/
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/*.nupkg
+          retention-days: 7

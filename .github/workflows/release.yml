@@ -1,0 +1,300 @@
+name: Release
+
+on:
+  push:
+    branches: ['release/**']
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # --- Validation (same structure as ci.yml) ---
+
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Build solution
+        run: ./build.sh
+
+      - name: Run unit tests
+        run: >
+          dotnet test src/Swift.Bindings/tests/UnitTests
+          --no-build -c Debug
+          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
+
+      - name: Run integration tests
+        run: >
+          dotnet test src/Swift.Bindings/tests/IntegrationTests
+          --no-build -c Debug
+          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
+
+      - name: Run runtime library tests
+        run: >
+          dotnet test src/Swift.Runtime/tests
+          --no-build -c Debug
+          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
+
+  testframework:
+    name: TestFramework
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Build and test
+        run: cd TestFramework && ./build-and-test.sh --strict
+
+      - name: Generate coverage report
+        run: cd TestFramework && ./generate-coverage-report.sh
+
+      - name: Check baselines
+        run: cd TestFramework && ./check-baselines.sh
+
+      - name: Verify no degraded must-pass features
+        run: |
+          DEGRADED=$(python3 -c "
+          import json
+          with open('TestFramework/output/coverage-matrix.json') as f:
+              data = json.load(f)
+          mp = data.get('summary', {}).get('must_pass', {})
+          print(mp.get('degraded', 0))
+          ")
+          if [ "$DEGRADED" -gt 0 ]; then
+            echo "ERROR: $DEGRADED must-pass feature(s) are degraded."
+            exit 1
+          fi
+          echo "All must-pass features passing."
+
+      - name: Upload testframework artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: testframework-artifacts
+          include-hidden-files: true
+          path: |
+            TestFramework/.build/SwiftBindingsTestLib.xcframework/
+            TestFramework/output/
+            TestFramework/SwiftBridge/
+          retention-days: 1
+
+  runtime-tests:
+    name: Runtime Tests
+    runs-on: macos-26
+    needs: testframework
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Download testframework artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: testframework-artifacts
+          path: TestFramework/
+
+      - name: Run runtime tests
+        run: >
+          cd TestFramework &&
+          ./run-runtime-tests.sh --tier 2 --timeout 90 --safe-only --skip-regen
+
+  # --- Release ---
+
+  release:
+    name: Release
+    runs-on: macos-26
+    needs: [build-and-test, testframework, runtime-tests]
+    environment: nuget-publish
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Extract version from branch
+        id: version
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/release/}"
+          # Strip -dryrun.N suffix if present
+          VERSION=$(echo "$BRANCH" | sed 's/-dryrun\.[0-9]*$//')
+          # Validate semver pattern (with optional prerelease)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "ERROR: '$VERSION' does not match semver pattern"
+            exit 1
+          fi
+          IS_DRYRUN=false
+          if echo "$BRANCH" | grep -qE '\-dryrun\.[0-9]+$'; then
+            IS_DRYRUN=true
+          fi
+          IS_PRERELEASE=false
+          if echo "$VERSION" | grep -qE '\-(preview|alpha|beta|rc)'; then
+            IS_PRERELEASE=true
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "is_dryrun=$IS_DRYRUN" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION (dryrun=$IS_DRYRUN, prerelease=$IS_PRERELEASE)"
+
+      - name: Preflight — check NuGet for existing versions
+        if: steps.version.outputs.is_dryrun == 'false'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          FAILED=false
+          for PKG in Swift.Runtime Swift.Bindings.Sdk Swift.Bindings.Templates; do
+            PKG_LOWER=$(echo "$PKG" | tr 'A-Z' 'a-z')
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              "https://api.nuget.org/v3-flatcontainer/${PKG_LOWER}/${VERSION}/${PKG_LOWER}.${VERSION}.nupkg")
+            if [ "$STATUS" = "200" ]; then
+              echo "ERROR: $PKG $VERSION already exists on NuGet.org"
+              FAILED=true
+            fi
+          done
+          if [ "$FAILED" = "true" ]; then
+            exit 1
+          fi
+          echo "All packages available for publishing."
+
+      - name: Patch version references
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Sdk.props: _SwiftBindingSdkVersion and SwiftRuntimeVersion
+          sed -i '' \
+            "s|<_SwiftBindingSdkVersion>.*</_SwiftBindingSdkVersion>|<_SwiftBindingSdkVersion>${VERSION}</_SwiftBindingSdkVersion>|" \
+            src/Swift.Bindings.Sdk/Sdk/Sdk.props
+          sed -i '' \
+            "s|<SwiftRuntimeVersion Condition=\"'\$(SwiftRuntimeVersion)' == ''\">.*</SwiftRuntimeVersion>|<SwiftRuntimeVersion Condition=\"'\$(SwiftRuntimeVersion)' == ''\">${VERSION}</SwiftRuntimeVersion>|" \
+            src/Swift.Bindings.Sdk/Sdk/Sdk.props
+
+          # Template ProjectName.csproj: SDK version
+          sed -i '' \
+            "s|Sdk=\"Swift.Bindings.Sdk/[^\"]*\"|Sdk=\"Swift.Bindings.Sdk/${VERSION}\"|" \
+            src/Swift.Bindings.Templates/content/swift-binding/ProjectName.csproj
+
+          echo "Patched version references to $VERSION"
+
+      - name: Pack Swift.Runtime
+        run: >
+          dotnet pack src/Swift.Runtime/src/ -c Release -o artifacts/
+          -p:PackageVersion=${{ steps.version.outputs.version }}
+
+      - name: Publish generator
+        run: >
+          dotnet publish src/Swift.Bindings/src/ -c Release
+          -o src/Swift.Bindings.Sdk/tools/net10.0/any/
+
+      - name: Pack Swift.Bindings.Sdk
+        run: >
+          dotnet pack src/Swift.Bindings.Sdk/ -c Release -o artifacts/
+          -p:PackageVersion=${{ steps.version.outputs.version }}
+
+      - name: Pack Swift.Bindings.Templates
+        run: >
+          dotnet pack src/Swift.Bindings.Templates/ -c Release -o artifacts/
+          -p:PackageVersion=${{ steps.version.outputs.version }}
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: artifacts/*.nupkg
+          retention-days: 30
+
+      - name: Publish to NuGet
+        if: steps.version.outputs.is_dryrun == 'false'
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          for pkg in \
+            "artifacts/Swift.Runtime.${VERSION}.nupkg" \
+            "artifacts/Swift.Bindings.Sdk.${VERSION}.nupkg" \
+            "artifacts/Swift.Bindings.Templates.${VERSION}.nupkg"; do
+            echo "Publishing $pkg..."
+            dotnet nuget push "$pkg" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+      - name: Create git tag
+        if: steps.version.outputs.is_dryrun == 'false'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.is_dryrun == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PRERELEASE_FLAG=""
+          if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "v${VERSION}" \
+            --generate-notes \
+            $PRERELEASE_FLAG \
+            artifacts/*.nupkg

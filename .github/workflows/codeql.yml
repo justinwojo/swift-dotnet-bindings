@@ -1,0 +1,40 @@
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # Manual trigger on any branch
+  schedule:
+    - cron: '0 6 * * 0' # Sunday at 6am UTC
+
+permissions:
+  security-events: write
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze C#
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3

@@ -888,7 +888,10 @@ namespace BindingsGeneration
         {
             // Detect async getters by checking if the TBD contains the "Tu" (async function pointer) suffix
             // for this accessor's mangled name. The ABI JSON doesn't mark accessors as async directly.
-            var isAsync = _demangledTbd.AllSymbols.Contains(accessor.MangledName + "Tu");
+            // For class properties, the exported symbol uses a dispatch thunk (Tj suffix), so the async
+            // marker appears as "TjTu" rather than bare "Tu". Check both variants.
+            var isAsync = _demangledTbd.AllSymbols.Contains(accessor.MangledName + "Tu")
+                || _demangledTbd.AllSymbols.Contains(accessor.MangledName + "TjTu");
 
             // Build generic parameters for the accessor method.
             // If the accessor has its own GenericSig, parse it. Otherwise, if the parent type is generic,

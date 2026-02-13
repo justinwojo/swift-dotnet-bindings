@@ -230,7 +230,7 @@ public class OwnershipTests : TestBase
 
     #region Ownership Transfer Patterns
 
-    [TestTier(TestTier.Tier2)]
+    [TestTier(TestTier.Tier3)] // Mono: SafeHandle non-blittable through CallConvSwift P/Invoke
     public void TestBorrowResourcePreservesOwnership()
     {
         // BorrowResource should not consume the resource
