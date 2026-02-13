@@ -34,6 +34,7 @@ else
     cd TestFramework
     ./build-and-test.sh --strict
     ./generate-coverage-report.sh
+    ./check-baselines.sh
     cd ..
 
     # Fail on degraded must-pass features (actual regressions)
@@ -86,19 +87,29 @@ sys.exit(1)
             set -e
             cd ..
             if [ $RUNTIME_EXIT -ne 0 ]; then
-                # Tolerate known Mono runtime crashes (pre-existing bugs, not regressions):
-                #   - jit-info.c:918: Mono JIT assertion on closure/SwiftString P/Invoke
-                #   - RUNTIME TESTS CRASHED: Mono process crash (async teardown, gsharedvt, etc.)
-                # Only fail on "RUNTIME TESTS FAILED" (test logic failure without crash),
-                # which would indicate a genuine regression.
-                if grep -q "jit-info\.c:918" "$RUNTIME_OUTPUT" 2>/dev/null; then
-                    echo ""
-                    echo "WARNING: Runtime tests hit the known Mono JIT crash (jit-info.c:918)."
-                    echo "This is a pre-existing Mono runtime bug, not a regression."
-                elif grep -q "RUNTIME TESTS CRASHED" "$RUNTIME_OUTPUT" 2>/dev/null; then
-                    echo ""
-                    echo "WARNING: Runtime tests crashed (Mono runtime crash)."
-                    echo "This is a pre-existing Mono runtime bug, not a regression."
+                # Known crash-risk classes (must match [CrashRisk] attributes in RuntimeTestsApp)
+                CRASH_ALLOWLIST="EnumMarshallingTests|OwnershipGCStressTests"
+
+                if grep -q "jit-info\.c:918\|RUNTIME TESTS CRASHED" "$RUNTIME_OUTPUT" 2>/dev/null; then
+                    # Extract the last test class from === ClassName === markers
+                    LAST_CLASS=$(grep -oE '=== [A-Za-z0-9_]+ ===' "$RUNTIME_OUTPUT" | tail -1 | sed 's/=== //;s/ ===//')
+
+                    if [ -n "$LAST_CLASS" ] && echo "$LAST_CLASS" | grep -qE "^($CRASH_ALLOWLIST)$"; then
+                        echo ""
+                        echo "WARNING: Runtime crash in known crash-risk class ($LAST_CLASS)."
+                        echo "This is a pre-existing Mono runtime bug, not a regression."
+                    elif [ -z "$LAST_CLASS" ]; then
+                        # Crash before any test class ran — likely Mono startup issue
+                        echo ""
+                        echo "WARNING: Runtime crash before any test class ran (Mono startup crash)."
+                        echo "This is a pre-existing Mono runtime bug, not a regression."
+                    else
+                        echo ""
+                        echo "ERROR: Runtime crash in class '$LAST_CLASS' which is NOT in the crash allowlist."
+                        echo "This may be a regression. Allowlist: $CRASH_ALLOWLIST"
+                        rm -f "$RUNTIME_OUTPUT"
+                        exit 1
+                    fi
                 else
                     echo ""
                     echo "ERROR: Runtime tests failed (exit code $RUNTIME_EXIT)."

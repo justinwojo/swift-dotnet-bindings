@@ -139,3 +139,35 @@ Known-unsupported features: 47/52 have tests (5 compiled out)
 - **known_unsupported**: Features the generator intentionally doesn't handle yet (actors, property wrappers, etc.).
 
 See `src/docs/testframework-enhancement-plan.md` for the full contract matrix and skip reason reference.
+
+## Test Profiles
+
+Two execution profiles cover different validation needs. All are local (no CI yet).
+
+| Profile | Command | What Runs | Crash Tolerance |
+|---------|---------|-----------|-----------------|
+| **PR Gate** | `./run-tests.sh` | Unit + integration + compile gate + baselines + runtime `--tier 2` (all classes) | Allowlist: crashes tolerated only in `[CrashRisk]` classes |
+| **Nightly** | Manual | `./run-runtime-tests.sh --tier 3` with flake detection (3x per test) | Full reporting |
+
+### PR Gate (`./run-tests.sh`)
+
+The primary validation command. Runs in ~10 minutes:
+
+1. **Unit tests** — 2,395 xUnit tests (parser, marshaler, emitter, type database)
+2. **Integration tests** — 699 end-to-end binding generation tests
+3. **TestFramework Layer 1** — build xcframework, regenerate bindings, compile-check, coverage report
+4. **Baseline checks** — generator exit code, degraded count, compiled-out count, strip count, crash-risk count
+5. **TestFramework Layer 2** — runtime tests at `--tier 2` on iOS Simulator
+
+Crashes during runtime tests are tolerated only if they occur in a class on the crash allowlist (matching `[CrashRisk]` attributes). A crash in any other class fails the run.
+
+### Nightly (manual)
+
+For thorough validation after significant changes:
+
+```bash
+cd TestFramework
+./run-runtime-tests.sh --tier 3 --timeout 120
+```
+
+Tier 3 runs every test 3x for flake detection and includes stress/concurrency tests. Results are reported but not gated — used to identify intermittent failures for investigation.

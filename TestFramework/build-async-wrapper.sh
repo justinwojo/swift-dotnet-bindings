@@ -42,9 +42,10 @@ CLEANED_DIR="output/.wrapper-build"
 rm -rf "$CLEANED_DIR"
 mkdir -p "$CLEANED_DIR"
 
+TOTAL_STRIPPED=0
 for SWIFT_FILE in $SWIFT_FILES; do
     BASENAME=$(basename "$SWIFT_FILE")
-    python3 - "$SWIFT_FILE" "$CLEANED_DIR/$BASENAME" <<'PYEOF'
+    PY_OUTPUT=$(python3 - "$SWIFT_FILE" "$CLEANED_DIR/$BASENAME" <<'PYEOF'
 import sys
 
 input_path = sys.argv[1]
@@ -184,8 +185,14 @@ with open(output_path, "w") as f:
     f.writelines(output_lines)
 
 print(f"  Stripped {removed_count} broken wrapper(s) from {sys.argv[1]}")
+print(f"STRIP_COUNT:{removed_count}")
 PYEOF
+)
+    FILE_STRIPPED=$(echo "$PY_OUTPUT" | grep STRIP_COUNT | cut -d: -f2)
+    echo "$PY_OUTPUT" | grep -v STRIP_COUNT
+    TOTAL_STRIPPED=$((TOTAL_STRIPPED + ${FILE_STRIPPED:-0}))
 done
+echo "$TOTAL_STRIPPED" > "output/wrapper-stripped-count"
 
 # Build cleaned files list
 CLEANED_FILES=$(find "$CLEANED_DIR" -name "*.swift" -type f 2>/dev/null || true)

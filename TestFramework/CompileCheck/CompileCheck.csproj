@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0-ios</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <!-- CS0169: unused private field (generated backing fields) -->
+    <NoWarn>0169</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../output/Swift.SwiftBindingsTestLib.cs" />
+    <Compile Include="../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs"
+             Condition="Exists('../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs')" />
+  </ItemGroup>
+</Project>

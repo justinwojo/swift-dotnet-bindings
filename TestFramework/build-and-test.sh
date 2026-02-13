@@ -38,6 +38,50 @@ echo ""
 echo "--- Step 2: Regenerate bindings ---"
 ./regenerate-bindings.sh $REGEN_ARGS
 
+# Step 2.5: Compile-check generated bindings
+echo ""
+echo "--- Step 2.5: Compile-check generated bindings ---"
+set +e
+COMPILE_OUTPUT=$(dotnet build CompileCheck/CompileCheck.csproj -c Debug -v quiet 2>&1)
+COMPILE_EXIT=$?
+set -e
+if [ $COMPILE_EXIT -ne 0 ]; then
+    # Check for infrastructure errors (restore, MSBuild, SDK, workload) first —
+    # these are never suppressible and indicate a broken build environment.
+    INFRA_ERRORS=$(echo "$COMPILE_OUTPUT" | grep -E "error (NU|NETSDK|MSB)" || true)
+    ALL_CS_ERRORS=$(echo "$COMPILE_OUTPUT" | grep "error CS" || true)
+    if [ -n "$INFRA_ERRORS" ]; then
+        echo "$COMPILE_OUTPUT"
+        echo ""
+        echo "ERROR: Compile-check hit infrastructure/tooling errors:"
+        echo "$INFRA_ERRORS"
+        exit 1
+    elif [ -z "$ALL_CS_ERRORS" ]; then
+        # Build failed but no recognized error patterns — don't silently pass
+        echo "$COMPILE_OUTPUT"
+        echo ""
+        echo "ERROR: Compile-check failed (exit code $COMPILE_EXIT) with unrecognized errors."
+        exit 1
+    else
+        # Filter out known pre-existing C# errors (async property getters: CS0103)
+        # These are known unsupported features, not regressions.
+        KNOWN_ERRORS="AsyncItemCount_Get|AsyncSummary_Get"
+        NEW_ERRORS=$(echo "$ALL_CS_ERRORS" | grep -vE "$KNOWN_ERRORS" || true)
+        if [ -n "$NEW_ERRORS" ]; then
+            echo "$COMPILE_OUTPUT"
+            echo ""
+            echo "ERROR: Compile-check found new errors in generated bindings:"
+            echo "$NEW_ERRORS"
+            exit 1
+        else
+            KNOWN_COUNT=$(echo "$ALL_CS_ERRORS" | grep -cE "$KNOWN_ERRORS" || true)
+            echo "Compile-check passed ($KNOWN_COUNT known pre-existing error(s) suppressed)."
+        fi
+    fi
+else
+    echo "Compile-check passed (0 errors)."
+fi
+
 # Step 3: Build async Swift wrappers (if generated)
 ASYNC_SWIFT=$(find output -maxdepth 1 -name "*.swift" ! -name "*.SwiftUIBridge.swift" -type f 2>/dev/null | head -1)
 if [ -n "$ASYNC_SWIFT" ]; then

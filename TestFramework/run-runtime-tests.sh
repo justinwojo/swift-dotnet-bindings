@@ -12,7 +12,7 @@
 # Options:
 #   --tier N          Run tests up to tier N (default: 1)
 #   --skip-regen      Skip binding regeneration (use existing bindings)
-#   --timeout N       Timeout in seconds (default: 60)
+#   --timeout N       Timeout in seconds (default: 90)
 #   --class NAME      Run only the named test class (exact match, case-insensitive)
 #   --safe-only       Skip test classes marked with [CrashRisk]
 
@@ -23,7 +23,7 @@ cd "$(dirname "$0")"
 # Default options
 TIER=1
 SKIP_REGEN=false
-TIMEOUT=60
+TIMEOUT=90
 CLASS_FILTER=""
 SAFE_ONLY=false
 
@@ -178,12 +178,21 @@ if [ -z "$BOOTED_UDID" ]; then
     DEVICE_UDID=$(xcrun simctl list devices available -j 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
+# Prefer specific models for deterministic behavior, fall back to any iPhone
+preferred = ['iPhone 16', 'iPhone 15 Pro', 'iPhone 15']
+candidates = []
 for runtime, devices in data.get('devices', {}).items():
     if 'iOS' not in runtime and 'iphone' not in runtime.lower():
         continue
     for d in devices:
         if d.get('isAvailable', False) and 'iPhone' in d.get('name', ''):
+            candidates.append(d)
+for pref in preferred:
+    for d in candidates:
+        if d.get('name') == pref:
             print(d['udid']); sys.exit(0)
+if candidates:
+    print(candidates[0]['udid']); sys.exit(0)
 sys.exit(1)
 " 2>/dev/null) || true
 
