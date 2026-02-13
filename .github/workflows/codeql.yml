@@ -25,6 +25,9 @@ jobs:
           dotnet-version: 10.0.x
           dotnet-quality: preview
 
+      - name: Install workloads
+        run: dotnet workload restore
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:

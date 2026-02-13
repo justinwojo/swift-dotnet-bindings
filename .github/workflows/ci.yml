@@ -27,6 +27,9 @@ jobs:
           dotnet-version: 10.0.x
           dotnet-quality: preview
 
+      - name: Install workloads
+        run: dotnet workload restore
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -79,6 +82,9 @@ jobs:
         with:
           dotnet-version: 10.0.x
           dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -136,6 +142,9 @@ jobs:
           dotnet-version: 10.0.x
           dotnet-quality: preview
 
+      - name: Install workloads
+        run: dotnet workload restore
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -175,6 +184,9 @@ jobs:
         with:
           dotnet-version: 10.0.x
           dotnet-quality: preview
+
+      - name: Install workloads
+        run: dotnet workload restore
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
