@@ -121,35 +121,43 @@ All 32 async tests are Tier 3 due to Mono JIT assertion on `CallConvSwift` in as
 
 ---
 
-## Gap 4: Protocol Witness Dispatch Runtime Tests
+## Gap 4: Protocol Witness Dispatch Runtime Tests — DONE (Interface Projection Path)
 
 **Priority**: P2 — Critical for Nuke/BlinkID patterns
 **Area**: TestFramework Layer 2
-**Risk**: Witness dispatch regressions caught only by real-world binding tests
+**Status**: Complete — `BasicProtocolDispatchTests` with 33 tests (14 Tier 1, 9 Tier 2, 10 Tier 3).
 
-### Problem
+### Test Class
 
-Protocol witness dispatch (Phase A: blittable read-only) is implemented but has no runtime test coverage. `WitnessDispatchTests.cs` exists as a stub, deferred because protocol interfaces aren't in generated bindings for the test library. The generator supports protocol conformance emission for real-world libraries (Nuke, Lottie), but the TestFramework Swift sources don't yet produce protocol interfaces — the Swift protocol test files need version guard adjustments or new protocol definitions that the generator can consume.
+| File | Class | Tests | Tier |
+|------|-------|-------|------|
+| `RuntimeTestsApp/Protocols/WitnessDispatchTests.cs` | `BasicProtocolDispatchTests` | 14 | Tier 1 |
+| | | 9 | Tier 2 |
+| | | 10 | Tier 3 |
 
-### What "Done" Looks Like
+### Checklist
 
-- [ ] Protocol interfaces appear in TestFramework generated bindings
-- [ ] `WitnessDispatchTests.cs` tests:
-  - Property getter dispatch (blittable)
-  - Property getter dispatch (String)
-  - Method dispatch with blittable params/returns
-  - Method dispatch with String params/returns
-- [ ] Contract matrix "Protocol Witness Dispatch" rows move from `R?` to `R✓`
+- [x] Protocol interfaces appear in TestFramework generated bindings (20 interfaces + proxy classes)
+- [x] Protocol conformance dispatch (concrete type → C# interface → concrete P/Invoke)
+- [x] Blittable property getter/setter dispatch (`TestHasValueGet`, `TestHasValueSet`, `TestPersonAge`)
+- [x] Blittable method dispatch with params/returns (4 arithmetic tests + `SetValue`/`GetValue`)
+- [x] String method dispatch (`EchoProcessor.Process`, `Describe`, `Display`, `GetOutput`)
+- [x] Enum method/property dispatch (`HandleStatus`, `TransitionStatus`, `GetCurrentStatus`)
+- [x] Contract matrix "Protocol Interface Dispatch" cells updated
 
-### Depends On
+### Scope Note
 
-- Protocol Swift sources must be enabled (currently compiled-out due to Swift version guard)
-- May need `BasicProtocols.swift` version guard adjusted or new protocol test file
+Tests exercise the **interface projection path**: concrete Swift types conforming to protocols are cast to C# protocol interfaces, with dispatch routing through concrete P/Invoke entry points. This is the primary real-world usage pattern (Nuke, BlinkID, Lottie). The **proxy-based witness dispatch path** (existential container → proxy class → witness table thunks) remains untested — it requires the SwiftBindings wrapper library bundled in RuntimeTestsApp, which is a separate infrastructure concern.
+
+### Tier 3 Blockers
+
+- SwiftString property getter/setter: Mono JIT assertion on `CallConvSwift` (same as Gap 3)
+- TaskPriority (String raw value enum): routes through wrapper lib, not available at runtime
 
 ### Files
 
-- Swift: `TestFramework/Sources/SwiftBindingsTestLib/Protocols/BasicProtocols.swift`
-- Runtime stub: `TestFramework/RuntimeTestsApp/Protocols/WitnessDispatchTests.cs`
+- Swift: `TestFramework/Sources/SwiftBindingsTestLib/Protocols/` (`BasicProtocols.swift`, `Composition.swift`, `Conformance.swift`, `NonBlittableProtocols.swift`)
+- Runtime tests: `TestFramework/RuntimeTestsApp/Protocols/WitnessDispatchTests.cs`
 
 ---
 
@@ -317,14 +325,16 @@ Updated snapshot of runtime test coverage. Goal: all `G✓` cells reach `G✓ R�
 | Sync param          |   G✓ R✓   |  G✓ R✓  |  G✓ R✓  |  G✓ R✓  |  G✓ R✓  |  G✓ R✓   |    G✓ R?    |
 | Generic\<T\> param  |   G✓ R?   |  G✓ R?  |  G✓ R?  |  G? R?  |  G? R?  |  G? R?   |      -      |
 
-### Protocol Witness Dispatch
+### Protocol Interface Dispatch¹
 
 |                     | Blittable | String  | Array   | Class   | Enum    |
 |---------------------|:---------:|:-------:|:-------:|:-------:|:-------:|
-| Property getter     |   G✓ R?   |  G✓ R◐  |  G? R?  |  G? R?  |  G✓ R◐  |
-| Property setter     |   G✓ R?   |  G✓ R◐  |  G? R?  |  G? R?  |  G? R?  |
-| Method param        |   G✓ R?   |  G✓ R◐  |  G? R?  |  G? R?  |  G? R?  |
-| Method return       |   G✓ R?   |  G✓ R◐  |  G? R?  |  G? R?  |  G? R?  |
+| Property getter     |   G✓ R✓   |  G✓ R◐  |  G? R?  |  G? R?  |  G✓ R◐  |
+| Property setter     |   G✓ R✓   |  G✓ R◐  |  G? R?  |  G? R?  |  G✓ R◐  |
+| Method param        |   G✓ R✓   |  G✓ R✓  |  G? R?  |  G? R?  |  G✓ R✓  |
+| Method return       |   G✓ R✓   |  G✓ R✓  |  G? R?  |  G? R?  |  G✓ R✓  |
+
+¹ Tests cover the interface projection path (concrete type cast to C# protocol interface). Proxy-based existential witness dispatch is not yet tested.
 
 ### Closures
 
@@ -336,7 +346,7 @@ Updated snapshot of runtime test coverage. Goal: all `G✓` cells reach `G✓ R�
 
 **Legend**:
 - **G✓ R✓** — Generator and runtime tested
-- **G✓ R◐** — Generator tested, runtime needs test (known bug area)
+- **G✓ R◐** — Generator tested, runtime test exists but blocked (Mono JIT or wrapper lib dependency)
 - **G✓ R?** — Generator tested, runtime not tested
 - **G? R?** — Generator coverage unknown, runtime not tested
 - **-** — Not applicable
@@ -382,7 +392,7 @@ Most common reasons members are skipped in Nuke/Lottie/BlinkID. Tests should ens
 | **P1** | ~~Conductor unit tests~~ | Unit tests | **Done** (Phase A3) |
 | **P1** | ~~Coverage report active vs future~~ | TestFramework L1 | **Done** (Phase A4) |
 | **P1** | ~~Async runtime tests~~ | TestFramework L2 | **Tests Implemented** — blocked at Tier 3 (Mono JIT) |
-| **P2** | Protocol witness dispatch runtime tests | TestFramework L2 | Medium — requires protocol Swift source adjustment |
+| **P2** | ~~Protocol witness dispatch runtime tests~~ | TestFramework L2 | **Done** (33 tests: 23 passing Tier 1-2, 10 Tier 3) |
 | **P2** | ~~Complex composition tests~~ | TestFramework L1+L2 | **Done** (23 tests, 6 passing Tier 1-2) |
 | **P3** | PInvokeEmitter unit tests | Unit tests | Small — one test file |
 | **P3** | Generic runtime tests | TestFramework L2 | Medium — new Swift + C# test files |

@@ -39,16 +39,19 @@ All items implemented (TH-1 through TH-7). TH-8 (semantic verification depth) de
 
 ## P1: Testing Depth
 
-**Status**: Partially Complete (Gap 5 done, Gap 3 tests written but runtime-blocked, Gap 4 not started)
+**Status**: Tests Written (Gap 3 runtime-blocked at Tier 3 upstream; Gaps 4-5 done)
 **Spec**: `testing-gaps.md` Gaps 3-5
 
 ### Gap 3: Async Runtime Tests — Tests Implemented (Blocked at Tier 3)
 
 32 async runtime tests across 3 classes (`AsyncStringTests`, `AsyncComplexTypeTests`, `AsyncMethodTests`). All Tier 3 — blocked by Mono JIT assertion on `CallConvSwift` in async P/Invoke. Ready for when the upstream blocker is resolved.
 
-### Gap 4: Protocol Witness Dispatch Runtime Tests — Not Started
+### Gap 4: Protocol Witness Dispatch Runtime Tests — DONE (Interface Projection)
 
-Enable protocol Swift sources, implement `WitnessDispatchTests.cs` — property getter/setter dispatch, method dispatch for blittable + String types.
+`BasicProtocolDispatchTests` with 33 tests (14 Tier 1, 9 Tier 2, 10 Tier 3). Covers
+protocol conformance, blittable property/method dispatch through interfaces, string
+method dispatch, and enum method/property dispatch. Proxy-based witness dispatch
+(existential container path) deferred — requires wrapper library in RuntimeTestsApp.
 
 ### Gap 5: Complex Type Composition Tests — DONE
 
