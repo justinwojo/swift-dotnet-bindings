@@ -33,7 +33,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[DllImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
-        Assert.Contains("public Task<System.Int64> FetchAsync()", csOutput);
+        Assert.Contains("public Task<long> FetchAsync()", csOutput);
         Assert.Contains("return task.Task;", csOutput);
     }
 
@@ -77,7 +77,7 @@ public class MethodHandlerOutputTests
         var siblingProperties = new HashSet<string> { "Fetch" };
         var (csOutput, _) = EmitMethod(method, typeDatabase, siblingProperties);
 
-        Assert.Contains("public System.Int64 FetchMethod()", csOutput);
+        Assert.Contains("public long FetchMethod()", csOutput);
     }
 
     [Fact]
@@ -97,8 +97,8 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public static System.Int64 GetCount()", csOutput);
-        var signatureLine = Array.Find(csOutput.Split('\n'), line => line.Contains("public static System.Int64 GetCount()", StringComparison.Ordinal));
+        Assert.Contains("public static long GetCount()", csOutput);
+        var signatureLine = Array.Find(csOutput.Split('\n'), line => line.Contains("public static long GetCount()", StringComparison.Ordinal));
         Assert.NotNull(signatureLine);
         Assert.DoesNotContain("unsafe", signatureLine!, StringComparison.Ordinal);
     }
@@ -126,7 +126,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public System.Int64 Decode<T0>()", csOutput);
+        Assert.Contains("public long Decode<T0>()", csOutput);
         Assert.Contains("where T0 : ISwiftObject, ILoadable", csOutput);
     }
 
@@ -182,7 +182,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("public static System.Int64 GetVersion()", csOutput);
+        Assert.Contains("public static long GetVersion()", csOutput);
     }
 
     [Fact]
@@ -405,11 +405,11 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("private static unsafe System.Double sample_callback_", csOutput);
+        Assert.Contains("private static unsafe double sample_callback_", csOutput);
         Assert.DoesNotContain("private static unsafe void* sample_callback_", csOutput);
         // Closure returns mapped scalar (frozen struct mapped to Double, but TypeSpec is TestModule.Scalar)
         // Falls back to legacy Swift path because the raw TypeSpec is non-primitive
-        Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, System.Double>", csOutput);
+        Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, double>", csOutput);
     }
 
     [Fact]
@@ -554,7 +554,7 @@ public class MethodHandlerOutputTests
 
         // P/Invoke should use IntPtr for bound generic, not void*
         Assert.DoesNotContain("void*", csOutput);
-        Assert.Contains("ValueTuple<IntPtr, System.Boolean>", csOutput);
+        Assert.Contains("ValueTuple<IntPtr, bool>", csOutput);
         // Return should use per-element marshalling, not raw `return result;`
         Assert.Contains("MarshalFromSwift", csOutput);
         Assert.Contains("result.Item1", csOutput);
@@ -587,7 +587,7 @@ public class MethodHandlerOutputTests
 
         // P/Invoke should use IntPtr for optional non-ObjC, not void*
         Assert.DoesNotContain("void*", csOutput);
-        Assert.Contains("ValueTuple<IntPtr, System.Boolean>", csOutput);
+        Assert.Contains("ValueTuple<IntPtr, bool>", csOutput);
         // Marshal code should use result.Item1 directly (no &result.Item1)
         Assert.Contains("MarshalFromSwift", csOutput);
         Assert.Contains("(result.Item1)", csOutput);

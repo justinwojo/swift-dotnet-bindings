@@ -40,6 +40,10 @@ public static class WorkaroundRecommendations
             "Rename one member via a Swift extension to disambiguate.",
         SkipReason.GenericTypeCallback =>
             "Write a Swift wrapper that avoids closures or async in generic type members.",
+        SkipReason.StaticProtocolMember =>
+            "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper.",
+        SkipReason.SynthesizedCodable =>
+            "Synthesized Codable members are pruned. Use NSCoding or manual serialization from C#.",
         SkipReason.MissingHandler =>
             "No handler exists for this declaration kind.",
         SkipReason.UnsupportedType =>

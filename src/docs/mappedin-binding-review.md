@@ -12,7 +12,7 @@ Generated from `Mappedin.xcframework` (iOS simulator slice) using the Swift bind
 | Synthesized members | 634 |
 | Output size | ~49,000 lines, 2.2 MB |
 | Swift wrapper | Compiled successfully (73 broken wrappers stripped) |
-| `[UnsupportedSwiftType]` annotations | 81 (78 Encoder, 3 MPINavigatable existential, 1 MPISearchResultCommon) |
+| `[UnsupportedSwiftType]` annotations | ~4 (78 Encoder pruned (**fixed**); 3 MPINavigatable existential, 1 MPISearchResultCommon remain) |
 
 ### Skipped Members
 
@@ -113,12 +113,12 @@ What they get:
 ```csharp
 public class MPIMarkerState : ISwiftObject
 {
-    public static MPIMarkerState HIDDEN { get; }    // allocates native memory per access
-    public static MPIMarkerState GHOST { get; }
-    public static MPIMarkerState NORMAL { get; }
-    public static MPIMarkerState UNCERTAIN { get; }
+    public static MPIMarkerState Hidden { get; }    // allocates native memory per access
+    public static MPIMarkerState Ghost { get; }
+    public static MPIMarkerState Normal { get; }
+    public static MPIMarkerState Uncertain { get; }
 
-    public enum CaseTag : uint { HIDDEN = 0, GHOST = 1, NORMAL = 2, UNCERTAIN = 3 }
+    public enum CaseTag : uint { Hidden = 0, Ghost = 1, Normal = 2, Uncertain = 3 }
     public CaseTag Tag { get; }         // calls into Swift metadata
     public nint RawValue { get; }
 
@@ -129,8 +129,8 @@ public class MPIMarkerState : ISwiftObject
 **Impact:**
 - Cannot use `switch(state)` -- must use `switch(state.Tag)` with the nested `CaseTag` enum
 - Each static property access allocates native memory and calls Swift
-- `SCREAMING_CASE` convention (from the Swift source) is un-.NET -- C# convention is PascalCase
-- 21 enum-as-class types in the binding: `MPIError`, `MPIVortexType`, `MPIActionType`, `MPIBearingType`, `CAMERA_DIRECTION`, `EASING_MODE`, `MARKER_ANCHOR`, `TooltipAnchorType`, `AntiAliasQuality`, etc.
+- ~~`SCREAMING_CASE` convention is un-.NET~~ Now PascalCase: `Hidden`, `CameraDirection`, `EasingMode` (**fixed**)
+- 21 enum-as-class types in the binding: `MPIError`, `MPIVortexType`, `MPIActionType`, `MPIBearingType`, etc.
 
 **Why this is correct:** The generator already emits C# `enum` for Swift enums that are `@frozen`, have no associated values, and use integral raw values (see `IsSimpleEnum` in `EnumDecl.cs`). None of the Mappedin enums are `@frozen` -- the library is built with `-enable-library-evolution` but doesn't freeze its enums. This is common for third-party SDKs. Without `@frozen`, the case layout can change between versions, so mapping to fixed C# `enum` integers would be unsafe. Additionally, enums like `MPIError` and `MPIVortexType` use `String` raw values, which have no C# `enum` equivalent. The class pattern is the correct projection here -- it just doesn't feel natural to a .NET developer.
 
@@ -168,18 +168,9 @@ Every callback API would need to be manually wrapped in `TaskCompletionSource<T>
 
 There is no `event` keyword anywhere in the file. In Xamarin ObjC bindings, delegate protocols typically surface as both an interface and a set of C# events via `[Wrap("WeakDelegate")]`. Here, you implement the `IMPIMapViewDelegate` interface and pass a proxy -- functional but less discoverable.
 
-#### 5. The `Encode(object encoder)` / `Constructor(object decoder)` Pattern (Grade: D)
+#### 5. ~~The `Encode(object encoder)` / `Constructor(object decoder)` Pattern~~ (Grade: ~~D~~ N/A) **FIXED**
 
-Nearly every Codable type has these two members:
-
-```csharp
-[UnsupportedSwiftType("Existential type fallback", "any Swift.Encoder")]
-public void Encode(object encoder)   // marked as unsupported, 78 occurrences
-
-public MPILocation(object decoder)   // takes opaque 'object', unusable without Swift Decoder
-```
-
-The `Encode` methods are flagged as unsupported. The `object decoder` constructors compile but are unusable without understanding Swift's `Decoder` protocol. A developer seeing `new MPILocation(someObject)` in IntelliSense would have no idea what to pass. These constructors exist only because Swift's `Codable` conformance synthesizes them -- they're not part of the intended public API.
+~~Nearly every Codable type has these two members.~~ These are now pruned by `MemberEmissionValidator.IsSynthesizedCodableMember()`. The 78 `Encode` methods and matching `init(from: Decoder)` constructors are detected and skipped with `SkipReason.SynthesizedCodable`. They no longer appear in the generated binding.
 
 #### 6. `_object` Parameter Name (Grade: C)
 
@@ -208,16 +199,16 @@ var initOptions = new MPIOptions.Init(
 
 `.Init` as a class name reads like a method, not a type. A .NET developer would expect something like `MappedinConfiguration` or `MPIInitializationOptions`. This comes directly from the Swift source's `MPIOptions.Init` struct name.
 
-#### 8. `System.Single` Instead of `float` (Grade: B-)
+#### 8. ~~`System.Single` Instead of `float`~~ (Grade: ~~B-~~ A) **FIXED**
 
-Properties use the full CLR type name:
+~~Properties use the full CLR type name.~~ Now uses C# keyword aliases:
 
 ```csharp
-public System.Single Score { get; set; }
-public System.Boolean Accessible { get; set; }
+public float Score { get; set; }
+public bool Accessible { get; set; }
 ```
 
-While functionally identical to `float`/`bool`, seeing `System.Single` in a binding feels like machine-generated code. Objective Sharpie uses the C# aliases.
+Previously emitted `System.Single` / `System.Boolean`. Now normalized to keyword aliases in `CSharpTypeName.FromNamespaceAndName()`.
 
 #### 9. String Array Properties Reallocate on Every Access (Grade: C)
 
@@ -295,13 +286,13 @@ public void LoadVenue(...)
 | Naming conventions | A | PascalCase, clear method names |
 | Type projections (properties) | A- | string, IReadOnlyList, nullable -- all correct |
 | Type projections (callbacks) | C- | Leaks SwiftOptional/SwiftString into Action params |
-| Enum usability | C | Classes instead of enums, SCREAMING_CASE |
+| Enum usability | C+ | Classes instead of enums (correct for non-frozen); PascalCase now (**fixed**) |
 | Async patterns | D | No Task/async -- callbacks only |
 | Documentation | A- | 917 doc comments auto-extracted from swiftmodule (now automatic) |
 | Protocol/delegate pattern | B+ | Clean interfaces, proxy pattern works |
 | Memory management | B | SafeHandle correct, must manually Dispose |
-| Constructor discoverability | C | Opaque `object decoder` params, no parameterless ctors |
-| Overall API discoverability | B- | Clean surface, but no docs + opaque types hurt |
+| Constructor discoverability | B- | Codable `init(from: Decoder)` pruned (**fixed**); no parameterless ctors |
+| Overall API discoverability | B | Clean surface with docs; Codable noise removed |
 
 ## Potential Improvements
 
@@ -313,10 +304,22 @@ These are not bugs -- they're opportunities to improve developer experience in f
 
 3. **Async wrappers**: For methods that take a single callback as their last parameter, optionally generate a `Task<T>`-returning async overload.
 
-4. **C# type aliases**: Use `float` instead of `System.Single`, `bool` instead of `System.Boolean`, etc.
+4. ~~**C# type aliases**: Use `float` instead of `System.Single`, `bool` instead of `System.Boolean`, etc.~~ **Done.**
 
 5. **String array caching**: Cache the `.Select(e => e.ToString()).ToList()` result or use a lazy wrapper.
 
 6. **Event generation**: For delegate protocol properties (like `delegate` and `mapClickDelegate`), generate C# events in addition to the interface approach.
 
 7. **Parameter naming**: When Swift uses `_` as the external label, generate a more meaningful C# parameter name from the internal label rather than `_object`.
+
+---
+
+## Implemented Improvements
+
+The following items from the "Potential Improvements" list above have been implemented:
+
+- **Item 4 (C# type aliases):** `CSharpTypeName.FromNamespaceAndName()` now normalizes all `System.*` primitives to C# keyword aliases. Properties emit `float`, `bool`, `int`, etc. instead of `System.Single`, `System.Boolean`, `System.Int32`.
+
+- **Item 5 from review ("Encode/Decoder pruning"):** Synthesized Codable members (`encode(to: Encoder)` and `init(from: Decoder)`) are now detected and pruned by `MemberEmissionValidator`. This eliminates the 78 useless `[UnsupportedSwiftType]` `Encode` methods and the unusable `object decoder` constructors. A new `SynthesizedCodable` skip reason is reported.
+
+- **Enum PascalCase (from Item 1 "Enum usability"):** `NameProvider.ToPascalCase()` now detects `SCREAMING_CASE` and converts it to PascalCase. Enum cases like `HIDDEN` → `Hidden`, `CAMERA_DIRECTION` → `CameraDirection`. All inline `char.ToUpper` sites in the enum handler were also updated to route through `ToPascalCase`.

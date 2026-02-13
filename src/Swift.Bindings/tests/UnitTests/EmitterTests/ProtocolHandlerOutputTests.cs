@@ -174,8 +174,8 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         Assert.Contains("public interface ICacheable : ISwiftHashable", csOutput);
-        Assert.Contains("System.Int64 Count { get; }", csOutput);
-        Assert.Contains("Task<System.Int64> FetchAsync(System.Int64 key);", csOutput);
+        Assert.Contains("long Count { get; }", csOutput);
+        Assert.Contains("Task<long> FetchAsync(long key);", csOutput);
         Assert.Contains("public unsafe class CacheableProxy : ICacheable, ISwiftObject", csOutput);
     }
 
@@ -492,10 +492,10 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        // Interface should contain GetData with valid Container<System.Int64> return
-        Assert.Contains("TestModule.Container<System.Int64> GetData();", csOutput);
+        // Interface should contain GetData with valid Container<long> return
+        Assert.Contains("TestModule.Container<long> GetData();", csOutput);
         // Proxy should also have GetData
-        Assert.Contains("public TestModule.Container<System.Int64> GetData()", csOutput);
+        Assert.Contains("public TestModule.Container<long> GetData()", csOutput);
     }
 
     [Theory]
@@ -503,9 +503,9 @@ public class ProtocolHandlerOutputTests
     [InlineData("BatchedCollection<AnyType>", true)]
     [InlineData("Swift.AnyType", false)]
     [InlineData("AnyType", false)]
-    [InlineData("Container<System.Int64>", false)]
+    [InlineData("Container<long>", false)]
     [InlineData("System.String", false)]
-    [InlineData("Func<Swift.AnyType, System.Boolean>", true)]
+    [InlineData("Func<Swift.AnyType, bool>", true)]
     [InlineData("Container<MyAnyTypeModel>", false)]   // substring false-positive guard
     [InlineData("Container<AnyTypeHelper>", false)]     // prefix match guard
     [InlineData("Container<SomeAnyType>", false)]       // suffix match guard
@@ -1172,7 +1172,7 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("void Interpolate(System.Int64 value, string value2);", csOutput);
+        Assert.Contains("void Interpolate(long value, string value2);", csOutput);
     }
 
     #endregion
@@ -1229,7 +1229,7 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // Interface subscript should use nullable int?, not SwiftOptional
-        Assert.Contains("System.Int64?", csOutput);
+        Assert.Contains("long?", csOutput);
         Assert.Contains("this[", csOutput);
         // Parameters should also be converted (SwiftString → string)
         Assert.Contains("string", csOutput);
@@ -1338,8 +1338,8 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // Parameter "value" should be sanitized to "_value" (C# contextual keyword)
-        Assert.Contains("this[System.Int64 _value]", csOutput);
-        Assert.DoesNotContain("this[System.Int64 value]", csOutput);
+        Assert.Contains("this[long _value]", csOutput);
+        Assert.DoesNotContain("this[long value]", csOutput);
     }
 
     [Fact]
@@ -1406,7 +1406,7 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("this[System.Int64 value, string value2]", csOutput);
+        Assert.Contains("this[long value, string value2]", csOutput);
     }
 
     #endregion
@@ -1485,7 +1485,7 @@ public class ProtocolHandlerOutputTests
 
         var interfacePart = csOutput.Substring(0, csOutput.IndexOf("class CalculatorProxy"));
         Assert.Contains("void Reset()", interfacePart);
-        Assert.Contains("System.Int64 GetResult()", interfacePart);
+        Assert.Contains("long GetResult()", interfacePart);
     }
 
     [Fact]

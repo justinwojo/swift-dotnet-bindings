@@ -240,7 +240,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetCSharpTupleType(tuple);
 
-        Assert.Equal("(System.Int64, Swift.SwiftString)", result);
+        Assert.Equal("(long, Swift.SwiftString)", result);
     }
 
     [Fact]
@@ -252,7 +252,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetCSharpTupleType(tuple);
 
-        Assert.Equal("(System.Int64 x, System.Boolean y)", result);
+        Assert.Equal("(long x, bool y)", result);
     }
 
     [Fact]
@@ -265,7 +265,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetCSharpTupleType(tuple);
 
-        Assert.Equal("(System.Double)", result);
+        Assert.Equal("(double)", result);
     }
 
     [Fact]
@@ -280,7 +280,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetCSharpTupleType(tuple);
 
-        Assert.Equal("(System.Int64, System.Boolean, System.Double)", result);
+        Assert.Equal("(long, bool, double)", result);
     }
 
     #endregion
@@ -298,7 +298,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetPInvokeTupleType(tuple);
 
-        Assert.Equal("ValueTuple<System.Int64, Swift.SwiftString>", result);
+        Assert.Equal("ValueTuple<long, Swift.SwiftString>", result);
     }
 
     [Fact]
@@ -313,7 +313,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetPInvokeTupleType(tuple);
 
-        Assert.Equal("ValueTuple<System.Int64, System.Boolean, System.Double>", result);
+        Assert.Equal("ValueTuple<long, bool, double>", result);
     }
 
     [Fact]
@@ -329,7 +329,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetPInvokeTupleType(tuple);
 
-        Assert.Equal("ValueTuple<IntPtr, System.Boolean>", result);
+        Assert.Equal("ValueTuple<IntPtr, bool>", result);
         Assert.DoesNotContain("void*", result);
     }
 
@@ -346,7 +346,7 @@ public class TupleHandlerTests
 
         var result = _tupleHandler.GetPInvokeTupleType(tuple);
 
-        Assert.Equal("ValueTuple<IntPtr, System.Boolean>", result);
+        Assert.Equal("ValueTuple<IntPtr, bool>", result);
         Assert.DoesNotContain("void*", result);
     }
 

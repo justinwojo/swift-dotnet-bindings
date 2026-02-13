@@ -546,6 +546,6 @@ public class TypeDatabaseExtensionsTests
         var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Swift.Int32"));
 
         Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
-        Assert.Equal("System.Int32", record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal("int", record.CSharpTypeName.FullyQualifiedName);
     }
 }

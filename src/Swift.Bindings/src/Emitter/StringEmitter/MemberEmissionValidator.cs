@@ -698,6 +698,14 @@ public static class MemberEmissionValidator
     {
         skipDetails = null;
 
+        // Prune synthesized Codable members — encode(to: Encoder) and init(from: Decoder)
+        // are always unusable because Encoder/Decoder are unresolvable existential protocols.
+        if (IsSynthesizedCodableMember(method))
+        {
+            skipDetails = "Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).";
+            return SkipReason.SynthesizedCodable;
+        }
+
         // Skip constructors (always allowed through)
         if (method.IsConstructor)
             return null;
@@ -894,5 +902,35 @@ public static class MemberEmissionValidator
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Detects synthesized Codable members: encode(to: any Encoder) and init(from: any Decoder).
+    /// These are always unusable because Encoder/Decoder are unresolvable existential protocols.
+    /// </summary>
+    private static bool IsSynthesizedCodableMember(MethodDecl method)
+    {
+        // encode(to: any Encoder) — always exactly 2 elements in CSSignature (return + encoder param)
+        if (!method.IsConstructor && method.Name == "encode" &&
+            method.CSSignature.Count == 2 &&
+            HasEncoderDecoderParam(method.CSSignature[1], "Encoder"))
+            return true;
+
+        // init(from: any Decoder) — constructor with exactly 2 elements (return + decoder param)
+        if (method.IsConstructor &&
+            method.CSSignature.Count == 2 &&
+            HasEncoderDecoderParam(method.CSSignature[1], "Decoder"))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if an argument's Swift type spec references the given Encoder/Decoder protocol.
+    /// </summary>
+    private static bool HasEncoderDecoderParam(ArgumentDecl arg, string protocolName)
+    {
+        var typeStr = arg.SwiftTypeSpec?.ToString() ?? "";
+        return typeStr.Contains($"Swift.{protocolName}");
     }
 }

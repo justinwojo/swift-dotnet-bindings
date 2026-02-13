@@ -59,11 +59,11 @@ public class SignatureBuilderTests
     #region Return Type Handling Tests
 
     [Theory]
-    [InlineData("Swift.Int", "System.Int64")]
-    [InlineData("Swift.Bool", "System.Boolean")]
-    [InlineData("Swift.Double", "System.Double")]
-    [InlineData("Swift.Float", "System.Single")]
-    [InlineData("Swift.UInt", "System.UInt64")]
+    [InlineData("Swift.Int", "long")]
+    [InlineData("Swift.Bool", "bool")]
+    [InlineData("Swift.Double", "double")]
+    [InlineData("Swift.Float", "float")]
+    [InlineData("Swift.UInt", "ulong")]
     public void ReturnType_PrimitiveType_MapsCorrectly(string swiftType, string expectedCSharpType)
     {
         // Test that primitive type mappings are correct
@@ -792,7 +792,9 @@ public class SignatureBuilderTests
 
         return new TypeRecord
         {
-            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(ns, typeName),
+            CSharpTypeName = ns.Length > 0
+                ? CSharpTypeName.FromNamespaceAndName(ns, typeName)
+                : CSharpTypeName.FromKeyword(typeName),
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftType),
             MetadataAccessor = "",
             Flags = TypeRecordFlags.Frozen,

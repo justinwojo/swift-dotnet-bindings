@@ -287,7 +287,7 @@ namespace BindingsGeneration
         {
             var caseName = caseDecl.Name;
             var enumTypeName = enumDecl.Name;
-            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var capitalizedName = NameProvider.ToPascalCase(caseName);
             var pInvokeName = $"PInvoke_{capitalizedName}";
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
 
@@ -324,7 +324,7 @@ namespace BindingsGeneration
         private void EmitSimpleCaseFromTag(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, string enumTypeName)
         {
             var caseName = caseDecl.Name;
-            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var capitalizedName = NameProvider.ToPascalCase(caseName);
             var caseTag = enumDecl.GetCaseTag(caseDecl);
 
             // Generate a static property for this case with backing P/Invoke

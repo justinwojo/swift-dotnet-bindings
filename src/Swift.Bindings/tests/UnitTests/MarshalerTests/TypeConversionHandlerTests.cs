@@ -392,8 +392,8 @@ public class TypeConversionHandlerTests
         typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
 
         // With translator: element type resolves to "System.Byte"
-        var result = _handler.GetParameterConversion("value", typeSpec, _ => "System.Byte");
-        Assert.Equal("SwiftArray<System.Byte>.FromEnumerable(value)", result);
+        var result = _handler.GetParameterConversion("value", typeSpec, _ => "byte");
+        Assert.Equal("SwiftArray<byte>.FromEnumerable(value)", result);
     }
 
     [Fact]
@@ -407,7 +407,7 @@ public class TypeConversionHandlerTests
         var result = _handler.GetParameterConversion("value", typeSpec);
         // AnyType fallback produces a different (incorrect) element type
         Assert.NotNull(result);
-        Assert.DoesNotContain("System.Byte", result);
+        Assert.DoesNotContain("byte", result);
     }
 
     [Fact]
@@ -418,8 +418,8 @@ public class TypeConversionHandlerTests
         var typeSpec = new NamedTypeSpec("Swift.Array");
         typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
 
-        var result = _handler.GetSwiftWrapperType(typeSpec, _ => "System.Byte");
-        Assert.Equal("SwiftArray<System.Byte>", result);
+        var result = _handler.GetSwiftWrapperType(typeSpec, _ => "byte");
+        Assert.Equal("SwiftArray<byte>", result);
     }
 
     [Fact]
@@ -431,7 +431,7 @@ public class TypeConversionHandlerTests
 
         var result = _handler.GetSwiftWrapperType(typeSpec);
         Assert.NotNull(result);
-        Assert.DoesNotContain("System.Byte", result);
+        Assert.DoesNotContain("byte", result);
     }
 
     [Fact]
@@ -442,8 +442,8 @@ public class TypeConversionHandlerTests
         var typeSpec = new NamedTypeSpec("Swift.Array");
         typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UInt8"));
 
-        var result = _handler.GetIdiomaticCSharpType(typeSpec, isParameter: false, _ => "System.Byte");
-        Assert.Equal("IReadOnlyList<System.Byte>", result);
+        var result = _handler.GetIdiomaticCSharpType(typeSpec, isParameter: false, _ => "byte");
+        Assert.Equal("IReadOnlyList<byte>", result);
     }
 
     [Fact]
@@ -481,7 +481,7 @@ public class TypeConversionHandlerTests
         typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
         var result = _handler.GetIdiomaticCSharpType(typeSpec, isParameter: false);
         // DB lookup returns System.Int64 for Swift.Int
-        Assert.Equal("IReadOnlyList<System.Int64>", result);
+        Assert.Equal("IReadOnlyList<long>", result);
     }
 
     [Fact]

@@ -861,7 +861,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_BlittablePropertyGetter_RegisteredType_EmitsWitnessDispatch()
     {
-        // With a properly registered type, the projected type is blittable (System.Int32)
+        // With a properly registered type, the projected type is blittable (int)
         // and dispatch should be enabled.
         RegisterSwiftInt32();
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int32"));
@@ -1360,7 +1360,7 @@ public class ProtocolProxyEmitterTests
     public void EmitProxyClass_MethodWithBlittableParam_RegisteredType_DispatchEnabled()
     {
         // When the TypeDatabase properly registers a primitive type, the projected
-        // C# type is blittable (e.g. System.Int32) and dispatch should be enabled.
+        // C# type is blittable (e.g. int) and dispatch should be enabled.
         _typeDatabase.AddOutOfModuleTypes(new[]
         {
             (SwiftTypeName.FromModuleQualifiedName("Swift.Int32"), new TypeRecord
@@ -1412,7 +1412,7 @@ public class ProtocolProxyEmitterTests
         });
         var output = EmitProxyClass(protocolDecl);
 
-        // Projected type System.Int32 is blittable → dispatch enabled
+        // Projected type int is blittable → dispatch enabled
         Assert.Contains("NativeMethods.SBW_TestProtocol_method_setValue_0", output);
         Assert.DoesNotContain("Cannot call method 'SetValue'", output);
         Assert.Contains("var arg0Slice = newValue;", output);
@@ -1620,7 +1620,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("Receive_count_set", output);
-        Assert.Contains("MarshalFromSwift<System.Int32>", output);
+        Assert.Contains("MarshalFromSwift<int>", output);
     }
 
     #endregion
@@ -1747,8 +1747,8 @@ public class ProtocolProxyEmitterTests
     }
 
     /// <summary>
-    /// Registers Swift.Int32 → System.Int32 in the test TypeDatabase so the
-    /// projected C# type is blittable (System.Int32) and dispatch is enabled.
+    /// Registers Swift.Int32 → int in the test TypeDatabase so the
+    /// projected C# type is blittable (int) and dispatch is enabled.
     /// </summary>
     private void RegisterSwiftInt32()
     {

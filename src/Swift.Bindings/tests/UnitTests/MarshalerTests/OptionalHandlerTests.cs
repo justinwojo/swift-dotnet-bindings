@@ -97,7 +97,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
 
-        Assert.Equal("Swift.SwiftOptional<System.Int64>", result);
+        Assert.Equal("Swift.SwiftOptional<long>", result);
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
 
-        Assert.Equal("Swift.SwiftOptional<System.Boolean>", result);
+        Assert.Equal("Swift.SwiftOptional<bool>", result);
     }
 
     [Fact]
@@ -133,7 +133,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
 
-        Assert.Equal("Swift.SwiftOptional<System.Double>", result);
+        Assert.Equal("Swift.SwiftOptional<double>", result);
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(argument);
 
-        Assert.Equal("Swift.SwiftOptional<System.Int64>", result);
+        Assert.Equal("Swift.SwiftOptional<long>", result);
     }
 
     #endregion
@@ -166,7 +166,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
 
-        Assert.Equal("Swift.SwiftOptional<Swift.SwiftOptional<System.Int64>>", result);
+        Assert.Equal("Swift.SwiftOptional<Swift.SwiftOptional<long>>", result);
     }
 
     #endregion
@@ -187,7 +187,7 @@ public class OptionalHandlerTests
 
         var result = _boundGenericsHandler.TranslateBoundGenericTypeToCSharp(property);
 
-        Assert.Equal("Swift.SwiftOptional<Swift.SwiftArray<System.Int64>>", result);
+        Assert.Equal("Swift.SwiftOptional<Swift.SwiftArray<long>>", result);
     }
 
     #endregion

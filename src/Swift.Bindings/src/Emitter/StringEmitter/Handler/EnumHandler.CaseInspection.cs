@@ -27,7 +27,7 @@ namespace BindingsGeneration
             // Emit payload cases first (in declaration order)
             foreach (var caseDecl in enumDecl.PayloadCases)
             {
-                var capitalizedName = char.ToUpper(caseDecl.Name[0]) + caseDecl.Name.Substring(1);
+                var capitalizedName = NameProvider.ToPascalCase(caseDecl.Name);
                 var tag = enumDecl.GetCaseTag(caseDecl);
                 csWriter.WriteLine($"{capitalizedName} = {tag},");
             }
@@ -35,7 +35,7 @@ namespace BindingsGeneration
             // Then emit no-payload cases
             foreach (var caseDecl in enumDecl.NoPayloadCases)
             {
-                var capitalizedName = char.ToUpper(caseDecl.Name[0]) + caseDecl.Name.Substring(1);
+                var capitalizedName = NameProvider.ToPascalCase(caseDecl.Name);
                 var tag = enumDecl.GetCaseTag(caseDecl);
                 csWriter.WriteLine($"{capitalizedName} = {tag},");
             }
@@ -102,7 +102,7 @@ namespace BindingsGeneration
         private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics)
         {
             var caseName = caseDecl.Name;
-            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var capitalizedName = NameProvider.ToPascalCase(caseName);
 
             // Swift represents multi-value associated types as a single tuple type.
             // Check if the single associated value is a tuple (multi-element extraction).
@@ -270,7 +270,7 @@ namespace BindingsGeneration
         private void EmitTryGetMethodForTuple(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, TupleTypeSpec tupleSpec, ITypeDatabase typeDatabase, string typeNameWithGenerics)
         {
             var caseName = caseDecl.Name;
-            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var capitalizedName = NameProvider.ToPascalCase(caseName);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             var tupleHandler = new TupleHandler(typeDatabase);
 

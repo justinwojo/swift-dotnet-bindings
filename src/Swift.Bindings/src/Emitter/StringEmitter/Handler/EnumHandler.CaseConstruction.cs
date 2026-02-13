@@ -15,7 +15,7 @@ namespace BindingsGeneration
         private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext)
         {
             var caseName = caseDecl.Name;
-            var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+            var capitalizedName = NameProvider.ToPascalCase(caseName);
             var pInvokeName = $"PInvoke_{capitalizedName}";
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);

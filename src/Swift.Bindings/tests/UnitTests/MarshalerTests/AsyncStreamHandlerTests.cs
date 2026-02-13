@@ -153,7 +153,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpAsyncEnumerableType(typeSpec);
 
-        Assert.Equal("IAsyncEnumerable<System.Int64>", result);
+        Assert.Equal("IAsyncEnumerable<long>", result);
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public class AsyncStreamHandlerTests
 
         var result = handler.GetCSharpElementType(typeSpec);
 
-        Assert.Equal("System.Int64", result);
+        Assert.Equal("long", result);
     }
 
     [Fact]

@@ -220,7 +220,7 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public bool TryGetPair([MaybeNullWhen(false)] out System.Int64 value0, [MaybeNullWhen(false)] out System.Boolean value1)", csOutput);
+        Assert.Contains("public bool TryGetPair([MaybeNullWhen(false)] out long value0, [MaybeNullWhen(false)] out bool value1)", csOutput);
         Assert.Contains("Pair = 0,", csOutput);
         Assert.Contains("None = 1,", csOutput);
     }
@@ -242,8 +242,8 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         Assert.Contains("public static unsafe PlaybackMode Paused(", csOutput);
-        Assert.Contains("public static System.Int64 Active", csOutput);
-        Assert.DoesNotContain("public static System.Int64 Paused", csOutput);
+        Assert.Contains("public static long Active", csOutput);
+        Assert.DoesNotContain("public static long Paused", csOutput);
     }
 
     [Fact]

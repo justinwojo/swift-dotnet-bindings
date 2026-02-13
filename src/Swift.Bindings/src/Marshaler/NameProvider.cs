@@ -104,20 +104,62 @@ public static class NameProvider
     };
 
     /// <summary>
-    /// Converts a camelCase string to PascalCase by capitalizing the first letter.
+    /// Converts a camelCase or SCREAMING_CASE string to PascalCase.
     /// </summary>
-    /// <param name="camelCase">The camelCase string to convert.</param>
+    /// <param name="camelCase">The string to convert.</param>
     /// <returns>The PascalCase string.</returns>
     public static string ToPascalCase(string camelCase)
     {
         if (string.IsNullOrEmpty(camelCase))
             return camelCase;
 
-        // Already PascalCase or all caps
+        // SCREAMING_CASE → PascalCase (e.g., "CAMERA_DIRECTION" → "CameraDirection")
+        if (IsScreamingCase(camelCase))
+            return ScreamingCaseToPascalCase(camelCase);
+
+        // Already PascalCase
         if (char.IsUpper(camelCase[0]))
             return camelCase;
 
         return char.ToUpperInvariant(camelCase[0]) + camelCase.Substring(1);
+    }
+
+    /// <summary>
+    /// Detects SCREAMING_CASE: 2+ chars, all uppercase letters/digits/underscores, at least one letter.
+    /// </summary>
+    private static bool IsScreamingCase(string s)
+    {
+        if (s.Length < 2) return false;
+        bool hasLetter = false;
+        foreach (var c in s)
+        {
+            if (char.IsLetter(c))
+            {
+                if (!char.IsUpper(c)) return false;
+                hasLetter = true;
+            }
+            else if (c != '_' && !char.IsDigit(c))
+            {
+                return false;
+            }
+        }
+        return hasLetter;
+    }
+
+    /// <summary>
+    /// Converts SCREAMING_CASE to PascalCase by splitting on underscores and title-casing each segment.
+    /// </summary>
+    private static string ScreamingCaseToPascalCase(string s)
+    {
+        var parts = s.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        var sb = new System.Text.StringBuilder();
+        foreach (var part in parts)
+        {
+            sb.Append(char.ToUpperInvariant(part[0]));
+            if (part.Length > 1)
+                sb.Append(part.Substring(1).ToLowerInvariant());
+        }
+        return sb.ToString();
     }
 
     /// <summary>
@@ -515,8 +557,7 @@ public static class NameProvider
         // which collide with nested types of the same PascalCase name (CS0102).
         if (typeDecl is EnumDecl enumDecl)
         {
-            var caseNames = enumDecl.Cases.Select(c =>
-                char.ToUpper(c.Name[0]) + c.Name.Substring(1));
+            var caseNames = enumDecl.Cases.Select(c => ToPascalCase(c.Name));
             memberNames = memberNames.Concat(caseNames);
         }
 

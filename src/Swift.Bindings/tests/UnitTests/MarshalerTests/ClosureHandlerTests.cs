@@ -373,7 +373,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Action<(System.Int64, System.Boolean)>", result);
+        Assert.Equal("Action<(long, bool)>", result);
     }
 
     [Fact]
@@ -391,7 +391,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Func<(System.Int64, Swift.SwiftString)>", result);
+        Assert.Equal("Func<(long, Swift.SwiftString)>", result);
     }
 
     [Fact]
@@ -416,7 +416,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Func<(System.Int64, System.Boolean), (System.Double, Swift.SwiftString)>", result);
+        Assert.Equal("Func<(long, bool), (double, Swift.SwiftString)>", result);
     }
 
     [Fact]
@@ -436,7 +436,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetPInvokeFunctionPointerType(closure);
 
-        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<System.Int64, System.Boolean>, void>", result);
+        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<long, bool>, void>", result);
     }
 
     [Fact]
@@ -454,7 +454,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetPInvokeFunctionPointerType(closure);
 
-        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<System.Int64, System.Double>>", result);
+        Assert.Equal("delegate* unmanaged[Swift]<ValueTuple<long, double>>", result);
     }
 
     #endregion
@@ -566,7 +566,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<System.Int64>", result);
+        Assert.Equal("Func<long>", result);
     }
 
     [Fact]
@@ -581,7 +581,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<System.Int64, System.Boolean>", result);
+        Assert.Equal("Func<long, bool>", result);
     }
 
     [Fact]
@@ -600,7 +600,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Action<System.Int64, System.Boolean, System.Double>", result);
+        Assert.Equal("Action<long, bool, double>", result);
     }
 
     [Fact]
@@ -727,7 +727,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Action<Swift.SwiftResult<System.Int64, Swift.SwiftError>>", result);
+        Assert.Equal("Action<Swift.SwiftResult<long, Swift.SwiftError>>", result);
     }
 
     [Fact]
@@ -742,7 +742,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Func<Swift.SwiftArray<System.Boolean>>", result);
+        Assert.Equal("Func<Swift.SwiftArray<bool>>", result);
     }
 
     [Fact]
@@ -755,7 +755,7 @@ public class ClosureHandlerTests
         var optionalInt = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
         var result = handler.TranslateTypeSpecToCSharp(optionalInt);
 
-        Assert.Equal("System.Int64?", result);
+        Assert.Equal("long?", result);
     }
 
     [Fact]
@@ -770,7 +770,7 @@ public class ClosureHandlerTests
 
         var result = handler.TranslateTypeSpecToCSharp(resultType);
 
-        Assert.Equal("Swift.SwiftResult<Swift.SwiftArray<System.Int64>, Swift.SwiftError>", result);
+        Assert.Equal("Swift.SwiftResult<Swift.SwiftArray<long>, Swift.SwiftError>", result);
     }
 
     [Fact]
@@ -939,7 +939,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Func<System.Int64?>", result);
+        Assert.Equal("Func<long?>", result);
     }
 
     #endregion
@@ -973,7 +973,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<Task<System.Int64>>", result);
+        Assert.Equal("Func<Task<long>>", result);
     }
 
     [Fact]
@@ -989,7 +989,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<System.Int64, Task>", result);
+        Assert.Equal("Func<long, Task>", result);
     }
 
     [Fact]
@@ -1005,7 +1005,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<System.Int64, Task<System.Boolean>>", result);
+        Assert.Equal("Func<long, Task<bool>>", result);
     }
 
     [Fact]
@@ -1062,7 +1062,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<Swift.SwiftResult<System.Int64, SwiftError>>", result);
+        Assert.Equal("Func<Swift.SwiftResult<long, SwiftError>>", result);
     }
 
     [Fact]
@@ -1078,7 +1078,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<System.Int64, Swift.SwiftResult<System.Boolean, SwiftError>>", result);
+        Assert.Equal("Func<long, Swift.SwiftResult<bool, SwiftError>>", result);
     }
 
     // Note: Async+throwing closure delegate type tests are in the "Async+Throwing Closure Tests" region below.
@@ -1676,7 +1676,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<Task<System.Int64>>", result);
+        Assert.Equal("Func<Task<long>>", result);
     }
 
     [Fact]
@@ -1695,7 +1695,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<System.Int64, Task<System.Boolean>>", result);
+        Assert.Equal("Func<long, Task<bool>>", result);
     }
 
     [Fact]

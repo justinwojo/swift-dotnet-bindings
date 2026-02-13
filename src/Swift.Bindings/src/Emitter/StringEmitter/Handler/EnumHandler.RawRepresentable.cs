@@ -325,7 +325,7 @@ namespace BindingsGeneration
             {
                 var caseDecl = simpleCases[i];
                 var caseName = caseDecl.Name;
-                var capitalizedName = char.ToUpper(caseName[0]) + caseName.Substring(1);
+                var capitalizedName = NameProvider.ToPascalCase(caseName);
 
                 // Determine the raw value - for Int-based enums, Swift uses sequential values starting at 0
                 // For String-based enums, the raw value is the case name

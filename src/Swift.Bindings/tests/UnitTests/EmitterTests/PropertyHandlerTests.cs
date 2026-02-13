@@ -170,10 +170,10 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        Assert.Contains("public System.Int64 Count", csOutput);
+        Assert.Contains("public long Count", csOutput);
         Assert.Contains("get => Count_Get();", csOutput);
         Assert.Contains("set => Count_Set(value);", csOutput);
-        Assert.Contains("public System.Int64 Count_Get()", csOutput);
+        Assert.Contains("public long Count_Get()", csOutput);
         Assert.Contains("public void Count_Set(", csOutput);
     }
 
@@ -201,8 +201,8 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        Assert.Contains("public System.Int64 AnimationValue", csOutput);
-        Assert.DoesNotContain("public System.Int64 Animation\n", csOutput);
+        Assert.Contains("public long AnimationValue", csOutput);
+        Assert.DoesNotContain("public long Animation\n", csOutput);
     }
 
     [Fact]
@@ -224,7 +224,7 @@ public class PropertyHandlerTests
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Contains("public IAsyncEnumerable<System.Int64> Updates", csOutput);
+        Assert.Contains("public IAsyncEnumerable<long> Updates", csOutput);
         Assert.Contains("private static unsafe byte updates_AsyncStream_OnElement", csOutput);
         Assert.Contains("PInvoke_Feed_updates_AsyncStream", csOutput);
         Assert.Contains("public func Feed_updates_AsyncStream", swiftOutput);

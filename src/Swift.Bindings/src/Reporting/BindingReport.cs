@@ -58,6 +58,7 @@ public enum SkipReason
     SwiftUIView,
     StaticProtocolMember,
     GenericTypeCallback,
+    SynthesizedCodable,
     Unknown,
 }
 

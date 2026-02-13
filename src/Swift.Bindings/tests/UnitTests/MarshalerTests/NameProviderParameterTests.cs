@@ -299,4 +299,24 @@ public class NameProviderParameterTests
     }
 
     #endregion
+
+    #region ToPascalCase — SCREAMING_CASE conversion (WU3)
+
+    [Theory]
+    [InlineData("HIDDEN", "Hidden")]
+    [InlineData("CAMERA_DIRECTION", "CameraDirection")]
+    [InlineData("EASING_MODE", "EasingMode")]
+    [InlineData("MARKER_ANCHOR", "MarkerAnchor")]
+    [InlineData("MP3", "Mp3")]                        // all-caps with digit
+    [InlineData("hidden", "Hidden")]                   // existing camelCase preserved
+    [InlineData("CameraDirection", "CameraDirection")] // already PascalCase preserved
+    [InlineData("A", "A")]                             // single char, not SCREAMING_CASE
+    [InlineData("", "")]                               // empty preserved
+    [InlineData("URL", "Url")]                         // all-caps 2+ chars is SCREAMING_CASE
+    public void ToPascalCase_ScreamingCase_ConvertedCorrectly(string input, string expected)
+    {
+        Assert.Equal(expected, NameProvider.ToPascalCase(input));
+    }
+
+    #endregion
 }

@@ -94,7 +94,7 @@ public class ProtocolSignatureHelperTests
         var key = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, typeDatabase);
 
         // Parameters use IEnumerable, not IReadOnlyList
-        Assert.Equal("Process(IEnumerable<System.Int64>)", key);
+        Assert.Equal("Process(IEnumerable<long>)", key);
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public class ProtocolSignatureHelperTests
 
         var result = ProtocolSignatureHelper.ProjectTypeToCSharp(arrayTypeSpec, typeDatabase, isParameter: false);
 
-        Assert.Equal("IReadOnlyList<System.Int64>", result);
+        Assert.Equal("IReadOnlyList<long>", result);
     }
 
     [Fact]

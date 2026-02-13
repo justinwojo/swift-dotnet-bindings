@@ -443,7 +443,7 @@ public class ThirdPartyValidationFixTestsV4
 
         Assert.NotNull(idiomaticType);
         // TypeConversionHandler uses fully-qualified names from TypeDatabase
-        Assert.Contains("Boolean?", idiomaticType);
+        Assert.Contains("bool?", idiomaticType);
     }
 
     [Fact]
@@ -468,7 +468,8 @@ public class ThirdPartyValidationFixTestsV4
     [Fact]
     public void ShouldSkipMethodEmission_Constructor_AlwaysAllowed()
     {
-        // Constructors should never be skipped by the lightweight check.
+        // Normal constructors should never be skipped by the lightweight check.
+        // Exception: Codable init(from: Decoder) is pruned — see ShouldSkipMethodEmission_CodableInitFromDecoder_IsSkipped.
         var typeDatabase = CreateTypeDatabase();
         var method = CreateMethodDecl("init", "TestModule.TestType");
         method.IsConstructor = true;
@@ -967,7 +968,7 @@ public class ThirdPartyValidationFixTestsV4
         var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(arraySpec, isParameter: true);
         Assert.NotNull(idiomaticType);
         Assert.Contains("IEnumerable", idiomaticType);
-        Assert.Contains("Byte", idiomaticType);
+        Assert.Contains("byte", idiomaticType);
     }
 
     #endregion
@@ -993,7 +994,7 @@ public class ThirdPartyValidationFixTestsV4
         // When no param is named "result", use "result"
         var noResultParams = new List<(string type, string publicType, string name, TypeSpec typeSpec)>
         {
-            ("System.Int32", "int", "value", new NamedTypeSpec("Swift.Int"))
+            ("int", "int", "value", new NamedTypeSpec("Swift.Int"))
         };
         var normalVarName = noResultParams.Any(p => p.name == "result") ? "__enumResult" : "result";
         Assert.Equal("result", normalVarName);
@@ -1211,6 +1212,86 @@ public class ThirdPartyValidationFixTestsV4
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         typeDatabase.AddModuleDatabase(testModule);
         return typeDatabase;
+    }
+
+    #endregion
+
+    #region WU2 — Codable member pruning
+
+    [Fact]
+    public void ShouldSkipMethodEmission_CodableEncodeToEncoder_IsSkipped()
+    {
+        // encode(to: any Swift.Encoder) should be pruned as synthesized Codable member.
+        var typeDatabase = CreateTypeDatabase();
+        var method = CreateMethodDecl("encode", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("to", new NamedTypeSpec("Swift.Encoder") { IsAny = true } as TypeSpec) });
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.SynthesizedCodable, result);
+        Assert.Contains("Codable", skipDetails);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_CodableInitFromDecoder_IsSkipped()
+    {
+        // init(from: any Swift.Decoder) should be pruned as synthesized Codable member.
+        var typeDatabase = CreateTypeDatabase();
+        var method = CreateMethodDecl("init", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("from", new NamedTypeSpec("Swift.Decoder") { IsAny = true } as TypeSpec) });
+        method.IsConstructor = true;
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
+
+        Assert.NotNull(result);
+        Assert.Equal(SkipReason.SynthesizedCodable, result);
+        Assert.Contains("Codable", skipDetails);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_EncodeWithNonEncoderParam_NotSkipped()
+    {
+        // encode(data: SomeType) should NOT be pruned — it's a normal method.
+        var typeDatabase = CreateTypeDatabase();
+        var method = CreateMethodDecl("encode", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("data", new NamedTypeSpec("TestModule.SomeType") as TypeSpec) });
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_ConstructorWithNonDecoderParam_NotSkipped()
+    {
+        // init(value: Int) should NOT be pruned — it's a normal constructor.
+        var typeDatabase = CreateTypeDatabase();
+        var method = CreateMethodDecl("init", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("value", new NamedTypeSpec("Swift.Int") as TypeSpec) });
+        method.IsConstructor = true;
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_EncodeDataMethodNotCodable_NotSkipped()
+    {
+        // A method named "encodeData" with unrelated params should NOT be pruned.
+        var typeDatabase = CreateTypeDatabase();
+        var method = CreateMethodDecl("encodeData", "TestModule.TestType",
+            returnType: TupleTypeSpec.Empty,
+            parameters: new[] { ("buffer", new NamedTypeSpec("TestModule.Buffer") as TypeSpec) });
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
+
+        Assert.Null(result);
     }
 
     #endregion

@@ -333,7 +333,7 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftDictionary", result);
-        Assert.Contains("Int64", result); // Int maps to Int64
+        Assert.Contains("long", result); // Int maps to long (keyword alias)
         Assert.Contains("AnyType", result);
     }
 

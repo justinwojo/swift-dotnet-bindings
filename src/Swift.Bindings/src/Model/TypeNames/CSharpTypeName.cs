@@ -34,7 +34,32 @@ public record CSharpTypeName
     }
 
     /// <summary>
+    /// Well-known System.* primitive types that have C# keyword aliases.
+    /// When a type matches, FromNamespaceAndName returns a keyword-based name instead.
+    /// </summary>
+    private static readonly Dictionary<string, string> _keywordAliases = new()
+    {
+        { "System.Boolean", "bool" },
+        { "System.Byte", "byte" },
+        { "System.SByte", "sbyte" },
+        { "System.Int16", "short" },
+        { "System.UInt16", "ushort" },
+        { "System.Int32", "int" },
+        { "System.UInt32", "uint" },
+        { "System.Int64", "long" },
+        { "System.UInt64", "ulong" },
+        { "System.Single", "float" },
+        { "System.Double", "double" },
+        { "System.Char", "char" },
+        { "System.Decimal", "decimal" },
+        { "System.String", "string" },
+        { "System.Object", "object" },
+    };
+
+    /// <summary>
     /// Creates a new CSharpTypeName from a namespace and type name.
+    /// If the fully-qualified name matches a well-known C# keyword alias (e.g., System.Single → float),
+    /// returns a keyword-based name instead.
     /// </summary>
     /// <param name="namespace">The namespace.</param>
     /// <param name="name">The type name.</param>
@@ -50,6 +75,11 @@ public record CSharpTypeName
         }
 
         var fullyQualifiedName = $"{@namespace}.{name}";
+
+        // Normalize System.* primitives to C# keyword aliases
+        if (_keywordAliases.TryGetValue(fullyQualifiedName, out var keyword))
+            return FromKeyword(keyword);
+
         return new CSharpTypeName(@namespace, name, fullyQualifiedName);
     }
 
