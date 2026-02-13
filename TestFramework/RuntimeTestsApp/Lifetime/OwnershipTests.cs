@@ -88,7 +88,7 @@ public class OwnershipTests : TestBase
 
         AssertThrows<ObjectDisposedException>(() =>
         {
-            _ = animal.Speak();
+            _ = animal.GetSpeak();
         }, "Method call after dispose throws ObjectDisposedException");
 
         TestLogger.Info("Method call after dispose correctly throws");
@@ -102,7 +102,7 @@ public class OwnershipTests : TestBase
 
         AssertThrows<ObjectDisposedException>(() =>
         {
-            _ = animal.Describe();
+            _ = animal.GetDescribe();
         }, "Describe after dispose throws ObjectDisposedException");
 
         TestLogger.Info("Describe after dispose correctly throws");
@@ -130,7 +130,7 @@ public class OwnershipTests : TestBase
 
         AssertThrows<ObjectDisposedException>(() =>
         {
-            _ = resource.Inspect();
+            _ = resource.GetInspect();
         }, "UniqueResource.Inspect after dispose throws");
 
         TestLogger.Info("UniqueResource method after dispose correctly throws");
@@ -153,7 +153,7 @@ public class OwnershipTests : TestBase
         var name2 = animal2.Name.ToString();
         AssertEqual("Second", name2, "Second animal unaffected by first dispose");
 
-        var speak2 = animal2.Speak();
+        var speak2 = animal2.GetSpeak();
         AssertNotNull(speak2, "Second animal methods work after first disposed");
 
         TestLogger.Info("Independent objects have independent lifetimes");
@@ -169,7 +169,7 @@ public class OwnershipTests : TestBase
 
         // r2 should still work
         AssertEqual(2, r2.Id, "Second resource unaffected by first dispose");
-        AssertEqual(2, r2.Inspect(), "Second resource methods work");
+        AssertEqual(2, r2.GetInspect(), "Second resource methods work");
 
         TestLogger.Info("Independent UniqueResources have independent lifetimes");
     }
@@ -211,8 +211,8 @@ public class OwnershipTests : TestBase
         var alias = animal;
 
         // Verify both work before dispose
-        AssertNotNull(animal.Speak(), "Original speaks before dispose");
-        AssertNotNull(alias.Describe(), "Alias describes before dispose");
+        AssertNotNull(animal.GetSpeak(), "Original speaks before dispose");
+        AssertNotNull(alias.GetDescribe(), "Alias describes before dispose");
 
         // Dispose via original
         animal.Dispose();
@@ -220,7 +220,7 @@ public class OwnershipTests : TestBase
         // Method call via alias should also throw
         AssertThrows<ObjectDisposedException>(() =>
         {
-            _ = alias.Speak();
+            _ = alias.GetSpeak();
         }, "Alias method call throws after original disposed");
 
         TestLogger.Info("Shared references: method call via alias throws after dispose");
@@ -236,7 +236,7 @@ public class OwnershipTests : TestBase
         // BorrowResource should not consume the resource
         var resource = SwiftBindingsTestLib.CreateUniqueResource(42);
 
-        var borrowed = SwiftBindingsTestLib.BorrowResource(resource);
+        var borrowed = SwiftBindingsTestLib.GetBorrowResource(resource);
         AssertEqual(42, borrowed, "BorrowResource returns correct id");
 
         // Resource should still be accessible after borrow
@@ -252,8 +252,8 @@ public class OwnershipTests : TestBase
         // Inspect should not consume the resource
         var resource = new UniqueResource(55);
 
-        var inspected1 = resource.Inspect();
-        var inspected2 = resource.Inspect();
+        var inspected1 = resource.GetInspect();
+        var inspected2 = resource.GetInspect();
         AssertEqual(55, inspected1, "First inspect returns correct id");
         AssertEqual(55, inspected2, "Second inspect returns correct id");
 

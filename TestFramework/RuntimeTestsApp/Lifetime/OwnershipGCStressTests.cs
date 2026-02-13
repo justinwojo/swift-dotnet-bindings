@@ -27,7 +27,7 @@ public class OwnershipGCStressTests : TestBase
         var name = animal.Name.ToString();
         AssertEqual("Temp", name, "Animal accessible after creation");
 
-        var speak = animal.Speak();
+        var speak = animal.GetSpeak();
         AssertNotNull(speak, "Speak returns result");
 
         // Let the reference go and force GC — should not crash
@@ -45,7 +45,7 @@ public class OwnershipGCStressTests : TestBase
         var id = resource.Id;
         AssertEqual(42, id, "UniqueResource.Id accessible");
 
-        var inspected = resource.Inspect();
+        var inspected = resource.GetInspect();
         AssertEqual(42, inspected, "Inspect returns correct id");
 
         resource = null!;

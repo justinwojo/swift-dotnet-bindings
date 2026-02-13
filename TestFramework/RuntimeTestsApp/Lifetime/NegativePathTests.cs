@@ -247,9 +247,9 @@ public class NegativePathTests : TestBase
             "Zero/disposed handle: Name get throws");
         AssertThrows<ObjectDisposedException>(() => { animal.Name = new SwiftString("X"); },
             "Zero/disposed handle: Name set throws");
-        AssertThrows<ObjectDisposedException>(() => { _ = animal.Speak(); },
+        AssertThrows<ObjectDisposedException>(() => { _ = animal.GetSpeak(); },
             "Zero/disposed handle: Speak() throws");
-        AssertThrows<ObjectDisposedException>(() => { _ = animal.Describe(); },
+        AssertThrows<ObjectDisposedException>(() => { _ = animal.GetDescribe(); },
             "Zero/disposed handle: Describe() throws");
 
         TestLogger.Info("Zero/disposed handle access correctly throws on all paths");

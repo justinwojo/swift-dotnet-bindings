@@ -36,7 +36,7 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestDivideSuccess()
     {
-        var result = SwiftBindingsTestLib.Divide(10, 2);
+        var result = SwiftBindingsTestLib.GetDivide(10, 2);
         AssertEqual(5, result, "10 / 2 = 5");
         TestLogger.Info($"Divide(10, 2) = {result}");
     }
@@ -44,10 +44,10 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestDivideNegativeValues()
     {
-        var result = SwiftBindingsTestLib.Divide(-15, 3);
+        var result = SwiftBindingsTestLib.GetDivide(-15, 3);
         AssertEqual(-5, result, "-15 / 3 = -5");
 
-        var result2 = SwiftBindingsTestLib.Divide(15, -3);
+        var result2 = SwiftBindingsTestLib.GetDivide(15, -3);
         AssertEqual(-5, result2, "15 / -3 = -5");
         TestLogger.Info("Divide with negative values passed");
     }
@@ -57,7 +57,7 @@ public class BasicThrowingTests : TestBase
     {
         AssertThrows<SwiftRuntimeException>(() =>
         {
-            SwiftBindingsTestLib.Divide(10, 0);
+            SwiftBindingsTestLib.GetDivide(10, 0);
         }, "Divide by zero should throw SwiftRuntimeException");
         TestLogger.Info("Divide by zero correctly threw SwiftRuntimeException");
     }
@@ -78,9 +78,9 @@ public class BasicThrowingTests : TestBase
     public void TestThrowingStructDivideBySuccess()
     {
         var ts = new ThrowingStruct(100);
-        var result = ts.DivideBy(5);
+        var result = ts.GetDivideBy(5);
         AssertEqual(20, result, "100 / 5 = 20");
-        TestLogger.Info($"ThrowingStruct(100).DivideBy(5) = {result}");
+        TestLogger.Info($"ThrowingStruct(100).GetDivideBy(5) = {result}");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -95,9 +95,9 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestThrowingStructStaticSafeDivideSuccess()
     {
-        var result = ThrowingStruct.SafeDivide(20, 4);
+        var result = ThrowingStruct.GetSafeDivide(20, 4);
         AssertEqual(5, result, "20 / 4 = 5");
-        TestLogger.Info($"ThrowingStruct.SafeDivide(20, 4) = {result}");
+        TestLogger.Info($"ThrowingStruct.GetSafeDivide(20, 4) = {result}");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -106,9 +106,9 @@ public class BasicThrowingTests : TestBase
         var ts = new ThrowingStruct(100);
         AssertThrows<SwiftRuntimeException>(() =>
         {
-            ts.DivideBy(0);
+            ts.GetDivideBy(0);
         }, "DivideBy(0) should throw");
-        TestLogger.Info("ThrowingStruct.DivideBy(0) correctly threw");
+        TestLogger.Info("ThrowingStruct.GetDivideBy(0) correctly threw");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -138,9 +138,9 @@ public class BasicThrowingTests : TestBase
     {
         AssertThrows<SwiftRuntimeException>(() =>
         {
-            ThrowingStruct.SafeDivide(10, 0);
+            ThrowingStruct.GetSafeDivide(10, 0);
         }, "SafeDivide by zero should throw");
-        TestLogger.Info("ThrowingStruct.SafeDivide(10, 0) correctly threw");
+        TestLogger.Info("ThrowingStruct.GetSafeDivide(10, 0) correctly threw");
     }
 
     #endregion

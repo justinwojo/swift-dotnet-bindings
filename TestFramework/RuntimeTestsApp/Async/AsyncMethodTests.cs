@@ -31,14 +31,14 @@ public class AsyncMethodTests : TestBase
     {
         var worker = new AsyncWorker("test-worker");
         // Async void method — should complete without error
-        await WithTimeout(worker.AsyncVoidMethodAsync(), DefaultAsyncTimeout);
+        await WithTimeout(worker.VoidMethodAsync(), DefaultAsyncTimeout);
         TestLogger.Info("AsyncWorker.AsyncVoidMethod() completed");
     }
 
     public async Task TestAsyncReturnMethod()
     {
         var worker = new AsyncWorker("test-worker");
-        var result = await WithTimeout(worker.AsyncReturnMethodAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.GetReturnMethodAsync(), DefaultAsyncTimeout);
         AssertEqual(42, result, "AsyncReturnMethod should return 42");
         TestLogger.Info($"AsyncWorker.AsyncReturnMethod() = {result}");
     }
@@ -46,28 +46,28 @@ public class AsyncMethodTests : TestBase
     public async Task TestAsyncStringMethod()
     {
         var worker = new AsyncWorker("Bob");
-        var result = await WithTimeout(worker.AsyncStringMethodAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.GetStringMethodAsync(), DefaultAsyncTimeout);
         AssertEqual("Hello from Bob", result, "AsyncStringMethod should return 'Hello from Bob'");
         TestLogger.Info($"AsyncWorker.AsyncStringMethod() = {result}");
     }
 
     public async Task TestAsyncStaticVoid()
     {
-        await WithTimeout(AsyncWorker.AsyncStaticVoidAsync(), DefaultAsyncTimeout);
-        TestLogger.Info("AsyncWorker.AsyncStaticVoidAsync() completed");
+        await WithTimeout(AsyncWorker.StaticVoidAsync(), DefaultAsyncTimeout);
+        TestLogger.Info("AsyncWorker.StaticVoidAsync() completed");
     }
 
     public async Task TestAsyncStaticReturn()
     {
-        var result = await WithTimeout(AsyncWorker.AsyncStaticReturnAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(AsyncWorker.GetStaticReturnAsync(), DefaultAsyncTimeout);
         AssertEqual(99, result, "AsyncStaticReturn should return 99");
-        TestLogger.Info($"AsyncWorker.AsyncStaticReturnAsync() = {result}");
+        TestLogger.Info($"AsyncWorker.GetStaticReturnAsync() = {result}");
     }
 
     public async Task TestAsyncAdd()
     {
         var worker = new AsyncWorker("adder");
-        var result = await WithTimeout(worker.AsyncAddAsync(17, 25), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.AddAsync(17, 25), DefaultAsyncTimeout);
         AssertEqual(42, result, "AsyncAdd(17, 25) should return 42");
         TestLogger.Info($"AsyncWorker.AsyncAdd(17, 25) = {result}");
     }
@@ -75,7 +75,7 @@ public class AsyncMethodTests : TestBase
     public async Task TestAsyncAddZero()
     {
         var worker = new AsyncWorker("adder");
-        var result = await WithTimeout(worker.AsyncAddAsync(0, 0), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.AddAsync(0, 0), DefaultAsyncTimeout);
         AssertEqual(0, result, "AsyncAdd(0, 0) should return 0");
         TestLogger.Info($"AsyncWorker.AsyncAdd(0, 0) = {result}");
     }
@@ -87,7 +87,7 @@ public class AsyncMethodTests : TestBase
     public async Task TestAsyncThrowingMethodSuccess()
     {
         var worker = new AsyncThrowingWorker("thrower");
-        var result = await WithTimeout(worker.AsyncThrowingMethodAsync(false), DefaultAsyncTimeout);
+        var result = await WithTimeout(worker.GetThrowingMethodAsync(false), DefaultAsyncTimeout);
         AssertEqual(42, result, "AsyncThrowingMethod(false) should return 42");
         TestLogger.Info($"AsyncThrowingWorker.AsyncThrowingMethod(false) = {result}");
     }
@@ -97,7 +97,7 @@ public class AsyncMethodTests : TestBase
         var worker = new AsyncThrowingWorker("thrower");
         try
         {
-            await WithTimeout(worker.AsyncThrowingMethodAsync(true), DefaultAsyncTimeout);
+            await WithTimeout(worker.GetThrowingMethodAsync(true), DefaultAsyncTimeout);
             throw new AssertionException("Expected SwiftException but no exception was thrown");
         }
         catch (SwiftException ex)
@@ -110,7 +110,7 @@ public class AsyncMethodTests : TestBase
     public async Task TestAsyncThrowingVoidSuccess()
     {
         var worker = new AsyncThrowingWorker("void-thrower");
-        await WithTimeout(worker.AsyncThrowingVoidAsync(false), DefaultAsyncTimeout);
+        await WithTimeout(worker.ThrowingVoidAsync(false), DefaultAsyncTimeout);
         TestLogger.Info("AsyncThrowingWorker.AsyncThrowingVoid(false) completed without error");
     }
 
@@ -119,7 +119,7 @@ public class AsyncMethodTests : TestBase
         var worker = new AsyncThrowingWorker("void-thrower");
         try
         {
-            await WithTimeout(worker.AsyncThrowingVoidAsync(true), DefaultAsyncTimeout);
+            await WithTimeout(worker.ThrowingVoidAsync(true), DefaultAsyncTimeout);
             throw new AssertionException("Expected SwiftException but no exception was thrown");
         }
         catch (SwiftException ex)
@@ -130,16 +130,16 @@ public class AsyncMethodTests : TestBase
 
     public async Task TestAsyncStaticThrowingSuccess()
     {
-        var result = await WithTimeout(AsyncThrowingWorker.AsyncStaticThrowingAsync(false), DefaultAsyncTimeout);
+        var result = await WithTimeout(AsyncThrowingWorker.GetStaticThrowingAsync(false), DefaultAsyncTimeout);
         AssertEqual("success", result, "AsyncStaticThrowing(false) should return 'success'");
-        TestLogger.Info($"AsyncThrowingWorker.AsyncStaticThrowingAsync(false) = {result}");
+        TestLogger.Info($"AsyncThrowingWorker.GetStaticThrowingAsync(false) = {result}");
     }
 
     public async Task TestAsyncStaticThrowingThrows()
     {
         try
         {
-            await WithTimeout(AsyncThrowingWorker.AsyncStaticThrowingAsync(true), DefaultAsyncTimeout);
+            await WithTimeout(AsyncThrowingWorker.GetStaticThrowingAsync(true), DefaultAsyncTimeout);
             throw new AssertionException("Expected SwiftException but no exception was thrown");
         }
         catch (SwiftException ex)

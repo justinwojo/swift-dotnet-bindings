@@ -77,7 +77,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestDivmod()
     {
-        var result = SwiftBindingsTestLib.Divmod(17, 5);
+        var result = SwiftBindingsTestLib.GetDivmod(17, 5);
         AssertEqual(3, result.quotient, "Divmod quotient");
         AssertEqual(2, result.remainder, "Divmod remainder");
         TestLogger.Info($"Divmod(17, 5) = (q: {result.quotient}, r: {result.remainder})");
@@ -86,7 +86,7 @@ public class TupleMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestMinmax()
     {
-        var result = SwiftBindingsTestLib.Minmax(42, 7);
+        var result = SwiftBindingsTestLib.GetMinmax(42, 7);
         AssertEqual(7, result.min, "Minmax min");
         AssertEqual(42, result.max, "Minmax max");
         TestLogger.Info($"Minmax(42, 7) = (min: {result.min}, max: {result.max})");
@@ -96,7 +96,7 @@ public class TupleMarshallingTests : TestBase
     public void TestTupleReturnerMethods()
     {
         var returner = new TupleReturner(3, 7);
-        var pair = returner.AsTuple();
+        var pair = returner.GetAsTuple();
         AssertEqual(3, pair.Item1, "AsTuple.Item1");
         AssertEqual(7, pair.Item2, "AsTuple.Item2");
 

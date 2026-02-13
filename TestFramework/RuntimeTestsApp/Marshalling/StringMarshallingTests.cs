@@ -23,7 +23,7 @@ public class StringMarshallingTests : TestBase
         // Create an Animal with ASCII name, verify it round-trips through Describe()
         // describe() returns "Animal: \(name)" — name only
         var animal = SwiftBindingsTestLib.CreateAnimal("TestDog", "Woof");
-        var description = animal.Describe();
+        var description = animal.GetDescribe();
 
         AssertNotNull(description, "Description not null");
         AssertTrue(description.Contains("TestDog"), "Description contains name");
@@ -33,9 +33,9 @@ public class StringMarshallingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestStringMethodReturn()
     {
-        // Animal.Speak() returns a string - verify marshalling
+        // Animal.GetSpeak() returns a string - verify marshalling
         var animal = SwiftBindingsTestLib.CreateAnimal("Cat", "Meow");
-        var sound = animal.Speak();
+        var sound = animal.GetSpeak();
 
         AssertNotNull(sound, "Speak result not null");
         AssertTrue(sound.Contains("Meow"), "Speak contains sound");
@@ -48,7 +48,7 @@ public class StringMarshallingTests : TestBase
         // DescribePoint takes no string params, but CreateAnimal takes two strings
         // Verify strings with special characters pass correctly
         var animal = SwiftBindingsTestLib.CreateAnimal("Name With Spaces", "Sound!");
-        var description = animal.Describe();
+        var description = animal.GetDescribe();
 
         AssertNotNull(description, "Description not null");
         AssertTrue(description.Contains("Name With Spaces"), "Spaces preserved");
@@ -65,7 +65,7 @@ public class StringMarshallingTests : TestBase
         // Test Japanese characters in strings (CJK unified ideographs + hiragana)
         // describe() returns "Animal: \(name)" — name only; speak() returns "\(name) says \(sound)"
         var animal = SwiftBindingsTestLib.CreateAnimal("犬", "ワンワン");
-        var speak = animal.Speak();
+        var speak = animal.GetSpeak();
 
         AssertNotNull(speak, "Japanese speak not null");
         AssertTrue(speak.Contains("犬"), "Japanese name preserved");
@@ -78,7 +78,7 @@ public class StringMarshallingTests : TestBase
     {
         // Test emoji characters (multi-byte UTF-8 sequences)
         var animal = SwiftBindingsTestLib.CreateAnimal("Dog", "Bark");
-        AssertNotNull(animal.Describe(), "Emoji test created");
+        AssertNotNull(animal.GetDescribe(), "Emoji test created");
 
         // Verify Greeting enum with emoji raw value
         var greeting = Greeting.Emoji;
@@ -321,26 +321,26 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("GetLogLevelRaw tests passed");
     }
 
-    [TestTier(TestTier.Tier2)] // Animal.Describe() works at Tier 1; large strings use same P/Invoke path
+    [TestTier(TestTier.Tier2)] // Animal.GetDescribe() works at Tier 1; large strings use same P/Invoke path
     public void TestLongStringViaAnimal()
     {
         // Test a moderately long string (1KB)
         var longName = new string('A', 1024);
         var animal = SwiftBindingsTestLib.CreateAnimal(longName, "Sound");
-        var description = animal.Describe();
+        var description = animal.GetDescribe();
 
         AssertNotNull(description, "Long string description not null");
         AssertTrue(description.Contains(longName), "Long string preserved");
         TestLogger.Info($"Long string ({longName.Length} chars) round-trip passed");
     }
 
-    [TestTier(TestTier.Tier2)] // Animal.Describe() works at Tier 1; large strings use same P/Invoke path
+    [TestTier(TestTier.Tier2)] // Animal.GetDescribe() works at Tier 1; large strings use same P/Invoke path
     public void TestVeryLongStringViaAnimal()
     {
         // Stress test: >64KB string to exercise large buffer marshalling
         var veryLongName = new string('B', 65536 + 100);
         var animal = SwiftBindingsTestLib.CreateAnimal(veryLongName, "X");
-        var description = animal.Describe();
+        var description = animal.GetDescribe();
 
         AssertNotNull(description, ">64KB string description not null");
         AssertTrue(description.Contains(veryLongName), ">64KB string preserved");

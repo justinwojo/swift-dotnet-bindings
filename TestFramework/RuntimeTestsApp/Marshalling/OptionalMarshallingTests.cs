@@ -61,7 +61,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalParameterSome()
     {
-        var result = SwiftBindingsTestLib.DescribeOptionalInt(42);
+        var result = SwiftBindingsTestLib.GetDescribeOptionalInt(42);
         AssertEqual("Value: 42", result, "DescribeOptionalInt with value");
         TestLogger.Info($"DescribeOptionalInt(42) = \"{result}\"");
     }
@@ -69,7 +69,7 @@ public class OptionalMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalParameterNone()
     {
-        var result = SwiftBindingsTestLib.DescribeOptionalInt(null);
+        var result = SwiftBindingsTestLib.GetDescribeOptionalInt(null);
         AssertEqual("nil", result, "DescribeOptionalInt with null");
         TestLogger.Info($"DescribeOptionalInt(null) = \"{result}\"");
     }
@@ -78,11 +78,11 @@ public class OptionalMarshallingTests : TestBase
     public void TestOptionalConfigEffectiveLabel()
     {
         var config = new OptionalConfig(new SwiftString("Primary"), 10, "Fallback");
-        var label = config.EffectiveLabel();
+        var label = config.GetEffectiveLabel();
         AssertEqual("Primary", label, "EffectiveLabel with label");
 
         var configNoLabel = new OptionalConfig(null, null, "Fallback");
-        var fallback = configNoLabel.EffectiveLabel();
+        var fallback = configNoLabel.GetEffectiveLabel();
         AssertEqual("Fallback", fallback, "EffectiveLabel without label");
         TestLogger.Info("OptionalConfig.EffectiveLabel tests passed");
     }

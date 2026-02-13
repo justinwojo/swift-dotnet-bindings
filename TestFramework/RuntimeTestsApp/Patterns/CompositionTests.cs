@@ -87,7 +87,7 @@ public class BasicCompositionTests : TestBase
     public void TestValueAnimalSummary()
     {
         var va = new ValueAnimal(name: "Eagle", sound: "Screech", _value: 100);
-        var summary = va.Summary();
+        var summary = va.GetSummary();
         AssertTrue(summary.Contains("Eagle"), "Summary should contain name");
         AssertTrue(summary.Contains("Screech"), "Summary should contain sound");
         AssertTrue(summary.Contains("100"), "Summary should contain value");
@@ -101,9 +101,9 @@ public class BasicCompositionTests : TestBase
         registry.Clear();
         var cat = new Animal(name: "Tabby", sound: "Purr");
         var id = registry.Register(cat);
-        var found = registry.Lookup(id: id);
+        var found = registry.GetLookup(id: id);
         AssertTrue(found is not null, "Lookup should find registered animal");
-        var speak = found!.Speak();
+        var speak = found!.GetSpeak();
         AssertTrue(speak.Contains("Tabby"), "Found animal should speak with name");
         TestLogger.Info($"Registry.Lookup found: {speak}");
     }
@@ -113,9 +113,9 @@ public class BasicCompositionTests : TestBase
     {
         var registry = Registry.Shared;
         registry.Clear();
-        var notFound = registry.Lookup(id: 999);
+        var notFound = registry.GetLookup(id: 999);
         AssertTrue(notFound is null, "Lookup for non-existent ID should return null");
-        TestLogger.Info("Registry.Lookup(999) = null");
+        TestLogger.Info("Registry.GetLookup(999) = null");
     }
 
     // --- BatchConfig: frozen struct + optional array composition ---
@@ -126,8 +126,8 @@ public class BasicCompositionTests : TestBase
     public void TestBatchConfigTagCountNil()
     {
         var config = new BatchConfig(name: "test", maxRetries: 3, tags: null);
-        AssertEqual(0, config.TagCount(), "TagCount should be 0 for nil tags");
-        TestLogger.Info($"BatchConfig nil tags: TagCount = {config.TagCount()}");
+        AssertEqual(0, config.GetTagCount(), "TagCount should be 0 for nil tags");
+        TestLogger.Info($"BatchConfig nil tags: TagCount = {config.GetTagCount()}");
     }
 
     [TestTier(TestTier.Tier3)]
@@ -138,8 +138,8 @@ public class BasicCompositionTests : TestBase
         tags.Append(20);
         tags.Append(30);
         var config = new BatchConfig(name: "tagged", maxRetries: 1, tags: tags);
-        AssertEqual(3, config.TagCount(), "TagCount should be 3");
-        TestLogger.Info($"BatchConfig with tags: TagCount = {config.TagCount()}");
+        AssertEqual(3, config.GetTagCount(), "TagCount should be 3");
+        TestLogger.Info($"BatchConfig with tags: TagCount = {config.GetTagCount()}");
     }
 
     // EffectiveName/DescribeConfig crash: SwiftString return on frozen struct
@@ -148,7 +148,7 @@ public class BasicCompositionTests : TestBase
     public void TestBatchConfigEffectiveName()
     {
         var config = new BatchConfig(name: "Upload", maxRetries: 3, tags: null);
-        var name = config.EffectiveName();
+        var name = config.GetEffectiveName();
         AssertTrue(name.Contains("Upload"), "EffectiveName should contain 'Upload'");
         AssertTrue(name.Contains("3"), "EffectiveName should contain retry count");
         TestLogger.Info($"BatchConfig.EffectiveName = {name}");
@@ -158,7 +158,7 @@ public class BasicCompositionTests : TestBase
     public void TestDescribeConfigFreeFunction()
     {
         var config = new BatchConfig(name: "Sync", maxRetries: 2, tags: null);
-        var desc = SwiftBindingsTestLib.DescribeConfig(config);
+        var desc = SwiftBindingsTestLib.GetDescribeConfig(config);
         AssertTrue(desc.Contains("Sync"), "describeConfig should contain name");
         AssertTrue(desc.Contains("no tags"), "describeConfig should say 'no tags' for nil");
         TestLogger.Info($"describeConfig = {desc}");
@@ -171,7 +171,7 @@ public class BasicCompositionTests : TestBase
         tags.Append(1);
         tags.Append(2);
         var config = new BatchConfig(name: "Build", maxRetries: 1, tags: tags);
-        var desc = SwiftBindingsTestLib.DescribeConfig(config);
+        var desc = SwiftBindingsTestLib.GetDescribeConfig(config);
         AssertTrue(desc.Contains("Build"), "describeConfig should contain name");
         AssertTrue(desc.Contains("2 tags"), "describeConfig should say '2 tags'");
         TestLogger.Info($"describeConfig with tags = {desc}");
@@ -223,8 +223,8 @@ public class BasicCompositionTests : TestBase
         var animal = new Animal(name: "Cat", sound: "Meow");
         var id = registry.Register(animal);
         AssertEqual(0, id, "First registered ID should be 0");
-        AssertEqual(1, registry.Count(), "Count should be 1 after register");
-        TestLogger.Info($"Registry: registered id={id}, count={registry.Count()}");
+        AssertEqual(1, registry.GetCount(), "Count should be 1 after register");
+        TestLogger.Info($"Registry: registered id={id}, count={registry.GetCount()}");
     }
 
     [TestTier(TestTier.Tier3)]
@@ -234,9 +234,9 @@ public class BasicCompositionTests : TestBase
         registry.Clear();
         var animal = new Animal(name: "Dog", sound: "Woof");
         registry.Register(animal);
-        AssertEqual(1, registry.Count(), "Count should be 1");
+        AssertEqual(1, registry.GetCount(), "Count should be 1");
         registry.Clear();
-        AssertEqual(0, registry.Count(), "Count should be 0 after clear");
+        AssertEqual(0, registry.GetCount(), "Count should be 0 after clear");
         TestLogger.Info("Registry.Clear works");
     }
 
@@ -261,7 +261,7 @@ public class BasicCompositionTests : TestBase
     {
         var handler = SwiftEventHandler.CreateDefault();
         AssertTrue(handler is not null, "CreateDefault should return non-null");
-        var result = handler!.Fire(42);
+        var result = handler!.GetFire(42);
         AssertFalse(result, "Fire on default handler (nil closure) should return false");
         TestLogger.Info($"EventHandler.CreateDefault + Fire = {result}");
     }
@@ -270,9 +270,9 @@ public class BasicCompositionTests : TestBase
     public void TestEventHandlerWithClosure()
     {
         var handler = new SwiftEventHandler(label: "test", onComplete: v => v > 10);
-        var result = handler.Fire(20);
+        var result = handler.GetFire(20);
         AssertTrue(result, "Fire(20) with v > 10 closure should return true");
-        var result2 = handler.Fire(5);
+        var result2 = handler.GetFire(5);
         AssertFalse(result2, "Fire(5) with v > 10 closure should return false");
         TestLogger.Info("EventHandler with closure works");
     }
@@ -301,7 +301,7 @@ public class BasicCompositionTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestTransformerChain()
     {
-        var chained = Transformer.Chain(x => x + 1, x => x * 3);
+        var chained = Transformer.GetChain(x => x + 1, x => x * 3);
         // chain(f, g) => x => g(f(x)) => x => (x + 1) * 3
         var result = chained(10);
         AssertEqual(33, result, "Chain(x+1, x*3)(10) should be 33");

@@ -145,16 +145,16 @@ public class BasicGenericTests : TestBase
         var pair = new BoundStringPair(first: "hello", second: "world");
         // Properties return SwiftString (Tier 3 — Mono JIT crash on property getter),
         // so we test via the Joined() method which returns idiomatic string.
-        var joined = pair.Joined();
-        AssertEqual("hello world", joined, "BoundStringPair.Joined()");
-        TestLogger.Info($"BoundStringPair(\"hello\", \"world\").Joined() = \"{joined}\"");
+        var joined = pair.GetJoined();
+        AssertEqual("hello world", joined, "BoundStringPair.GetJoined()");
+        TestLogger.Info($"BoundStringPair(\"hello\", \"world\").GetJoined() = \"{joined}\"");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestBoundStringPairEmpty()
     {
         var pair = new BoundStringPair(first: "", second: "");
-        AssertEqual(" ", pair.Joined(), "Empty strings joined with space");
+        AssertEqual(" ", pair.GetJoined(), "Empty strings joined with space");
     }
 
     #endregion
@@ -166,10 +166,10 @@ public class BasicGenericTests : TestBase
     {
         var item = new SimpleItem(id: "test-1", label: "Widget");
         // Describe() returns idiomatic string (method, not property)
-        var desc = item.Describe();
+        var desc = item.GetDescribe();
         AssertTrue(desc.Contains("test-1"), "Description contains id");
         AssertTrue(desc.Contains("Widget"), "Description contains label");
-        TestLogger.Info($"SimpleItem(\"test-1\", \"Widget\").Describe() = \"{desc}\"");
+        TestLogger.Info($"SimpleItem(\"test-1\", \"Widget\").GetDescribe() = \"{desc}\"");
     }
 
     #endregion
@@ -180,18 +180,18 @@ public class BasicGenericTests : TestBase
     public void TestDisplayItemDescribe()
     {
         var item = new DisplayItem(text: "Hello");
-        var desc = item.Describe();
-        AssertEqual("Describe: Hello", desc, "DisplayItem.Describe()");
-        TestLogger.Info($"DisplayItem(\"Hello\").Describe() = \"{desc}\"");
+        var desc = item.GetDescribe();
+        AssertEqual("Describe: Hello", desc, "DisplayItem.GetDescribe()");
+        TestLogger.Info($"DisplayItem(\"Hello\").GetDescribe() = \"{desc}\"");
     }
 
     [TestTier(TestTier.Tier2)]
     public void TestDisplayItemDisplay()
     {
         var item = new DisplayItem(text: "Hello");
-        var disp = item.Display();
-        AssertEqual("Display: Hello", disp, "DisplayItem.Display()");
-        TestLogger.Info($"DisplayItem(\"Hello\").Display() = \"{disp}\"");
+        var disp = item.GetDisplay();
+        AssertEqual("Display: Hello", disp, "DisplayItem.GetDisplay()");
+        TestLogger.Info($"DisplayItem(\"Hello\").GetDisplay() = \"{disp}\"");
     }
 
     #endregion
@@ -213,8 +213,8 @@ public class BasicGenericTests : TestBase
     public void TestIntContainerElementAt()
     {
         var container = new IntContainer(items: new int[] { 100, 200 });
-        var first = container.Element(index: 0);
-        var second = container.Element(index: 1);
+        var first = container.GetElement(index: 0);
+        var second = container.GetElement(index: 1);
         AssertEqual(100, first, "Element at 0");
         AssertEqual(200, second, "Element at 1");
     }

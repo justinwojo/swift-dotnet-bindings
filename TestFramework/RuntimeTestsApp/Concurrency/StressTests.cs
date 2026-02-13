@@ -35,7 +35,7 @@ public class StressTests : TestBase
                 {
                     for (int j = 0; j < 50; j++)
                     {
-                        var result = animal.Describe();
+                        var result = animal.GetDescribe();
                         if (result == null || !result.Contains("Shared"))
                         {
                             lock (lockObj)
@@ -80,7 +80,7 @@ public class StressTests : TestBase
                 {
                     for (int j = 0; j < 50; j++)
                     {
-                        var result = animal.Speak();
+                        var result = animal.GetSpeak();
                         if (result == null || !result.Contains("Woof"))
                         {
                             lock (lockObj)
@@ -343,7 +343,7 @@ public class StressTests : TestBase
                         break;
                     }
 
-                    var describe = animal.Describe();
+                    var describe = animal.GetDescribe();
                     if (describe == null || !describe.Contains("GCStress"))
                     {
                         lock (lockObj)
@@ -475,7 +475,7 @@ public class StressTests : TestBase
                         }
 
                         // Call method
-                        var describe = animal.Describe();
+                        var describe = animal.GetDescribe();
                         if (describe == null)
                         {
                             lock (lockObj)

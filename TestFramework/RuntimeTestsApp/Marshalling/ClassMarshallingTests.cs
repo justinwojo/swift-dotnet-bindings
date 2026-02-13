@@ -61,23 +61,23 @@ public class ClassMarshallingTests : TestBase
     public void TestAnimalSpeak()
     {
         var animal = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
-        var result = animal.Speak();
+        var result = animal.GetSpeak();
 
         AssertNotNull(result, "Speak result not null");
         AssertTrue(result.Contains("Bark"), "Speak contains sound");
-        TestLogger.Info($"Animal.Speak() = \"{result}\"");
+        TestLogger.Info($"Animal.GetSpeak() = \"{result}\"");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestAnimalDescribe()
     {
         var animal = SwiftBindingsTestLib.CreateAnimal("Rex", "Bark");
-        var result = animal.Describe();
+        var result = animal.GetDescribe();
 
         AssertNotNull(result, "Describe result not null");
         // describe() returns "Animal: \(name)" — name only, no sound
         AssertTrue(result.Contains("Rex"), "Describe contains name");
-        TestLogger.Info($"Animal.Describe() = \"{result}\"");
+        TestLogger.Info($"Animal.GetDescribe() = \"{result}\"");
     }
 
     [TestTier(TestTier.Tier2)]
@@ -124,7 +124,7 @@ public class ClassMarshallingTests : TestBase
     public void TestBorrowResource()
     {
         var resource = SwiftBindingsTestLib.CreateUniqueResource(7);
-        var borrowed = SwiftBindingsTestLib.BorrowResource(resource);
+        var borrowed = SwiftBindingsTestLib.GetBorrowResource(resource);
 
         // BorrowResource should return the Id
         AssertEqual(7, borrowed, "BorrowResource returns Id");
@@ -249,7 +249,7 @@ public class ClassMarshallingTests : TestBase
         var animal = SwiftBindingsTestLib.CreateAnimal("Ghost", "Boo");
 
         // Verify method works before dispose
-        var speak = animal.Speak();
+        var speak = animal.GetSpeak();
         AssertNotNull(speak, "Speak works before dispose");
 
         // Dispose the underlying SafeHandle
@@ -258,7 +258,7 @@ public class ClassMarshallingTests : TestBase
         // Method call after dispose should throw
         AssertThrows<ObjectDisposedException>(() =>
         {
-            _ = animal.Speak();
+            _ = animal.GetSpeak();
         }, "Method call after dispose throws ObjectDisposedException");
 
         TestLogger.Info("SafeHandle method-after-dispose correctly throws");
@@ -280,7 +280,7 @@ public class ClassMarshallingTests : TestBase
         var name = animal.Name.ToString();
         AssertEqual("Survivor", name, "Object survives GC pressure");
 
-        var speak = animal.Speak();
+        var speak = animal.GetSpeak();
         AssertNotNull(speak, "Methods work after GC pressure");
 
         TestLogger.Info("Class survives GC pressure");

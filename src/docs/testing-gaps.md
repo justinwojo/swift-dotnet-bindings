@@ -18,7 +18,7 @@ This document tracks known testing gaps to be addressed incrementally. Each gap 
 | **TestFramework Layer 2** | Runtime behavior on iOS simulator | 185 tests at Tier 2¹ | `TestFramework/RuntimeTestsApp/` |
 | **Real-World Bindings** | End-to-end against shipping libraries | 25 clean + 5 env-only (see `binding-errors.md`) | `BindingTesting/` + `/Users/wojo/Dev/Libraries/` |
 
-¹ 185 is the last confirmed passing count. RuntimeTestsApp currently has 136 pre-existing build errors due to API drift — test code references methods renamed or removed by generator improvements (WU1-WU6 method naming, Codable pruning, etc.) since the Tier Promotion Pass. The `run-tests.sh` pipeline uses the last successful app binary via `--skip-regen`. A runtime test refresh pass is needed to update test code to match current generated bindings.
+¹ 185 is the last confirmed passing count. RuntimeTestsApp compiles cleanly (only 2 pre-existing CS0103 errors in generated bindings for async property getters — not test code).
 
 ---
 
@@ -221,7 +221,7 @@ Tests exercise the **interface projection path**: concrete Swift types conformin
 
 **Priority**: P3 — Previously no runtime coverage for unbound generics or generic free functions
 **Area**: TestFramework Layer 2
-**Status**: Tests written. 20 existing bound-specialization tests (passing Tier 1-2) + 10 new unbound generic / generic free function tests (Tier 3 — expected Mono JIT assertion on TypeMetadata via CallConvSwift). Runtime test project has 136 pre-existing build errors (WitnessDispatchTests, CompositionTests, etc. API drift) preventing Tier 3 execution.
+**Status**: Tests written. 20 existing bound-specialization tests (passing Tier 1-2) + 10 new unbound generic / generic free function tests (Tier 3 — expected Mono JIT assertion on TypeMetadata via CallConvSwift). RuntimeTestsApp compiles cleanly; Tier 3 execution pending simulator run.
 
 ### Test Summary
 
@@ -251,7 +251,7 @@ Tests exercise the **interface projection path**: concrete Swift types conformin
 - [x] Layer 1: Generated bindings include `Wrapper<T0>`, `GenericPair<T0,T1>`, `GenericClass<T0>`, `GetIdentity<T0>`, `GetPair<T0,T1>`
 - [x] Layer 2: 20 existing tests covering bound specializations (Tier 1-2)
 - [x] Layer 2: 10 new tests covering unbound generics + generic free functions (Tier 3)
-- [ ] Tier 3 execution: Deferred — RuntimeTestsApp has pre-existing build errors blocking compilation
+- [ ] Tier 3 execution: Deferred — requires Mono JIT fix for CallConvSwift TypeMetadata
 
 ### Files
 

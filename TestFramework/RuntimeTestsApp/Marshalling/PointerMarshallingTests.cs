@@ -103,7 +103,7 @@ public class PointerMarshallingTests : TestBase
         var ptr = Marshal.AllocHGlobal(sizeof(int));
         try
         {
-            var valid = SwiftBindingsTestLib.OpaquePointerIsValid(ptr);
+            var valid = SwiftBindingsTestLib.GetOpaquePointerIsValid(ptr);
             AssertTrue(valid, "OpaquePointer is valid");
             TestLogger.Info("OpaquePointerIsValid passed");
         }
@@ -120,7 +120,7 @@ public class PointerMarshallingTests : TestBase
         try
         {
             Marshal.WriteInt32(ptr, 123);
-            var value = SwiftBindingsTestLib.RawPointerToInt32(ptr);
+            var value = SwiftBindingsTestLib.GetRawPointerToInt32(ptr);
             AssertEqual(123, value, "RawPointerToInt32");
             TestLogger.Info($"RawPointerToInt32 = {value}");
         }
@@ -150,7 +150,7 @@ public class PointerMarshallingTests : TestBase
     [TestTier(TestTier.Tier2)]
     public void TestOptionalOpaquePointerWithNull()
     {
-        var result = SwiftBindingsTestLib.OptionalOpaquePointer(null);
+        var result = SwiftBindingsTestLib.GetOptionalOpaquePointer(null);
         AssertFalse(result, "Optional null OpaquePointer is not valid");
         TestLogger.Info("OptionalOpaquePointer(null) = false");
     }

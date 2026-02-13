@@ -140,8 +140,8 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var val = new MultiConformingValue(_value: 20);
         var iface = (ISubtractable)val;
-        AssertEqual(15, iface.Subtract(5), "ISubtractable.Subtract(5) on value=20");
-        TestLogger.Info($"((ISubtractable)MultiConformingValue(20)).Subtract(5) = {iface.Subtract(5)}");
+        AssertEqual(15, iface.GetSubtract(5), "ISubtractable.GetSubtract(5) on value=20");
+        TestLogger.Info($"((ISubtractable)MultiConformingValue(20)).GetSubtract(5) = {iface.GetSubtract(5)}");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -149,8 +149,8 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var val = new MultiConformingValue(_value: 7);
         var iface = (IMultipliable)val;
-        AssertEqual(21, iface.Multiply(3), "IMultipliable.Multiply(3) on value=7");
-        TestLogger.Info($"((IMultipliable)MultiConformingValue(7)).Multiply(3) = {iface.Multiply(3)}");
+        AssertEqual(21, iface.GetMultiply(3), "IMultipliable.GetMultiply(3) on value=7");
+        TestLogger.Info($"((IMultipliable)MultiConformingValue(7)).GetMultiply(3) = {iface.GetMultiply(3)}");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -158,8 +158,8 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var val = new MultiConformingValue(_value: 100);
         var iface = (IDividable)val;
-        AssertEqual(25, iface.Divide(4), "IDividable.Divide(4) on value=100");
-        TestLogger.Info($"((IDividable)MultiConformingValue(100)).Divide(4) = {iface.Divide(4)}");
+        AssertEqual(25, iface.GetDivide(4), "IDividable.GetDivide(4) on value=100");
+        TestLogger.Info($"((IDividable)MultiConformingValue(100)).GetDivide(4) = {iface.GetDivide(4)}");
     }
 
     [TestTier(TestTier.Tier1)]
@@ -180,10 +180,10 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var item = new SimpleItem(id: "s1", label: "Widget");
         var iface = (IDescribable)item;
-        var desc = iface.Describe();
+        var desc = iface.GetDescribe();
         AssertTrue(desc.Contains("s1"), "Describe() contains id");
         AssertTrue(desc.Contains("Widget"), "Describe() contains label");
-        TestLogger.Info($"((IDescribable)SimpleItem).Describe() = \"{desc}\"");
+        TestLogger.Info($"((IDescribable)SimpleItem).GetDescribe() = \"{desc}\"");
     }
 
     [TestTier(TestTier.Tier2)]
@@ -191,8 +191,8 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var item = new DisplayItem(text: "Hello");
         var iface = (IDisplayable)item;
-        AssertEqual("Display: Hello", iface.Display(), "IDisplayable.Display()");
-        TestLogger.Info($"((IDisplayable)DisplayItem).Display() = \"{iface.Display()}\"");
+        AssertEqual("Display: Hello", iface.GetDisplay(), "IDisplayable.GetDisplay()");
+        TestLogger.Info($"((IDisplayable)DisplayItem).GetDisplay() = \"{iface.GetDisplay()}\"");
     }
 
     [TestTier(TestTier.Tier2)]
@@ -201,8 +201,8 @@ public class BasicProtocolDispatchTests : TestBase
         var item = new DisplayItem(text: "World");
         // DisplayItem implements IDisplayable which inherits IDescribable
         var iface = (IDescribable)item;
-        AssertEqual("Describe: World", iface.Describe(), "Inherited Describe() through Displayable");
-        TestLogger.Info($"((IDescribable)DisplayItem).Describe() = \"{iface.Describe()}\"");
+        AssertEqual("Describe: World", iface.GetDescribe(), "Inherited Describe() through Displayable");
+        TestLogger.Info($"((IDescribable)DisplayItem).GetDescribe() = \"{iface.GetDescribe()}\"");
     }
 
     [TestTier(TestTier.Tier2)]
@@ -244,7 +244,7 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
         var iface = (IStatusHandler)handler;
-        var next = iface.TransitionStatus(from: SwiftTaskStatus.Pending);
+        var next = iface.GetTransitionStatus(from: SwiftTaskStatus.Pending);
         AssertEqual(SwiftTaskStatus.Running, next, "Transition from Pending should be Running");
         TestLogger.Info($"TransitionStatus(Pending) = {next}");
     }
@@ -289,8 +289,8 @@ public class BasicProtocolDispatchTests : TestBase
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.High);
         var iface = (IPriorityHandler)handler;
-        AssertTrue(iface.IsHigherPriority(than: TaskPriority.Low), "High > Low");
-        AssertFalse(iface.IsHigherPriority(than: TaskPriority.Critical), "High < Critical");
+        AssertTrue(iface.IsHigherPriority(other: TaskPriority.Low), "High > Low");
+        AssertFalse(iface.IsHigherPriority(other: TaskPriority.Critical), "High < Critical");
         TestLogger.Info("IsHigherPriority: High > Low = true, High < Critical = false");
     }
 
