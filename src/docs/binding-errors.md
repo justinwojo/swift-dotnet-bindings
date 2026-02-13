@@ -98,7 +98,7 @@ Pure Objective-C framework — no Swift module found.
 
 C# bindings compile clean. Depends on `SmartCardIO` framework — wrapper compilation fails because `swiftc` can't find the dependency module.
 
-**Fix approach**: Add `SwiftFrameworkDependency` item type for `-F` search paths (v2 feature).
+**Fix**: Use `--framework-dependency /path/to/SmartCardIO.xcframework` (CLI) or `<SwiftFrameworkDependency Include="../SmartCardIO.xcframework" />` (MSBuild SDK). Both are now implemented.
 
 ### Mixpanel (wrapper compilation failure)
 
@@ -106,7 +106,15 @@ C# bindings compile clean (0 errors). Swift wrapper compilation fails because `S
 
 ### Stripe sub-frameworks (wrapper compilation failures)
 
-Most Stripe sub-frameworks fail wrapper compilation because they `import StripeCore` (or other Stripe modules) and `swiftc` can't find these dependencies. C# binding generation succeeds for all. Same root cause as ACSSmartCardIO — needs `-F` search path support.
+Most Stripe sub-frameworks fail wrapper compilation because they `import StripeCore` (or other Stripe modules) and `swiftc` can't find these dependencies. C# binding generation succeeds for all.
+
+**Fix**: Use `--framework-dependency` (repeatable) to provide each dependency xcframework, or `<SwiftFrameworkDependency>` items in the MSBuild SDK. Both are now implemented. Example:
+```bash
+dotnet run --project $PROJ -- --xcframework StripePaymentSheet.xcframework \
+  --framework-dependency ../StripeCore.xcframework \
+  --framework-dependency ../StripeUICore.xcframework \
+  -o /tmp/output/
+```
 
 Affected: Stripe, StripeApplePay, StripeCameraCore, StripeCardScan, StripeConnect, StripeCore, StripeCryptoOnramp, StripeFinancialConnections, StripeIdentity, StripeIssuing, StripePayments, StripePaymentSheet, StripePaymentsUI, StripeUICore.
 

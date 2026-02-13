@@ -1,11 +1,10 @@
 # Roadmap
 
 **Created**: February 2026
-**Status**: Active — single source of truth for work items
+**Status**: Active — forward-looking work items only
 
-For completed work, see `Completed/` (notably `phases-a-through-g.md` and `phases-h-through-wu.md`).
+For completed work, see `Completed/` (notably `phases-a-through-g.md`, `phases-h-through-wu.md`, and `developer-experience.md`).
 For detailed gap descriptions and contract matrix, see `testing-gaps.md`.
-For DX design specs, see `developer-experience.md`.
 For test pipeline hardening specs, see `testframework-review.md`.
 For deferred/aspirational work, see `Future/`.
 
@@ -15,199 +14,133 @@ For deferred/aspirational work, see `Future/`.
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 1,936 passing |
+| Unit tests | 2,395 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | Runtime tests | 185 passing at Tier 2 safe-only (28 pre-existing failures) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
-
-| Library | Binding Errors | Simulator Tests | Notes |
-|---------|---------------|-----------------|-------|
-| **Lottie** | 0 | 15/15 passing | Clean |
-| **BlinkID** | 0 | 13/13 passing | Modal presentation skipped (iOS async limitation) |
-| **Nuke** | 0 | 15 safe + async passing | Async image load fully working end-to-end |
-| **CryptoSwift** | 0 | 6 safe + 1 skip | Instance methods crash on CallConvSwift (see I3) |
-| **BridgeTest** | 0 | 35/35 passing | Clean |
+| Libraries validated | 25 clean (0 generator errors) + 5 environmental-only |
 
 ---
 
-## Active Work Queue
-
-Work is ordered by impact. The generator is solid (0 errors, 88-99% coverage across 4 libraries, idiomatic C# API). The bottleneck is now **consumability** — nobody outside the project can use any of this. DX work comes first, interleaved with hardening.
-
-### DX-1: "Hello World" External Consumption
+## P0: Test Pipeline Hardening
 
 **Status**: Not Started
-**Priority**: Highest — smallest useful increment for external users
-**Effort**: 1-2 sessions
-**Depends on**: Nothing — can start immediately
-**Spec**: `developer-experience.md` § DX-1
-
-**Goal**: An external user can take a generated binding + xcframework and use it in their .NET iOS app.
-
-1. **Package Swift.Runtime as a NuGet** — flip `IsPackable` to `true`, add package metadata (id, description, license, authors). External users need this as a dependency.
-2. **Generator emits a compilable `.csproj`** — today the generator outputs loose `.cs` files + a `Swift/` runtime copy. Emit a ready-to-use binding project that references `Swift.Runtime` via `PackageReference` and compiles the generated `.cs` files.
-3. **Document the manual workflow** — "Getting Started" guide: obtain xcframework → extract ABI JSON → run generator → build Swift wrapper → reference in app. Codify what `build-all.sh` does into a reproducible guide.
-
-**Done when**: Someone outside the project can follow the guide, generate Nuke bindings, and call `ImagePipeline.shared` from a .NET iOS app.
-
----
-
-### TH: Test Pipeline Hardening
-
-**Status**: Not Started
-**Priority**: High — prevent silent regressions during DX work
-**Effort**: 1 session (half-day)
-**Depends on**: Nothing — can start immediately, interleave with DX-1
 **Spec**: `testframework-review.md`
 
-Quick wins from the TestFramework risk-first review. These are low-effort, high-value gates.
+Quick wins from the TestFramework risk-first review. Low-effort, high-value gates.
 
-#### TH-1. Compile gate for generated bindings
+1. **TH-1. Compile gate** — `CompileCheck.csproj` as hard-fail gate in `build-and-test.sh`
+2. **TH-2. Baseline budgets** — skip/compiled-out/wrapper-stripped counts in baseline JSON; fail if counts increase
+3. **TH-3. Generator exit code gate** — expected exit code in baseline; `build-and-test.sh` compares
+4. **TH-4. Ratchet wrapper stripping** — stripped-block count baseline + tolerance
+5. **TH-5. Allowlist-based crash tolerance** — replace pattern matching with explicit allowlist
+6. **TH-6. Test profiles** — define explicit profiles by intent (fast/full/nightly)
+7. **TH-7. Reduce simulator flake** — timing stabilization in runtime tests
+8. **TH-8. Semantic verification depth** — beyond string-shape checks
 
-Add `TestFramework/CompileCheck/CompileCheck.csproj` that includes the generated `.cs` file and runs `dotnet build` as a hard-fail gate in `build-and-test.sh`. Prevents the most expensive false-pass class (plausible-looking but non-compilable generated code).
-
-#### TH-2. Baseline budgets for skip/compiled-out/wrapper-stripped counts
-
-Store current counts in a baseline JSON. `run-tests.sh` compares against baseline and fails if counts increase without an explicit baseline update. Stops gradual normalization of reduced coverage.
-
-#### TH-3. Generator exit code regression gate
-
-Store expected generator exit code in baseline (currently 0). `build-and-test.sh` compares actual vs baseline. Catches generator crashes before waiting for compile or runtime failures.
-
-#### TH-4. Ratchet async wrapper stripping count
-
-Write stripped-block count to `output/wrapper-stripped-count`. Fail if count exceeds baseline + tolerance. The stripping remains needed but can no longer silently absorb new regressions.
-
-**Done when**: A PR that emits invalid generated C# fails in under 2 minutes. Skip/stripped/exit-code counts cannot drift upward without explicit baseline update.
+**Done when**: Invalid generated C# fails in under 2 minutes; skip/stripped counts can't drift.
 
 ---
 
-### DX-2: NuGet Packaging
+## P1: Testing Depth
 
 **Status**: Not Started
-**Priority**: High — automate distribution
-**Effort**: 2-3 sessions
-**Depends on**: DX-1 (compilable generated project exists)
-**Spec**: `developer-experience.md` § DX-2
+**Spec**: `testing-gaps.md` Gaps 3-5
 
-**Goal**: `dotnet pack` on the generated project produces a correct `.nupkg`.
+### Gap 3: Async Runtime Tests
 
-1. **`.targets` file generation** — generator emits `build/` and `buildTransitive/` targets with NativeReference injection (Layer 2) and `SwiftBindingFramework` validation (Layer 3)
-2. **iOS version extraction** — fallback chain: Info.plist `MinimumOSVersion` → `.swiftinterface` target triple → Mach-O `LC_BUILD_VERSION`/`LC_VERSION_MIN_*`
-3. **Library version extraction** — `CFBundleShortVersionString` with placeholder detection heuristic
-4. **`binding-metadata.json` emission** — alongside `binding-report.json`
-5. **Pack script** (`pack-binding.sh`) — correct NuGet directory structure (lib/, build/, buildTransitive/, runtimes/) + `dotnet pack`
+Move core async Swift sources out of `.disabled/`, implement `AsyncStringTests.cs` and `AsyncComplexTypeTests.cs`. Contract matrix cells `Async x {String, Array, Class, Enum}` move from `R?` to `R✓`.
 
-**Done when**: `./pack-binding.sh` produces a `.nupkg` that a consumer can install and get working NativeReference injection automatically.
+### Gap 4: Protocol Witness Dispatch Runtime Tests
+
+Enable protocol Swift sources, implement `WitnessDispatchTests.cs` — property getter/setter dispatch, method dispatch for blittable + String types.
+
+### Gap 5: Complex Type Composition Tests
+
+Add `RealWorldCompositions.swift` with class+closure, struct+optional-array, singleton+async patterns. `CompositionTests.cs` validates round-trips.
 
 ---
 
-### Phase J: Additional Library Validation
+## P2: Binding API Quality
 
 **Status**: Not Started
-**Priority**: Medium — validates generator generalization, finds new patterns
-**Effort**: 2-3 sessions
-**Depends on**: DX-1 (use the documented workflow to bind the library)
+**Spec**: `Future/binding-api-future-work.md`
 
-Binding a new library serves two purposes: (1) find generator gaps we haven't hit yet, and (2) validate the DX-1 workflow with a fresh library.
-
-#### J1. Select and bind a new library
-
-Candidates (pick 1):
-- **Alamofire** — networking, heavy closure/async patterns
-- **Kingfisher** — image loading, different patterns from Nuke
-- **SwiftProtobuf** — value types, generics, enums heavy
-
-#### J2. Process
-
-1. Build xcframework for the library
-2. Run generator, check binding report
-3. Compare member coverage to existing libraries (target: 90%+)
-4. Verify golden scenario compiles without interop types
-5. Fix any new generator bugs found
-6. Add to `BindingTesting/` with build/validate scripts
-
-#### J3. Document findings
-
-- Update `CURRENT-STATUS.md` with new library stats
-- Add any new skip reasons to `testing-gaps.md`
+- Callback type projection (typed `Action<T>` / `Func<T,R>` instead of raw delegates)
+- Non-frozen enum projection improvements
+- Async wrappers for callback-based APIs
+- `CancellationToken` support for async methods
+- Exception mapping from Swift errors
 
 ---
 
-### DX-3: Multi-Framework Dependencies
+## P2: DX — Multi-Framework Auto-Detection
 
-**Status**: Not Started
-**Priority**: Medium — needed for libraries like Nuke (Nuke + NukeUI + NukeExtensions)
-**Effort**: 2-3 sessions
-**Depends on**: DX-2 (single-framework packaging works)
-**Spec**: `developer-experience.md` § DX-3
+**Status**: Not Started — manual `--framework-dependency` / `<SwiftFrameworkDependency>` already works
+**Spec**: `Future/dx-multi-framework-auto-detection.md`
 
-**Goal**: Libraries with multiple dependent frameworks package correctly with dependency tracking.
-
-1. **Dependency manifest generation** — `dependency-manifest.json` from binary linkage (`otool -L` / `LC_LOAD_DYLIB`) + type-level cross-reference analysis
-2. **`SwiftBindingFramework` MSBuild item** — cross-package registration and validation (Layer 3)
-3. **`pack-all.sh`** — topological sort from dependency manifest, builds packages bottom-up
-4. **End-to-end validation** — install generated packages in a clean project, verify all 4 enforcement layers work
-
-**Done when**: Install `NukeUI.Swift.iOS` without `Nuke.Swift.iOS` → clear build error. Install both → app runs.
+- Binary linkage analysis (`otool -L`) for automatic detection
+- `dependency-manifest.json` generation
+- Topological sort for multi-package build ordering
 
 ---
 
-## Deferred Generator Work
-
-These are generator improvements that are blocked on upstream runtime fixes or have lower priority than consumability.
-
-### I2. Auto-route closure+CallConvSwift to wrapper library
-
-**Status**: Partially Done (Strategy B covers primitive-arg closures)
-
-Strategy B (Closure Cdecl Expansion) covers primitive-arg closures via standalone `@_silgen_name` wrappers with `@convention(c)` function pointers. Non-primitive closures (String, class, struct args) remain on the legacy `CallConvSwift` path.
-
-### I3. Route instance methods through `@_cdecl` wrappers
+## P2: Library Validation Expansion
 
 **Status**: Not Started
 
-Instance methods on Swift classes/structs currently use `CallConvSwift` for the `self` parameter, which triggers the `jit-info.c:918` assertion. Would unblock CryptoSwift's instance API (SHA2.Calculate, HMAC.Authenticate, ChaCha20.Encrypt/Decrypt, RSA, etc.).
+- Runtime test apps for validated libraries beyond TestFramework (Nuke, Lottie, BlinkID, CryptoSwift already have them)
+- Stripe end-to-end with `--framework-dependency` chain
+- Add libraries to `BindingTesting/` with build/validate scripts
 
 ---
 
-## Future Work
+## P3: Generator Known Bugs
 
-After the active work queue is complete:
-- 5-6 real-world libraries validated
-- External users can generate, build, and package bindings
-- Test pipeline catches regressions automatically
+**Status**: Tracked — workarounds exist
 
-### DX-4: MSBuild SDK + Templates
+| Bug | Impact |
+|-----|--------|
+| String enum raw values use case names | ABI JSON lacks individual case raw values |
+| `UnsafePointer<T>` → AnyType | No concrete projection for immutable pointers |
+| Named tuples with String elements | `(SwiftString.Buffer, ...)` → `(SwiftString, ...)` CS0029 |
+| Throwing closure thunks | `SwiftString` return emitted as `void*` |
+| `async throws(ErrorType)` free functions | Emit `_payload`/`this` in static context (guarded) |
+| ExistentialContainer0 in tuple element | Lottie edge case, not reached by current guards |
 
-**Spec**: `developer-experience.md` § DX-4
+---
 
-`dotnet new swift-binding` + `dotnet build` = NuGet package. Only pursue once the script-based workflow (DX-1 through DX-3) is proven and user feedback confirms the automation is worth the MSBuild SDK complexity.
+## P3: Testing Infrastructure
 
-### Generator Feature Improvements
+**Status**: Not Started
+**Spec**: `testing-gaps.md` Gaps 6-10
 
-- **Optional string properties** — `Swift.Optional<Swift.String>` → `string?` (extend TypeConversionHandler)
-- **Cross-module protocol interface coverage** — expand `_runtimeProtocols` for stdlib protocols (Comparable, Sendable, CodingKey, etc.)
-- **Full protocol witness dispatch** — mutating methods, throws, async
+- **PInvokeEmitter unit tests** (Gap 6) — dedicated tests for P/Invoke generation
+- **Generic runtime tests** (Gap 7) — `Container<T>`, generic methods, bound type params
+- **Error handling tests** (Gap 8) — enable `ThrowingFunctions.swift`, test throw→exception mapping
+- **Golden API snapshot tooling** (Gap 9) — detect API surface drift
+- **CI integration** (Gap 10) — GitHub Actions with tiered test profiles
 
-### Testing Depth (P2-P4 from testing-gaps.md)
+---
 
-- **Async runtime tests** (P1) — move core async Swift sources out of `.disabled/`, implement round-trip tests
-- **Protocol witness dispatch runtime tests** (P2) — enable protocol Swift sources, test getter/setter/method dispatch
-- **Complex composition tests** (P2) — class+closure, struct+optional-array, singleton+async patterns
-- **PInvokeEmitter unit tests** (P3) — dedicated tests for P/Invoke generation
-- **Generic runtime tests** (P3) — Container\<T>, generic methods, bound type params
-- **Error handling tests** (P3) — enable ThrowingFunctions.swift, test throw→exception mapping
-- **Golden API snapshot tooling** (P4) — detect API surface drift
-- **CI integration** (P4) — GitHub Actions with tiered test profiles
+## Deferred / Blocked on Upstream
 
-### Deferred Items
+- **Upstream bug reports** — 3 Mono runtime issues documented, waiting for public repo (`Future/upstream-bug-reports-draft.md`)
+- **I2. Non-primitive closure wrappers** — Strategy B covers primitive-arg closures; String/class/struct closure args remain on legacy `CallConvSwift` path
+- **I3. Instance method wrappers** — `CallConvSwift` for `self` parameter triggers Mono JIT assertion; would unblock CryptoSwift instance API
+- **VWT Destroy crash** — `SwiftSafeHandle<T>.ReleaseHandle()` uses indirect CallConvSwift function pointer → Mono JIT assertion
+
+---
+
+## Future Explorations
+
+Each has a design doc in `Future/`:
 
 - NativeAOT validation (`Future/nativeaot-investigation.md`)
-- Roslyn analyzer for unsafe pattern detection
-- Unsupported existential analysis (`Future/unsupported-existential-analysis.md`)
+- Emitter architecture redesign (`Future/emitter-redesign-proposal.md`)
+- Roslyn analyzer for unsafe pattern detection (`Future/roslyn-analyzer-plan.md`)
 - Performance benchmarks (`Future/interop-performance-validation-plan.md`)
-- Upstream .NET runtime bug reports (`Future/upstream-bug-reports-draft.md`)
+- Unsupported existential analysis (`Future/unsupported-existential-analysis.md`)
 
 ---
 
@@ -215,17 +148,19 @@ After the active work queue is complete:
 
 All completed phases are archived in `Completed/`. Key milestones:
 
-| Phase | What | Tests Added |
-|-------|------|-------------|
-| A–G | Core infrastructure through CryptoSwift validation | ~1,700 unit + 185 runtime |
-| H1-H2 | Unit test gaps + 6 library binding bugs → all 4 libraries 0 errors | 17 regression |
-| I1/I1a/I1b | Nuke wrapper path + BitwiseCopyable + ObjC async callbacks | 31 unit |
-| K | Swift doc comments → C# XML doc comments | 30 unit |
-| Strategy D | MonoJitRiskDetector static analysis | 34 unit |
-| Strategy B | Closure Cdecl expansion for Mono JIT mitigation | 38 unit |
-| Tier Promo | Tj dispatch thunks + IsFinal + tier promotions (172→185 runtime) | 13 runtime |
-| WU1-WU6 | Idiomatic C# binding API + Codex review fixes | 17 regression |
-| Enum/Nullable | Existential promotion in enum values + #nullable bridge | 7 unit |
+| Phase | What |
+|-------|------|
+| A-G | Core infrastructure through CryptoSwift validation (~1,700 unit + 185 runtime tests) |
+| H1-H2 | Unit test gaps + 6 library binding bugs → all 4 libraries 0 errors |
+| I1/I1a/I1b | Mono JIT mitigation: Nuke wrapper path, BitwiseCopyable, ObjC async callbacks |
+| K | Swift doc comments → C# XML doc comments |
+| Strategy D+B | MonoJitRiskDetector + Closure Cdecl expansion |
+| Tier Promo | Tj dispatch thunks + IsFinal + tier promotions (172→185 runtime) |
+| WU1-WU6 | Idiomatic C# binding API |
+| DX Steps 1-5 | `--xcframework` mode, auto wrapper compilation, Swift.Runtime NuGet, .csproj/.targets emission, MSBuild SDK + templates |
+| Validation 1-4 | 4 passes fixing 440+ binding errors across 25 libraries → 0 generator errors |
+| DX Improvements | C# type aliases, Codable pruning, enum PascalCase |
+| Framework Deps | `--framework-dependency` CLI + `<SwiftFrameworkDependency>` MSBuild item |
 
 ---
 

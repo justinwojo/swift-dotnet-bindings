@@ -790,7 +790,7 @@ Swift.Runtime is packable as `Swift.Runtime` version `0.1.0-preview.1`. The pack
 
 | Document | Relationship |
 |----------|-------------|
-| `developer-experience.md` | Detailed NuGet packaging design (layers 1-4, metadata extraction, package structure). The SDK wraps this into automated targets. |
+| `Completed/developer-experience.md` | Detailed NuGet packaging design (layers 1-4, metadata extraction, package structure). The SDK wraps this into automated targets. |
 | `testframework-review.md` | Test pipeline hardening. Independent track, interleaved with SDK work. |
 | `roadmap.md` | Active work queue. DX-1 through DX-3 map to Steps 1-4 above. DX-4 maps to Step 5. |
 | `north-star.md` | Phase 3 (Developer Experience) describes the end state this design achieves. |

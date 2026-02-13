@@ -282,7 +282,7 @@ The .NET runtime does not support passing `SafeHandle` (or derivatives like `Swi
 ## Upstream Bug Report Status
 
 **Date**: February 2026
-**Draft location**: `src/docs/upstream-bug-reports-draft.md`
+**Draft location**: `Future/upstream-bug-reports-draft.md`
 
 Three Mono runtime issues have been documented with minimal reproduction cases, ready to file on [dotnet/runtime](https://github.com/dotnet/runtime). No existing reports were found for any of these (searched Feb 2026).
 

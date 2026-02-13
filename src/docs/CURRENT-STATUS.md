@@ -1,14 +1,18 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (Binding API WU1-WU6 + Codex review fixes + Mono JIT mitigation + Tier promotion + Doc comments)
-**Unit Tests**: 1,929 passed
+**Last Updated**: February 2026 (DX Steps 1-5 + Validation Passes 1-4 + Framework Dependencies + DX Improvements)
+**Unit Tests**: 2,395 passed
 **Runtime Tests**: 185 passing on iOS Simulator at Tier 2 safe-only (28 pre-existing failures)
 **Integration Tests**: 699 passing (11 skipped, pre-existing)
-**Libraries Tested**: Nuke, BlinkID, BlinkIDUX, BridgeParamTest, Lottie, CryptoSwift
+**Libraries Validated**: 25 clean (0 generator errors) + 5 environmental-only — see `binding-errors.md` for full list
 
 ---
 
 ## Compilation Status
+
+25 libraries generate with 0 errors. 5 additional libraries have only environmental errors (missing .NET iOS SDK types, not generator bugs). See `binding-errors.md` for the full breakdown.
+
+### Libraries with Runtime Validation
 
 | Library | Generator Errors | Runtime Validation |
 |---------|------------------|-------------------|
@@ -18,6 +22,10 @@
 | **BridgeParamTest** | 0 | v2 param type validation (35/35 tests) |
 | **Lottie** | 0 | Full runtime + SwiftUI bridge validation (15/15 tests) |
 | **CryptoSwift** | 0 | Binding coverage validation (89.2% members, no runtime tests) |
+
+### Libraries Validated (Compile-Clean, No Runtime Tests)
+
+Alamofire, Mappedin, SmartCardIO, BRLMPrinterKit, MicroblinkPlatform, Mixpanel, Stripe, StripeApplePay, StripeCardScan, StripeConnect, StripeCore, StripeCryptoOnramp, StripeFinancialConnections, StripeIdentity, StripeIssuing, StripePaymentSheet, StripePayments (env only), StripePaymentsUI (env only), StripeUICore (env only), SkeletonView (env only), StripeCameraCore (env only).
 
 ### Binding Coverage
 
@@ -78,15 +86,18 @@ Tier promotion pass added runtime tests across string/enum/class/closure/composi
 - Async return marshalling for String, Array\<String>, classes, enums, and structs (via `@convention(c)` callbacks)
 
 ### DX Features
+- **MSBuild SDK** (`Swift.Bindings.Sdk`) — `dotnet new swift-binding` + `dotnet build` = ready-to-pack NuGet binding
+- **`--xcframework` mode** — single CLI arg auto-resolves ABI JSON, dylib, TBD, swiftinterface; compiles Swift wrapper; emits `.csproj`/`.targets`
+- **Swift.Runtime NuGet** (`0.1.0-preview.1`) — standalone runtime package for binding consumers
+- **Framework dependency support** — `--framework-dependency` CLI option (repeatable) and `<SwiftFrameworkDependency>` MSBuild item provide `-F` search paths for wrapper compilation and NuGet `PackageReference` propagation
 - Binding completeness report (`binding-report.json`) with workaround recommendations
 - `[UnsupportedSwiftType]` attribute on degraded members
 - Skip reasons in report (UnsupportedSignature, AnyTypeFallback, AsyncProperty, etc.)
 - Configurable namespace mapping
 - Async property detection via TBD symbol analysis
-- Idiomatic C# API surface: verb-prefixed methods, `string` properties, `T?` optionals, `nint` integers, `IDisposable`, real constructors, clean interface names
+- Idiomatic C# API surface: verb-prefixed methods, `string` properties, `T?` optionals, `nint` integers, `IDisposable`, real constructors, clean interface names, C# keyword type aliases (`float`, `double`, `bool`), Codable member pruning, enum `PascalCase` normalization
 - XML doc comments from Swift symbol graphs (automatic in xcframework mode, opt-out via `--no-docs`)
 - Mono JIT crash mitigation: SwiftString wrappers, closure Cdecl expansion, existential metadata wrappers, signature risk detection
-- Framework dependency support: `--framework-dependency` CLI option (repeatable) and `<SwiftFrameworkDependency>` MSBuild item provide `-F` search paths for wrapper compilation and NuGet `PackageReference` propagation
 
 ---
 
@@ -154,6 +165,18 @@ Tier promotion pass added runtime tests across string/enum/class/closure/composi
 | Tier Promo | Tj dispatch thunks + IsFinal + closure/composition/string tier promotions (185 runtime tests) |
 | WU1-WU6 | Idiomatic C# binding API: verb prefixes, async stripping, array element conversion, subscript conversion, parameter normalization, unsafe removal |
 | Codex Fixes | Protocol proxy type asymmetry, Optional<Array<String>> marshalling, GetSwiftWrapperType raw elements, async-void Get prefix |
+| Enum/Nullable | Existential promotion in enum associated values + #nullable enable in SwiftUI bridge |
+| DX Step 1 | Generator accepts `--xcframework` directly, auto-resolves all inputs |
+| DX Step 2 | Generator compiles Swift wrapper automatically |
+| DX Step 3 | Swift.Runtime NuGet package (0.1.0-preview.1) |
+| DX Step 4 | .csproj + .targets + metadata emission (PlistReader, MetadataExtractor, BindingProjectEmitter, ConsumerTargetsEmitter) |
+| DX Step 5 | MSBuild SDK package + multi-arch wrapper compilation + `dotnet new swift-binding` template |
+| Validation 1 | 9 binding errors fixed across Alamofire/SkeletonView/RealmSwift patterns (A1-A9) |
+| Validation 2 | 35 binding errors fixed — Swift.Void mapping, bare generics, tuple/ObjC guards, protocol dedup |
+| Validation 3 | 228 binding errors fixed — 15 bug patterns (B5-B19) across 11 libraries |
+| Validation 4 | 166+ binding errors fixed — 12 bug patterns (C1-C12) across 9 libraries |
+| DX Improve | C# keyword type aliases, Codable member pruning, enum SCREAMING_CASE→PascalCase |
+| Framework Deps | `--framework-dependency` CLI + `<SwiftFrameworkDependency>` MSBuild item |
 
 SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
 
@@ -178,14 +201,18 @@ CryptoSwift fix steps (9 total) addressed 24 generator bugs spanning P/Invoke en
 
 | File | Purpose |
 |------|---------|
-| `swiftui-bridge-design.md` | SwiftUI View bridge pattern via UIHostingController, including bridge hints (pre-release blocker) |
-| `roadmap.md` | Active work queue (single source of truth) |
-| `known-issues-workarounds.md` | Three active Mono runtime blockers and workarounds |
+| `roadmap.md` | Forward-looking prioritized work queue |
+| `CURRENT-STATUS.md` | Project dashboard (this file) |
+| `binding-errors.md` | Library validation tracking (25 clean + 5 environmental) |
 | `testing-gaps.md` | Known testing gaps across all layers |
-| `Future/binding-api-future-work.md` | Remaining binding API improvements (ExistentialContainer, AnyType, exception mapping, etc.) |
-| `Future/mono-jit-future-work.md` | Remaining Mono JIT edge cases (VWT Destroy, non-primitive closures, N-protocol existentials) |
+| `testframework-review.md` | Test pipeline hardening recommendations |
+| `known-issues-workarounds.md` | Three active Mono runtime blockers and workarounds |
+| `dx-msbuild-sdk-design.md` | MSBuild SDK reference (complete, authoritative) |
+| `Future/binding-api-future-work.md` | Remaining binding API improvements |
+| `Future/mono-jit-future-work.md` | Remaining Mono JIT edge cases |
 | `Future/emitter-redesign-proposal.md` | Architectural north star for emitter refactoring |
+| `Future/dx-multi-framework-auto-detection.md` | Auto-detection design for multi-framework dependencies |
 | `Future/nativeaot-investigation.md` | NativeAOT desk research (hands-on validation pending) |
 | `Future/upstream-bug-reports-draft.md` | Draft .NET runtime bug reports (waiting for repo to go public) |
 | `Future/interop-performance-validation-plan.md` | Performance benchmarking plan |
-| `Completed/` | Archived phase completion records |
+| `Completed/` | Archived phase completion records (includes `developer-experience.md`, `swiftui-bridge-design.md`) |

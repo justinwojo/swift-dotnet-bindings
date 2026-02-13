@@ -223,8 +223,8 @@ Coverage report shows must-pass features as passing/degraded/missing. Verify no 
 
 - `/north-star.md` — Long-term vision and roadmap
 - `src/docs/CURRENT-STATUS.md` — Current compilation status and gaps
-- `src/docs/roadmap.md` — Active work queue (Phase A → E)
+- `src/docs/roadmap.md` — Forward-looking prioritized work queue
 - `src/docs/dx-msbuild-sdk-design.md` — MSBuild SDK design (Steps 1-5, all complete)
 - `src/docs/binding-errors.md` — Third-party library binding error tracking
-- `src/docs/emitter-redesign-proposal.md` — Architecture direction
+- `src/docs/Future/emitter-redesign-proposal.md` — Architecture direction
 - `src/docs/known-issues-workarounds.md` — Runtime workarounds

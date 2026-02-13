@@ -3,7 +3,7 @@
 **Date**: February 2026
 **Status**: Phases 1-3 complete, Phase 4 next
 **Prerequisite**: v1 (Deliverable 2) complete and validated
-**Parent**: [SwiftUI Bridge Design](../swiftui-bridge-design.md)
+**Parent**: [SwiftUI Bridge Design](../Completed/swiftui-bridge-design.md)
 
 ---
 
