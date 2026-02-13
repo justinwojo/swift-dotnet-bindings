@@ -63,7 +63,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-results
           path: |
@@ -118,7 +118,7 @@ jobs:
           echo "All must-pass features passing."
 
       - name: Upload testframework artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: testframework-artifacts
           include-hidden-files: true
@@ -165,7 +165,7 @@ jobs:
 
       - name: Upload runtime test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: runtime-test-results
           path: TestFramework/RuntimeTestsApp/bin/
@@ -208,7 +208,7 @@ jobs:
         run: dotnet pack src/Swift.Bindings.Templates/ -c Release -o artifacts/
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: packages
           path: artifacts/*.nupkg

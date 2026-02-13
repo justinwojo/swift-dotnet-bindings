@@ -106,7 +106,7 @@ jobs:
           echo "All must-pass features passing."
 
       - name: Upload testframework artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: testframework-artifacts
           include-hidden-files: true
@@ -254,7 +254,7 @@ jobs:
           -p:PackageVersion=${{ steps.version.outputs.version }}
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-packages
           path: artifacts/*.nupkg
