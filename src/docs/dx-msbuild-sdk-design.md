@@ -488,27 +488,42 @@ Actionable errors cover: static xcframeworks, ObjC-only frameworks, missing Info
 
 Edge cases all covered: xcframework replacement (dylib hash changes), SDK update (version string changes), property changes (included in hash). Optional file loop uses `if/then/fi` to prevent fingerprint drops when supplementary files are unset.
 
-### Q6: Multi-Framework Libraries (e.g., Nuke + NukeUI + NukeExtensions)
+### Q6: Multi-Framework Libraries (e.g., Nuke + NukeUI + NukeExtensions) ✅ Resolved
 
-How does the SDK handle libraries with multiple dependent frameworks?
+**Answer: One project per framework + `<SwiftFrameworkDependency>` for inter-framework imports.**
 
-**Context:** Today each framework becomes a separate NuGet package with dependency declarations. The binding author creates one SDK project per framework.
+Each framework becomes a separate NuGet package. When a framework imports another (e.g., ACSSmartCardIO imports SmartCardIO), the binding author declares the dependency:
 
-**Options:**
-- **One project per framework** (simplest, matches NuGet convention):
-  ```
-  Nuke.Swift.iOS/Nuke.Swift.iOS.csproj       → <SwiftFramework Include="Nuke.xcframework" />
-  NukeUI.Swift.iOS/NukeUI.Swift.iOS.csproj   → <SwiftFramework Include="NukeUI.xcframework" />
-                                                 <PackageReference Include="Nuke.Swift.iOS" />
-  ```
-- **Multi-framework project** (more convenient for author, more complex SDK):
-  ```xml
-  <SwiftFramework Include="Nuke.xcframework" />
-  <SwiftFramework Include="NukeUI.xcframework" DependsOn="Nuke" />
-  ```
-  SDK auto-generates multiple NuGet packages from one project.
+```xml
+<!-- ACSSmartCardIO.Swift.iOS.csproj -->
+<Project Sdk="Swift.Bindings.Sdk/0.1.0-preview.1">
+  <PropertyGroup>
+    <TargetFramework>net10.0-ios</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <SwiftFrameworkDependency Include="../SmartCardIO.xcframework"
+                              PackageId="SmartCardIO.Swift.iOS"
+                              PackageVersion="1.0.0" />
+  </ItemGroup>
+</Project>
+```
 
-**Recommendation:** Start with one project per framework. Multi-framework is a DX-3 concern.
+**What `<SwiftFrameworkDependency>` provides:**
+- **Build time:** Adds `-F` search path so `swiftc` can find the dependency module when compiling the Swift wrapper
+- **NuGet time:** Injects `<PackageReference>` in `Sdk.props` (evaluation-time, so NuGet restore sees it)
+- **Local build:** Adds `<NativeReference>` for the dependency xcframework
+- **Fingerprinting:** Dependency xcframework contents are hashed — changes trigger regeneration
+- **Validation:** `SWIFTBIND040` warns if `PackageId` or `PackageVersion` metadata is missing when `IsPackable=true`
+
+**CLI equivalent:**
+```bash
+dotnet run --project src/Swift.Bindings/src -- \
+  --xcframework ACSSmartCardIO.xcframework \
+  --framework-dependency SmartCardIO.xcframework \
+  -o output/
+```
+
+Dependency NuGet packages are NOT included in the pack output — they come from their own packages via `buildTransitive/` targets. Multi-framework projects (one project → multiple NuGet packages) remain a future consideration.
 
 ### Q7: Error Experience ✅ Partially Resolved
 
@@ -523,6 +538,7 @@ How does the SDK handle libraries with multiple dependent frameworks?
 | `SWIFTBIND020` | `_ImportSwiftBindingMetadata` | Version placeholder detected (Xcode default "1.0") |
 | `SWIFTBIND030` | `_ValidateSwiftBindingPackSlices` | Pack without `SwiftWrapperArchitectures=all` |
 | `SWIFTBIND031` | `_ValidateSwiftBindingPackSlices` | Wrapper xcframework missing device or simulator slice |
+| `SWIFTBIND040` | `_ValidateSwiftDependencyMetadata` | `SwiftFrameworkDependency` missing `PackageId` or `PackageVersion` when `IsPackable=true` |
 | `SWIFTBIND100` | `_ValidateSwiftPackageItems` | `<SwiftPackage>` used (v2 stub) |
 
 **Also handled by the generator** (non-SWIFTBIND errors surfaced as build output):
@@ -598,12 +614,24 @@ The generator, wrapper compilation, NuGet packaging — none of that changes. `R
 <!-- v1: prebuilt xcframework -->
 <SwiftFramework Include="Nuke.xcframework" />
 
+<!-- v1: dependency xcframework (for libraries that import other Swift frameworks) -->
+<SwiftFrameworkDependency Include="../SmartCardIO.xcframework"
+                          PackageId="SmartCardIO.Swift.iOS"
+                          PackageVersion="1.0.0" />
+
 <!-- v2: SPM package from URL -->
 <SwiftPackage Include="https://github.com/kean/Nuke" Version="12.8.0" />
 
 <!-- v2: local SPM package -->
 <SwiftPackage Include="../my-swift-lib/" />
 ```
+
+`SwiftFrameworkDependency` metadata:
+| Metadata | Required | Description |
+|----------|----------|-------------|
+| `Identity` (path) | Yes | Path to the dependency xcframework |
+| `PackageId` | For NuGet pack | NuGet package ID (e.g., `SmartCardIO.Swift.iOS`) |
+| `PackageVersion` | For NuGet pack | Dependency package version |
 
 **Groundwork for v1:** `Sdk.props` defines both `SwiftFramework` and `SwiftPackage` item types from day one. If someone uses `SwiftPackage` in v1, they get a clear error:
 

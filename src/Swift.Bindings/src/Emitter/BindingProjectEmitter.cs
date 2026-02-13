@@ -16,6 +16,10 @@ namespace BindingsGeneration
         public required string SourceXCFrameworkPath { get; init; }
         public string? WrapperXCFrameworkPath { get; init; }
         public string? SwiftRuntimeVersion { get; init; }
+        /// <summary>
+        /// Framework dependencies that should be emitted as PackageReference items.
+        /// </summary>
+        public IReadOnlyList<FrameworkDependencyInfo>? Dependencies { get; init; }
     }
 
     /// <summary>
@@ -80,6 +84,22 @@ namespace BindingsGeneration
                              Condition="Exists('Swift.{options.ModuleName}.SwiftUIBridge.cs')" />
                 """;
 
+            // Build dependency PackageReference items
+            var dependencyRefs = "";
+            if (options.Dependencies != null && options.Dependencies.Count > 0)
+            {
+                foreach (var dep in options.Dependencies)
+                {
+                    var depComment = dep.EffectiveVersion == "0.0.0"
+                        ? "\n    <!-- WARNING: Placeholder version. Update before publishing. -->"
+                        : "";
+                    dependencyRefs += $"""
+
+                    <PackageReference Include="{dep.EffectivePackageId}" Version="{dep.EffectiveVersion}" />{depComment}
+                """;
+                }
+            }
+
             var content = $"""
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
@@ -96,7 +116,7 @@ namespace BindingsGeneration
                   </PropertyGroup>
 
                   <ItemGroup>
-                    <PackageReference Include="Swift.Runtime" Version="{runtimeVersion}" />
+                    <PackageReference Include="Swift.Runtime" Version="{runtimeVersion}" />{dependencyRefs}
                   </ItemGroup>
 
                   <!-- Generated C# bindings -->

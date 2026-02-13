@@ -62,6 +62,7 @@
       3. All public .swiftinterface files (API surface changes)
       4. Optional supplementary inputs: SymbolGraph, BridgeHints, SwiftInterface files
       5. All generation-affecting properties (SDK version, platform, architecture, namespace, package ID)
+      6. Dependency xcframework contents (Info.plist + binaries)
       Shell pipeline because framework binaries have no extension (*.dylib glob misses them).
       Sorted for deterministic output regardless of filesystem traversal order.
     -->
@@ -76,7 +77,13 @@
       for f in &quot;%(SwiftFramework.SymbolGraph)&quot; &quot;%(SwiftFramework.BridgeHints)&quot; &quot;%(SwiftFramework.SwiftInterface)&quot;; do \
         if [ -n &quot;$$f&quot; ] &amp;&amp; [ -e &quot;$$f&quot; ]; then shasum -a 256 &quot;$$f&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments)&quot; \
+      echo &quot;@(SwiftFrameworkDependency, '%0A')&quot; | while IFS= read -r dep; do \
+        if [ -n &quot;$$dep&quot; ] &amp;&amp; [ -d &quot;$$dep&quot; ]; then \
+          find &quot;$$dep&quot; \( -name &quot;Info.plist&quot; -o -name &quot;*.swiftinterface&quot; -not -name &quot;*.private.swiftinterface&quot; \) -type f -exec shasum -a 256 {} \; ; \
+          find &quot;$$dep&quot; -path &quot;*.framework/*&quot; -not -name &quot;Info.plist&quot; -not -path &quot;*/Modules/*&quot; -not -path &quot;*/_CodeSignature/*&quot; -type f -exec shasum -a 256 {} \; ; \
+        fi; \
+      done; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) @(SwiftFrameworkDependency, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -131,6 +138,8 @@
       <_SwiftGenCmd Condition="'%(SwiftFramework.BridgeHints)' != ''">$(_SwiftGenCmd) --bridge-hints "%(SwiftFramework.BridgeHints)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftFramework.SwiftInterface)' != ''">$(_SwiftGenCmd) -s "%(SwiftFramework.SwiftInterface)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="!$([System.String]::Equals('$(SwiftGenerateDocComments)','true','OrdinalIgnoreCase'))">$(_SwiftGenCmd) --no-docs</_SwiftGenCmd>
+      <!-- Append --framework-dependency for each SwiftFrameworkDependency item -->
+      <_SwiftGenCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftGenCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'"
@@ -221,6 +230,26 @@
         <Kind>Framework</Kind>
       </NativeReference>
     </ItemGroup>
+
+    <!-- Add NativeReference for each dependency xcframework (local build only) -->
+    <ItemGroup Condition="'@(SwiftFrameworkDependency)' != ''">
+      <NativeReference Include="%(SwiftFrameworkDependency.Identity)"
+                       Condition="Exists('%(SwiftFrameworkDependency.Identity)')">
+        <Kind>Framework</Kind>
+      </NativeReference>
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 6b: Validate dependency metadata before pack                    -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_ValidateSwiftDependencyMetadata"
+          BeforeTargets="_ConfigureSwiftBindingPack"
+          Condition="'$(IsPackable)' == 'true' AND '@(SwiftFrameworkDependency)' != ''">
+
+    <Warning Condition="'%(SwiftFrameworkDependency.PackageId)' == '' OR '%(SwiftFrameworkDependency.PackageVersion)' == ''"
+             Code="SWIFTBIND040"
+             Text="SwiftFrameworkDependency '%(SwiftFrameworkDependency.Identity)' is missing PackageId or PackageVersion metadata. The NuGet package will not declare this dependency. Add PackageId and PackageVersion metadata for correct NuGet dependency propagation." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

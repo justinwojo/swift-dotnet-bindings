@@ -74,6 +74,11 @@ namespace BindingsGeneration
                 aliases: new[] { "--wrapper-architectures" },
                 description: "Wrapper compilation scope: 'simulator' (default), 'device', or 'all' (both slices).",
                 getDefaultValue: () => "simulator");
+            Option<string[]> frameworkDependencyOption = new(
+                aliases: new[] { "--framework-dependency" },
+                description: "Path to a dependency xcframework. Repeatable. Adds -F search paths for wrapper compilation " +
+                             "and PackageReference entries in the emitted .csproj. Requires --xcframework.")
+            { AllowMultipleArgumentsPerToken = false };
             Option<int> verboseOption = new(
                 aliases: new[] { "-v", "--verbose" },
                 description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -98,6 +103,7 @@ namespace BindingsGeneration
                 sdkModeOption,
                 packageIdOption,
                 wrapperArchitecturesOption,
+                frameworkDependencyOption,
                 configOption,
                 verboseOption,
                 helpOption,
@@ -121,6 +127,7 @@ namespace BindingsGeneration
                 var sdkMode = parseResult.GetValueForOption(sdkModeOption);
                 var packageId = parseResult.GetValueForOption(packageIdOption);
                 var wrapperArchitectures = parseResult.GetValueForOption(wrapperArchitecturesOption);
+                var frameworkDependencies = parseResult.GetValueForOption(frameworkDependencyOption);
                 var configPath = parseResult.GetValueForOption(configOption);
                 var verbose = parseResult.GetValueForOption(verboseOption);
                 var help = parseResult.GetValueForOption(helpOption);
@@ -144,6 +151,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  --sdk-mode           Optional. Skips .csproj emission (used when the SDK IS the project system).");
                     Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.iOS'.");
                     Console.WriteLine("  --wrapper-architectures  Optional. Wrapper compilation scope: 'simulator' (default), 'device', or 'all'.");
+                    Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");
                     Console.WriteLine($"  --config             Optional. Path to config file. Default: {DefaultConfigFileName}");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
                     return;
@@ -180,12 +188,11 @@ namespace BindingsGeneration
                 XCFrameworkResolution? resolution = null;
                 var shouldCompileWrapper = false;
                 var asyncLibraryAutoWired = false;
+                var platformTarget = XCFrameworkPlatformTarget.Simulator;
 
                 if (hasXcframework)
                 {
                     Directory.CreateDirectory(outputDirectory);
-
-                    XCFrameworkPlatformTarget platformTarget;
                     switch (platformTargetStr?.ToLowerInvariant())
                     {
                         case "simulator":
@@ -239,6 +246,26 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Validate and resolve --framework-dependency options
+                var hasFrameworkDeps = frameworkDependencies != null && frameworkDependencies.Length > 0;
+                List<FrameworkDependencyInfo>? resolvedDependencies = null;
+
+                if (hasFrameworkDeps)
+                {
+                    if (!hasXcframework)
+                    {
+                        logger.LogError("Error: --framework-dependency requires --xcframework mode.");
+                        return;
+                    }
+
+                    resolvedDependencies = ResolveFrameworkDependencies(
+                        frameworkDependencies!, resolution!, xcframeworkPath!,
+                        wrapperArchitectures?.ToLowerInvariant() ?? "simulator",
+                        platformTarget, logger);
+                    if (resolvedDependencies == null)
+                        return; // Validation failed — error already logged
+                }
+
                 if (string.IsNullOrWhiteSpace(swiftAbiPath) || !File.Exists(swiftAbiPath))
                 {
                     logger.LogError("Error: Valid Swift ABI file is required.");
@@ -284,6 +311,16 @@ namespace BindingsGeneration
                 SwiftWrapperCompilationResult? compilationResult = null;
                 if (shouldCompileWrapper && resolution != null)
                 {
+                    // Collect additional -F search paths from framework dependencies
+                    var simDepPaths = resolvedDependencies?
+                        .Where(d => d.SimulatorFrameworkSearchPath != null)
+                        .Select(d => d.SimulatorFrameworkSearchPath!)
+                        .ToList();
+                    var deviceDepPaths = resolvedDependencies?
+                        .Where(d => d.DeviceFrameworkSearchPath != null)
+                        .Select(d => d.DeviceFrameworkSearchPath!)
+                        .ToList();
+
                     Exception? compilationException = null;
 
                     try
@@ -303,7 +340,9 @@ namespace BindingsGeneration
                             compilationResult = SwiftWrapperCompiler.CompileAll(
                                 outputDirectory, resolution.ModuleName,
                                 simResolution, deviceResolution, logger,
-                                internalTypeNames: internalTypeNames);
+                                internalTypeNames: internalTypeNames,
+                                simAdditionalSearchPaths: simDepPaths,
+                                deviceAdditionalSearchPaths: deviceDepPaths);
                         }
                         else if (wrapperArchNormalized == "device")
                         {
@@ -327,7 +366,8 @@ namespace BindingsGeneration
                                 deviceOnlyResolution.FrameworkSearchPath,
                                 deviceOnlyResolution.DylibPath,
                                 "device", "iphoneos", logger,
-                                internalTypeNames: internalTypeNames);
+                                internalTypeNames: internalTypeNames,
+                                additionalFrameworkSearchPaths: deviceDepPaths);
                         }
                         else
                         {
@@ -335,7 +375,8 @@ namespace BindingsGeneration
                             compilationResult = SwiftWrapperCompiler.Compile(
                                 outputDirectory, resolution.ModuleName,
                                 resolution.FrameworkSearchPath, resolution.DylibPath, logger,
-                                internalTypeNames: internalTypeNames);
+                                internalTypeNames: internalTypeNames,
+                                additionalFrameworkSearchPaths: simDepPaths);
                         }
                     }
                     catch (Exception ex)
@@ -396,7 +437,8 @@ namespace BindingsGeneration
                                 ModuleName = resolution.ModuleName,
                                 Metadata = metadata,
                                 SourceXCFrameworkPath = resolution.XCFrameworkPath,
-                                WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null
+                                WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null,
+                                Dependencies = resolvedDependencies
                             }, logger);
                         }
 
@@ -602,6 +644,199 @@ namespace BindingsGeneration
                 }
                 CollectTypeNames(t.Types, internalNames, publicNames);  // Recurse ALL children
             }
+        }
+
+        /// <summary>
+        /// Validates and resolves --framework-dependency paths into FrameworkDependencyInfo objects.
+        /// Returns null if validation fails (error already logged).
+        /// </summary>
+        /// <param name="dependencyPaths">Paths from --framework-dependency CLI options.</param>
+        /// <param name="primaryResolution">Primary xcframework resolution (for module name checks).</param>
+        /// <param name="primaryXcframeworkPath">Path to the primary xcframework (for self-reference check).</param>
+        /// <param name="wrapperArchitectures">Normalized wrapper-architectures value (simulator/device/all).</param>
+        /// <param name="primaryPlatformTarget">The primary --platform-target (determines which slice to resolve first).</param>
+        /// <param name="logger">Logger instance.</param>
+        /// <param name="commandRunner">Optional command runner for testing.</param>
+        internal static List<FrameworkDependencyInfo>? ResolveFrameworkDependencies(
+            string[] dependencyPaths,
+            XCFrameworkResolution primaryResolution,
+            string primaryXcframeworkPath,
+            string wrapperArchitectures,
+            XCFrameworkPlatformTarget primaryPlatformTarget,
+            ILogger logger,
+            ICommandRunner? commandRunner = null)
+        {
+            var resolvedDeps = new List<FrameworkDependencyInfo>();
+            var seenModules = new Dictionary<string, string>(StringComparer.Ordinal); // module → path
+
+            foreach (var depPath in dependencyPaths)
+            {
+                // Validate path exists
+                if (!Directory.Exists(depPath))
+                {
+                    logger.LogError("Error: --framework-dependency path does not exist: '{Path}'.", depPath);
+                    return null;
+                }
+
+                // Validate it's an xcframework
+                if (!depPath.EndsWith(".xcframework", StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogError("Error: --framework-dependency path is not an xcframework: '{Path}'.", depPath);
+                    return null;
+                }
+
+                // Validate not the primary xcframework
+                var depFullPath = Path.GetFullPath(depPath);
+                var primaryFullPath = Path.GetFullPath(primaryXcframeworkPath);
+                if (string.Equals(depFullPath, primaryFullPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogError("Error: Primary xcframework cannot be listed as a dependency.");
+                    return null;
+                }
+
+                // Resolve the primary-matching slice first (for module name + search path + dylib for version)
+                // This matches the primary platform target so device-only workflows don't fail
+                // when the dependency lacks a simulator slice.
+                string? simSearchPath = null;
+                string? deviceSearchPath = null;
+                string moduleName;
+                string depDylibPath;
+
+                try
+                {
+                    var primaryDepResolution = XCFrameworkResolver.Resolve(
+                        depPath, Path.GetTempPath(),
+                        primaryPlatformTarget, logger, commandRunner);
+                    moduleName = primaryDepResolution.ModuleName;
+                    depDylibPath = primaryDepResolution.DylibPath;
+
+                    if (primaryDepResolution.IsSimulatorSlice)
+                        simSearchPath = primaryDepResolution.FrameworkSearchPath;
+                    else
+                        deviceSearchPath = primaryDepResolution.FrameworkSearchPath;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError("Error resolving dependency xcframework '{Path}': {Message}", depPath, ex.Message);
+                    return null;
+                }
+
+                // Check for duplicate module names
+                if (seenModules.TryGetValue(moduleName, out var existingPath))
+                {
+                    logger.LogError(
+                        "Error: Duplicate dependency module '{Module}' from '{Path1}' and '{Path2}'.",
+                        moduleName, existingPath, depPath);
+                    return null;
+                }
+
+                // Check primary module as dependency
+                if (string.Equals(moduleName, primaryResolution.ModuleName, StringComparison.Ordinal))
+                {
+                    logger.LogError("Error: Primary module '{Module}' cannot be listed as a dependency.", moduleName);
+                    return null;
+                }
+
+                seenModules[moduleName] = depPath;
+
+                // Resolve the opposite slice if wrapper-architectures requires both
+                if (wrapperArchitectures == "all")
+                {
+                    // Need both slices — resolve whichever the primary didn't give us
+                    var oppositeTarget = primaryPlatformTarget == XCFrameworkPlatformTarget.Simulator
+                        ? XCFrameworkPlatformTarget.Device
+                        : XCFrameworkPlatformTarget.Simulator;
+                    try
+                    {
+                        var oppositeResolution = XCFrameworkResolver.Resolve(
+                            depPath, Path.GetTempPath(),
+                            oppositeTarget, logger, commandRunner);
+
+                        if (oppositeResolution.IsSimulatorSlice)
+                            simSearchPath = oppositeResolution.FrameworkSearchPath;
+                        else
+                            deviceSearchPath = oppositeResolution.FrameworkSearchPath;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(
+                            "Error: Dependency xcframework '{Path}' lacks required {Target} slice: {Message}",
+                            depPath, oppositeTarget.ToString().ToLowerInvariant(), ex.Message);
+                        return null;
+                    }
+                }
+                else if (wrapperArchitectures == "device" && simSearchPath != null && deviceSearchPath == null)
+                {
+                    // Primary resolved simulator but we need device for compilation
+                    try
+                    {
+                        var deviceResolution = XCFrameworkResolver.Resolve(
+                            depPath, Path.GetTempPath(),
+                            XCFrameworkPlatformTarget.Device, logger, commandRunner);
+                        deviceSearchPath = deviceResolution.FrameworkSearchPath;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(
+                            "Error: Dependency xcframework '{Path}' lacks required device slice: {Message}",
+                            depPath, ex.Message);
+                        return null;
+                    }
+                }
+                else if (wrapperArchitectures == "simulator" && deviceSearchPath != null && simSearchPath == null)
+                {
+                    // Primary resolved device but we need simulator for compilation
+                    try
+                    {
+                        var simResolution = XCFrameworkResolver.Resolve(
+                            depPath, Path.GetTempPath(),
+                            XCFrameworkPlatformTarget.Simulator, logger, commandRunner);
+                        simSearchPath = simResolution.FrameworkSearchPath;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(
+                            "Error: Dependency xcframework '{Path}' lacks required simulator slice: {Message}",
+                            depPath, ex.Message);
+                        return null;
+                    }
+                }
+
+                // Extract version from dependency using the resolved dylib path
+                string? packageVersion = null;
+                try
+                {
+                    var metadata = XCFrameworkMetadataExtractor.Extract(
+                        depDylibPath, depPath, moduleName, logger, commandRunner);
+                    packageVersion = metadata.IsVersionPlaceholder ? null : metadata.PackageVersion;
+
+                    if (metadata.IsVersionPlaceholder)
+                    {
+                        logger.LogWarning(
+                            "SWIFTBIND021: Dependency '{Module}' has a placeholder version. " +
+                            "The generated PackageReference will use '0.0.0'. Update before publishing.",
+                            moduleName);
+                    }
+                }
+                catch
+                {
+                    // Version extraction failure is non-fatal — use placeholder
+                    logger.LogWarning(
+                        "SWIFTBIND021: Could not extract version from dependency '{Module}'. " +
+                        "Using placeholder '0.0.0'.", moduleName);
+                }
+
+                resolvedDeps.Add(new FrameworkDependencyInfo
+                {
+                    XCFrameworkPath = depFullPath,
+                    ModuleName = moduleName,
+                    PackageVersion = packageVersion,
+                    SimulatorFrameworkSearchPath = simSearchPath,
+                    DeviceFrameworkSearchPath = deviceSearchPath
+                });
+            }
+
+            return resolvedDeps;
         }
 
         private static string ResolveNamespacePattern(string? cliNamespacePattern, string? configPath, ILogger logger)

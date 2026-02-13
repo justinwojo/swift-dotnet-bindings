@@ -89,6 +89,24 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Props_InjectsStaticPackageReferenceForDependencies()
+        {
+            // SwiftFrameworkDependency items with PackageId + PackageVersion
+            // should generate PackageReference at evaluation time
+            Assert.Contains("SwiftFrameworkDependency", PropsContent);
+            Assert.Contains("%(SwiftFrameworkDependency.PackageId)", PropsContent);
+            Assert.Contains("%(SwiftFrameworkDependency.PackageVersion)", PropsContent);
+        }
+
+        [Fact]
+        public void Props_DependencyPackageReference_RequiresBothMetadata()
+        {
+            // PackageReference should only be emitted when BOTH PackageId AND PackageVersion are present
+            Assert.Contains("'%(SwiftFrameworkDependency.PackageId)' != ''", PropsContent);
+            Assert.Contains("'%(SwiftFrameworkDependency.PackageVersion)' != ''", PropsContent);
+        }
+
+        [Fact]
         public void Props_DefaultsSwiftRuntimeVersion()
         {
             Assert.Contains("<SwiftRuntimeVersion Condition=", PropsContent);
@@ -126,7 +144,7 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Targets_ContainsAllEightTargets()
+        public void Targets_ContainsAllTargets()
         {
             var expectedTargets = new[]
             {
@@ -137,6 +155,7 @@ namespace BindingsGeneration.Tests
                 "_ImportSwiftBindingMetadata",
                 "_IncludeGeneratedSwiftBindings",
                 "_ResolveSwiftNativeReferences",
+                "_ValidateSwiftDependencyMetadata",
                 "_ValidateSwiftBindingPackSlices",
                 "_ConfigureSwiftBindingPack"
             };
@@ -319,6 +338,54 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("'$(SwiftGenerateDocComments)' != 'true'", TargetsContent);
             // Must use MSBuild case-insensitive comparison
             Assert.Contains("OrdinalIgnoreCase", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_GeneratorAppendsFrameworkDependencyArgs()
+        {
+            Assert.Contains("--framework-dependency", TargetsContent);
+            Assert.Contains("SwiftFrameworkDependency", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_NativeReferenceIncludesDependencies()
+        {
+            // Dependency xcframeworks should be injected as NativeReference for local build
+            Assert.Contains("%(SwiftFrameworkDependency.Identity)", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_FingerprintIncludesDependencies()
+        {
+            // Fingerprint hash should include SwiftFrameworkDependency items in property string
+            Assert.Contains("@(SwiftFrameworkDependency", TargetsContent);
+            // Fingerprint should also hash dependency xcframework contents (not just item text)
+            // Uses newline-delimited 'while read' loop (space-safe) to hash each dependency
+            Assert.Contains("while IFS= read -r dep", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind040WarningCode()
+        {
+            Assert.Contains("SWIFTBIND040", TargetsContent);
+            Assert.Contains("PackageId", TargetsContent);
+            Assert.Contains("PackageVersion", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_ContainsValidateDependencyMetadataTarget()
+        {
+            Assert.Contains("Name=\"_ValidateSwiftDependencyMetadata\"", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_ValidateDependencyMetadata_BeforePackConfig()
+        {
+            var validateTarget = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_ValidateSwiftDependencyMetadata\"", StringComparison.Ordinal));
+            var endOfTag = validateTarget.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = validateTarget.Substring(0, endOfTag);
+            Assert.Contains("BeforeTargets=\"_ConfigureSwiftBindingPack\"", targetTag);
         }
 
         private static string FindRepoRoot()

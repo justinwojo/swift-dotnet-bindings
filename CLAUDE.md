@@ -89,6 +89,7 @@ Note: `-p:EnableDefaultCompileItems=false` is needed because the generated `.csp
 | `--sdk-mode` | Skips `.csproj` emission (used when the MSBuild SDK is the project system) |
 | `--package-id <id>` | NuGet package ID override |
 | `--wrapper-architectures <scope>` | `simulator`, `device`, or `all` |
+| `--framework-dependency <path>` | Dependency xcframework path (repeatable). Adds `-F` search paths for wrapper compilation and `PackageReference` in emitted `.csproj`. Requires `--xcframework`. |
 | `-v, --verbose <level>` | 0=silent, 1=normal, 2=debug |
 
 ### Manual mode (original)
@@ -146,7 +147,8 @@ done
 
 - **RealmSwift** — generator crash: ABI JSON has empty module name (not built with `BUILD_LIBRARY_FOR_DISTRIBUTION=YES`)
 - **Realm, Stripe3DS2** — pure ObjC frameworks, no Swift module
-- **Wrapper compilation failures** (SkeletonView internal types, Mixpanel `#if compiler` types, Stripe inter-module dependencies) — C# bindings are correct, but Swift wrapper can't compile without dependency frameworks. Needs `-F` search path support (v2).
+- **Wrapper compilation failures** (SkeletonView internal types, Mixpanel `#if compiler` types) — C# bindings are correct, but Swift wrapper can't compile without the types. Not dependency-related.
+- **Stripe inter-module dependencies** — use `--framework-dependency` to provide each dependency xcframework. See SDK section below for MSBuild equivalent.
 
 ## MSBuild SDK (`Swift.Bindings.Sdk`)
 
@@ -169,6 +171,22 @@ cd Library.Swift.iOS && dotnet build && dotnet pack
 ```
 
 The SDK auto-discovers `*.xcframework` in the project directory, runs the generator, compiles the Swift wrapper, and arranges NuGet pack layout. See `src/docs/dx-msbuild-sdk-design.md` for full target chain and error codes.
+
+**Project with framework dependencies:**
+```xml
+<Project Sdk="Swift.Bindings.Sdk/0.1.0-preview.1">
+  <PropertyGroup>
+    <TargetFramework>net10.0-ios</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <SwiftFrameworkDependency Include="../SmartCardIO.xcframework"
+                              PackageId="SmartCardIO.Swift.iOS"
+                              PackageVersion="1.0.0" />
+  </ItemGroup>
+</Project>
+```
+
+Use `<SwiftFrameworkDependency>` when your library imports another Swift framework. Each item adds a `-F` search path for wrapper compilation and a `<PackageReference>` for NuGet consumers. Both `PackageId` and `PackageVersion` metadata are required for NuGet pack scenarios (SWIFTBIND040 warns if missing).
 
 **Key SDK files:**
 - `src/Swift.Bindings.Sdk/Sdk/Sdk.props` — default properties, implicit `Swift.Runtime` reference

@@ -4,6 +4,7 @@
 #nullable enable
 
 using System.CommandLine;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests
@@ -13,6 +14,7 @@ namespace BindingsGeneration.Tests
     /// These are structural tests that verify option parsing and help text.
     /// End-to-end behavior is validated by integration tests.
     /// </summary>
+    [Collection("ConsoleCapture")]
     public class ProgramSdkModeTests
     {
         [Fact]
@@ -211,6 +213,141 @@ namespace BindingsGeneration.Tests
             // "Simulator" != "simulator" — case-sensitive, doesn't match
             Assert.False(BindingsGenerator.ShouldCompileWrapper(
                 isSimulatorSlice: false, wrapperArchitectures: "Simulator"));
+        }
+    }
+
+    /// <summary>
+    /// Tests for --framework-dependency CLI option and help text.
+    /// </summary>
+    [Collection("ConsoleCapture")]
+    public class FrameworkDependencyCLITests
+    {
+        [Fact]
+        public void Help_IncludesFrameworkDependencyOption()
+        {
+            var output = CaptureHelp();
+            Assert.Contains("--framework-dependency", output);
+        }
+
+        [Fact]
+        public void Help_DescribesDependencyRequiresXcframework()
+        {
+            var output = CaptureHelp();
+            Assert.Contains("--framework-dependency", output);
+            Assert.Contains("Requires --xcframework", output);
+        }
+
+        [Fact]
+        public void FrameworkDependency_WithoutXcframework_ErrorsGracefully()
+        {
+            // Uses -a/-d/-t mode which should reject --framework-dependency
+            var dir = Path.Combine(Path.GetTempPath(), $"fwdep_test_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var writer = new StringWriter();
+                Console.SetOut(writer);
+                try
+                {
+                    BindingsGenerator.Main(new[]
+                    {
+                        "-a", "/nonexistent/abi.json",
+                        "-d", "/nonexistent/dylib",
+                        "-t", "/nonexistent/tbd",
+                        "-o", dir,
+                        "--framework-dependency", "/some/dep.xcframework"
+                    });
+                    // Should not crash — error logged via ILogger
+                }
+                finally
+                {
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_NonexistentPath_ReturnsNull()
+        {
+            var primaryResolution = CreateMinimalResolution("Primary");
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { "/nonexistent/path/Dep.xcframework" },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "simulator",
+                XCFrameworkPlatformTarget.Simulator,
+                NullLogger.Instance);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_NonXcframeworkPath_ReturnsNull()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"fwdep_noxc_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var primaryResolution = CreateMinimalResolution("Primary");
+                var result = BindingsGenerator.ResolveFrameworkDependencies(
+                    new[] { dir },  // Not an .xcframework
+                    primaryResolution,
+                    "/path/to/Primary.xcframework",
+                    "simulator",
+                    XCFrameworkPlatformTarget.Simulator,
+                    NullLogger.Instance);
+                Assert.Null(result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_PrimaryAsDependency_ReturnsNull()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"fwdep_self_{Guid.NewGuid():N}");
+            var primaryPath = Path.Combine(dir, "Primary.xcframework");
+            Directory.CreateDirectory(primaryPath);
+            try
+            {
+                var primaryResolution = CreateMinimalResolution("Primary");
+                var result = BindingsGenerator.ResolveFrameworkDependencies(
+                    new[] { primaryPath },
+                    primaryResolution,
+                    primaryPath,
+                    "simulator",
+                    XCFrameworkPlatformTarget.Simulator,
+                    NullLogger.Instance);
+                Assert.Null(result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static XCFrameworkResolution CreateMinimalResolution(string module) => new()
+        {
+            AbiJsonPath = "/abi.json",
+            DylibPath = "/dylib",
+            TbdPath = "/tbd",
+            ModuleName = module,
+            XCFrameworkPath = $"/path/to/{module}.xcframework",
+            FrameworkSearchPath = $"/path/to/{module}.xcframework/ios-arm64-simulator",
+            LibraryIdentifier = "ios-arm64-simulator",
+            IsSimulatorSlice = true,
+            SelectedArchitecture = "arm64"
+        };
+
+        private static string CaptureHelp()
+        {
+            var writer = new StringWriter();
+            Console.SetOut(writer);
+            try
+            {
+                BindingsGenerator.Main(new[] { "-h" });
+                return writer.ToString();
+            }
+            finally
+            {
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+            }
         }
     }
 }

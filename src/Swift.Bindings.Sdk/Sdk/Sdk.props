@@ -32,6 +32,15 @@
                       Condition="'$(DisableImplicitSwiftRuntimeReference)' != 'true'" />
   </ItemGroup>
 
+  <!-- Inject PackageReference for each SwiftFrameworkDependency with PackageId + PackageVersion.
+       This must be in .props (evaluation-time) so NuGet restore picks up the references
+       before the build targets run. Without both metadata values, the reference is skipped. -->
+  <ItemGroup Condition="'@(SwiftFrameworkDependency)' != ''">
+    <PackageReference Include="%(SwiftFrameworkDependency.PackageId)"
+                      Version="%(SwiftFrameworkDependency.PackageVersion)"
+                      Condition="'%(SwiftFrameworkDependency.PackageId)' != '' AND '%(SwiftFrameworkDependency.PackageVersion)' != ''" />
+  </ItemGroup>
+
   <!-- NOTE: Auto-discovery is in Sdk.targets (after project body evaluation) -->
   <!-- so explicit <SwiftFramework> items in the project are seen first        -->
 </Project>

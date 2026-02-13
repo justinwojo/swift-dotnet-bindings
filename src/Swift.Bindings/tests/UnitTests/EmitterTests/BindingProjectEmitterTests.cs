@@ -432,4 +432,181 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region D. Framework Dependency Tests
+
+    public class BindingProjectDependencyTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_NoDependencies_NoExtraPackageReference()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", dependencies: null);
+                // Should have only the Swift.Runtime PackageReference
+                Assert.Contains("Swift.Runtime", content);
+                Assert.DoesNotContain("SmartCardIO", content);
+                Assert.DoesNotContain("StripeCore", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_OneDependency_PackageReferenceEmitted()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/path/to/SmartCardIO.xcframework",
+                        ModuleName = "SmartCardIO",
+                        PackageVersion = "1.2.0"
+                    }
+                };
+                var content = EmitAndRead(dir, "ACSSmartCardIO", dependencies: deps);
+                Assert.Contains("<PackageReference Include=\"SmartCardIO.Swift.iOS\" Version=\"1.2.0\" />", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_TwoDependencies_BothPackageReferencesEmitted()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/path/to/StripeCore.xcframework",
+                        ModuleName = "StripeCore",
+                        PackageVersion = "24.0.0"
+                    },
+                    new()
+                    {
+                        XCFrameworkPath = "/path/to/StripeUICore.xcframework",
+                        ModuleName = "StripeUICore",
+                        PackageVersion = "24.0.0"
+                    }
+                };
+                var content = EmitAndRead(dir, "StripePaymentSheet", dependencies: deps);
+                Assert.Contains("StripeCore.Swift.iOS", content);
+                Assert.Contains("StripeUICore.Swift.iOS", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_DependencyWithCustomPackageId_UsesCustomId()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/path/to/DepLib.xcframework",
+                        ModuleName = "DepLib",
+                        PackageVersion = "1.0.0",
+                        PackageId = "Custom.DepLib.Package"
+                    }
+                };
+                var content = EmitAndRead(dir, "MainLib", dependencies: deps);
+                Assert.Contains("Custom.DepLib.Package", content);
+                // Convention ID should NOT appear when custom PackageId is provided
+                Assert.DoesNotContain("DepLib.Swift.iOS", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_DependencyWithPlaceholderVersion_WarningComment()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/path/to/Dep.xcframework",
+                        ModuleName = "Dep",
+                        PackageVersion = null  // Will use 0.0.0 placeholder
+                    }
+                };
+                var content = EmitAndRead(dir, "Main", dependencies: deps);
+                Assert.Contains("Version=\"0.0.0\"", content);
+                Assert.Contains("Placeholder version", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_DependencyDoesNotAffectSwiftRuntimeRef()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/path/to/Dep.xcframework",
+                        ModuleName = "Dep",
+                        PackageVersion = "1.0.0"
+                    }
+                };
+                var content = EmitAndRead(dir, "Main", dependencies: deps);
+                Assert.Contains("Swift.Runtime", content);
+                Assert.Contains(BindingProjectEmitter.DefaultSwiftRuntimeVersion, content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string EmitAndRead(string dir, string module,
+            IReadOnlyList<FrameworkDependencyInfo>? dependencies)
+        {
+            var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
+            Directory.CreateDirectory(sourceXcfwPath);
+
+            BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+            {
+                OutputDirectory = dir,
+                ModuleName = module,
+                Metadata = CreateMinimalMetadata(module),
+                SourceXCFrameworkPath = sourceXcfwPath,
+                Dependencies = dependencies
+            }, _logger);
+            return File.ReadAllText(Path.Combine(dir, $"{module}.Swift.iOS.csproj"));
+        }
+
+        private static XCFrameworkMetadata CreateMinimalMetadata(string module) => new()
+        {
+            LibraryVersion = "1.0.0",
+            PackageVersion = "1.0.0",
+            IsVersionPlaceholder = false,
+            MinimumOSVersion = "15.0",
+            EffectiveMinimumOSVersion = "15.0",
+            SdkVersion = null,
+            ModuleName = module,
+            Platforms = new List<string>()
+        };
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_dep_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
 }

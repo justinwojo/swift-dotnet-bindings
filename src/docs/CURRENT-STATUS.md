@@ -86,6 +86,7 @@ Tier promotion pass added runtime tests across string/enum/class/closure/composi
 - Idiomatic C# API surface: verb-prefixed methods, `string` properties, `T?` optionals, `nint` integers, `IDisposable`, real constructors, clean interface names
 - XML doc comments from Swift symbol graphs (automatic in xcframework mode, opt-out via `--no-docs`)
 - Mono JIT crash mitigation: SwiftString wrappers, closure Cdecl expansion, existential metadata wrappers, signature risk detection
+- Framework dependency support: `--framework-dependency` CLI option (repeatable) and `<SwiftFrameworkDependency>` MSBuild item provide `-F` search paths for wrapper compilation and NuGet `PackageReference` propagation
 
 ---
 

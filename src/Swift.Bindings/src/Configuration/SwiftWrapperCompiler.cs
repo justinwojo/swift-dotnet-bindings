@@ -93,10 +93,12 @@ namespace BindingsGeneration
             string dylibPath,
             ILogger logger,
             ICommandRunner? commandRunner = null,
-            HashSet<string>? internalTypeNames = null)
+            HashSet<string>? internalTypeNames = null,
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
         {
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
-                "simulator", "iphonesimulator", logger, commandRunner, internalTypeNames);
+                "simulator", "iphonesimulator", logger, commandRunner, internalTypeNames,
+                additionalFrameworkSearchPaths);
         }
 
         /// <summary>
@@ -111,7 +113,9 @@ namespace BindingsGeneration
             XCFrameworkResolution? deviceResolution,
             ILogger logger,
             ICommandRunner? commandRunner = null,
-            HashSet<string>? internalTypeNames = null)
+            HashSet<string>? internalTypeNames = null,
+            IReadOnlyList<string>? simAdditionalSearchPaths = null,
+            IReadOnlyList<string>? deviceAdditionalSearchPaths = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -189,7 +193,8 @@ namespace BindingsGeneration
                 InvokeSwiftCompiler(
                     cleanedFiles, simBinaryPath, wrapperModuleName,
                     $"arm64-apple-ios{minOS}-simulator", simSdkPath,
-                    simulatorResolution.FrameworkSearchPath, commandRunner, logger);
+                    simulatorResolution.FrameworkSearchPath, commandRunner, logger,
+                    simAdditionalSearchPaths);
                 sliceCount++;
 
                 logger.LogInformation("Compiled simulator slice for {Module}.", wrapperModuleName);
@@ -206,7 +211,8 @@ namespace BindingsGeneration
                     InvokeSwiftCompiler(
                         cleanedFiles, devBinaryPath, wrapperModuleName,
                         $"arm64-apple-ios{minOS}", devSdkPath,
-                        deviceResolution.FrameworkSearchPath, commandRunner, logger);
+                        deviceResolution.FrameworkSearchPath, commandRunner, logger,
+                        deviceAdditionalSearchPaths);
                     sliceCount++;
 
                     logger.LogInformation("Compiled device slice for {Module}.", wrapperModuleName);
@@ -257,7 +263,8 @@ namespace BindingsGeneration
             string sdkName,
             ILogger logger,
             ICommandRunner? commandRunner = null,
-            HashSet<string>? internalTypeNames = null)
+            HashSet<string>? internalTypeNames = null,
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -338,7 +345,8 @@ namespace BindingsGeneration
                 // 7. Invoke swiftc
                 InvokeSwiftCompiler(
                     cleanedFiles, outputBinaryPath, wrapperModuleName,
-                    targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger);
+                    targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
+                    additionalFrameworkSearchPaths);
 
                 logger.LogInformation("{Module}.xcframework built successfully at {Path}",
                     wrapperModuleName, xcframeworkPath);
@@ -536,6 +544,9 @@ namespace BindingsGeneration
         /// <summary>
         /// Invokes xcrun swiftc to compile the wrapper library.
         /// </summary>
+        /// <param name="additionalFrameworkSearchPaths">
+        /// Additional -F search paths for dependency frameworks (e.g., from --framework-dependency).
+        /// </param>
         internal static void InvokeSwiftCompiler(
             List<string> swiftFiles,
             string outputBinaryPath,
@@ -544,13 +555,23 @@ namespace BindingsGeneration
             string sdkPath,
             string frameworkSearchPath,
             ICommandRunner commandRunner,
-            ILogger logger)
+            ILogger logger,
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
         {
             var fileArgs = string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
 
+            var additionalFFlags = "";
+            if (additionalFrameworkSearchPaths != null)
+            {
+                foreach (var path in additionalFrameworkSearchPaths)
+                {
+                    additionalFFlags += $" -F \"{path}\"";
+                }
+            }
+
             var args = $"swiftc -emit-library -target {targetTriple} " +
                        $"-sdk \"{sdkPath}\" " +
-                       $"-F \"{frameworkSearchPath}\" " +
+                       $"-F \"{frameworkSearchPath}\"{additionalFFlags} " +
                        $"-module-name {wrapperModuleName} " +
                        $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
                        $"-o \"{outputBinaryPath}\" " +

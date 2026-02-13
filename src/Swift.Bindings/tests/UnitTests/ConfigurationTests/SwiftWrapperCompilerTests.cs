@@ -379,6 +379,106 @@ namespace BindingsGeneration.Tests
             Assert.Contains("compilation failed", ex.Message);
             Assert.Contains("cannot find module", ex.Message);
         }
+
+        [Fact]
+        public void InvokeSwiftCompiler_NullAdditionalPaths_NoExtraFFlag()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance, additionalFrameworkSearchPaths: null);
+
+            Assert.Single(runner.Invocations);
+            var (_, args) = runner.Invocations[0];
+            // Should have exactly one -F flag
+            var fFlagCount = args.Split("-F ").Length - 1;
+            Assert.Equal(1, fFlagCount);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_OneAdditionalPath_OneExtraFFlag()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                additionalFrameworkSearchPaths: new[] { "/dep1/ios-arm64-simulator" });
+
+            Assert.Single(runner.Invocations);
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-F \"/dep1/ios-arm64-simulator\"", args);
+            var fFlagCount = args.Split("-F ").Length - 1;
+            Assert.Equal(2, fFlagCount);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_TwoAdditionalPaths_TwoExtraFFlags()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                additionalFrameworkSearchPaths: new[] { "/dep1/slice", "/dep2/slice" });
+
+            Assert.Single(runner.Invocations);
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-F \"/dep1/slice\"", args);
+            Assert.Contains("-F \"/dep2/slice\"", args);
+            var fFlagCount = args.Split("-F ").Length - 1;
+            Assert.Equal(3, fFlagCount);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_AdditionalPaths_CorrectPosition()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/primary",
+                runner, NullLogger.Instance,
+                additionalFrameworkSearchPaths: new[] { "/fw/dep" });
+
+            var (_, args) = runner.Invocations[0];
+            // Primary -F should come before additional -F
+            var primaryIdx = args.IndexOf("-F \"/fw/primary\"");
+            var depIdx = args.IndexOf("-F \"/fw/dep\"");
+            Assert.True(primaryIdx < depIdx, "Primary -F should precede dependency -F");
+            // Both should come before -module-name
+            var moduleIdx = args.IndexOf("-module-name");
+            Assert.True(depIdx < moduleIdx, "Dependency -F should precede -module-name");
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_PathsWithSpaces_ProperlyQuoted()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance,
+                additionalFrameworkSearchPaths: new[] { "/path with spaces/dep" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-F \"/path with spaces/dep\"", args);
+        }
     }
 
     #endregion
