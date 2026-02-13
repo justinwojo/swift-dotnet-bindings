@@ -160,11 +160,12 @@ jobs:
 
       - name: Patch known async property errors
         run: |
-          # Remove lines referencing known unsupported async property getters (CS0103)
+          # Replace calls to missing async property getter methods with throws (CS0103)
           # These are pre-existing generator limitations, not regressions
           BINDINGS="TestFramework/output/Swift.SwiftBindingsTestLib.cs"
           if [ -f "$BINDINGS" ]; then
-            sed -i '' '/AsyncItemCount_Get\|AsyncSummary_Get/d' "$BINDINGS"
+            sed -i '' 's/get => AsyncItemCount_Get();/get => throw new NotSupportedException();/' "$BINDINGS"
+            sed -i '' 's/get => AsyncSummary_Get().ToString();/get => throw new NotSupportedException();/' "$BINDINGS"
           fi
 
       - name: Run runtime tests
