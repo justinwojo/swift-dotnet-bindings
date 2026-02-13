@@ -227,4 +227,117 @@ public class BasicGenericTests : TestBase
     }
 
     #endregion
+
+    #region Unbound Generic Instantiation Tests
+    // Tier 3: All unbound generics use TypeMetadata resolution via
+    // SwiftObjectHelper<T>.GetTypeMetadata() through CallConvSwift.
+    // Expected to hit Mono JIT assertion (jit-info.c:918).
+
+    [TestTier(TestTier.Tier3)]
+    public void TestWrapperCreation()
+    {
+        var inner = new SummableInt32(_value: 42);
+        var wrapper = new Wrapper<SummableInt32>(wrapped: inner);
+        var unwrapped = wrapper.Wrapped;
+        AssertEqual(42, unwrapped.Value, "Wrapper<SummableInt32>.Wrapped.Value");
+        TestLogger.Info($"Wrapper<SummableInt32>(42).Wrapped.Value = {unwrapped.Value}");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestWrapperUnwrap()
+    {
+        var inner = new SummableInt32(_value: 99);
+        var wrapper = new Wrapper<SummableInt32>(wrapped: inner);
+        var result = wrapper.Unwrap();
+        AssertEqual(99, result.Value, "Wrapper.Unwrap().Value");
+        TestLogger.Info($"Wrapper<SummableInt32>(99).Unwrap().Value = {result.Value}");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestGenericPairCreation()
+    {
+        var a = new SummableInt32(_value: 10);
+        var b = new SummableInt32(_value: 20);
+        var pair = new GenericPair<SummableInt32, SummableInt32>(first: a, second: b);
+        AssertEqual(10, pair.First.Value, "GenericPair.First.Value");
+        AssertEqual(20, pair.Second.Value, "GenericPair.Second.Value");
+        TestLogger.Info($"GenericPair(10, 20) = ({pair.First.Value}, {pair.Second.Value})");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestGenericPairMixedTypes()
+    {
+        var s = new SummableInt32(_value: 5);
+        var p = new BoundIntPair(first: 1, second: 2);
+        var pair = new GenericPair<SummableInt32, BoundIntPair>(first: s, second: p);
+        AssertEqual(5, pair.First.Value, "GenericPair mixed First.Value");
+        AssertEqual(3, pair.Second.Sum(), "GenericPair mixed Second.Sum()");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestGenericClassCreation()
+    {
+        var inner = new SummableInt32(_value: 77);
+        var gc = new GenericClass<SummableInt32>(_value: inner);
+        var val = gc.Value;
+        AssertEqual(77, val.Value, "GenericClass<SummableInt32>.Value.Value");
+        TestLogger.Info($"GenericClass<SummableInt32>(77).Value.Value = {val.Value}");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestGenericClassGetMethod()
+    {
+        var inner = new SummableInt32(_value: 33);
+        var gc = new GenericClass<SummableInt32>(_value: inner);
+        var result = gc.Get();
+        AssertEqual(33, result.Value, "GenericClass.Get().Value");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestGenericClassValueSetter()
+    {
+        var gc = new GenericClass<SummableInt32>(_value: new SummableInt32(_value: 1));
+        AssertEqual(1, gc.Value.Value, "Initial value");
+        gc.Value = new SummableInt32(_value: 100);
+        AssertEqual(100, gc.Value.Value, "After setter");
+        TestLogger.Info($"GenericClass.Value setter: 1 -> {gc.Value.Value}");
+    }
+
+    #endregion
+
+    #region Generic Free Function Tests
+    // Tier 3: Generic free functions use CallConvSwift for type metadata.
+    // GetConstrained, SumTwo, GetDescribeConstrained deferred —
+    // proxy types (SummableProxy, etc.) satisfy constraints but require
+    // wrapper library bundled in RuntimeTestsApp (same blocker as proxy dispatch).
+
+    [TestTier(TestTier.Tier3)]
+    public void TestGetIdentity()
+    {
+        var original = new SummableInt32(_value: 42);
+        var result = SwiftBindingsTestLib.GetIdentity(original);
+        AssertEqual(42, result.Value, "GetIdentity round-trip");
+        TestLogger.Info($"GetIdentity(SummableInt32(42)).Value = {result.Value}");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestGetIdentityPreservesValue()
+    {
+        var original = new SummableInt32(_value: -100);
+        var result = SwiftBindingsTestLib.GetIdentity(original);
+        AssertEqual(-100, result.Value, "GetIdentity negative value");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestGetPairSameType()
+    {
+        var a = new SummableInt32(_value: 10);
+        var b = new SummableInt32(_value: 20);
+        var pair = SwiftBindingsTestLib.GetPair(a, b);
+        AssertEqual(10, pair.Item1.Value, "GetPair Item1.Value");
+        AssertEqual(20, pair.Item2.Value, "GetPair Item2.Value");
+        TestLogger.Info($"GetPair(10, 20) = ({pair.Item1.Value}, {pair.Item2.Value})");
+    }
+
+    #endregion
 }

@@ -14,7 +14,7 @@ For deferred/aspirational work, see `Future/`.
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 2,395 passing |
+| Unit tests | 2,443 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | Runtime tests | 185 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
@@ -110,11 +110,11 @@ method dispatch, and enum method/property dispatch. Proxy-based witness dispatch
 
 ## P3: Testing Infrastructure
 
-**Status**: Partially Complete (Gap 8 done)
+**Status**: Gaps 6-8 done, Gaps 9-10 remain
 **Spec**: `testing-gaps.md` Gaps 6-10
 
-- **PInvokeEmitter unit tests** (Gap 6) — dedicated tests for P/Invoke generation
-- **Generic runtime tests** (Gap 7) — `Container<T>`, generic methods, bound type params
+- ~~**PInvokeEmitter unit tests** (Gap 6)~~ — **DONE**: `PInvokeEmitterTests.cs` with 48 tests (return types, params, self, library/entrypoint emission, async/error)
+- ~~**Generic runtime tests** (Gap 7)~~ — **DONE**: 30 tests total (20 existing + 10 new for unbound generics + generic free functions), Tier 3 pending confirmation
 - ~~**Error handling tests** (Gap 8)~~ — **DONE**: `BasicThrowingTests` with 34 tests (24 passing Tier 1-2, 10 Tier 3)
 - **Golden API snapshot tooling** (Gap 9) — detect API surface drift
 - **CI integration** (Gap 10) — GitHub Actions with tiered test profiles
@@ -159,6 +159,7 @@ All completed phases are archived in `Completed/`. Key milestones:
 | Validation 1-4 | 4 passes fixing 440+ binding errors across 25 libraries → 0 generator errors |
 | DX Improvements | C# type aliases, Codable pruning, enum PascalCase |
 | Framework Deps | `--framework-dependency` CLI + `<SwiftFrameworkDependency>` MSBuild item |
+| Gaps 6-8 | PInvokeEmitter tests (44) + generic runtime tests (10 new) + error handling tests (34) |
 
 ---
 

@@ -77,22 +77,27 @@ Capture the highest-value improvements identified from a risk-first review of `T
 
 **Expected impact:** Early signal when a generator change causes a crash, before waiting for compile or runtime failures to surface.
 
-### 8) Raise semantic verification depth beyond string-shape checks
+### 8) Raise semantic verification depth beyond string-shape checks — Partially Addressed
 **Problem:** String/token assertions are necessary but insufficient for correctness.
 
 **Adopt:**
 - Keep existing emitter/unit string checks.
 - Add compile-based and behavior-based assertions for representative generated constructs (generics constraints, bridge signatures, wrapper entry points).
 
+**Progress:**
+- Gap 6 `PInvokeEmitterTests` includes 6 `EmitPInvoke` tests that capture actual emitted `[DllImport]`/`[UnmanagedCallConv]` output and assert on library paths and entry point suffixes (Tj dispatch thunk behavior). This moves beyond signature-shape checks to verify emitted output semantics.
+- Remaining: compile-based assertions for generated generics constraints, bridge signatures, wrapper entry points.
+
 **Expected impact:** Better detection of semantically broken output that still "looks" correct.
 
-## Rollout — COMPLETE
-All items implemented:
+## Rollout — COMPLETE (TH-8 Ongoing)
+All hardening items (TH-1 through TH-7) implemented. TH-8 partially addressed:
 1. Compile gate (TH-1): `CompileCheck.csproj` + `build-and-test.sh` Step 2.5
 2. Baseline budget (TH-2/3/4/6/7): `baselines.json` + `check-baselines.sh` + `run-tests.sh` wiring
 3. Crash allowlist (TH-5): `run-tests.sh` allowlist-based tolerance
 4. Profile docs (TH-6): `TestFramework/README.md` Test Profiles section
 5. Simulator flake (TH-7): timeout + device preference in `run-runtime-tests.sh`
+6. Semantic depth (TH-8, partial): Gap 6 `EmitPInvoke` tests assert on emitted DllImport/entry point output
 
 ## Success Criteria — ALL MET
 - A PR that emits invalid generated C# fails in under 2 minutes. (**CompileCheck gate**)
