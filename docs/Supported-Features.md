@@ -21,10 +21,10 @@
 | **Properties** | C# properties | Getters and setters. Witness dispatch for protocol properties. |
 | **Constructors** | C# constructors | Including failable `init?` → `TryCreate()` factory method. |
 | **Async methods** | `Task<T>` / `Task` | Via Swift wrapper generation with `@_cdecl` callback. |
-| **Operators** | C# operator overloads | `+`, `-`, `==`, `!=`, `<`, `>`, etc. Automatic pair synthesis. |
+| **Operators** | C# operator overloads | Arithmetic (`+` `-` `*` `/` `%`), comparison (`==` `!=` `<` `>` `<=` `>=`), bitwise (`&` `^` `<<` `>>`), unary (`!` `~`). Automatic pair synthesis for `==`/`!=`, `<`/`>`, `<=`/`>=`. |
 | **Subscripts** | C# indexers (`this[key]`) | |
 | **Inout parameters** | `ref` parameters | |
-| **Closures** | `Action<T>` / `Func<T>` | `@escaping` and `@convention(c)`. Primitive args via Cdecl expansion. |
+| **Closures** | `Action<T>` / `Func<T>` | `@escaping`, `@convention(c)`, async, and throwing closures. Primitive args via Cdecl expansion. |
 | **Tuples** | `ValueTuple` | 1–7 elements. Named elements preserved. |
 
 ## Type Conversions
@@ -83,7 +83,7 @@ var image = await pipeline.LoadImage(url);
 
 The generator creates a Swift wrapper function that bridges the async boundary using a `@_cdecl` callback. The C# side uses `TaskCompletionSource<T>` to convert the callback into a standard .NET `Task`.
 
-Supported async return types: primitives, `String`, `Array<String>`, classes, enums, structs.
+Supported async return types: `void`, primitives, `String`, `Array<T>`, classes, enums, structs.
 
 ## Closures
 
@@ -98,6 +98,7 @@ obj.OnComplete((count, success) => {
 
 - **`@convention(c)` closures** — direct Cdecl mapping
 - **`@escaping` closures with primitive args** — Cdecl expansion (Mono JIT safe)
+- **Async and throwing closures** — callback-based bridging
 - **Closures with String/class/struct args** — legacy CallConvSwift path
 
 ## Enum Support
@@ -119,16 +120,18 @@ var result = Result.Success(42);
 
 ## Real-World Coverage
 
-Tested against production Swift libraries:
+The generator produces 0 errors across **25 production Swift libraries** including Nuke, Alamofire, CryptoSwift, Lottie, BlinkID, all Stripe frameworks, Mappedin, Mixpanel, and more.
+
+Four libraries have full test apps with runtime validation on iOS Simulator:
 
 | Library | Types Bound | Member Coverage | Runtime Validated |
 |---------|-------------|-----------------|-------------------|
-| **Nuke** | 60/68 (88%) | 323/342 (94.4%) | Yes |
-| **BlinkID** | 116/119 (98%) | 567/572 (99.1%) | Yes (18/18 tests) |
-| **Lottie** | 79/93 (85%) | 387/428 (90.4%) | Yes (15/15 tests) |
-| **CryptoSwift** | 103/103 (100%) | 441/501 (88.0%) | Coverage only |
+| **Nuke** | 60/60 (100%) | 295/352 (83.8%) | Yes (9 tests) |
+| **BlinkID** | 116/116 (100%) | 609/619 (98.4%) | Yes (6 tests) |
+| **Lottie** | 77/80 (96%) | 345/475 (72.6%) | Yes (9 tests) |
+| **CryptoSwift** | 103/103 (100%) | 429/501 (85.6%) | Yes (10 tests) |
 
-Remaining gaps are primarily exotic patterns: existential arguments in bound generics, Combine publishers, and compound assignment operators with no C# equivalent.
+Skipped members are primarily exotic patterns: existential arguments in bound generics, Combine publishers, unsatisfied generic constraints, and compound assignment operators with no C# equivalent.
 
 ---
 

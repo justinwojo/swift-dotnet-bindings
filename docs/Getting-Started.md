@@ -9,6 +9,16 @@
   ```
 - A compiled Swift framework (`.xcframework`) you want to bind
 
+## Install the tooling
+
+Install the project template (which includes the MSBuild SDK reference):
+
+```bash
+dotnet new install Swift.Bindings.Templates
+```
+
+---
+
 ## Create a Binding (MSBuild SDK)
 
 The recommended workflow uses the Swift Bindings MSBuild SDK. Your `.xcframework` goes in, a NuGet package comes out.
@@ -83,9 +93,29 @@ The consumer doesn't need the Swift Bindings SDK, the generator, or any Swift kn
 
 ---
 
+## Framework Dependencies
+
+If your Swift library imports another Swift framework, you need to tell the SDK about it so the Swift wrapper can compile and the NuGet package declares the dependency:
+
+```xml
+<ItemGroup>
+  <SwiftFrameworkDependency Include="../SmartCardIO.xcframework"
+                            PackageId="SmartCardIO.Swift.iOS"
+                            PackageVersion="1.0.0" />
+</ItemGroup>
+```
+
+Each `<SwiftFrameworkDependency>` item:
+- Adds a `-F` search path for Swift wrapper compilation
+- Adds a `<PackageReference>` in the NuGet package for consumers
+
+Both `PackageId` and `PackageVersion` are required for NuGet packaging (the build will warn if missing).
+
+---
+
 ## Create a Binding (CLI)
 
-If you prefer direct control, you can run the generator as a CLI tool:
+If you prefer direct control or want to integrate into a custom build pipeline, you can run the generator as a CLI tool. This requires cloning the repository.
 
 ### From an xcframework (recommended)
 
@@ -111,12 +141,15 @@ dotnet run --project src/Swift.Bindings/src -- \
 
 | File | Purpose |
 |------|---------|
-| `Swift.{Module}.cs` | Main C# bindings |
+| `Swift.{Module}.cs` | C# bindings |
 | `Swift.{Module}.swift` | Swift wrapper functions (async, protocol dispatch, etc.) |
-| `Swift.{Module}.Wrappers.cs` | Additional C# wrapper code (when needed) |
+| `{Module}SwiftBindings.xcframework/` | Compiled Swift wrapper (xcframework mode) |
 | `Swift.{Module}.SwiftUIBridge.cs` + `.swift` | SwiftUI bridge (when views are detected) |
-| `binding-report.json` | Coverage metrics — what was bound and what was skipped |
-| `{Module}.Swift.iOS.csproj` | Ready-to-build project (xcframework mode only) |
+| `binding-report.json` | Coverage report — what was bound and what was skipped |
+| `{Module}.Swift.iOS.csproj` + `.targets` | Ready-to-build project and NuGet consumer targets (xcframework mode) |
+| `binding-metadata.json` + `.props` | Extracted framework metadata |
+
+See [Customization](Customization) for the full set of CLI options.
 
 ---
 
@@ -143,6 +176,8 @@ Many Swift libraries are distributed as Swift Package Manager packages (source c
      -output MyLibrary.xcframework
    ```
 
+> **Important:** `BUILD_LIBRARY_FOR_DISTRIBUTION=YES` is required — it enables library evolution mode, which produces the stable ABI metadata the generator needs. Without it, the generator will fail or produce incomplete bindings.
+
 > **Note:** The framework must be built as a **dynamic** library. Static libraries (`.a` archives) are not supported.
 
 Direct SPM integration (`<SwiftPackage>` items) is planned for a future release.
@@ -155,43 +190,41 @@ Every generator run produces a `binding-report.json` that tells you exactly what
 
 ```json
 {
-  "types": {
-    "bound": 60,
-    "skipped": 8,
-    "total": 68
-  },
-  "members": {
-    "bound": 323,
-    "skipped": 19,
-    "total": 342
-  }
+  "ModuleName": "MyLibrary",
+  "TotalTypes": 60,
+  "EmittedTypes": 60,
+  "SkippedTypes": 0,
+  "TotalMembers": 352,
+  "EmittedMembers": 295,
+  "SkippedMembers": 57
 }
 ```
 
-Skipped members include a reason:
+Skipped members include a reason and a recommended workaround:
 
 | Skip Reason | Meaning |
 |-------------|---------|
 | `UnsupportedSignature` | Parameter or return type the generator can't handle yet |
+| `UnsupportedType` | Type uses an unsupported Swift pattern |
 | `AnyTypeFallback` | Type couldn't be resolved (falls back to `object`) |
-| `SwiftUIView` | SwiftUI View (handled by bridge, not normal binding) |
-| `SwiftUIConstraint` | Generic View type parameter (can't be bound) |
+| `UnsupportedClosure` | Closure with unsupported argument types |
+| `UnsupportedExistential` | Existential type the generator can't project |
+| `UnsatisfiedGenericConstraint` | Generic type argument can't satisfy C# constraints |
 | `AsyncProperty` | Async computed property (not yet supported) |
+| `StaticProtocolMember` | Static protocol members can't be dispatched through witness tables |
+| `DuplicateSignature` | Another member already emitted with the same C# signature |
+| `SwiftUIView` | SwiftUI View (handled by the bridge, not normal binding) |
+| `SwiftUIConstraint` | Generic View type parameter (can't be bound) |
+| `SynthesizedCodable` | Codable protocol members (`encode`/`init(from:)`) pruned for cleaner API |
 
-The report helps you understand coverage gaps and decide if manual wrappers are needed for any skipped APIs.
-
----
-
-## Let AI Create Your Binding
-
-The repository includes structured scripts and diagnostic reports designed to work with AI coding assistants (Claude Code, Codex, etc.). The vision: point an AI agent at your Swift framework, and get back a working, tested NuGet package.
-
-The binding report, validation tooling, and helper scripts provide the feedback signals an AI agent needs to iterate toward a working binding without human intervention.
+The report helps you understand coverage gaps and decide if manual Swift wrappers are needed for any skipped APIs.
 
 ---
 
 ## Next Steps
 
 - **[Supported Features](Supported-Features)** — Full list of what Swift features are covered
-- **[Customization](Customization)** — How to control the generator's output
+- **[Customization](Customization)** — CLI options, MSBuild properties, namespace control
+- **[SwiftUI Interop](SwiftUI-Interop)** — SwiftUI bridge usage, bridge hints, async views
 - **[Troubleshooting](Troubleshooting)** — Common errors and how to fix them
+- **[Known Limitations](Known-Limitations)** — Platform constraints and workarounds

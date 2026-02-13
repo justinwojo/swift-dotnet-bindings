@@ -79,6 +79,19 @@ The Swift compiler is the only entity guaranteed to understand the Swift ABI per
 
 ---
 
+## Non-Goals
+
+These are explicitly out of scope to maintain focus:
+
+| Non-Goal | Rationale |
+|----------|-----------|
+| **C# → Swift bindings** | Reverse direction (calling C# from Swift) is a separate problem |
+| **Windows/Linux support** | Apple platforms only — these are Apple-specific frameworks |
+| **Objective-C bridging** | Existing tools (Objective Sharpie, Slim Bindings) handle ObjC |
+| **Deep SwiftUI state management** | `@State`/`@Binding`/`@Environment` semantics don't map to C#; the auto-generated bridge covers View instantiation |
+
+---
+
 ## Next Steps
 
 - **[Troubleshooting](Troubleshooting)** — Solutions for specific errors

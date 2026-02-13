@@ -221,7 +221,6 @@ Coverage report shows must-pass features as passing/degraded/missing. Verify no 
 
 ## Key References
 
-- `/north-star.md` — Long-term vision and roadmap
 - `src/docs/CURRENT-STATUS.md` — Current compilation status and gaps
 - `src/docs/roadmap.md` — Forward-looking prioritized work queue
 - `src/docs/dx-msbuild-sdk-design.md` — MSBuild SDK design (Steps 1-5, all complete)

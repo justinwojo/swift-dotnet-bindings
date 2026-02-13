@@ -1,6 +1,6 @@
-# Swift Bindings for .NET
+# Swift .NET Bindings
 
-**Automatically generate C# bindings from compiled Swift libraries. No proxy layers. No Objective-C bridging headers. No manual wrapper code.**
+**Automatically generate C# bindings from compiled Swift libraries. No proxy layers. No Objective-C bridging headers. No manual wrapper code. No Objective Sharpie tooling.**
 
 Swift Bindings reads the ABI metadata from a compiled Swift framework and produces idiomatic C# that calls directly into the Swift dylib via P/Invoke. The generated bindings handle memory management (ARC), async methods, closures, generics, protocols, and more — so you can consume Swift libraries from .NET the same way you'd consume a NuGet package.
 
@@ -15,27 +15,27 @@ Apple is moving away from Objective-C. Every year, more frameworks ship as Swift
 - **WeatherKit**, **App Intents**, **Swift Charts** — all Swift-only
 - Third-party libraries increasingly drop ObjC support entirely
 
-Without Swift interop, **.NET on iOS becomes progressively less capable with each Xcode release.**
+Without Swift interop, **.NET on iOS becomes progressively less accessible each year.**
 
-Today's options — Objective Sharpie, Native Library Interop (Slim Bindings), hand-written P/Invoke — all require a human to manually translate between Swift and C#, method by method, type by type. They don't scale, don't support Swift-only APIs, and the tooling hasn't kept pace with modern Xcode.
+Today's options — Objective Sharpie and Native Library Interop (Slim Bindings) — require translating between Swift and C#, method by method, type by type. They don't scale, don't support Swift-only APIs, and the tooling hasn't kept pace with modern Xcode.
 
 Swift Bindings automates the entire process:
 
 ```
 Traditional approach:
   Swift API → manual Swift proxy → @objc headers → Objective Sharpie → C# binding
-  (weeks of work, fragile, limited to ObjC-compatible types)
+  (significant work, fragile, limited to ObjC-compatible types)
 
 Swift Bindings approach:
   Swift framework (.xcframework) → SwiftBindings tool → C# binding
-  (automated, supports Swift-native types, minutes not weeks)
+  (automated, supports Swift-native types, minutes not days)
 ```
 
 ### Where This Project Comes From
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-This fork extends the generator substantially. Over 70 phases of development have added protocols, generics, closures, async, SwiftUI bridging, and much more — validated against real-world libraries with zero generator errors and full runtime test suites.
+This fork extends the generator substantially — adding protocols, generics, closures, async, SwiftUI bridging, and much more. The generator produces zero compilation errors across 25 real-world libraries, with select libraries validated end-to-end on a .Net for iOS app.
 
 ---
 
@@ -58,38 +58,52 @@ Method signatures are automatically converted to idiomatic C# types — `String`
 
 ### Real-World Validation
 
-The generator produces **zero compilation errors** across every library tested:
+The generator produces **zero compilation errors** across 25 libraries spanning image loading, payments, animation, networking, document scanning, analytics, and more:
 
-| Library | Purpose | Member Coverage | Runtime Tests |
-|---------|---------|-----------------|---------------|
-| **Nuke** | Image loading | 94.4% | Validated |
-| **BlinkID** | Document scanning SDK | 99.1% | 18/18 passing |
-| **Lottie** | Animation framework | 90.4% | 15/15 passing |
+| Category | Libraries |
+|----------|-----------|
+| **Image & Animation** | Nuke, Lottie |
+| **Document Scanning** | BlinkID, MicroblinkPlatform |
+| **Cryptography** | CryptoSwift |
+| **Networking & Analytics** | Alamofire, Mixpanel |
+| **Payments** | Stripe (14 frameworks — StripeCore, StripePaymentSheet, StripePayments, and more) |
+| **Hardware & Mapping** | SmartCardIO, BRLMPrinterKit, Mappedin |
+
+Select libraries (Nuke, BlinkID, Lottie, CryptoSwift) have been functionally validated in test apps running on iOS Simulator.
 
 ### Examples
 
 **Async image loading with [Nuke](https://github.com/kean/Nuke):**
 
 ```csharp
+// Load an image asynchronously
 var pipeline = ImagePipeline.Shared;
-var request = new ImageRequest("https://picsum.photos/200/200");
-var image = await pipeline.Image(request);
-Console.WriteLine($"Image loaded: {image.Size.Width}x{image.Size.Height}");
+var request = new ImageRequest("https://example.com/photo.jpg");
+UIImage image = await pipeline.GetImageAsync(request);
+
+// Check the cache first
+ImageContainer? cached = pipeline.Cache.GetCachedImage(request);
 ```
 
-**Implementing a Swift protocol from C#:**
+**Animation playback with [Lottie](https://github.com/airbnb/lottie-ios):**
 
 ```csharp
-public class MyImageProcessor : ISwiftImageProcessing
-{
-    public SwiftString Identifier => new SwiftString("my-processor");
-    public UIImage? Process(UIImage image) => image;
-}
+// Play with a completion callback and nullable loop mode
+var animationView = new LottieAnimationView();
+animationView.Animation = myAnimation;
+animationView.Play(
+    fromProgress: 0.0, toProgress: 1.0,
+    loopMode: LottieLoopMode.Loop,
+    completion: finished => Console.WriteLine($"Done: {finished}")
+);
 
-var proxy = new ImageProcessingProxy(new MyImageProcessor());
+// Playback control
+animationView.Pause();
+bool playing = animationView.IsAnimationPlaying;
+double progress = animationView.CurrentProgress;
 ```
 
-No proxy libraries. No bridging headers. Generated C# calling Swift directly — validated on iOS Simulator.
+All generated C# — no proxy libraries, no bridging headers, no manual wrapper code.
 
 ---
 
@@ -106,27 +120,23 @@ For customization options (bridge hints, constructor selection, import overrides
 ## Getting Started
 
 ```bash
-# 1. Create a binding project
+# 1. Install the project template and MSBuild SDK
+dotnet new install Swift.Bindings.Templates
+
+# 2. Create a binding project
 dotnet new swift-binding -n MyLibrary.Bindings
 
-# 2. Add your xcframework to the project
+# 3. Copy your xcframework into the project directory
+cp -r /path/to/MyLibrary.xcframework MyLibrary.Bindings/
 
-# 3. Build — generates bindings and produces a NuGet package
-dotnet build
+# 4. Build — generates bindings and produces a NuGet package
+cd MyLibrary.Bindings && dotnet build
 
-# 4. Consume in any .NET iOS/MAUI app
+# 5. Consume in any .NET iOS/MAUI app
 dotnet add package MyLibrary.Bindings
 ```
 
 For prerequisites, CLI usage, and a full walkthrough, see the [Getting Started guide](docs/Getting-Started.md).
-
----
-
-## Let AI Create Your Binding
-
-The repository includes structured scripts and diagnostic reports designed so AI coding assistants (Claude Code, Codex, etc.) can generate bindings, resolve issues, build test apps, and validate on a simulator — automatically.
-
-The vision: **point an AI agent at your Swift framework, and get back a working, tested NuGet package.**
 
 ---
 
@@ -154,7 +164,7 @@ For full details, see [Known Limitations](docs/Known-Limitations.md).
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator is functional and validated against real-world libraries. See [`north-star.md`](north-star.md) for the full technical roadmap.
+Swift Bindings is under active development. The core generator is functional and validated against real-world libraries.
 
 | Milestone | Status |
 |-----------|--------|
@@ -163,16 +173,31 @@ Swift Bindings is under active development. The core generator is functional and
 | Async method support | Complete |
 | Closures, tuples, operators | Complete |
 | SwiftUI bridge generation | Complete |
-| Real-world library validation | 5 libraries, 0 errors |
-| MSBuild SDK and project templates | In progress |
-| NuGet packaging automation | In progress |
+| Real-world library validation | 25 libraries, 0 errors |
+| MSBuild SDK and project templates | Complete |
+| NuGet packaging automation | Complete |
+| AI agent skills (Claude Code, Codex) | Planned |
 | Swift Package Manager integration | Planned |
+
+Extensively tested with **2,400+ unit tests**, **700+ integration tests**, and **200+ end-to-end runtime tests** validated on iOS Simulator — in addition to the 25-library validation above.
 
 ---
 
-## Reporting Issues
+## Contributing
 
-Please [open an issue](../../issues) with:
+Swift Bindings is in its early stages and evolving rapidly. The best way to contribute right now is through **issue reports**:
+
+- **Binding errors** — if the generator produces C# that doesn't compile for your library, [open an issue](../../issues) with the details below
+- **Feature requests** — if there's a Swift pattern or workflow the generator doesn't handle, let us know
+- **Bug reports** — unexpected crashes, incorrect generated code, or runtime failures
+
+This helps prioritize the most impactful work across the many libraries and Swift patterns in the wild.
+
+**Pull requests** are welcome, but please open an issue first to discuss the change — especially for anything beyond a trivial fix. The generator internals are changing frequently, and coordinating upfront avoids wasted effort on both sides. Once the project reaches a more stable state, we'll formalize a more open contribution workflow.
+
+### Reporting Issues
+
+When filing an issue, please include:
 
 1. **Generator logs** — run with `-v 2` for verbose output
 2. **The binding report** — `binding-report.json` from the output directory
