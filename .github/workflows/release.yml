@@ -16,7 +16,7 @@ jobs:
 
   build-and-test:
     name: Build & Test
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
 
   testframework:
     name: TestFramework
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,7 +118,7 @@ jobs:
 
   runtime-tests:
     name: Runtime Tests
-    runs-on: macos-15
+    runs-on: macos-26
     needs: testframework
     steps:
       - name: Checkout
@@ -155,7 +155,7 @@ jobs:
 
   release:
     name: Release
-    runs-on: macos-15
+    runs-on: macos-26
     needs: [build-and-test, testframework, runtime-tests]
     environment: nuget-publish
     steps:
