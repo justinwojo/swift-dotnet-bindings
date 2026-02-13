@@ -120,7 +120,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"UniqueResource constructor with Id={id}");
     }
 
-    [TestTier(TestTier.Tier2)]
+    [TestTier(TestTier.Tier3)] // Mono: SafeHandle non-blittable through CallConvSwift P/Invoke
     public void TestBorrowResource()
     {
         var resource = SwiftBindingsTestLib.CreateUniqueResource(7);

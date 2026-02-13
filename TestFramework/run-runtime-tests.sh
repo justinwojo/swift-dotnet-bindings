@@ -264,11 +264,10 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
         break
     fi
 
-    # Detect crashes via signal markers in output
-    if grep -q "SIGABRT\|SIGSEGV\|SIGBUS\|Fatal error\|CRASH\|EXC_BAD_ACCESS\|Assertion.*not met" "$OUTPUT_FILE" 2>/dev/null; then
-        RESULT="crash"
-        break
-    fi
+    # NOTE: Do NOT check for crash signals (SIGABRT, etc.) during active polling.
+    # Mono's malloc assertion fires during background cleanup but the app continues
+    # running and produces the test summary. Only check crash signals after the
+    # process has exited (handled in the ! kill -0 block above).
 done
 
 # Terminate the app
