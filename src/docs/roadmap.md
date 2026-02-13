@@ -16,48 +16,43 @@ For deferred/aspirational work, see `Future/`.
 |--------|-------|
 | Unit tests | 2,395 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
-| Runtime tests | 185 passing at Tier 2 safe-only (28 pre-existing failures) |
+| Runtime tests | 185 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 | Libraries validated | 25 clean (0 generator errors) + 5 environmental-only |
 
 ---
 
-## P0: Test Pipeline Hardening
+## P0: Test Pipeline Hardening — DONE
 
-**Status**: Not Started
+**Status**: Complete
 **Spec**: `testframework-review.md`
 
-Quick wins from the TestFramework risk-first review. Low-effort, high-value gates.
+All items implemented (TH-1 through TH-7). TH-8 (semantic verification depth) deferred as ongoing practice.
 
-1. **TH-1. Compile gate** — `CompileCheck.csproj` as hard-fail gate in `build-and-test.sh`
-2. **TH-2. Baseline budgets** — skip/compiled-out/wrapper-stripped counts in baseline JSON; fail if counts increase
-3. **TH-3. Generator exit code gate** — expected exit code in baseline; `build-and-test.sh` compares
-4. **TH-4. Ratchet wrapper stripping** — stripped-block count baseline + tolerance
-5. **TH-5. Allowlist-based crash tolerance** — replace pattern matching with explicit allowlist
-6. **TH-6. Test profiles** — define explicit profiles by intent (fast/full/nightly)
-7. **TH-7. Reduce simulator flake** — timing stabilization in runtime tests
-8. **TH-8. Semantic verification depth** — beyond string-shape checks
-
-**Done when**: Invalid generated C# fails in under 2 minutes; skip/stripped counts can't drift.
+- **TH-1. Compile gate** — `CompileCheck.csproj` in `build-and-test.sh` Step 2.5
+- **TH-2/3/4. Baseline budgets** — `baselines.json` + `check-baselines.sh` (exit code, degraded, compiled-out, unsupported, crash-risk, strip count)
+- **TH-5. Allowlist-based crash tolerance** — `run-tests.sh` extracts last test class, allowlist: `EnumMarshallingTests|OwnershipGCStressTests`
+- **TH-6. Test profiles** — PR Gate + Nightly documented in `TestFramework/README.md`
+- **TH-7. Reduce simulator flake** — default timeout 90s, deterministic device preference
 
 ---
 
 ## P1: Testing Depth
 
-**Status**: Not Started
+**Status**: Partially Complete (Gap 5 done, Gap 3 tests written but runtime-blocked, Gap 4 not started)
 **Spec**: `testing-gaps.md` Gaps 3-5
 
-### Gap 3: Async Runtime Tests
+### Gap 3: Async Runtime Tests — Tests Implemented (Blocked at Tier 3)
 
-Move core async Swift sources out of `.disabled/`, implement `AsyncStringTests.cs` and `AsyncComplexTypeTests.cs`. Contract matrix cells `Async x {String, Array, Class, Enum}` move from `R?` to `R✓`.
+32 async runtime tests across 3 classes (`AsyncStringTests`, `AsyncComplexTypeTests`, `AsyncMethodTests`). All Tier 3 — blocked by Mono JIT assertion on `CallConvSwift` in async P/Invoke. Ready for when the upstream blocker is resolved.
 
-### Gap 4: Protocol Witness Dispatch Runtime Tests
+### Gap 4: Protocol Witness Dispatch Runtime Tests — Not Started
 
 Enable protocol Swift sources, implement `WitnessDispatchTests.cs` — property getter/setter dispatch, method dispatch for blittable + String types.
 
-### Gap 5: Complex Type Composition Tests
+### Gap 5: Complex Type Composition Tests — DONE
 
-Add `RealWorldCompositions.swift` with class+closure, struct+optional-array, singleton+async patterns. `CompositionTests.cs` validates round-trips.
+`BasicCompositionTests` with 23 tests (4 Tier 1, 2 Tier 2, 17 Tier 3). Covers class+closure, struct+optional-array, singleton+async, inheritance+protocol patterns.
 
 ---
 
@@ -112,12 +107,12 @@ Add `RealWorldCompositions.swift` with class+closure, struct+optional-array, sin
 
 ## P3: Testing Infrastructure
 
-**Status**: Not Started
+**Status**: Partially Complete (Gap 8 done)
 **Spec**: `testing-gaps.md` Gaps 6-10
 
 - **PInvokeEmitter unit tests** (Gap 6) — dedicated tests for P/Invoke generation
 - **Generic runtime tests** (Gap 7) — `Container<T>`, generic methods, bound type params
-- **Error handling tests** (Gap 8) — enable `ThrowingFunctions.swift`, test throw→exception mapping
+- ~~**Error handling tests** (Gap 8)~~ — **DONE**: `BasicThrowingTests` with 34 tests (24 passing Tier 1-2, 10 Tier 3)
 - **Golden API snapshot tooling** (Gap 9) — detect API surface drift
 - **CI integration** (Gap 10) — GitHub Actions with tiered test profiles
 
