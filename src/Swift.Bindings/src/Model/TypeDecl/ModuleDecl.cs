@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration
@@ -8,6 +9,13 @@ namespace BindingsGeneration
     /// </summary>
     public sealed record ModuleDecl : BaseDecl
     {
+        /// <summary>
+        /// Exported symbols from the library's TBD file.
+        /// Used by emitters to detect P/Invoke entry points that will fail at runtime.
+        /// Null when no TBD was provided.
+        /// </summary>
+        public HashSet<string>? ExportedSymbols { get; set; }
+
         /// <summary>
         /// The module's properties.
         /// </summary>

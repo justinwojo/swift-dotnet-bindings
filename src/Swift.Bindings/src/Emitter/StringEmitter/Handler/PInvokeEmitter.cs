@@ -565,30 +565,15 @@ namespace BindingsGeneration
     internal static class PInvokeEmitter
     {
         /// <summary>
-        /// Emits the PInvoke signature or collects it to a helper context for generic types.
+        /// Computes the P/Invoke entry point symbol and whether the method needs the wrapper library.
+        /// Used by both EmitPInvoke (for emission) and MethodHandler (for symbol cross-referencing).
         /// </summary>
-        /// <param name="csWriter">The IndentedTextWriter instance.</param>
-        /// <param name="methodEnv">The method environment.</param>
-        /// <param name="signatureHandler">The signature handler.</param>
-        public static void EmitPInvoke(CSharpWriter csWriter, MethodEnvironment methodEnv, SignatureHandler signatureHandler)
+        /// <param name="methodDecl">The method declaration.</param>
+        /// <returns>A tuple of (entryPoint symbol, needsWrapperLib flag).</returns>
+        internal static (string entryPoint, bool needsWrapperLib) ComputeEntryPoint(MethodDecl methodDecl)
         {
-            var methodDecl = (MethodDecl)methodEnv.MethodDecl;
-            var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
-
-            var pInvokeName = NameProvider.GetPInvokeName(methodDecl);
-            // Async methods and opaque return types use generated Swift wrappers that
-            // may be compiled into a separate library.
-            // If AsyncLibraryName is set, use it; otherwise fall back to the module's library
-            var moduleLibPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
             var hasOpaqueReturn = methodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
             var needsWrapperLib = methodDecl.IsAsync || hasOpaqueReturn || methodDecl.UsesWrapperLibrary;
-            var libPath = needsWrapperLib && methodEnv.TypeDatabase.AsyncLibraryName != null
-                ? methodEnv.TypeDatabase.AsyncLibraryName
-                : moduleLibPath;
-
-            var pInvokeSignature = signatureHandler.GetPInvokeSignature();
-
-            // Compute the entry point symbol.
             var entryPoint = NameProvider.GetMangledName(methodDecl);
 
             // With library evolution, non-final class instance methods and property accessors
@@ -608,6 +593,29 @@ namespace BindingsGeneration
             {
                 entryPoint += "Tj";
             }
+
+            return (entryPoint, needsWrapperLib);
+        }
+
+        /// <summary>
+        /// Emits the PInvoke signature or collects it to a helper context for generic types.
+        /// </summary>
+        /// <param name="csWriter">The IndentedTextWriter instance.</param>
+        /// <param name="methodEnv">The method environment.</param>
+        /// <param name="signatureHandler">The signature handler.</param>
+        public static void EmitPInvoke(CSharpWriter csWriter, MethodEnvironment methodEnv, SignatureHandler signatureHandler)
+        {
+            var methodDecl = (MethodDecl)methodEnv.MethodDecl;
+            var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
+
+            var pInvokeName = NameProvider.GetPInvokeName(methodDecl);
+            var moduleLibPath = methodEnv.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var (entryPoint, needsWrapperLib) = ComputeEntryPoint(methodDecl);
+            var libPath = needsWrapperLib && methodEnv.TypeDatabase.AsyncLibraryName != null
+                ? methodEnv.TypeDatabase.AsyncLibraryName
+                : moduleLibPath;
+
+            var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
             // If we're inside a generic type, collect the P/Invoke to the helper context
             // instead of emitting it inline (to avoid CS7042: DllImport in generic type)

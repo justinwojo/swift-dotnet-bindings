@@ -69,7 +69,7 @@ internal static class UnsupportedSwiftTypeSupport
             $"[global::Swift.UnsupportedSwiftType(\"{EscapeStringLiteral(fallbackInfo.Reason)}\", \"{EscapeStringLiteral(fallbackInfo.SwiftType)}\")]");
     }
 
-    private static string EscapeStringLiteral(string value)
+    internal static string EscapeStringLiteral(string value)
     {
         return value
             .Replace("\\", "\\\\", StringComparison.Ordinal)

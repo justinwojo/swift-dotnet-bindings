@@ -73,6 +73,21 @@ namespace BindingsGeneration
         public string ParametersString() => string.Join(", ", Parameters.Select(p => p.SignatureString()));
 
         /// <summary>
+        /// Returns the parameters string with optional per-parameter attribute prefixes.
+        /// Used to emit [OriginalSwiftType] attributes on AnyType-fallback parameters.
+        /// </summary>
+        /// <param name="paramAttributes">Map of parameter name to attribute string, or null for default behavior.</param>
+        public string ParametersString(IReadOnlyDictionary<string, string>? paramAttributes)
+        {
+            if (paramAttributes == null || paramAttributes.Count == 0) return ParametersString();
+            return string.Join(", ", Parameters.Select(p =>
+            {
+                var prefix = paramAttributes.TryGetValue(p.Name, out var attr) ? attr + " " : "";
+                return prefix + p.SignatureString();
+            }));
+        }
+
+        /// <summary>
         /// Returns the parameters string for P/Invoke declarations, where existential types
         /// use container types instead of public interface types.
         /// </summary>

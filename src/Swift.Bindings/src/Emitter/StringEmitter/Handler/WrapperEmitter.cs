@@ -85,6 +85,7 @@ namespace BindingsGeneration
                 EmitClosureCallbacks(csWriter);
             }
 
+            EmitSafetyObsolete(csWriter);
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
@@ -306,10 +307,12 @@ namespace BindingsGeneration
             {
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value);
             }
+            EmitSafetyObsolete(csWriter);
             if (!_env.MethodDecl.IsAccessor)
             {
                 XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl);
             }
+            EmitReturnTypeOriginalSwiftType(csWriter);
             EmitSignatureMethod(csWriter);
             EmitBodyStart(csWriter);
             EmitUnsafeBlockStart(csWriter);
@@ -639,7 +642,7 @@ namespace BindingsGeneration
             // Use the resolved C# type name (may be renamed for nested type collision avoidance)
             var constructorName = GetResolvedTypeName();
             _needsUnsafeBody = true;
-            csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString()})");
+            csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())})");
         }
 
         /// <summary>
@@ -694,7 +697,7 @@ namespace BindingsGeneration
                 : _env.CSharpMethodName;
 
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} {staticKeyword}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString()})");
+            csWriter.WriteLine($"{accessModifier} {staticKeyword}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())})");
 
             // Emit where clauses for generic constraints
             var whereClause = BuildWhereClause();
@@ -710,6 +713,81 @@ namespace BindingsGeneration
         {
             csWriter.WriteLine("{");
             csWriter.Indent++;
+        }
+
+        /// <summary>
+        /// Emits [Obsolete("...", true)] for methods with unmitigated JIT risks or missing exported symbols.
+        /// Combines multiple issues into a single attribute (AllowMultiple=false).
+        /// Skips accessors — property-level [Obsolete] requires separate PropertyHandler wiring.
+        /// </summary>
+        private void EmitSafetyObsolete(CSharpWriter csWriter)
+        {
+            var issues = new List<string>();
+
+            // Deliverable 1: JIT risk (skip accessors — see property deferral)
+            if (!_env.MethodDecl.IsAccessor &&
+                _env.MethodDecl.DetectedJitRisks != MonoJitRiskDetector.MonoJitRisk.None)
+            {
+                var (_, needsWrapper) = PInvokeEmitter.ComputeEntryPoint((MethodDecl)_env.MethodDecl);
+                if (!needsWrapper)
+                {
+                    issues.Add("This method requires non-blittable Swift calling convention support " +
+                        "not available on current .NET iOS runtime. Calling it will crash at runtime");
+                }
+            }
+
+            // Deliverable 2: Missing symbol (skip accessors — same as JIT risk above)
+            if (!_env.MethodDecl.IsAccessor && _env.MethodDecl.IsMissingExportedSymbol)
+            {
+                issues.Add("P/Invoke entry point not exported by the library. " +
+                    "This method will throw EntryPointNotFoundException at runtime");
+            }
+
+            if (issues.Count > 0)
+            {
+                var message = string.Join(". ", issues) + ".";
+                csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", true)]");
+            }
+        }
+
+        /// <summary>
+        /// Builds a dictionary mapping parameter names to [OriginalSwiftType] attribute strings
+        /// for parameters that fell back to AnyType during type projection.
+        /// Returns null when no parameters have fallbacks (avoids allocation).
+        /// </summary>
+        private Dictionary<string, string>? BuildOriginalSwiftTypeAttributes()
+        {
+            Dictionary<string, string>? attrs = null;
+            var parameters = _wrapperSignature.Parameters;
+            var csSignatureParams = _env.MethodDecl.CSSignature.Skip(1).ToList();
+
+            for (int i = 0; i < parameters.Count && i < csSignatureParams.Count; i++)
+            {
+                if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(
+                    _env.TypeDatabase, _env.ClosureHandler, csSignatureParams[i].SwiftTypeSpec, out var info))
+                {
+                    attrs ??= new Dictionary<string, string>();
+                    attrs[parameters[i].Name] = $"[global::Swift.OriginalSwiftType(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(info.SwiftType)}\")]";
+                }
+            }
+            return attrs;
+        }
+
+        /// <summary>
+        /// Emits [return: OriginalSwiftType("...")] before the method signature when the return type
+        /// fell back to AnyType. Not called for constructors (C# constructors have no return type).
+        /// </summary>
+        private void EmitReturnTypeOriginalSwiftType(CSharpWriter csWriter)
+        {
+            // Constructors have no return type in C#, so [return:] is invalid
+            if (_env.MethodDecl.IsConstructor) return;
+
+            var returnArg = _env.MethodDecl.CSSignature.First();
+            if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(
+                _env.TypeDatabase, _env.ClosureHandler, returnArg.SwiftTypeSpec, out var info))
+            {
+                csWriter.WriteLine($"[return: global::Swift.OriginalSwiftType(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(info.SwiftType)}\")]");
+            }
         }
 
         /// <summary>

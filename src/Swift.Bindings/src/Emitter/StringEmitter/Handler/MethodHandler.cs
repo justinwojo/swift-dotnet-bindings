@@ -244,6 +244,8 @@ namespace BindingsGeneration
                 ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
             }
 
+            MethodHandler.CheckExportedSymbol(methodEnv);
+
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
             if (methodEnv.MethodDecl.IsFailable)
             {
@@ -504,6 +506,11 @@ namespace BindingsGeneration
                 ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
             }
 
+            // Skip symbol cross-referencing for accessors — [Obsolete] on an accessor method
+            // would cause CS0619 in the property body that calls it directly.
+            if (!isAccessor)
+                CheckExportedSymbol(methodEnv);
+
             TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
             if (!isAccessor)
             {
@@ -533,6 +540,26 @@ namespace BindingsGeneration
             DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger);
 
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Cross-references the method's P/Invoke entry point against the module's exported symbols.
+        /// Sets <see cref="MethodDecl.IsMissingExportedSymbol"/> when the symbol is not found in the TBD.
+        /// Must be called AFTER all wrapper-routing flags are finalized (closure Cdecl, async, etc.).
+        /// </summary>
+        internal static void CheckExportedSymbol(MethodEnvironment methodEnv)
+        {
+            var methodDecl = (MethodDecl)methodEnv.MethodDecl;
+            var moduleDecl = methodDecl.ModuleDecl;
+            if (moduleDecl?.ExportedSymbols == null) return;
+
+            var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(methodDecl);
+            if (needsWrapperLib) return; // Wrapper symbols are generated, not in TBD
+
+            if (!moduleDecl.ExportedSymbols.Contains(entryPoint))
+            {
+                methodDecl.IsMissingExportedSymbol = true;
+            }
         }
 
         /// <summary>

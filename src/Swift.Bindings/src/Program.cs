@@ -553,6 +553,7 @@ namespace BindingsGeneration
             {
                 // Parse the Swift ABI file and generate declarations
                 var (decl, moduleTypes) = swiftParser.ParseModule();
+                decl.ExportedSymbols = demangledTbdFile.AllSymbols;
                 internalTypeNames = CollectInternalTypeNames(decl);
                 ReportCollector.Start(decl);
 

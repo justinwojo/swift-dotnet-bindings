@@ -119,6 +119,13 @@ namespace BindingsGeneration
         /// when a corresponding Swift wrapper function has been generated.
         /// </summary>
         public MonoJitRiskDetector.MonoJitRisk DetectedJitRisks { get; set; } = MonoJitRiskDetector.MonoJitRisk.None;
+
+        /// <summary>
+        /// When true, the P/Invoke entry point for this method is not exported by the library's TBD.
+        /// Calling this method at runtime will throw <see cref="System.EntryPointNotFoundException"/>.
+        /// Set by <see cref="MethodHandler"/> during symbol cross-referencing.
+        /// </summary>
+        public bool IsMissingExportedSymbol { get; set; } = false;
     }
 
     /// <summary>
