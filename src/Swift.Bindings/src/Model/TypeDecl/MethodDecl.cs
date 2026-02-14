@@ -121,6 +121,14 @@ namespace BindingsGeneration
         public MonoJitRiskDetector.MonoJitRisk DetectedJitRisks { get; set; } = MonoJitRiskDetector.MonoJitRisk.None;
 
         /// <summary>
+        /// When true, large Optional parameters (e.g., Optional&lt;String&gt;) are passed via
+        /// UnsafeRawPointer in a generated Swift wrapper, avoiding IntPtr truncation.
+        /// The C# side passes a pointer to the full Optional buffer instead of reading
+        /// only 8 bytes through PayloadBuffer&lt;IntPtr&gt;.
+        /// </summary>
+        public bool HasOptionalPointerWrapper { get; set; } = false;
+
+        /// <summary>
         /// When true, the P/Invoke entry point for this method is not exported by the library's TBD.
         /// Calling this method at runtime will throw <see cref="System.EntryPointNotFoundException"/>.
         /// Set by <see cref="MethodHandler"/> during symbol cross-referencing.

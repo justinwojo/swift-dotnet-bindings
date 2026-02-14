@@ -384,10 +384,21 @@ namespace BindingsGeneration
                     {
                         csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({csName}Value) : {swiftType}.NewNone();");
                     }
-                    // Create payload buffer for P/Invoke (same as bound generic handling)
-                    csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
-                    var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                    csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                    // Create payload for P/Invoke
+                    if (_env.MethodDecl.HasOptionalPointerWrapper &&
+                        _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec))
+                    {
+                        // Pass pointer to the full Optional buffer — Swift wrapper dereferences via .pointee
+                        var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}Swift.Payload.DangerousGetHandle();");
+                    }
+                    else
+                    {
+                        // Original path for small Optionals (e.g., Optional<Int32>)
+                        csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}Swift.PayloadBuffer;");
+                        var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                    }
                     } // end else (non-ObjC optional element)
                 }
                 else if (_env.TypeConversionHandler.HasNativeTypeRemapping(argumentDecl.SwiftTypeSpec))

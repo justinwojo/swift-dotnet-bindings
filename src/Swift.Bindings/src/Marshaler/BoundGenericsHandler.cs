@@ -780,6 +780,32 @@ public class BoundGenericsHandler
         return false;
     }
 
+    /// <summary>
+    /// Returns true if typeSpec is Optional&lt;T&gt; where T's size exceeds IntPtr (8 bytes).
+    /// Currently detects Optional&lt;String&gt; (16 bytes). Extensible via TypeRecord size.
+    /// </summary>
+    public bool IsLargeOptionalParam(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType || namedType.Name != "Swift.Optional")
+            return false;
+        var innerElement = namedType.GenericParameters.FirstOrDefault();
+        if (innerElement == null) return false;
+        // String is 16 bytes (2 words) — always large
+        if (innerElement is NamedTypeSpec innerNamed && innerNamed.Name == "Swift.String")
+            return true;
+        // Extensibility point: check TypeRecord size for other types
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if any non-return parameter is a large Optional.
+    /// </summary>
+    public bool HasLargeOptionalParams(MethodDecl methodDecl)
+    {
+        return methodDecl.CSSignature.Skip(1)
+            .Any(p => IsLargeOptionalParam(p.SwiftTypeSpec));
+    }
+
     private static bool IsBareStdlibGeneric(NamedTypeSpec typeSpec) => s_stdlibGenerics.Contains(typeSpec.Name);
 
     private static bool HasConformance(TypeDecl typeDecl, SwiftTypeName protocolType) =>

@@ -137,7 +137,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalStringPropertySetter tests passed");
     }
 
-    [TestTier(TestTier.Tier3)] // P/Invoke passes Optional<String> (16 bytes) as IntPtr (8 bytes) — data truncation
+    [TestTier(TestTier.Tier2)] // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
     public void TestOptionalStringParameterSome()
     {
         var result = SwiftBindingsTestLib.GetDescribeOptionalString("hello");
@@ -145,7 +145,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info($"DescribeOptionalString(\"hello\") = \"{result}\"");
     }
 
-    [TestTier(TestTier.Tier3)] // P/Invoke passes Optional<String> (16 bytes) as IntPtr (8 bytes) — data truncation
+    [TestTier(TestTier.Tier2)] // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
     public void TestOptionalStringParameterNone()
     {
         var result = SwiftBindingsTestLib.GetDescribeOptionalString(null);

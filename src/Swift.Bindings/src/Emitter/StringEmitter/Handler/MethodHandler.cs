@@ -244,6 +244,20 @@ namespace BindingsGeneration
                 ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
             }
 
+            // Optional pointer wrapper for constructors with large Optional params.
+            // Same constraints as closure Cdecl: frozen struct only, not failable, not async.
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                !methodEnv.MethodDecl.IsFailable &&
+                !methodEnv.MethodDecl.IsAsync &&
+                methodEnv.ParentDecl is StructDecl ctorOptStruct && ctorOptStruct.IsFrozen &&
+                methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl))
+            {
+                methodEnv.MethodDecl.HasOptionalPointerWrapper = true;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
+                OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
+            }
+
             MethodHandler.CheckExportedSymbol(methodEnv);
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler);
@@ -506,6 +520,23 @@ namespace BindingsGeneration
                 ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
             }
 
+            // Optional pointer wrapper for methods with large Optional params (e.g., Optional<String>).
+            // Excluded: async (own wrapper), accessors (setter self-mutation), already-wrapped methods,
+            // opaque returns (their own _opaque wrapper doesn't handle Optional param rewriting),
+            // mutating methods (wrapper copies self by value, mutations would be lost).
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                !methodEnv.MethodDecl.IsAsync &&
+                !methodEnv.MethodDecl.IsAccessor &&
+                !methodEnv.MethodDecl.IsMutating &&
+                !_requiresOpaqueReturn(methodEnv) &&
+                methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl))
+            {
+                methodEnv.MethodDecl.HasOptionalPointerWrapper = true;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
+                OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
+            }
+
             // Skip symbol cross-referencing for accessors — [Obsolete] on an accessor method
             // would cause CS0619 in the property body that calls it directly.
             if (!isAccessor)
@@ -561,6 +592,13 @@ namespace BindingsGeneration
                 methodDecl.IsMissingExportedSymbol = true;
             }
         }
+
+        /// <summary>
+        /// Returns true when the method has an opaque return type (some Protocol).
+        /// </summary>
+        private static bool _requiresOpaqueReturn(MethodEnvironment methodEnv) =>
+            methodEnv.MethodDecl.CSSignature.Count > 0 &&
+            methodEnv.MethodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
 
         /// <summary>
         /// Checks if the method has constraints on protocols with associated types.

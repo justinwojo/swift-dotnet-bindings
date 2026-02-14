@@ -194,6 +194,11 @@ public static class NameProvider
             methodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return $"{methodDecl.MangledName}_opaque";
 
+        // Optional pointer wrappers need a unique symbol because the wrapper function takes
+        // UnsafeRawPointer where the original takes Optional<String> by value.
+        if (methodDecl.HasOptionalPointerWrapper)
+            return $"{methodDecl.MangledName}_optbuf";
+
         // Closure Cdecl wrappers need a unique symbol because the wrapper function has
         // different parameter types (UnsafeMutableRawPointer pairs) than the original
         // Swift function (native closure types). @_silgen_name with the original symbol

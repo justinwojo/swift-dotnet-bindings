@@ -1,0 +1,148 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+namespace BindingsGeneration;
+
+/// <summary>
+/// Generates Swift wrapper functions that accept UnsafeRawPointer for large Optional
+/// parameters (e.g., Optional&lt;String&gt; which is 16 bytes). The wrapper dereferences
+/// the pointer via .assumingMemoryBound(to:).pointee before calling the original method.
+/// This avoids the IntPtr truncation bug where PayloadBuffer&lt;IntPtr&gt; only reads 8 bytes.
+/// </summary>
+public static class OptionalPointerWrapperEmitter
+{
+    /// <summary>
+    /// Emits a Swift wrapper function with @_silgen_name that adapts large Optional
+    /// parameters from UnsafeRawPointer to their native Optional types.
+    /// Follows the same pattern as <see cref="ClosureEmitter.EmitClosureCdeclSwiftWrapper"/>.
+    /// </summary>
+    public static void EmitSwiftWrapper(
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        TypeDecl? parentDecl)
+    {
+        var methodDecl = env.MethodDecl;
+        var wrapperSymbol = NameProvider.GetMangledName(methodDecl);
+
+        // Build Swift parameter list
+        var swiftParams = new List<string>();
+        var callArgs = new List<string>();
+        var derefCode = new List<string>();
+
+        foreach (var arg in methodDecl.CSSignature.Skip(1))
+        {
+            var csName = NameProvider.GetCSharpParameterName(arg);
+
+            if (env.BoundGenericsHandler.IsLargeOptionalParam(arg.SwiftTypeSpec))
+            {
+                // Large Optional: accept UnsafeRawPointer, dereference in body
+                swiftParams.Add($"_ {csName}: UnsafeRawPointer");
+
+                var swiftType = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(arg.SwiftTypeSpec);
+                derefCode.Add($"let {csName}Val = {csName}.assumingMemoryBound(to: {swiftType}.self).pointee");
+
+                var label = GetSwiftArgLabel(arg);
+                callArgs.Add($"{label}{csName}Val");
+            }
+            else
+            {
+                // Non-large param: pass through with original Swift type
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                swiftParams.Add($"_ {csName}: {swiftType}");
+                var label = GetSwiftArgLabel(arg);
+                callArgs.Add($"{label}{csName}");
+            }
+        }
+
+        // For instance methods, add self as last param
+        bool isInstance = methodDecl.MethodType != MethodType.Static && parentDecl != null && !methodDecl.IsConstructor;
+        if (isInstance)
+        {
+            swiftParams.Add("_ _self: UnsafeMutableRawPointer");
+        }
+
+        var paramsStr = string.Join(",\n    ", swiftParams);
+        var callArgsStr = string.Join(", ", callArgs);
+
+        // Build return type
+        var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
+        var hasReturn = !returnTypeSpec.IsEmptyTuple;
+        var returnTypeStr = hasReturn ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)}" : "";
+        var throwsStr = methodDecl.Throws ? " throws" : "";
+
+        // Determine how to call the original method
+        string callPrefix;
+        string selfConversion = "";
+        if (methodDecl.IsConstructor)
+        {
+            var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
+            callPrefix = $"{typeName}(";
+        }
+        else if (isInstance)
+        {
+            var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
+            bool isClass = parentDecl is ClassDecl;
+            if (isClass)
+            {
+                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+            }
+            else
+            {
+                selfConversion = $"let __self = _self.assumingMemoryBound(to: {typeName}.self).pointee";
+            }
+            callPrefix = $"__self.{methodDecl.Name}(";
+        }
+        else if (parentDecl != null)
+        {
+            var typeName = parentDecl.SwiftTypeName?.ModuleQualifiedName ?? parentDecl.Name;
+            callPrefix = $"{typeName}.{methodDecl.Name}(";
+        }
+        else
+        {
+            var moduleName = methodDecl.ModuleDecl?.Name ?? "";
+            callPrefix = moduleName.Length > 0 ? $"{moduleName}.{methodDecl.Name}(" : $"{methodDecl.Name}(";
+        }
+
+        var callSuffix = ")";
+        var tryPrefix = methodDecl.Throws ? "try " : "";
+
+        // Emit the wrapper
+        swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
+        swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}(");
+        swiftWriter.WriteLine($"    {paramsStr}");
+        swiftWriter.WriteLine($"){throwsStr}{returnTypeStr} {{");
+
+        // Emit self conversion for instance methods
+        if (!string.IsNullOrEmpty(selfConversion))
+        {
+            swiftWriter.WriteLine($"    {selfConversion}");
+        }
+
+        // Emit pointer dereferences for large Optional params
+        foreach (var line in derefCode)
+        {
+            swiftWriter.WriteLine($"    {line}");
+        }
+
+        // Emit the call
+        var returnPrefix = hasReturn || methodDecl.IsConstructor ? "return " : "";
+        swiftWriter.WriteLine($"    {returnPrefix}{tryPrefix}{callPrefix}{callArgsStr}{callSuffix}");
+        swiftWriter.WriteLine("}");
+        swiftWriter.WriteLine();
+    }
+
+    /// <summary>
+    /// Gets the Swift argument label for a parameter.
+    /// Reconstructs the original Swift label from the argument name.
+    /// Same logic as <see cref="ClosureEmitter"/>'s GetSwiftArgLabel.
+    /// </summary>
+    private static string GetSwiftArgLabel(ArgumentDecl arg)
+    {
+        var name = arg.Name;
+        if (name.StartsWith("arg"))
+            return ""; // Unlabeled
+        if (name.StartsWith("_"))
+            return $"{name.Substring(1)}: "; // Strip leading underscore
+        return $"{name}: ";
+    }
+}
