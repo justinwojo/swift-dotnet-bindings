@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <PackageId>Swift.Bindings.Sdk</PackageId>
-    <PackageVersion>0.1.0-preview.1</PackageVersion>
+    <PackageVersion>0.1.0-preview.3</PackageVersion>
     <Description>MSBuild SDK for generating C# bindings from Swift xcframeworks. Drop an xcframework into your project and run dotnet build.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

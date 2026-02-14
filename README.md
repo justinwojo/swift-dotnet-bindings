@@ -178,8 +178,17 @@ Swift Bindings is under active development. The core generator is functional and
 | NuGet packaging automation | Complete |
 | AI agent skills (Claude Code, Codex) | Planned |
 | Swift Package Manager integration | Planned |
+| Objective-C binding generation | Under consideration |
 
 Extensively tested with **2,400+ unit tests**, **700+ integration tests**, and **200+ end-to-end runtime tests** validated on iOS Simulator — in addition to the 25-library validation above.
+
+### Objective-C Support (Under Consideration)
+
+The generator currently targets Swift-only libraries. However, many libraries still ship with Objective-C APIs — either ObjC-only or mixed ObjC/Swift. Microsoft's Objective Sharpie tool handles ObjC binding generation but is effectively unmaintained and breaks with newer Xcode versions.
+
+We're exploring whether Swift Bindings could absorb this role by adding an ObjC pipeline alongside the existing Swift pipeline. The approach would use `clang -ast-dump=json` (no native dependencies, ships with Xcode) to parse ObjC headers and emit standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions that work with .NET MAUI's existing ObjC registrar. The XCFramework resolution, dependency handling, MSBuild SDK, and NuGet packaging infrastructure would be shared — the user experience would be the same: point at any xcframework, get a NuGet package.
+
+This is not currently planned work. See the [design exploration](src/docs/Future/objc-binding-integration.md) for full architectural analysis, trade-offs, and implementation estimates.
 
 ---
 
