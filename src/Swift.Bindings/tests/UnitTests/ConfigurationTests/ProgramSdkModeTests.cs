@@ -97,6 +97,87 @@ namespace BindingsGeneration.Tests
             }
         }
 
+        [Fact]
+        public void MissingOutput_ReturnsNonZeroExitCode()
+        {
+            var writer = new StringWriter();
+            Console.SetOut(writer);
+            try
+            {
+                var exitCode = BindingsGenerator.Main(new[] { "--xcframework", "/nonexistent" });
+                Assert.NotEqual(0, exitCode);
+            }
+            finally
+            {
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+            }
+        }
+
+        [Fact]
+        public void ConflictingInputModes_ReturnsNonZeroExitCode()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"exitcode_conflict_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var writer = new StringWriter();
+                Console.SetOut(writer);
+                try
+                {
+                    var exitCode = BindingsGenerator.Main(new[]
+                    {
+                        "--xcframework", "/nonexistent",
+                        "-a", "/nonexistent/abi.json",
+                        "-o", dir
+                    });
+                    Assert.NotEqual(0, exitCode);
+                }
+                finally
+                {
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void MissingAllInputs_ReturnsNonZeroExitCode()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"exitcode_noinput_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var writer = new StringWriter();
+                Console.SetOut(writer);
+                try
+                {
+                    var exitCode = BindingsGenerator.Main(new[] { "-o", dir });
+                    Assert.NotEqual(0, exitCode);
+                }
+                finally
+                {
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Help_ReturnsZeroExitCode()
+        {
+            var writer = new StringWriter();
+            Console.SetOut(writer);
+            try
+            {
+                var exitCode = BindingsGenerator.Main(new[] { "-h" });
+                Assert.Equal(0, exitCode);
+            }
+            finally
+            {
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+            }
+        }
+
         private static string CaptureHelp()
         {
             var writer = new StringWriter();

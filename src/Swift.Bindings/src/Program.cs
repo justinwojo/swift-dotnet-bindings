@@ -19,12 +19,12 @@ namespace BindingsGeneration
         /// <summary>
         /// Main entry point of the bindings generator tool.
         /// </summary>
-        public static void Main(string[] args)
+        public static int Main(string[] args)
         {
             Option<string> swiftAbiOption = new(aliases: new[] { "-a", "--swiftabi" }, "Path to the Swift ABI file.");
             Option<string> dylibOption = new(aliases: new[] { "-d", "--dylib" }, "Path to the dynamic library.");
             Option<string> tbdOption = new(aliases: new[] { "-t", "--tbd" }, "Path to the TBD file.");
-            Option<string> outputDirectoryOption = new(aliases: new[] { "-o", "--output" }, "Output directory for generated bindings.") { IsRequired = true };
+            Option<string> outputDirectoryOption = new(aliases: new[] { "-o", "--output" }, "Output directory for generated bindings.");
             Option<string> xcframeworkOption = new(
                 aliases: new[] { "--xcframework" },
                 description: "Path to an xcframework directory. Automatically resolves ABI JSON, dylib, TBD, and swiftinterface. " +
@@ -148,7 +148,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  --no-docs            Optional. Disable automatic symbol graph extraction. Does not affect explicit --symbolgraph.");
                     Console.WriteLine("  --bridge-hints       Optional. Path to bridge hints JSON file for customizing SwiftUI bridge generation.");
                     Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
-                    Console.WriteLine("  --sdk-mode           Optional. Skips .csproj emission (used when the SDK IS the project system).");
+                    Console.WriteLine("  --sdk-mode           Optional. SDK mode: skips .csproj emission (used when the SDK IS the project system).");
                     Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.iOS'.");
                     Console.WriteLine("  --wrapper-architectures  Optional. Wrapper compilation scope: 'simulator' (default), 'device', or 'all'.");
                     Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");
@@ -163,6 +163,7 @@ namespace BindingsGeneration
                 if (string.IsNullOrWhiteSpace(outputDirectory))
                 {
                     logger.LogError("Error: Output directory (-o) is required.");
+                    context.ExitCode = 1;
                     return;
                 }
 
@@ -175,12 +176,14 @@ namespace BindingsGeneration
                 if (hasXcframework && hasManualInputs)
                 {
                     logger.LogError("Error: --xcframework cannot be combined with -a, -d, or -t. Use one mode or the other.");
+                    context.ExitCode = 1;
                     return;
                 }
 
                 if (!hasXcframework && !hasManualInputs)
                 {
                     logger.LogError("Error: Either --xcframework or all of -a, -d, -t must be provided.");
+                    context.ExitCode = 1;
                     return;
                 }
 
@@ -204,6 +207,7 @@ namespace BindingsGeneration
                             break;
                         default:
                             logger.LogError("Error: Invalid --platform-target '{Value}'. Valid values: 'simulator', 'device'.", platformTargetStr);
+                            context.ExitCode = 1;
                             return;
                     }
 
@@ -220,6 +224,7 @@ namespace BindingsGeneration
                     catch (Exception ex)
                     {
                         logger.LogError("Error resolving xcframework: {Message}", ex.Message);
+                        context.ExitCode = 1;
                         return;
                     }
 
@@ -255,6 +260,7 @@ namespace BindingsGeneration
                     if (!hasXcframework)
                     {
                         logger.LogError("Error: --framework-dependency requires --xcframework mode.");
+                        context.ExitCode = 1;
                         return;
                     }
 
@@ -263,30 +269,37 @@ namespace BindingsGeneration
                         wrapperArchitectures?.ToLowerInvariant() ?? "simulator",
                         platformTarget, logger);
                     if (resolvedDependencies == null)
+                    {
+                        context.ExitCode = 1;
                         return; // Validation failed — error already logged
+                    }
                 }
 
                 if (string.IsNullOrWhiteSpace(swiftAbiPath) || !File.Exists(swiftAbiPath))
                 {
                     logger.LogError("Error: Valid Swift ABI file is required.");
+                    context.ExitCode = 1;
                     return;
                 }
 
                 if (string.IsNullOrWhiteSpace(dylibPath) || !File.Exists(dylibPath))
                 {
                     logger.LogError("Error: Valid dynamic library is required.");
+                    context.ExitCode = 1;
                     return;
                 }
 
                 if (string.IsNullOrWhiteSpace(tbdPath) || !File.Exists(tbdPath))
                 {
                     logger.LogError("Error: Valid TBD file is required.");
+                    context.ExitCode = 1;
                     return;
                 }
 
                 if (!Directory.Exists(outputDirectory))
                 {
                     logger.LogError("Error: Valid output directory is required.");
+                    context.ExitCode = 1;
                     return;
                 }
 
@@ -304,6 +317,7 @@ namespace BindingsGeneration
                 if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
                 {
                     logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
+                    context.ExitCode = 1;
                     return;
                 }
 
@@ -464,7 +478,7 @@ namespace BindingsGeneration
                 }
             });
 
-            rootCommand.Invoke(args);
+            return rootCommand.Invoke(args);
         }
 
         /// <summary>

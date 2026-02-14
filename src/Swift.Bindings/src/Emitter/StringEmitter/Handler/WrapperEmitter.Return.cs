@@ -66,9 +66,9 @@ namespace BindingsGeneration
                     var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(returnArg.SwiftTypeSpec);
                     if (_env.TypeConversionHandler.IsFoundationURL(returnArg.SwiftTypeSpec))
                     {
-                        // URL via indirect result - create from handle and convert
+                        // URL via indirect result - marshal from handle and convert
                         csWriter.WriteLines($$"""
-                            var swiftResult = new {{swiftWrapperType}}(new IntPtr(swiftIndirectResult.Value));
+                            var swiftResult = ({{swiftWrapperType}})SwiftMarshal.MarshalFromSwift<{{swiftWrapperType}}>(new IntPtr(swiftIndirectResult.Value));
                             return swiftResult.ToNSUrl();
                             """);
                     }
@@ -215,9 +215,9 @@ namespace BindingsGeneration
                     if (_env.TypeConversionHandler.IsFoundationURL(returnArg.SwiftTypeSpec))
                     {
                         // URL is non-frozen, result is IntPtr (SafeHandle marshalling)
-                        // Create Swift.URL from handle, then convert to NSUrl
+                        // Marshal from handle using MarshalFromSwift (URL constructor is private)
                         csWriter.WriteLines($$"""
-                            var swiftResult = new {{swiftWrapperType}}(result);
+                            var swiftResult = ({{swiftWrapperType}})SwiftMarshal.MarshalFromSwift<{{swiftWrapperType}}>(result);
                             return swiftResult.ToNSUrl();
                             """);
                     }

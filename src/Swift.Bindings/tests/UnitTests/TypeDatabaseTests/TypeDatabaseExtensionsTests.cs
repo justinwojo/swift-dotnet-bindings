@@ -439,6 +439,52 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal("Type is missing from the type database", fallbackInfo.Value.Reason);
     }
 
+    // --- ObjC enum types from Apple frameworks are NOT auto-bridged ---
+
+    [Theory]
+    [InlineData("UIKit.UIBarStyle")]
+    [InlineData("UIKit.UIKeyboardAppearance")]
+    [InlineData("UIKit.UITextField.ViewMode")]
+    [InlineData("UIKit.UIControl.ContentVerticalAlignment")]
+    [InlineData("UIKit.UIActivityIndicatorView.Style")]
+    [InlineData("UIKit.UIBlurEffect.Style")]
+    [InlineData("UIKit.UILayoutPriority")]
+    [InlineData("UIKit.NSTextAlignment")]
+    public void GetTypeRecordOrAnyType_ObjCEnumType_ReturnsAnyType(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIBarStyle")]
+    [InlineData("UIKit.NSTextAlignment")]
+    public void TryGetTypeRecord_ObjCEnumType_ReturnsFalse(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.False(found);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIBarStyle")]
+    [InlineData("UIKit.NSTextAlignment")]
+    public void TryGetAnyTypeFallbackInfo_ObjCEnumType_ReturnsMissing(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var found = typeDatabase.TryGetAnyTypeFallbackInfo(new NamedTypeSpec(swiftType), out var fallbackInfo);
+
+        Assert.True(found);
+        Assert.NotNull(fallbackInfo);
+        Assert.Equal("Type is missing from the type database", fallbackInfo.Value.Reason);
+    }
+
     // --- Modules NOT in auto-bridge set (removed for safety) ---
 
     [Theory]

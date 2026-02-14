@@ -460,6 +460,12 @@ public static class TypeDatabaseExtensions
         // UIKit nested enums/structs (flattened in .NET: UIView.ContentMode → UIViewContentMode)
         "UIKit.UIView.ContentMode", "UIKit.UIControl.State", "UIKit.UIControl.Event",
         "UIKit.UIAccessibilityTraits",
+        // UIKit enums (ObjC enums bridged to Swift — value types, not NSObject subclasses)
+        // Names use the Swift nested form from ABI JSON printedName (e.g., UIActivityIndicatorView.Style)
+        "UIKit.UIBarStyle", "UIKit.UIKeyboardAppearance", "UIKit.UITextField.ViewMode",
+        "UIKit.UIControl.ContentVerticalAlignment", "UIKit.UIActivityIndicatorView.Style",
+        "UIKit.UIBlurEffect.Style", "UIKit.UILayoutPriority",
+        "UIKit.NSTextAlignment",
         // AVFoundation structs
         "AVFoundation.AVAudioFramePosition", "AVFoundation.AVAudioFrameCount",
         "AVFoundation.AVAudioPacketCount", "AVFoundation.AVAudioChannelCount",
