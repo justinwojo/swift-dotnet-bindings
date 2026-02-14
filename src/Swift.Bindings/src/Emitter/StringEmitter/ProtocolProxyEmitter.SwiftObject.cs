@@ -9,6 +9,7 @@ public partial class ProtocolProxyEmitter
     {
         var proxyClassName = GetProxyClassName(protocolDecl);
         var witnessTableSymbol = GetWitnessTableSymbol(protocolDecl);
+        var wrapperLibPath = _typeDatabase.AsyncLibraryName ?? _typeDatabase.GetLibraryPath(_moduleName);
 
         writer.WriteLines($$"""
             #region ISwiftObject Implementation
@@ -121,15 +122,15 @@ public partial class ProtocolProxyEmitter
         writer.Indent++;
 
         writer.WriteLines($$"""
-            [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{mangledName}}")]
+            [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{mangledName}}")]
             public static extern void {{setVtableName}}(IntPtr vtable);
 
-            [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Get_EveryProtocol_{{protocolDecl.Name}}_WitnessTable")]
+            [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Get_EveryProtocol_{{protocolDecl.Name}}_WitnessTable")]
             public static extern IntPtr GetWitnessTable();
             """);
 
         // Emit P/Invoke declarations for witness dispatch accessors
-        EmitWitnessDispatchPInvokes(writer, protocolDecl, dispatchEmitter);
+        EmitWitnessDispatchPInvokes(writer, protocolDecl, dispatchEmitter, wrapperLibPath);
 
         writer.Indent--;
         writer.WriteLine("}");
@@ -138,7 +139,7 @@ public partial class ProtocolProxyEmitter
     /// <summary>
     /// Emits P/Invoke declarations for witness dispatch accessor and free functions.
     /// </summary>
-    private void EmitWitnessDispatchPInvokes(CSharpWriter writer, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter)
+    private void EmitWitnessDispatchPInvokes(CSharpWriter writer, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter, string wrapperLibPath)
     {
         var protocolName = protocolDecl.Name;
         var emittedPInvokes = new HashSet<string>();
@@ -166,10 +167,10 @@ public partial class ProtocolProxyEmitter
 
                 writer.WriteLine();
                 writer.WriteLines($$"""
-                    [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{accessorSymbol}}")]
+                    [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{accessorSymbol}}")]
                     public static extern IntPtr {{accessorSymbol}}(IntPtr containerPtr);
 
-                    [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{freeSymbol}}")]
+                    [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{freeSymbol}}")]
                     public static extern void {{freeSymbol}}(IntPtr ptr);
                     """);
             }
@@ -196,7 +197,7 @@ public partial class ProtocolProxyEmitter
 
                 writer.WriteLine();
                 writer.WriteLines($$"""
-                    [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{setterSymbol}}")]
+                    [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{setterSymbol}}")]
                     public static extern void {{setterSymbol}}(IntPtr containerPtr, IntPtr valuePtr);
                     """);
             }
@@ -243,7 +244,7 @@ public partial class ProtocolProxyEmitter
 
                 writer.WriteLine();
                 writer.WriteLines($$"""
-                    [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{accessorSymbol}}")]
+                    [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{accessorSymbol}}")]
                     public static extern {{returnTypeStr}} {{accessorSymbol}}({{pInvokeParamsString}});
                     """);
 
@@ -252,7 +253,7 @@ public partial class ProtocolProxyEmitter
                     var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "method", method.Name, idx);
                     writer.WriteLines($$"""
 
-                        [DllImport("SwiftBindings", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{freeSymbol}}")]
+                        [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{freeSymbol}}")]
                         public static extern void {{freeSymbol}}(IntPtr ptr);
                         """);
                 }

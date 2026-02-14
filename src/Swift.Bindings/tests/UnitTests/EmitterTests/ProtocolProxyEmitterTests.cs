@@ -372,9 +372,31 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        // P/Invoke should target SwiftBindings (the Swift wrapper) not the original module
-        Assert.Contains("[DllImport(\"SwiftBindings\"", output);
+        // P/Invoke should target the module library path (fallback when AsyncLibraryName is null)
+        Assert.Contains("[DllImport(\"/fake/path\"", output);
         Assert.Contains("EntryPoint = \"SetTestProtocol_vtable\"", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DllImportUsesAsyncLibraryName()
+    {
+        _typeDatabase.AsyncLibraryName = "BlinkIDSwiftBindings";
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("[DllImport(\"BlinkIDSwiftBindings\"", output);
+        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DllImportFallsBackToModuleLibrary()
+    {
+        // No AsyncLibraryName set — should fall back to module library path
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("[DllImport(\"/fake/path\"", output);
+        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", output);
     }
 
     #endregion

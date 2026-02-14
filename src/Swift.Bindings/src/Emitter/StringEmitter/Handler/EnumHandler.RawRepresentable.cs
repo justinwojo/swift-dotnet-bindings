@@ -31,6 +31,7 @@ namespace BindingsGeneration
         {
             var rawTypeName = enumDecl.RawValueTypeName!;
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+            var wrapperLibPath = typeDatabase.AsyncLibraryName ?? libPath;
             var isStringRawType = rawTypeName == "String";
 
             // Map Swift raw type to C# type
@@ -117,7 +118,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
 
                     // P/Invoke for the Swift wrapper (not the original init)
-                    csWriter.WriteLine($"[DllImport(\"SwiftBindings\", EntryPoint = \"{wrapperSymbol}\")]");
+                    csWriter.WriteLine($"[DllImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
                     csWriter.WriteLine("private static extern IntPtr PInvoke_InitWithRawValue_Wrapper(IntPtr slicePtr);");
                     csWriter.WriteLine();
                 }
@@ -271,7 +272,7 @@ namespace BindingsGeneration
                 if (isStringRawType)
                 {
                     // String raw type: P/Invoke for the Swift wrapper
-                    csWriter.WriteLine($"[DllImport(\"SwiftBindings\", EntryPoint = \"{wrapperSymbol}\")]");
+                    csWriter.WriteLine($"[DllImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
                     csWriter.WriteLine("private static extern void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);");
                     csWriter.WriteLine();
                 }

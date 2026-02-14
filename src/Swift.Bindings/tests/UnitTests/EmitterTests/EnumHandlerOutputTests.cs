@@ -498,6 +498,82 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("SBW_TestModule_Container1_ErrorType_InitWithRawValue", swiftOutput2);
     }
 
+    [Fact]
+    public void Emit_FrozenStringEnum_DllImportUsesAsyncLibraryName()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        typeDatabase.AsyncLibraryName = "BlinkIDSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ErrorCode", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("unknown"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        EnumHandler.ResetUtf8SliceTracking();
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The wrapper P/Invoke (InitWithRawValue) should use AsyncLibraryName
+        Assert.Contains("[DllImport(\"BlinkIDSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenStringEnum_DllImportUsesAsyncLibraryName()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        typeDatabase.AsyncLibraryName = "BlinkIDSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ErrorCode", moduleDecl, isFrozen: false);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("unknown"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        EnumHandler.ResetUtf8SliceTracking();
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The wrapper P/Invoke (InitWithRawValue) should use AsyncLibraryName
+        Assert.Contains("[DllImport(\"BlinkIDSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStringEnum_DllImportFallsBackToModuleLibrary()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        // No AsyncLibraryName set — should fall back to module library path
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ErrorCode", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("unknown"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        EnumHandler.ResetUtf8SliceTracking();
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Without AsyncLibraryName, wrapper P/Invoke falls back to module library path
+        Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenStringEnum_DllImportFallsBackToModuleLibrary()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        // No AsyncLibraryName set — should fall back to module library path
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ErrorCode", moduleDecl, isFrozen: false);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("unknown"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        EnumHandler.ResetUtf8SliceTracking();
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Without AsyncLibraryName, wrapper P/Invoke falls back to module library path
+        Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithString()
     {
         var typeDatabase = new TypeDatabase();
