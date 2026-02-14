@@ -74,7 +74,28 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info($"DescribeOptionalInt(null) = \"{result}\"");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono: "Span size does not match type size" layout mismatch
+    [TestTier(TestTier.Tier3)] // Mono: OptionalConfig constructor takes SwiftString.Buffer through CallConvSwift
+    public void TestOptionalConfigConstructorWithLabel()
+    {
+        // Exercises NewSome(SwiftString) through frozen struct constructor
+        var config = new OptionalConfig(new SwiftString("Primary"), 10, "Fallback");
+        AssertEqual("Primary", config.Label, "Constructor sets String? label");
+        AssertEqual(10, config.Count, "Constructor sets Int32? count");
+        AssertEqual("Fallback", config.FallbackLabel, "Constructor sets fallbackLabel");
+        TestLogger.Info("OptionalConfig constructor with label passed");
+    }
+
+    [TestTier(TestTier.Tier3)] // Mono: OptionalConfig constructor takes SwiftString.Buffer through CallConvSwift
+    public void TestOptionalConfigConstructorWithoutLabel()
+    {
+        var config = new OptionalConfig(null, null, "Default");
+        AssertNull(config.Label, "Constructor with null label");
+        AssertFalse(config.Count.HasValue, "Constructor with null count");
+        AssertEqual("Default", config.FallbackLabel, "Constructor sets fallbackLabel");
+        TestLogger.Info("OptionalConfig constructor without label passed");
+    }
+
+    [TestTier(TestTier.Tier3)] // Mono: GetEffectiveLabel() returns String through CallConvSwift → JIT crash
     public void TestOptionalConfigEffectiveLabel()
     {
         var config = new OptionalConfig(new SwiftString("Primary"), 10, "Fallback");
@@ -102,6 +123,34 @@ public class OptionalMarshallingTests : TestBase
         var index = SwiftBindingsTestLib.FindIndex(Array.Empty<int>(), 1);
         AssertFalse(index.HasValue, "FindIndex empty array returns null");
         TestLogger.Info("FindIndex empty array passed");
+    }
+
+    [TestTier(TestTier.Tier3)] // Mono: OptionalConfig constructor takes SwiftString.Buffer through CallConvSwift
+    public void TestOptionalStringPropertySetter()
+    {
+        var config = new OptionalConfig(null, null, "Fallback");
+        config.Label = "Updated";
+        AssertEqual("Updated", config.Label, "Label setter with String? Some");
+
+        config.Label = null;
+        AssertNull(config.Label, "Label setter with String? None");
+        TestLogger.Info("OptionalStringPropertySetter tests passed");
+    }
+
+    [TestTier(TestTier.Tier3)] // P/Invoke passes Optional<String> (16 bytes) as IntPtr (8 bytes) — data truncation
+    public void TestOptionalStringParameterSome()
+    {
+        var result = SwiftBindingsTestLib.GetDescribeOptionalString("hello");
+        AssertEqual("Value: hello", result, "DescribeOptionalString with value");
+        TestLogger.Info($"DescribeOptionalString(\"hello\") = \"{result}\"");
+    }
+
+    [TestTier(TestTier.Tier3)] // P/Invoke passes Optional<String> (16 bytes) as IntPtr (8 bytes) — data truncation
+    public void TestOptionalStringParameterNone()
+    {
+        var result = SwiftBindingsTestLib.GetDescribeOptionalString(null);
+        AssertEqual("nil", result, "DescribeOptionalString with null");
+        TestLogger.Info($"DescribeOptionalString(null) = \"{result}\"");
     }
 
     #endregion

@@ -117,6 +117,20 @@ elif [ "$SKIP_REGEN" = false ]; then
     fi
 fi
 
+# Step 1.7: Downgrade [Obsolete("...", true)] to warning in generated bindings
+# Consumer builds keep error-level [Obsolete] (CS0619) for safety. Test code
+# intentionally calls these methods (tier system handles crash risk at runtime),
+# so we downgrade to warning-level (CS0618) which NoWarn can suppress.
+BINDINGS_CS="output/Swift.SwiftBindingsTestLib.cs"
+if [ -f "$BINDINGS_CS" ]; then
+    OBSOLETE_COUNT=$(grep -c '\[Obsolete(".*", true)\]' "$BINDINGS_CS" 2>/dev/null || echo 0)
+    if [ "$OBSOLETE_COUNT" -gt 0 ]; then
+        sed -i '' 's/\[Obsolete("\(.*\)", true)\]/[Obsolete("\1")]/g' "$BINDINGS_CS"
+        echo "Downgraded $OBSOLETE_COUNT [Obsolete] error(s) to warnings for test build."
+    fi
+fi
+echo ""
+
 # Step 2: Build the RuntimeTestsApp
 echo "--- Step 2: Build RuntimeTestsApp ---"
 cd RuntimeTestsApp

@@ -65,8 +65,16 @@ public class Application
             }
         }
 
-        // Register resolver for bundled frameworks BEFORE any Swift types are accessed
-        NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), ResolveBundledFramework);
+        // Register resolver for bundled frameworks BEFORE any Swift types are accessed.
+        // Generated bindings may already register a [ModuleInitializer] resolver for the same assembly.
+        try
+        {
+            NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), ResolveBundledFramework);
+        }
+        catch (InvalidOperationException)
+        {
+            // A resolver is already registered (from generated bindings ModuleInitializer).
+        }
 
         UIApplication.Main(args, null, typeof(AppDelegate));
     }

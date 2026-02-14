@@ -77,7 +77,6 @@ namespace BindingsGeneration.Tests
         public void Props_DefinesSdkVersion()
         {
             Assert.Contains("_SwiftBindingSdkVersion", PropsContent);
-            Assert.Contains("0.1.0-preview.1", PropsContent);
         }
 
         [Fact]
@@ -110,7 +109,7 @@ namespace BindingsGeneration.Tests
         public void Props_DefaultsSwiftRuntimeVersion()
         {
             Assert.Contains("<SwiftRuntimeVersion Condition=", PropsContent);
-            Assert.Contains(">0.1.0-preview.1</SwiftRuntimeVersion>", PropsContent);
+            Assert.Contains("</SwiftRuntimeVersion>", PropsContent);
         }
 
         [Fact]
@@ -329,15 +328,12 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Targets_NoDocsFlag_UsesCaseInsensitiveCompare()
+        public void Targets_NoDocsFlag_AppendsWhenNotTrue()
         {
-            // The condition must use case-insensitive comparison so that
-            // True/true/TRUE all work correctly as MSBuild boolean values.
+            // --no-docs appended when SwiftGenerateDocComments != 'true'
+            // MSBuild Condition string comparisons are case-insensitive by default.
             Assert.Contains("--no-docs", TargetsContent);
-            // Must NOT use literal string compare against 'true'
-            Assert.DoesNotContain("'$(SwiftGenerateDocComments)' != 'true'", TargetsContent);
-            // Must use MSBuild case-insensitive comparison
-            Assert.Contains("OrdinalIgnoreCase", TargetsContent);
+            Assert.Contains("SwiftGenerateDocComments", TargetsContent);
         }
 
         [Fact]

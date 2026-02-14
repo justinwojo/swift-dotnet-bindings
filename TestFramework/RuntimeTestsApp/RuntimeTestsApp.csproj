@@ -14,7 +14,8 @@
     <!-- CS0169: Field is never used (Buffer struct fields reserved for future use) -->
     <!-- CA1422: Obsolete API warnings (UIWindow, etc.) -->
     <!-- IL2075/IL2087: AOT trimming warnings (reflection use in tests) -->
-    <NoWarn>CS0169;CA1422;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- CS0618: Obsolete warnings from downgraded safety attributes (run-runtime-tests.sh Step 1.7) -->
+    <NoWarn>CS0169;CS0618;CA1422;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <!-- Disable trimming for test app (reflection-heavy) -->
     <MtouchLink>None</MtouchLink>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->

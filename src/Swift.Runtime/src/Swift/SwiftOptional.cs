@@ -2,9 +2,13 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
+
+[assembly: InternalsVisibleTo("Swift.Bindings.Unit.Tests")]
 
 namespace Swift;
 
@@ -132,9 +136,9 @@ public class SwiftOptional<T> : ISwiftObject, IDisposable
         {
             var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
             byte* payload = (byte*)instance._payload.DangerousGetHandle();
-            // The additional byte is a discriminator for the enum case
-            // https://github.com/swiftlang/swift/blob/8c8ed346edac36f07ece5518f40e35c05e4aa13a/stdlib/public/core/Optional.swift#L121
-            Span<byte> payloadSpan = new Span<byte>(payload, (int)metadata.Size - 1);
+            var innerSize = (int)TypeMetadata.GetTypeMetadataOrThrow<T>().Size;
+            int spanSize = ComputePayloadSpanSize((int)metadata.Size, innerSize);
+            Span<byte> payloadSpan = new Span<byte>(payload, spanSize);
             SwiftMarshal.MarshalToSwift(value, ref payloadSpan);
             metadata.ValueWitnessTable->DestructiveInjectEnumTag(payload, (uint)SwiftOptionalCases.Some, metadata);
             return instance;
@@ -166,6 +170,22 @@ public class SwiftOptional<T> : ISwiftObject, IDisposable
             if (success)
                 instance._payload.DangerousRelease();
         }
+    }
+
+    /// <summary>
+    /// Computes the payload span size for NewSome marshalling.
+    /// Uses the inner type's size (not Optional's size minus one) to handle
+    /// extra-inhabitant types (String, Array, classes) where Optional&lt;T&gt;.Size == T.Size.
+    /// </summary>
+    /// <param name="optionalSize">Size of Optional&lt;T&gt; from metadata.</param>
+    /// <param name="innerSize">Size of T from metadata.</param>
+    /// <returns>Number of bytes to marshal for the payload.</returns>
+    internal static int ComputePayloadSpanSize(int optionalSize, int innerSize)
+    {
+        Debug.Assert(innerSize > 0, "Inner type size must be positive");
+        Debug.Assert(innerSize <= optionalSize,
+            $"Inner type size ({innerSize}) exceeds Optional size ({optionalSize})");
+        return innerSize;
     }
 
     /// <summary>

@@ -30,6 +30,16 @@ public func describeOptionalInt(_ value: Int32?) -> String {
     return "nil"
 }
 
+// MARK: - Optional String Parameter
+
+/// Describes an optional String, returning "nil" or the value.
+public func describeOptionalString(_ value: String?) -> String {
+    if let v = value {
+        return "Value: \(v)"
+    }
+    return "nil"
+}
+
 // MARK: - Struct with Optional Properties
 
 /// A frozen struct with optional properties for testing optional field emission.
