@@ -90,6 +90,7 @@ namespace BindingsGeneration
             {
                 foreach (var dep in options.Dependencies)
                 {
+                    if (dep.IsObjCOnly) continue;
                     var depComment = dep.EffectiveVersion == "0.0.0"
                         ? "\n    <!-- WARNING: Placeholder version. Update before publishing. -->"
                         : "";

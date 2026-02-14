@@ -403,6 +403,176 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public void ResolveFrameworkDependencies_ObjCOnlyDep_ResolvesWithIsObjCOnly()
+        {
+            using var fixture = CreateObjCDepFixture("ObjCDep", hasBothSlices: true);
+            var primaryResolution = CreateMinimalResolution("Primary");
+
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { fixture.RootPath },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "simulator",
+                XCFrameworkPlatformTarget.Simulator,
+                NullLogger.Instance);
+
+            Assert.NotNull(result);
+            Assert.Single(result);
+            Assert.True(result[0].IsObjCOnly);
+            Assert.Equal("ObjCDep", result[0].ModuleName);
+            Assert.NotNull(result[0].SimulatorFrameworkSearchPath);
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_ObjCDepNoModulemap_ReturnsNull()
+        {
+            using var fixture = CreateObjCDepFixture("BrokenDep", hasBothSlices: false, addModulemap: false);
+            var primaryResolution = CreateMinimalResolution("Primary");
+
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { fixture.RootPath },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "simulator",
+                XCFrameworkPlatformTarget.Simulator,
+                NullLogger.Instance);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_ObjCDepDuplicateModule_ReturnsNull()
+        {
+            using var fixture1 = CreateObjCDepFixture("DupMod", hasBothSlices: true);
+            using var fixture2 = CreateObjCDepFixture("DupMod", hasBothSlices: true);
+            var primaryResolution = CreateMinimalResolution("Primary");
+
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { fixture1.RootPath, fixture2.RootPath },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "simulator",
+                XCFrameworkPlatformTarget.Simulator,
+                NullLogger.Instance);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_MixedSwiftAndObjCDeps_ResolvesBoth()
+        {
+            // Create a Swift dependency (has swiftmodule)
+            using var swiftFixture = new XCFrameworkFixture("SwiftDep.xcframework");
+            swiftFixture.WriteInfoPlist(MakeSimplePlist("SwiftDep"));
+            var sliceDir = swiftFixture.CreateSlice("ios-arm64-simulator",
+                "SwiftDep.framework", "SwiftDep.framework/SwiftDep");
+            var moduleDir = swiftFixture.CreateSwiftModule(sliceDir, "SwiftDep.framework", "SwiftDep");
+            swiftFixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+            swiftFixture.CreateTbd(moduleDir, "SwiftDep");
+
+            // Create an ObjC dependency (no swiftmodule, has modulemap)
+            using var objcFixture = CreateObjCDepFixture("ObjCDep2", hasBothSlices: true);
+
+            var primaryResolution = CreateMinimalResolution("Primary");
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
+            runner.SetResponse("tapi", 0, "");
+            // Pre-create what tapi would generate
+            File.WriteAllText(Path.Combine(Path.GetTempPath(), "SwiftDep.tbd"), "--- !tapi-tbd");
+
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { swiftFixture.RootPath, objcFixture.RootPath },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "simulator",
+                XCFrameworkPlatformTarget.Simulator,
+                NullLogger.Instance,
+                commandRunner: runner);
+
+            Assert.NotNull(result);
+            Assert.Equal(2, result.Count);
+            var swiftDep = result.First(d => d.ModuleName == "SwiftDep");
+            var objcDep = result.First(d => d.ModuleName == "ObjCDep2");
+            Assert.False(swiftDep.IsObjCOnly);
+            Assert.True(objcDep.IsObjCOnly);
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_ObjCDep_AllArchs_SimOnlyDep_SimPrimary_ReturnsNull()
+        {
+            // ObjC dep has only simulator slice, primaryPlatformTarget=Simulator, wrapperArchitectures="all"
+            using var fixture = CreateObjCDepFixture("SimOnly", hasBothSlices: false);
+            var primaryResolution = CreateMinimalResolution("Primary");
+
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { fixture.RootPath },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "all",
+                XCFrameworkPlatformTarget.Simulator,
+                NullLogger.Instance);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_ObjCDep_AllArchs_DeviceOnlyDep_SimPrimary_ReturnsNull()
+        {
+            // ObjC dep has only device slice, primaryPlatformTarget=Simulator, wrapperArchitectures="all"
+            // Regression: oppositeTarget must be derived from actual slice, not requested target.
+            // Without the fix, SelectSlice falls back to device for both resolutions,
+            // returning success with simPath=null — violating the "all" contract.
+            using var fixture = CreateObjCDeviceOnlyFixture("DevOnlyAll");
+            var primaryResolution = CreateMinimalResolution("Primary");
+
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { fixture.RootPath },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "all",
+                XCFrameworkPlatformTarget.Simulator,
+                NullLogger.Instance);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_ObjCDep_DeviceArchs_OnlySimSlice_ReturnsNull()
+        {
+            // ObjC dep has only simulator slice, wrapperArchitectures="device"
+            using var fixture = CreateObjCDepFixture("SimOnlyDev", hasBothSlices: false);
+            var primaryResolution = CreateMinimalResolution("Primary");
+
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { fixture.RootPath },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "device",
+                XCFrameworkPlatformTarget.Simulator,
+                NullLogger.Instance);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveFrameworkDependencies_ObjCDep_SimArchs_OnlyDeviceSlice_ReturnsNull()
+        {
+            // ObjC dep has only device slice, wrapperArchitectures="simulator"
+            using var fixture = CreateObjCDeviceOnlyFixture("DevOnlySim");
+            var primaryResolution = CreateMinimalResolution("Primary");
+
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { fixture.RootPath },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "simulator",
+                XCFrameworkPlatformTarget.Device,
+                NullLogger.Instance);
+
+            Assert.Null(result);
+        }
+
         private static XCFrameworkResolution CreateMinimalResolution(string module) => new()
         {
             AbiJsonPath = "/abi.json",
@@ -415,6 +585,135 @@ namespace BindingsGeneration.Tests
             IsSimulatorSlice = true,
             SelectedArchitecture = "arm64"
         };
+
+        /// <summary>
+        /// Creates a temp xcframework with module.modulemap but no .swiftmodule
+        /// (simulates an ObjC-only framework like Stripe3DS2).
+        /// </summary>
+        private static XCFrameworkFixture CreateObjCDepFixture(string name,
+            bool hasBothSlices, bool addModulemap = true)
+        {
+            var fixture = new XCFrameworkFixture($"{name}.xcframework");
+            if (hasBothSlices)
+                fixture.WriteInfoPlist(MakeDualSlicePlist(name));
+            else
+                fixture.WriteInfoPlist(MakeSimplePlist(name));
+
+            // Simulator slice
+            var simSliceDir = fixture.CreateSlice(
+                hasBothSlices ? "ios-arm64_x86_64-simulator" : "ios-arm64-simulator",
+                $"{name}.framework", $"{name}.framework/{name}");
+            if (addModulemap)
+            {
+                var modulesDir = Path.Combine(simSliceDir, $"{name}.framework", "Modules");
+                Directory.CreateDirectory(modulesDir);
+                File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                    $"framework module {name} {{\n  umbrella header \"{name}.h\"\n}}\n");
+            }
+
+            if (hasBothSlices)
+            {
+                var deviceSliceDir = fixture.CreateSlice("ios-arm64",
+                    $"{name}.framework", $"{name}.framework/{name}");
+                if (addModulemap)
+                {
+                    var modulesDir = Path.Combine(deviceSliceDir, $"{name}.framework", "Modules");
+                    Directory.CreateDirectory(modulesDir);
+                    File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                        $"framework module {name} {{\n  umbrella header \"{name}.h\"\n}}\n");
+                }
+            }
+
+            return fixture;
+        }
+
+        /// <summary>
+        /// Creates a temp xcframework with only a device slice (no simulator).
+        /// </summary>
+        private static XCFrameworkFixture CreateObjCDeviceOnlyFixture(string name)
+        {
+            var fixture = new XCFrameworkFixture($"{name}.xcframework");
+            fixture.WriteInfoPlist(MakeDeviceOnlyPlist(name));
+            var deviceSliceDir = fixture.CreateSlice("ios-arm64",
+                $"{name}.framework", $"{name}.framework/{name}");
+            var modulesDir = Path.Combine(deviceSliceDir, $"{name}.framework", "Modules");
+            Directory.CreateDirectory(modulesDir);
+            File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                $"framework module {name} {{\n  umbrella header \"{name}.h\"\n}}\n");
+            return fixture;
+        }
+
+        private static string MakeSimplePlist(string name)
+        {
+            return $$"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{{name}}.framework/{{name}}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+        }
+
+        private static string MakeDualSlicePlist(string name)
+        {
+            return $$"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{{name}}.framework/{{name}}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64_x86_64-simulator</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                        <dict>
+                            <key>BinaryPath</key><string>{{name}}.framework/{{name}}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+        }
+
+        private static string MakeDeviceOnlyPlist(string name)
+        {
+            return $$"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{{name}}.framework/{{name}}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+        }
 
         private static string CaptureHelp()
         {

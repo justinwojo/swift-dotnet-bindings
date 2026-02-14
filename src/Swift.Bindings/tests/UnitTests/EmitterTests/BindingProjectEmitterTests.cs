@@ -571,6 +571,58 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public void Emit_ObjCOnlyDependency_NoPackageReference()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/path/to/Stripe3DS2.xcframework",
+                        ModuleName = "Stripe3DS2",
+                        IsObjCOnly = true
+                    }
+                };
+                var content = EmitAndRead(dir, "StripePayments", dependencies: deps);
+                // Should have Swift.Runtime but NOT Stripe3DS2
+                Assert.Contains("Swift.Runtime", content);
+                Assert.DoesNotContain("Stripe3DS2", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MixedDependencies_OnlySwiftDepsGetPackageReference()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var deps = new List<FrameworkDependencyInfo>
+                {
+                    new()
+                    {
+                        XCFrameworkPath = "/path/to/StripeCore.xcframework",
+                        ModuleName = "StripeCore",
+                        PackageVersion = "24.0.0",
+                        IsObjCOnly = false
+                    },
+                    new()
+                    {
+                        XCFrameworkPath = "/path/to/Stripe3DS2.xcframework",
+                        ModuleName = "Stripe3DS2",
+                        IsObjCOnly = true
+                    }
+                };
+                var content = EmitAndRead(dir, "StripePayments", dependencies: deps);
+                Assert.Contains("StripeCore.Swift.iOS", content);
+                Assert.DoesNotContain("Stripe3DS2", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string EmitAndRead(string dir, string module,
             IReadOnlyList<FrameworkDependencyInfo>? dependencies)
         {

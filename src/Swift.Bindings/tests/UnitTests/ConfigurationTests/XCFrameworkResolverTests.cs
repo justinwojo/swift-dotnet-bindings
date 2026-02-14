@@ -472,7 +472,7 @@ namespace BindingsGeneration.Tests
             var runner = new MockCommandRunner();
             runner.SetResponse("file", 0, "dynamically linked shared library");
 
-            var ex = Assert.Throws<InvalidOperationException>(() =>
+            var ex = Assert.Throws<SwiftModuleNotFoundException>(() =>
                 XCFrameworkResolver.Resolve(
                     fixture.RootPath, fixture.OutputPath,
                     XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner));
@@ -835,6 +835,221 @@ namespace BindingsGeneration.Tests
             {
                 Directory.Delete(tmpDir, true);
             }
+        }
+    }
+
+    #endregion
+
+    #region I. ObjC Framework Resolution Tests
+
+    public class XCFrameworkObjCResolutionTests
+    {
+        private static readonly ILogger Logger = NullLogger.Instance;
+
+        [Fact]
+        public void ResolveObjCFramework_WithModulemap_ReturnsResolution()
+        {
+            using var fixture = new XCFrameworkFixture("ObjCLib.xcframework");
+            fixture.WriteInfoPlist(MakeObjCPlist("ObjCLib"));
+            var sliceDir = fixture.CreateSlice("ios-arm64_x86_64-simulator",
+                "ObjCLib.framework", "ObjCLib.framework/ObjCLib");
+            // Create Modules dir with module.modulemap but no .swiftmodule
+            var modulesDir = Path.Combine(sliceDir, "ObjCLib.framework", "Modules");
+            Directory.CreateDirectory(modulesDir);
+            File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                "framework module ObjCLib {\n  umbrella header \"ObjCLib.h\"\n}\n");
+
+            var result = XCFrameworkResolver.ResolveObjCFramework(
+                fixture.RootPath, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.NotNull(result);
+            Assert.Equal("ObjCLib", result.ModuleName);
+            Assert.True(result.IsSimulatorSlice);
+            Assert.Contains("ios-arm64_x86_64-simulator", result.FrameworkSearchPath);
+        }
+
+        [Fact]
+        public void ResolveObjCFramework_NoModulemap_ReturnsNull()
+        {
+            using var fixture = new XCFrameworkFixture("NoMap.xcframework");
+            fixture.WriteInfoPlist(MakeObjCPlist("NoMap"));
+            var sliceDir = fixture.CreateSlice("ios-arm64_x86_64-simulator",
+                "NoMap.framework", "NoMap.framework/NoMap");
+            // Create Modules dir but no modulemap
+            var modulesDir = Path.Combine(sliceDir, "NoMap.framework", "Modules");
+            Directory.CreateDirectory(modulesDir);
+
+            var result = XCFrameworkResolver.ResolveObjCFramework(
+                fixture.RootPath, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveObjCFramework_NoModulesDir_ReturnsNull()
+        {
+            using var fixture = new XCFrameworkFixture("NoModules.xcframework");
+            fixture.WriteInfoPlist(MakeObjCPlist("NoModules"));
+            fixture.CreateSlice("ios-arm64_x86_64-simulator",
+                "NoModules.framework", "NoModules.framework/NoModules");
+            // No Modules directory at all
+
+            var result = XCFrameworkResolver.ResolveObjCFramework(
+                fixture.RootPath, XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveObjCFramework_InvalidPath_ReturnsNull()
+        {
+            var result = XCFrameworkResolver.ResolveObjCFramework(
+                "/nonexistent/path.xcframework",
+                XCFrameworkPlatformTarget.Simulator, Logger);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveObjCFramework_SimulatorSlice_IsSimulatorSliceTrue()
+        {
+            using var fixture = new XCFrameworkFixture("SimLib.xcframework");
+            fixture.WriteInfoPlist(MakeDualSliceObjCPlist("SimLib"));
+            // Create both slices
+            var simSliceDir = fixture.CreateSlice("ios-arm64_x86_64-simulator",
+                "SimLib.framework", "SimLib.framework/SimLib");
+            var deviceSliceDir = fixture.CreateSlice("ios-arm64",
+                "SimLib.framework", "SimLib.framework/SimLib");
+            // Add modulemaps to both
+            foreach (var dir in new[] { simSliceDir, deviceSliceDir })
+            {
+                var modulesDir = Path.Combine(dir, "SimLib.framework", "Modules");
+                Directory.CreateDirectory(modulesDir);
+                File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                    "framework module SimLib {}\n");
+            }
+
+            var simResult = XCFrameworkResolver.ResolveObjCFramework(
+                fixture.RootPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            var deviceResult = XCFrameworkResolver.ResolveObjCFramework(
+                fixture.RootPath, XCFrameworkPlatformTarget.Device, Logger);
+
+            Assert.NotNull(simResult);
+            Assert.True(simResult.IsSimulatorSlice);
+            Assert.NotNull(deviceResult);
+            Assert.False(deviceResult.IsSimulatorSlice);
+        }
+
+        [Fact]
+        public void ParseModuleNameFromModulemap_FrameworkModule_ExtractsName()
+        {
+            var tmpFile = Path.GetTempFileName();
+            try
+            {
+                File.WriteAllText(tmpFile, "framework module Stripe3DS2 {\n  umbrella header \"Stripe3DS2.h\"\n}\n");
+                var result = XCFrameworkResolver.ParseModuleNameFromModulemap(tmpFile);
+                Assert.Equal("Stripe3DS2", result);
+            }
+            finally { File.Delete(tmpFile); }
+        }
+
+        [Fact]
+        public void ParseModuleNameFromModulemap_PlainModule_ExtractsName()
+        {
+            var tmpFile = Path.GetTempFileName();
+            try
+            {
+                File.WriteAllText(tmpFile, "module FooBar {\n}\n");
+                var result = XCFrameworkResolver.ParseModuleNameFromModulemap(tmpFile);
+                Assert.Equal("FooBar", result);
+            }
+            finally { File.Delete(tmpFile); }
+        }
+
+        [Fact]
+        public void ParseModuleNameFromModulemap_ModuleStar_Skipped()
+        {
+            var tmpFile = Path.GetTempFileName();
+            try
+            {
+                // "module * {}" is a wildcard — should be skipped
+                File.WriteAllText(tmpFile, "module * { export * }\n");
+                var result = XCFrameworkResolver.ParseModuleNameFromModulemap(tmpFile);
+                Assert.Null(result);
+            }
+            finally { File.Delete(tmpFile); }
+        }
+
+        [Fact]
+        public void DiscoverSwiftModule_NoModulesDir_ThrowsSwiftModuleNotFoundException()
+        {
+            using var fixture = new XCFrameworkFixture("NoMod.xcframework");
+            fixture.WriteInfoPlist(MakeObjCPlist("NoMod"));
+            var sliceDir = fixture.CreateSlice("ios-arm64_x86_64-simulator",
+                "NoMod.framework", "NoMod.framework/NoMod");
+            // Create Modules dir but no .swiftmodule inside
+            var modulesDir = Path.Combine(sliceDir, "NoMod.framework", "Modules");
+            Directory.CreateDirectory(modulesDir);
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
+
+            // Should throw SwiftModuleNotFoundException specifically
+            Assert.Throws<SwiftModuleNotFoundException>(() =>
+                XCFrameworkResolver.Resolve(
+                    fixture.RootPath, fixture.OutputPath,
+                    XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner));
+        }
+
+        private static string MakeObjCPlist(string name)
+        {
+            return $$"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{{name}}.framework/{{name}}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64_x86_64-simulator</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+        }
+
+        private static string MakeDualSliceObjCPlist(string name)
+        {
+            return $$"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{{name}}.framework/{{name}}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64_x86_64-simulator</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                        <dict>
+                            <key>BinaryPath</key><string>{{name}}.framework/{{name}}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
         }
     }
 

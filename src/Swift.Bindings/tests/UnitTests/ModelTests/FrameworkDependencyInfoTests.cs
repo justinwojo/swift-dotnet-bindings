@@ -86,5 +86,28 @@ namespace BindingsGeneration.Tests
             Assert.Equal("/sim/path", dep.SimulatorFrameworkSearchPath);
             Assert.Equal("/device/path", dep.DeviceFrameworkSearchPath);
         }
+
+        [Fact]
+        public void IsObjCOnly_DefaultFalse()
+        {
+            var dep = new FrameworkDependencyInfo
+            {
+                XCFrameworkPath = "/path/to/Lib.xcframework",
+                ModuleName = "Lib"
+            };
+            Assert.False(dep.IsObjCOnly);
+        }
+
+        [Fact]
+        public void IsObjCOnly_WhenSet_ReturnsTrue()
+        {
+            var dep = new FrameworkDependencyInfo
+            {
+                XCFrameworkPath = "/path/to/Stripe3DS2.xcframework",
+                ModuleName = "Stripe3DS2",
+                IsObjCOnly = true
+            };
+            Assert.True(dep.IsObjCOnly);
+        }
     }
 }

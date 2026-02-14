@@ -8,6 +8,15 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration
 {
     /// <summary>
+    /// Thrown when an xcframework has no .swiftmodule directory.
+    /// Distinct from generic InvalidOperationException to allow typed catch filtering.
+    /// </summary>
+    public class SwiftModuleNotFoundException : InvalidOperationException
+    {
+        public SwiftModuleNotFoundException(string message) : base(message) { }
+    }
+
+    /// <summary>
     /// Platform target for xcframework slice selection.
     /// </summary>
     public enum XCFrameworkPlatformTarget
@@ -261,6 +270,90 @@ namespace BindingsGeneration
             return (simResolution, deviceResolution);
         }
 
+        /// <summary>
+        /// Result of resolving an ObjC-only xcframework.
+        /// </summary>
+        public sealed record ObjCFrameworkResolution(
+            string FrameworkSearchPath,
+            bool IsSimulatorSlice,
+            string ModuleName);
+
+        /// <summary>
+        /// Resolves an ObjC-only xcframework to its framework search path and module name.
+        /// Validates the framework has a module.modulemap (confirming it's genuinely ObjC,
+        /// not a broken Swift framework). Returns null if resolution fails.
+        /// </summary>
+        public static ObjCFrameworkResolution? ResolveObjCFramework(
+            string xcframeworkPath,
+            XCFrameworkPlatformTarget platformTarget,
+            ILogger logger)
+        {
+            try
+            {
+                xcframeworkPath = Path.GetFullPath(xcframeworkPath);
+                ValidateXCFramework(xcframeworkPath);
+                var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
+                var slices = ParseInfoPlist(plistPath);
+                var slice = SelectSlice(slices, platformTarget, logger);
+
+                var sliceDir = Path.Combine(xcframeworkPath, slice.LibraryIdentifier);
+
+                // Verify this is genuinely an ObjC framework (has module.modulemap)
+                // — not a broken Swift framework missing library evolution.
+                var modulesDir = Path.Combine(sliceDir, slice.LibraryPath, "Modules");
+                var modulemapPath = Path.Combine(modulesDir, "module.modulemap");
+                if (!File.Exists(modulemapPath))
+                {
+                    logger.LogWarning(
+                        "Framework at '{Path}' has no module.modulemap — " +
+                        "may be a Swift framework without library evolution, not an ObjC framework.",
+                        xcframeworkPath);
+                    return null;
+                }
+
+                // Extract module name from modulemap. Falls back to xcframework filename.
+                var moduleName = ParseModuleNameFromModulemap(modulemapPath)
+                    ?? Path.GetFileNameWithoutExtension(xcframeworkPath);
+
+                var isSimulator = string.Equals(
+                    slice.SupportedPlatformVariant, "simulator",
+                    StringComparison.OrdinalIgnoreCase);
+
+                return new ObjCFrameworkResolution(sliceDir, isSimulator, moduleName);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Could not resolve ObjC framework: {Message}", ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Parses the module name from a module.modulemap file.
+        /// Looks for "framework module NAME" or "module NAME" declarations.
+        /// </summary>
+        internal static string? ParseModuleNameFromModulemap(string modulemapPath)
+        {
+            foreach (var line in File.ReadLines(modulemapPath))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith("framework module ", StringComparison.Ordinal))
+                {
+                    var rest = trimmed.Substring("framework module ".Length);
+                    var nameEnd = rest.IndexOfAny(new[] { ' ', '{', '[' });
+                    return nameEnd > 0 ? rest.Substring(0, nameEnd).Trim() : rest.Trim();
+                }
+                if (trimmed.StartsWith("module ", StringComparison.Ordinal) &&
+                    !trimmed.StartsWith("module *", StringComparison.Ordinal))
+                {
+                    var rest = trimmed.Substring("module ".Length);
+                    var nameEnd = rest.IndexOfAny(new[] { ' ', '{', '[' });
+                    return nameEnd > 0 ? rest.Substring(0, nameEnd).Trim() : rest.Trim();
+                }
+            }
+            return null;
+        }
+
         internal static void ValidateXCFramework(string xcframeworkPath)
         {
             if (!Directory.Exists(xcframeworkPath))
@@ -457,7 +550,7 @@ namespace BindingsGeneration
         {
             if (!Directory.Exists(modulesDir))
             {
-                throw new InvalidOperationException(
+                throw new SwiftModuleNotFoundException(
                     "No Swift module found. This may be an Objective-C framework (use ObjC binding tools) or a Swift framework without library evolution.");
             }
 
@@ -465,7 +558,7 @@ namespace BindingsGeneration
 
             if (swiftModules.Length == 0)
             {
-                throw new InvalidOperationException(
+                throw new SwiftModuleNotFoundException(
                     "No Swift module found. This may be an Objective-C framework (use ObjC binding tools) or a Swift framework without library evolution.");
             }
 

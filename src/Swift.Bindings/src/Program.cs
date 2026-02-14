@@ -729,9 +729,124 @@ namespace BindingsGeneration
                     else
                         deviceSearchPath = primaryDepResolution.FrameworkSearchPath;
                 }
+                catch (SwiftModuleNotFoundException)
+                {
+                    // Attempt ObjC-only framework fallback — resolves search path + validates modulemap
+                    var objcResolution = XCFrameworkResolver.ResolveObjCFramework(
+                        depPath, primaryPlatformTarget, logger);
+
+                    if (objcResolution == null)
+                    {
+                        // Not a valid ObjC framework (no modulemap) — treat as real error
+                        logger.LogError(
+                            "Error: Dependency '{Path}' has no Swift module and no ObjC module.modulemap. " +
+                            "It may be a Swift framework without library evolution support.",
+                            depPath);
+                        return null;
+                    }
+
+                    logger.LogInformation(
+                        "Dependency '{Name}' is ObjC-only — adding framework search path for module resolution.",
+                        objcResolution.ModuleName);
+
+                    // Map search path to correct sim/device bucket based on actual selected slice
+                    string? simPath = null, devicePath = null;
+                    if (objcResolution.IsSimulatorSlice)
+                        simPath = objcResolution.FrameworkSearchPath;
+                    else
+                        devicePath = objcResolution.FrameworkSearchPath;
+
+                    // Resolve opposite or required slice — mirrors Swift dep error logic.
+                    // Derive oppositeTarget from actual resolved slice (not requested target)
+                    // because SelectSlice can fall back to the other platform variant.
+                    if (wrapperArchitectures == "all")
+                    {
+                        var oppositeTarget = objcResolution.IsSimulatorSlice
+                            ? XCFrameworkPlatformTarget.Device
+                            : XCFrameworkPlatformTarget.Simulator;
+                        var oppositeResolution = XCFrameworkResolver.ResolveObjCFramework(
+                            depPath, oppositeTarget, logger);
+                        var expectSimulator = oppositeTarget == XCFrameworkPlatformTarget.Simulator;
+                        if (oppositeResolution != null && oppositeResolution.IsSimulatorSlice == expectSimulator)
+                        {
+                            if (oppositeResolution.IsSimulatorSlice)
+                                simPath = oppositeResolution.FrameworkSearchPath;
+                            else
+                                devicePath = oppositeResolution.FrameworkSearchPath;
+                        }
+                        else
+                        {
+                            logger.LogError(
+                                "Error: ObjC dependency '{Path}' lacks required {Target} slice.",
+                                depPath, oppositeTarget.ToString().ToLowerInvariant());
+                            return null;
+                        }
+                    }
+                    else if (wrapperArchitectures == "device" && simPath != null && devicePath == null)
+                    {
+                        // Primary resolved simulator but we need device
+                        var deviceResolution = XCFrameworkResolver.ResolveObjCFramework(
+                            depPath, XCFrameworkPlatformTarget.Device, logger);
+                        if (deviceResolution != null && !deviceResolution.IsSimulatorSlice)
+                            devicePath = deviceResolution.FrameworkSearchPath;
+                        else
+                        {
+                            logger.LogError(
+                                "Error: ObjC dependency '{Path}' lacks required device slice.",
+                                depPath);
+                            return null;
+                        }
+                    }
+                    else if (wrapperArchitectures == "simulator" && devicePath != null && simPath == null)
+                    {
+                        // Primary resolved device but we need simulator
+                        var simResolution = XCFrameworkResolver.ResolveObjCFramework(
+                            depPath, XCFrameworkPlatformTarget.Simulator, logger);
+                        if (simResolution != null && simResolution.IsSimulatorSlice)
+                            simPath = simResolution.FrameworkSearchPath;
+                        else
+                        {
+                            logger.LogError(
+                                "Error: ObjC dependency '{Path}' lacks required simulator slice.",
+                                depPath);
+                            return null;
+                        }
+                    }
+
+                    // Duplicate module check
+                    if (seenModules.TryGetValue(objcResolution.ModuleName, out var existingObjCPath))
+                    {
+                        logger.LogError(
+                            "Error: Duplicate dependency module '{Module}' from '{Path1}' and '{Path2}'.",
+                            objcResolution.ModuleName, existingObjCPath, depPath);
+                        return null;
+                    }
+
+                    // Primary module conflict check
+                    if (string.Equals(objcResolution.ModuleName, primaryResolution.ModuleName,
+                        StringComparison.Ordinal))
+                    {
+                        logger.LogError(
+                            "Error: Primary module '{Module}' cannot be listed as a dependency.",
+                            objcResolution.ModuleName);
+                        return null;
+                    }
+
+                    seenModules[objcResolution.ModuleName] = depPath;
+                    resolvedDeps.Add(new FrameworkDependencyInfo
+                    {
+                        XCFrameworkPath = depFullPath,
+                        ModuleName = objcResolution.ModuleName,
+                        SimulatorFrameworkSearchPath = simPath,
+                        DeviceFrameworkSearchPath = devicePath,
+                        IsObjCOnly = true
+                    });
+                    continue;
+                }
                 catch (Exception ex)
                 {
-                    logger.LogError("Error resolving dependency xcframework '{Path}': {Message}", depPath, ex.Message);
+                    logger.LogError("Error resolving dependency xcframework '{Path}': {Message}",
+                        depPath, ex.Message);
                     return null;
                 }
 

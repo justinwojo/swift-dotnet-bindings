@@ -42,6 +42,13 @@ namespace BindingsGeneration
         public string? DeviceFrameworkSearchPath { get; init; }
 
         /// <summary>
+        /// True when the dependency is an ObjC-only framework (no .swiftmodule).
+        /// ObjC-only deps provide -F search paths for module resolution but
+        /// do not emit PackageReference entries or require binding generation.
+        /// </summary>
+        public bool IsObjCOnly { get; init; }
+
+        /// <summary>
         /// Effective package ID: explicit override or convention.
         /// </summary>
         public string EffectivePackageId => PackageId ?? $"{ModuleName}.Swift.iOS";
