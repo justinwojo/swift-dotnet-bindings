@@ -12,7 +12,7 @@ For completed work, see `Completed/` (notably `roadmap-completed-feb2026.md`, `p
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 2,527 passing |
+| Unit tests | 2,542 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | Runtime tests | 185 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
@@ -70,20 +70,19 @@ Root cause: `SwiftOptional<T>.NewSome()` assumed all Optional types have a discr
 
 ---
 
-### Session 3: SDK & NuGet DX
+### Session 3: SDK & NuGet DX — **Done** (2026-02-14, 2542 unit tests)
 
 **Priority**: P1 | **Type**: Implementation | **Risk**: Low
 
 Both items are MSBuild SDK and NuGet packaging improvements. They share `Sdk.targets` and the `ConsumerTargetsEmitter`. Both affect the `dotnet build` -> `dotnet pack` -> consumer experience chain.
 
-| Item | Priority | Effort | Description |
-|------|----------|--------|-------------|
-| **NativeReference propagation** | P1 | Medium | `ConsumerTargetsEmitter` adds `<NativeReference>` items for source xcframework + compiled wrapper xcframework. NuGet pack layout includes xcframeworks in the package. Consumers get frameworks transitively — zero manual csproj entries. |
-| **Two-pass build fix** | P1 | Small | Wrapper compilation failures emit `SWIFTBIND0XX` warning instead of error. C# compilation proceeds. First `dotnet build` succeeds (possibly with warnings). |
+| Item | Priority | Effort | Status |
+|------|----------|--------|--------|
+| **Two-pass build fix (SWIFTBIND050)** | P1 | Small | Done — `EffectiveOutcome()` downgrades Fatal→Warning in SDK mode. `HandleWrapperCompilationOutcome()` extracted. 10 unit tests. |
+| **NativeReference Exists() guard** | P1 | Small | Done — Source xcframework NativeReference gets `Exists()` condition matching wrapper pattern. 5 unit tests. |
+| **Sdk.targets case-insensitive doc comments** | P1 | Small | Done — `SwiftGenerateDocComments` comparison uses `System.String.Equals(..., OrdinalIgnoreCase)`. |
 
-**Key files**: `ConsumerTargetsEmitter.cs`, `Sdk.targets`, `BindingProjectEmitter.cs`, NuGet pack layout
-**Verification**: `./run-tests.sh` + end-to-end: `dotnet build` a binding project, `dotnet pack`, consume in a test app, verify NativeReferences propagate and first build succeeds
-**Research refs**: Ugly #3 (two-pass build), Ugly #4 (manual NativeReference)
+**Key changes**: `SwiftWrapperCompiler.EffectiveOutcome()`, `BindingsGenerator.HandleWrapperCompilationOutcome()`, `Program.cs` (wired outcome handling), `ConsumerTargetsEmitter.cs` (Exists guard), `Sdk.targets` (case-insensitive), `dx-msbuild-sdk-design.md` (SWIFTBIND050 error code).
 
 ---
 
@@ -364,7 +363,7 @@ Workarounds exist for all. Not blocking any library validation.
 | Throwing closure thunks | `SwiftString` return emitted as `void*` | Exclude throwing closures |
 | `async throws(ErrorType)` free functions | Emit `_payload`/`this` in static context | Guarded — no runtime impact |
 | ExistentialContainer0 in tuple element | Lottie edge case | Not reached by current guards |
-| `Optional<T>` P/Invoke truncation for T.Size > 8 | `PayloadBuffer<IntPtr>` passes 8 bytes; `Optional<String>` is 16 bytes | Runtime tests at Tier 3; value types and class refs (<=8 bytes) work |
+| `Optional<T>` P/Invoke truncation for T.Size > 8 | `PayloadBuffer<IntPtr>` passes 8 bytes; `Optional<String>` is 16 bytes | Runtime tests at Tier 3; value types and class refs (<=8 bytes) work. **Fixable** — route through Swift `@_cdecl` wrapper that accepts `UnsafeRawPointer` to optional buffer (same pattern as async methods). Generator-only change, no upstream fix needed. |
 
 ---
 
@@ -374,7 +373,7 @@ Workarounds exist for all. Not blocking any library validation.
 |---------|----------|------|--------|-------|
 | **1. Consumer Safety Attributes** | P0/P2 | Implement | Small-Medium | `[Obsolete]` on crashy methods, symbol cross-ref, `[OriginalSwiftType]` |
 | **2. SwiftOptional Fix** | P0 | Bug fix | Small | `NewSome()` extra inhabitants + DllImportResolver + [Obsolete] compat |
-| **3. SDK & NuGet DX** | P1 | Implement | Medium | NativeReference propagation + two-pass build fix |
+| **3. SDK & NuGet DX** | P1 | Implement | Small | Done — SWIFTBIND050 two-pass build + NativeRef Exists() guard + case-insensitive doc comments |
 | **4. Typed Swift Exceptions** | P1 | Implement | Medium | `SwiftException<TError>` with error details |
 | **5. SwiftArray Collection** | P2 | Implement | Medium | `IReadOnlyList<T>` on SwiftArray, no LINQ copying |
 | **6. Async Improvements** | P2/P3 | Implement | Medium | CancellationToken + async naming edge cases |

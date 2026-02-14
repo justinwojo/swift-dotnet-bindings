@@ -815,4 +815,53 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region I. EffectiveOutcome (SDK-mode downgrade) Tests
+
+    public class SwiftWrapperEffectiveOutcomeTests
+    {
+        [Fact]
+        public void EffectiveOutcome_Fatal_SdkMode_DowngradesToWarning()
+        {
+            Assert.Equal(WrapperCompilationOutcome.Warning,
+                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Fatal, sdkMode: true));
+        }
+
+        [Fact]
+        public void EffectiveOutcome_Fatal_NonSdkMode_StaysFatal()
+        {
+            Assert.Equal(WrapperCompilationOutcome.Fatal,
+                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Fatal, sdkMode: false));
+        }
+
+        [Fact]
+        public void EffectiveOutcome_Warning_SdkMode_StaysWarning()
+        {
+            Assert.Equal(WrapperCompilationOutcome.Warning,
+                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Warning, sdkMode: true));
+        }
+
+        [Fact]
+        public void EffectiveOutcome_Warning_NonSdkMode_StaysWarning()
+        {
+            Assert.Equal(WrapperCompilationOutcome.Warning,
+                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Warning, sdkMode: false));
+        }
+
+        [Fact]
+        public void EffectiveOutcome_Success_SdkMode_StaysSuccess()
+        {
+            Assert.Equal(WrapperCompilationOutcome.Success,
+                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Success, sdkMode: true));
+        }
+
+        [Fact]
+        public void EffectiveOutcome_Success_NonSdkMode_StaysSuccess()
+        {
+            Assert.Equal(WrapperCompilationOutcome.Success,
+                SwiftWrapperCompiler.EffectiveOutcome(WrapperCompilationOutcome.Success, sdkMode: false));
+        }
+    }
+
+    #endregion
 }

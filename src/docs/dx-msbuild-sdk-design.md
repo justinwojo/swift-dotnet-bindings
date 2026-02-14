@@ -539,6 +539,7 @@ Dependency NuGet packages are NOT included in the pack output — they come from
 | `SWIFTBIND030` | `_ValidateSwiftBindingPackSlices` | Pack without `SwiftWrapperArchitectures=all` |
 | `SWIFTBIND031` | `_ValidateSwiftBindingPackSlices` | Wrapper xcframework missing device or simulator slice |
 | `SWIFTBIND040` | `_ValidateSwiftDependencyMetadata` | `SwiftFrameworkDependency` missing `PackageId` or `PackageVersion` when `IsPackable=true` |
+| `SWIFTBIND050` | Generator (SDK mode) | Wrapper compilation failed — C# bindings still valid, wrapper-dependent methods throw `DllNotFoundException` at runtime |
 | `SWIFTBIND100` | `_ValidateSwiftPackageItems` | `<SwiftPackage>` used (v2 stub) |
 
 **Also handled by the generator** (non-SWIFTBIND errors surfaced as build output):

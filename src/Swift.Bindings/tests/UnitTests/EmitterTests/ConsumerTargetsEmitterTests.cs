@@ -245,6 +245,78 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region D. NativeReference Exists() Guard Tests
+
+    public class ConsumerTargetsExistsGuardTests
+    {
+        [Fact]
+        public void Emit_SourceNativeRef_HasExistsCondition()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework')\"", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_WrapperNativeRef_HasExistsCondition()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: true);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/NukeSwiftBindings.xcframework')\"", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_NativeRefPaths_UseRelativeFromBuildTransitive()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "TestLib", "TestLib.Swift.iOS", "15.0", hasWrapper: true);
+                Assert.Contains("../../runtimes/ios-arm64/native/TestLib.xcframework", content);
+                Assert.Contains("../../runtimes/ios-arm64/native/TestLibSwiftBindings.xcframework", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_SourceNativeRef_ContainsModuleName()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "BlinkID", "BlinkID.Swift.iOS", "16.0", hasWrapper: false);
+                Assert.Contains("BlinkID.xcframework", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_WrapperNativeRef_ContainsSwiftBindingsSuffix()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Lottie", "Lottie.Swift.iOS", "15.0", hasWrapper: true);
+                Assert.Contains("LottieSwiftBindings.xcframework", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
+        private static string EmitAndRead(string dir, string module, string packageId, string minOS, bool hasWrapper)
+            => ConsumerTargetsTestHelper.EmitAndRead(dir, module, packageId, minOS, hasWrapper);
+    }
+
+    #endregion
+
     #region Test Helper
 
     internal static class ConsumerTargetsTestHelper

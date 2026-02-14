@@ -51,7 +51,8 @@ namespace BindingsGeneration
                       <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
                     </PropertyGroup>
                     <ItemGroup>
-                      <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/{options.ModuleName}.xcframework">
+                      <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/{options.ModuleName}.xcframework"
+                                       Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/{options.ModuleName}.xcframework')">
                         <Kind>Framework</Kind>
                       </NativeReference>
                 {wrapperNativeRef}    </ItemGroup>

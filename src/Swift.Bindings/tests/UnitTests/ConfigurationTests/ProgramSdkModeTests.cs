@@ -195,6 +195,55 @@ namespace BindingsGeneration.Tests
     }
 
     /// <summary>
+    /// Tests for HandleWrapperCompilationOutcome — SDK-mode-aware outcome handling.
+    /// </summary>
+    public class WrapperOutcomeHandlingTests
+    {
+        [Fact]
+        public void HandleOutcome_Fatal_SdkMode_ReturnsZeroExitWithSWIFTBIND050()
+        {
+            var ex = new InvalidOperationException("swiftc failed");
+            var (exitCode, diagnosticCode, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, sdkMode: true, ex, compilationResult: null);
+            Assert.Equal(0, exitCode);
+            Assert.Equal("SWIFTBIND050", diagnosticCode);
+            Assert.Contains("SWIFTBIND050", message);
+            Assert.Contains("swiftc failed", message);
+        }
+
+        [Fact]
+        public void HandleOutcome_Fatal_NonSdkMode_ReturnsNonZeroExit()
+        {
+            var ex = new InvalidOperationException("swiftc failed");
+            var (exitCode, diagnosticCode, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, sdkMode: false, ex, compilationResult: null);
+            Assert.Equal(1, exitCode);
+            Assert.Null(diagnosticCode);
+            Assert.Contains("swiftc failed", message);
+        }
+
+        [Fact]
+        public void HandleOutcome_Warning_SdkMode_ReturnsZeroExit()
+        {
+            var ex = new InvalidOperationException("something went wrong");
+            var (exitCode, diagnosticCode, _) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Warning, sdkMode: true, ex, compilationResult: null);
+            Assert.Equal(0, exitCode);
+            Assert.Null(diagnosticCode);
+        }
+
+        [Fact]
+        public void HandleOutcome_Success_ReturnsZeroExit()
+        {
+            var (exitCode, diagnosticCode, _) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Success, sdkMode: false,
+                compilationException: null, compilationResult: null);
+            Assert.Equal(0, exitCode);
+            Assert.Null(diagnosticCode);
+        }
+    }
+
+    /// <summary>
     /// Truth-table tests for the ShouldCompileWrapper gate
     /// (platform-target × wrapper-architectures matrix).
     /// </summary>

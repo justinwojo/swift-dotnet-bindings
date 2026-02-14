@@ -77,6 +77,21 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Applies SDK-mode outcome adjustment. In SDK mode, Fatal is downgraded to Warning
+        /// so that wrapper compilation failures don't kill the entire build — the C# bindings
+        /// are still correct, methods referencing the wrapper get DllNotFoundException at runtime.
+        /// </summary>
+        /// <param name="rawOutcome">The outcome from EvaluateResult().</param>
+        /// <param name="sdkMode">True if --sdk-mode was passed.</param>
+        public static WrapperCompilationOutcome EffectiveOutcome(
+            WrapperCompilationOutcome rawOutcome, bool sdkMode)
+        {
+            if (rawOutcome == WrapperCompilationOutcome.Fatal && sdkMode)
+                return WrapperCompilationOutcome.Warning;
+            return rawOutcome;
+        }
+
+        /// <summary>
         /// Compiles generated Swift wrapper files into an xcframework (simulator slice only).
         /// Returns null if no Swift files exist in the output directory.
         /// </summary>

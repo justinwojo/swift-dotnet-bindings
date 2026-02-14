@@ -398,27 +398,24 @@ namespace BindingsGeneration
                         compilationException = ex;
                     }
 
-                    var outcome = SwiftWrapperCompiler.EvaluateResult(
+                    var rawOutcome = SwiftWrapperCompiler.EvaluateResult(
                         compilationResult, asyncLibraryAutoWired, compilationException);
+                    var (outcomeExitCode, diagnosticCode, outcomeMessage) =
+                        HandleWrapperCompilationOutcome(rawOutcome, sdkMode, compilationException, compilationResult);
 
-                    if (outcome == WrapperCompilationOutcome.Fatal)
+                    if (outcomeExitCode != 0)
                     {
-                        var message = compilationException != null
-                            ? $"Swift wrapper compilation failed: {compilationException.Message}. " +
-                              "Generated C# references the wrapper library but no compiled wrapper exists."
-                            : $"All Swift wrapper code was stripped as broken ({compilationResult!.StrippedBlockCount} block(s)). " +
-                              "Generated C# references the wrapper library but no compiled wrapper exists. " +
-                              "Use --async-library explicitly or report this as a generator bug.";
-                        logger.LogError("{Message}", message);
-                        context.ExitCode = 1;
+                        logger.LogError("{Message}", outcomeMessage);
+                        context.ExitCode = outcomeExitCode;
                         return;
                     }
-                    else if (outcome == WrapperCompilationOutcome.Warning)
+                    else if (diagnosticCode == "SWIFTBIND050")
                     {
-                        var message = compilationException != null
-                            ? $"Swift wrapper compilation failed: {compilationException.Message}"
-                            : $"All Swift wrapper code was stripped as broken ({compilationResult!.StrippedBlockCount} block(s)).";
-                        logger.LogWarning("{Message}", message);
+                        logger.LogWarning("{Message}", outcomeMessage);
+                    }
+                    else if (rawOutcome == WrapperCompilationOutcome.Warning)
+                    {
+                        logger.LogWarning("{Message}", outcomeMessage);
                     }
                 }
 
@@ -967,6 +964,49 @@ namespace BindingsGeneration
             }
 
             return resolvedDeps;
+        }
+
+        /// <summary>
+        /// Evaluates wrapper compilation outcome with SDK-mode awareness.
+        /// Returns exit code, optional diagnostic code, and message for logging.
+        /// </summary>
+        internal static (int exitCode, string? diagnosticCode, string message) HandleWrapperCompilationOutcome(
+            WrapperCompilationOutcome rawOutcome, bool sdkMode,
+            Exception? compilationException, SwiftWrapperCompilationResult? compilationResult)
+        {
+            var effective = SwiftWrapperCompiler.EffectiveOutcome(rawOutcome, sdkMode);
+
+            if (effective == WrapperCompilationOutcome.Fatal)
+            {
+                var message = compilationException != null
+                    ? $"Swift wrapper compilation failed: {compilationException.Message}. " +
+                      "Generated C# references the wrapper library but no compiled wrapper exists."
+                    : $"All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)). " +
+                      "Generated C# references the wrapper library but no compiled wrapper exists. " +
+                      "Use --async-library explicitly or report this as a generator bug.";
+                return (1, null, message);
+            }
+
+            if (rawOutcome == WrapperCompilationOutcome.Fatal && sdkMode)
+            {
+                // Downgraded from Fatal → Warning in SDK mode
+                var message = compilationException != null
+                    ? $"SWIFTBIND050: Swift wrapper compilation failed: {compilationException.Message}. " +
+                      "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime."
+                    : $"SWIFTBIND050: All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)). " +
+                      "C# bindings are still valid — wrapper-dependent methods will throw DllNotFoundException at runtime.";
+                return (0, "SWIFTBIND050", message);
+            }
+
+            if (effective == WrapperCompilationOutcome.Warning)
+            {
+                var message = compilationException != null
+                    ? $"Swift wrapper compilation failed: {compilationException.Message}"
+                    : $"All Swift wrapper code was stripped as broken ({compilationResult?.StrippedBlockCount ?? 0} block(s)).";
+                return (0, null, message);
+            }
+
+            return (0, null, "");
         }
 
         private static string ResolveNamespacePattern(string? cliNamespacePattern, string? configPath, ILogger logger)
