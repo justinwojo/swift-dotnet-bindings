@@ -137,8 +137,8 @@
       <_SwiftGenCmd Condition="'%(SwiftFramework.SymbolGraph)' != ''">$(_SwiftGenCmd) --symbolgraph "%(SwiftFramework.SymbolGraph)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftFramework.BridgeHints)' != ''">$(_SwiftGenCmd) --bridge-hints "%(SwiftFramework.BridgeHints)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftFramework.SwiftInterface)' != ''">$(_SwiftGenCmd) -s "%(SwiftFramework.SwiftInterface)"</_SwiftGenCmd>
-      <_SwiftGenCmd Condition="!$([System.String]::Equals('$(SwiftGenerateDocComments)','true','OrdinalIgnoreCase'))">$(_SwiftGenCmd) --no-docs</_SwiftGenCmd>
-      <!-- Append --framework-dependency for each SwiftFrameworkDependency item -->
+      <_SwiftGenCmd Condition="'$(SwiftGenerateDocComments)' != 'true'">$(_SwiftGenCmd) --no-docs</_SwiftGenCmd>
+      <!-- Append framework dependency flags for each SwiftFrameworkDependency item -->
       <_SwiftGenCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftGenCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
     </PropertyGroup>
 

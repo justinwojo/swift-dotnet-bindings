@@ -204,9 +204,46 @@ namespace BindingsGeneration
                 Conductor.ClearActiveCompositionCollector();
             }
 
+            // Emit DllImport framework resolver with [ModuleInitializer]
+            EmitFrameworkResolver(csWriter, moduleDecl.Name);
+
             csWriter.Indent--;
             csWriter.WriteLine("}");
 
+        }
+
+        /// <summary>
+        /// Emits a static class with a [ModuleInitializer] that registers a NativeLibrary.SetDllImportResolver
+        /// to resolve DllImport names as @rpath/{name}.framework/{name} for iOS framework loading.
+        /// </summary>
+        private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName)
+        {
+            csWriter.WriteLine();
+            csWriter.WriteLine("#pragma warning disable CA2255 // ModuleInitializer is intentional in generated binding code");
+            csWriter.WriteLines($$"""
+                internal static class __SwiftFrameworkResolver_{{moduleName}}
+                {
+                    [ModuleInitializer]
+                    internal static void Initialize()
+                    {
+                        try
+                        {
+                            NativeLibrary.SetDllImportResolver(typeof(__SwiftFrameworkResolver_{{moduleName}}).Assembly, (libraryName, assembly, searchPath) =>
+                            {
+                                var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
+                                if (NativeLibrary.TryLoad(frameworkPath, out var handle))
+                                    return handle;
+                                return IntPtr.Zero;
+                            });
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // A resolver is already registered for this assembly.
+                        }
+                    }
+                }
+                """);
+            csWriter.WriteLine("#pragma warning restore CA2255");
         }
 
         /// <summary>

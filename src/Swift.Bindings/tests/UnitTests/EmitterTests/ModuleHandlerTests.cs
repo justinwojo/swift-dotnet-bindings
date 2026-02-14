@@ -331,6 +331,95 @@ public class ModuleHandlerTests
 
     #endregion
 
+    #region Framework Resolver Emission Tests
+
+    [Fact]
+    public void Emit_ContainsFrameworkResolverClass()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("internal static class __SwiftFrameworkResolver_TestModule", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ContainsModuleInitializerAttribute()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("[ModuleInitializer]", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ContainsSetDllImportResolver()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("NativeLibrary.SetDllImportResolver", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrameworkResolverIsInsideNamespace()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        // The resolver class should appear between the namespace open and close
+        var namespaceStart = csOutput.IndexOf("namespace Swift.TestModule");
+        var resolverStart = csOutput.IndexOf("__SwiftFrameworkResolver_TestModule");
+        var lastBrace = csOutput.LastIndexOf("}");
+
+        Assert.True(namespaceStart >= 0, "namespace not found");
+        Assert.True(resolverStart > namespaceStart, "resolver should be inside namespace");
+        Assert.True(resolverStart < lastBrace, "resolver should be before closing brace");
+    }
+
+    [Fact]
+    public void Emit_FrameworkResolverHasTryCatchGuard()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("catch (InvalidOperationException)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrameworkResolverUsesFrameworkPathPattern()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("@rpath/{libraryName}.framework/{libraryName}", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrameworkResolverClassNameIncludesModuleName()
+    {
+        // Different module names should produce different class names
+        var (csOutput1, _) = EmitModuleWithDependencies("Nuke", new List<string>());
+        var (csOutput2, _) = EmitModuleWithDependencies("Lottie", new List<string>());
+
+        Assert.Contains("__SwiftFrameworkResolver_Nuke", csOutput1);
+        Assert.DoesNotContain("__SwiftFrameworkResolver_Lottie", csOutput1);
+        Assert.Contains("__SwiftFrameworkResolver_Lottie", csOutput2);
+        Assert.DoesNotContain("__SwiftFrameworkResolver_Nuke", csOutput2);
+    }
+
+    [Fact]
+    public void Emit_FrameworkResolverUsesTypeofForAssembly()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("typeof(__SwiftFrameworkResolver_TestModule).Assembly", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrameworkResolverSuppressesCA2255()
+    {
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.Contains("#pragma warning disable CA2255", csOutput);
+        Assert.Contains("#pragma warning restore CA2255", csOutput);
+    }
+
+    #endregion
+
     #region IsMangledNameFromModule Tests
 
     [Theory]
