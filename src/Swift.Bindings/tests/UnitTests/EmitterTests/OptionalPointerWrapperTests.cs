@@ -483,7 +483,7 @@ public class OptionalPointerWrapperTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Small optional (Int32 = 5 bytes) uses original PayloadBuffer<IntPtr> path
+        // Small optional (Int32) still uses PayloadBuffer<IntPtr>
         Assert.Contains("PayloadBuffer<IntPtr>", csOutput);
     }
 

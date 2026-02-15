@@ -160,7 +160,7 @@ namespace BindingsGeneration
             var bufferedContent = bufferSw.ToString();
             if (!string.IsNullOrWhiteSpace(bufferedContent))
             {
-                csWriter.WriteLine($"public static class {enumName}Extensions");
+                csWriter.WriteLine($"public static partial class {enumName}Extensions");
                 csWriter.WriteLine("{");
                 csWriter.InnerWriter.Write(bufferedContent);
                 csWriter.WriteLine("}");

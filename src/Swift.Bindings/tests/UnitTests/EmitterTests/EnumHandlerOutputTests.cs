@@ -70,7 +70,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should be class-based, not C# enum
-        Assert.Contains("public class LogLevel", csOutput);
+        Assert.Contains("public partial class LogLevel", csOutput);
         Assert.Contains("FromRawValue", csOutput);
         Assert.DoesNotContain("public enum LogLevel", csOutput);
     }
@@ -133,9 +133,10 @@ public class EnumHandlerOutputTests
 
         // C# should have enum + extensions class with Opposite method
         Assert.Contains("public enum Direction : int", csOutput);
-        Assert.Contains("public static class DirectionExtensions", csOutput);
+        Assert.Contains("public static partial class DirectionExtensions", csOutput);
         Assert.Contains("public static Direction Opposite(this Direction self)", csOutput);
         Assert.Contains("(Direction)PInvoke_Opposite((int)self)", csOutput);
+        // Simple enum P/Invoke uses its own emission path (DllImport, not PInvokeEmitter)
         Assert.Contains("[DllImport(", csOutput);
 
         // Swift wrapper should have tag-to-case conversion
@@ -264,7 +265,7 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject", csOutput);
+        Assert.Contains("public partial class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject", csOutput);
         Assert.Contains("public static unsafe ValueProviderStorage<T0> Boxed(T0 value0)", csOutput);
         Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();", csOutput);
         Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);

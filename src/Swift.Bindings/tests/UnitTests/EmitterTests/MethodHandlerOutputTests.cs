@@ -301,7 +301,7 @@ public class MethodHandlerOutputTests
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
         // P/Invoke should use IntPtr for the frozen enum param
-        // Find the method's P/Invoke line (not SBW_CancelTask which is also extern)
+        // Find the method's P/Invoke line
         var externLine = Array.Find(csOutput.Split('\n'), line => line.Contains("extern", StringComparison.Ordinal) && line.Contains("variant", StringComparison.Ordinal));
         Assert.NotNull(externLine);
         Assert.Contains("IntPtr variant", externLine!);

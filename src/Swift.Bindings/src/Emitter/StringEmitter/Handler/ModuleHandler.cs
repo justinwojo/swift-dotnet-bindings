@@ -174,7 +174,7 @@ namespace BindingsGeneration
                 // Emit top-level methods
                 if (moduleDecl.Methods.Any())
                 {
-                    csWriter.WriteLine($"public class {moduleDecl.Name}");
+                    csWriter.WriteLine($"public partial class {moduleDecl.Name}");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     csWriter.WriteLine();

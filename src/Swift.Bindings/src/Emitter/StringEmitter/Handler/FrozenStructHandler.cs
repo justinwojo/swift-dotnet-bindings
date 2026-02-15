@@ -129,7 +129,7 @@ namespace BindingsGeneration
                 XmlDocCommentEmitter.EmitDocComment(csWriter, structDecl);
                 if (isProjectedAsClass)
                 {
-                    var classDeclaration = $"public class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                    var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                     if (!string.IsNullOrEmpty(whereClause))
                         classDeclaration += $" {whereClause}";
                     csWriter.WriteLine(classDeclaration);
@@ -159,7 +159,7 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    var structDeclaration = $"public unsafe struct {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
+                    var structDeclaration = $"public unsafe partial struct {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                     if (!string.IsNullOrEmpty(whereClause))
                         structDeclaration += $" {whereClause}";
                     csWriter.WriteLine(structDeclaration);

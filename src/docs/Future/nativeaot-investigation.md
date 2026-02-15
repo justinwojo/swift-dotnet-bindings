@@ -563,10 +563,60 @@ Supporting both simulator and device deployment requires **no code changes**. Th
 
 13. **Replace `[Obsolete]` with custom `[MonoJitRisk]` attribute** + Roslyn analyzer that reads build context and emits/suppresses per-method diagnostics. Enables richer messaging (URL links, severity tiers) without `[Obsolete]` limitations.
 
-### Phase 3: Dual-emit + `CustomMarshaller` (deferred — optimization)
+### Phase 3: `[LibraryImport]` + `CustomMarshaller` migration (deferred — blocked by DisableRuntimeMarshalling)
 
-14. **Generator dual-emit** — `[LibraryImport]` + `[MarshalUsing]` for NativeAOT targets alongside `[DllImport]` for Mono. Only for high-impact APIs where the perf/clarity difference justifies the generator complexity.
-15. **Design generic `SwiftOptionalMarshaller<T>`** — Reusable marshaller mapping `SwiftOptional<T>` to blittable layout (prerequisite for step 14). The Session 2-3 experiments used hand-written marshallers; a generic version would cover the full type surface.
+#### Discovery: incremental migration is not viable (2026-02-15)
+
+Attempted to switch PInvokeEmitter's non-generic path from `[DllImport]` to `[LibraryImport]` + `[MarshalUsing]` for `SwiftOptional<int>`. This failed because:
+
+1. **`[LibraryImport]` with Swift calling convention types requires `[assembly: DisableRuntimeMarshalling]`**: The LibraryImport source generator does not recognize `SwiftSelf`, `SwiftError`, `SwiftIndirectResult`, `TypeMetadata`, `ProtocolWitnessTable` as blittable without this assembly attribute. Without it, every P/Invoke using these types emits SYSLIB1051 errors.
+
+2. **`DisableRuntimeMarshalling` breaks all `[DllImport]` P/Invokes with by-ref/managed types**: With the attribute set, existing `[DllImport]` P/Invokes that use `out SwiftError error`, `ref` parameters, or non-primitive struct params throw `MarshalDirectiveException` at runtime ("Cannot marshal managed types when the runtime marshalling system is disabled").
+
+3. **Multiple emitters emit `[DllImport]` independently**: At least 7 sites emit their own `[DllImport]` declarations outside PInvokeEmitter:
+   - `ExistentialBypassEmitter.cs` (line 292) — existential array construction
+   - `EnumHandler.SimpleEnum.cs` — simple enum extension method P/Invokes
+   - `EnumHandler.CaseConstruction.cs` — enum case constructor P/Invokes
+   - `PInvokeHelperEmitter.cs` — generic type P/Invoke helpers (CS7042 workaround)
+   - `ProtocolProxyEmitter.cs` — protocol proxy NativeMethods
+   - `OperatorHandler.cs` — operator overload P/Invokes
+   - `SwiftUIBridgeEmitter.cs` — SwiftUI bridge vtable setup
+
+4. **Cascading issues**: `bool` needs explicit `[MarshalAs(UnmanagedType.U1)]` with DisableRuntimeMarshalling. Assembly-level attribute causes CS0579 duplicates when multiple generated files compile into one assembly (integration test scenario). Hand-written test P/Invokes (CryptoKit.cs) also break.
+
+**Conclusion**: Migration to `[LibraryImport]` must be all-or-nothing across ALL emitters in the same assembly. This is a significantly larger change than originally scoped.
+
+#### Foundation work completed (2026-02-15)
+
+Two pieces of foundation work were completed and preserved:
+
+1. **`partial` keyword on all generated types** — All 6 handler files (ModuleHandler, ClassHandler, NonFrozenStructHandler, FrozenStructHandler, EnumHandler, EnumHandler.SimpleEnum) now emit `partial class`/`partial struct`. This is a no-op for `[DllImport]` + `extern` but required for `[LibraryImport]` + `partial` methods. Zero test regressions.
+
+2. **Custom marshallers in `Swift.Runtime/Marshalling/`** — Four new files:
+   - `BlittableSwiftString.cs` — 16-byte struct (`nint Word0, Word1`) matching Swift String ABI
+   - `SwiftStringMarshaller.cs` — `[CustomMarshaller]` for `SwiftString` ↔ `BlittableSwiftString`
+   - `BlittableOptionalInt32.cs` — 5-byte struct (`int Value` + `byte Discriminator`, `Pack=1`)
+   - `SwiftOptionalInt32Marshaller.cs` — `[CustomMarshaller]` for `SwiftOptional<int>` ↔ `BlittableOptionalInt32`
+
+   These are the same patterns proven in `TestFramework/NativeAotTestApp.Mac/Program.cs` (28/28 tests pass), now available as proper Swift.Runtime types.
+
+#### Known test gap: SwiftStringMarshaller ownership stress test
+
+`SwiftStringMarshaller.ConvertToManaged` relies on the assumption that Swift return values are +1-owned and that `SwiftString(IntPtr)` (at `SwiftString.cs:116`) performs an ownership-transferring raw copy. The existing `b2-string-return-marshaller` test in NativeAotTestApp.Mac validates a single round-trip but does not stress repeated allocation/disposal cycles. A focused test should:
+
+1. Call a Swift function returning a heap-backed string (long enough to avoid small-string optimization) in a tight loop (10k+ iterations)
+2. Dispose each `SwiftString` after reading its value
+3. Assert: no crash, stable RSS (within tolerance), correct value on every iteration
+
+This would close the confidence gap on +1 ownership transfer semantics and confirm no leak or double-free under repetition. Belongs in NativeAotTestApp.Mac since the marshaller is not yet wired into the generator.
+
+#### Full migration plan (future session)
+
+14. **Convert ALL emitters to `[LibraryImport]`** — Every site that emits `[DllImport]` must switch to `[LibraryImport]` + `partial`. This includes PInvokeEmitter, ExistentialBypassEmitter, EnumHandler (simple + case), PInvokeHelperEmitter, ProtocolProxyEmitter, OperatorHandler, SwiftUIBridgeEmitter, and CancellationTaskEmitter. Hand-written test files (CryptoKit.cs) also need conversion.
+15. **Add `DisableRuntimeMarshalling` to all project types** — Generated `.csproj` (via `<AssemblyAttribute>`), `Sdk.props`, integration test `.csproj`. Handle CS0579 duplicate-attribute for multi-file assemblies.
+16. **Add `[MarshalAs(UnmanagedType.U1)]` for `bool`** — Both `[return: MarshalAs]` for return types and `[MarshalAs]` on parameters in P/Invoke signatures.
+17. **Wire `[MarshalUsing]` for eligible bound generic params** — Detect `SwiftOptional<Int32>` in PInvokeSignatureBuilder, emit `MarshalUsing:` marker, skip PayloadBuffer creation in WrapperEmitter. Guard: only when `PInvokeHelperContext == null` and not an accessor.
+18. **Design generic `SwiftOptionalMarshaller<T>`** — Reusable marshaller mapping `SwiftOptional<T>` to blittable layout. The per-type marshallers (step 2 above) cover `int` and `String`; a generic version would cover the full type surface.
 
 ---
 
