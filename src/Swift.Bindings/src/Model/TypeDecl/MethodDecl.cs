@@ -134,6 +134,19 @@ namespace BindingsGeneration
         /// Set by <see cref="MethodHandler"/> during symbol cross-referencing.
         /// </summary>
         public bool IsMissingExportedSymbol { get; set; } = false;
+
+        /// <summary>
+        /// The typed error type for methods declared with Swift's typed throws syntax
+        /// (e.g., <c>throws(ParseError)</c>). Parsed from the .swiftinterface file.
+        /// When non-null, the generated code throws <c>SwiftException&lt;TError&gt;</c>
+        /// instead of <c>SwiftRuntimeException</c> (sync) or <c>SwiftException</c> (async).
+        /// </summary>
+        public TypeSpec? ThrownErrorType { get; set; }
+
+        /// <summary>
+        /// Whether this method uses Swift's typed throws syntax.
+        /// </summary>
+        public bool HasTypedThrows => ThrownErrorType != null;
     }
 
     /// <summary>

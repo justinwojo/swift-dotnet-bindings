@@ -203,6 +203,13 @@ namespace BindingsGeneration
         /// </summary>
         private readonly Dictionary<string, DocComment>? _docComments;
 
+        /// <summary>
+        /// Optional typed throws error types from swiftinterface parsing.
+        /// Keys are "TypeName.printedName" or "printedName" (free functions).
+        /// Values are fully-qualified Swift error type names (e.g., "SwiftBindingsTestLib.ParseError").
+        /// </summary>
+        private readonly Dictionary<string, string>? _typedThrowsErrors;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -210,7 +217,8 @@ namespace BindingsGeneration
             ILogger logger,
             HashSet<string>? internalMemberKeys = null,
             Dictionary<string, List<string>>? parameterNames = null,
-            Dictionary<string, DocComment>? docComments = null)
+            Dictionary<string, DocComment>? docComments = null,
+            Dictionary<string, string>? typedThrowsErrors = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -219,6 +227,7 @@ namespace BindingsGeneration
             _internalMemberKeys = internalMemberKeys;
             _parameterNames = parameterNames;
             _docComments = docComments;
+            _typedThrowsErrors = typedThrowsErrors;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -746,6 +755,24 @@ namespace BindingsGeneration
                 IsModuleInternal = IsNodeModuleInternal(node) ||
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
             };
+
+            // Look up typed throws error type from swiftinterface data
+            if (methodDecl.Throws && _typedThrowsErrors != null)
+            {
+                // Try type-scoped key first (e.g., "TypedThrowingParser.parse(_:)")
+                var throwsScopedKey = $"{parentDecl.Name}.{node.PrintedName}";
+                if (!_typedThrowsErrors.TryGetValue(throwsScopedKey, out var errorTypeName))
+                {
+                    // Try module-level key (free functions, e.g., "parseNumber(_:)")
+                    _typedThrowsErrors.TryGetValue(node.PrintedName, out errorTypeName);
+                }
+
+                if (errorTypeName != null)
+                {
+                    methodDecl.ThrownErrorType = TypeSpecParser.Parse(errorTypeName);
+                }
+            }
+
             PopulateDocumentation(methodDecl, node);
 
             // Look up internal parameter names from swiftinterface data

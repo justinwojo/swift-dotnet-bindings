@@ -158,21 +158,21 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier1)]
     public void TestValidateRangeBelowMinThrows()
     {
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException<RangeError>>(() =>
         {
             SwiftBindingsTestLib.ValidateRange(0, 1, 10);
-        }, "ValidateRange below min should throw");
-        TestLogger.Info("ValidateRange(0, 1, 10) correctly threw");
+        }, "ValidateRange below min should throw SwiftException<RangeError>");
+        TestLogger.Info("ValidateRange(0, 1, 10) correctly threw SwiftException<RangeError>");
     }
 
     [TestTier(TestTier.Tier1)]
     public void TestValidateRangeAboveMaxThrows()
     {
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException<RangeError>>(() =>
         {
             SwiftBindingsTestLib.ValidateRange(11, 1, 10);
-        }, "ValidateRange above max should throw");
-        TestLogger.Info("ValidateRange(11, 1, 10) correctly threw");
+        }, "ValidateRange above max should throw SwiftException<RangeError>");
+        TestLogger.Info("ValidateRange(11, 1, 10) correctly threw SwiftException<RangeError>");
     }
 
     #endregion
@@ -359,33 +359,33 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestParseNumberThrowsOnInvalidInput()
     {
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException<ParseError>>(() =>
         {
             SwiftBindingsTestLib.ParseNumber("abc");
-        }, "ParseNumber(\"abc\") should throw");
-        TestLogger.Info("ParseNumber(\"abc\") correctly threw");
+        }, "ParseNumber(\"abc\") should throw SwiftException<ParseError>");
+        TestLogger.Info("ParseNumber(\"abc\") correctly threw SwiftException<ParseError>");
     }
 
     [TestTier(TestTier.Tier3)]
     public void TestTypedThrowingParserParseInvalidThrows()
     {
         var parser = SwiftBindingsTestLib.CreateLenientParser();
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException<ParseError>>(() =>
         {
             parser.Parse("not_a_number");
-        }, "Parse invalid input should throw");
-        TestLogger.Info("Parser.Parse(\"not_a_number\") correctly threw");
+        }, "Parse invalid input should throw SwiftException<ParseError>");
+        TestLogger.Info("Parser.Parse(\"not_a_number\") correctly threw SwiftException<ParseError>");
     }
 
     [TestTier(TestTier.Tier3)]
     public void TestStrictParserRejectsWhitespace()
     {
         var parser = SwiftBindingsTestLib.CreateStrictParser();
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException<ParseError>>(() =>
         {
             parser.Parse(" 42 ");
         }, "Strict parser should reject whitespace");
-        TestLogger.Info("StrictParser.Parse(\" 42 \") correctly threw");
+        TestLogger.Info("StrictParser.Parse(\" 42 \") correctly threw SwiftException<ParseError>");
     }
 
     [TestTier(TestTier.Tier3)]
@@ -406,6 +406,68 @@ public class BasicThrowingTests : TestBase
             SwiftBindingsTestLib.Validate("hello world", 5);
         }, "Validate too long should throw");
         TestLogger.Info("Validate(\"hello world\", 5) correctly threw");
+    }
+
+    #endregion
+
+    // ===================================================================
+    // Typed Throws — Exception Type Verification (SwiftException<TError>)
+    // Verifies that typed throws methods produce SwiftException<TError>
+    // with correct exception type and Error property behavior.
+    // ===================================================================
+
+    #region Typed Throws — Sync Error Property (Tier 1: blittable)
+
+    [TestTier(TestTier.Tier1)]
+    public void TestValidateRangeTypedCatchNullError()
+    {
+        // Sync typed throws: SwiftException<RangeError> is thrown,
+        // but .Error is null (sync path can't extract from existential box)
+        try
+        {
+            SwiftBindingsTestLib.ValidateRange(100, 0, 50);
+            throw new AssertionException("ValidateRange should have thrown");
+        }
+        catch (SwiftException<RangeError> ex)
+        {
+            // Verify error property is null for sync path
+            AssertNull(ex.Error, "Sync typed throws .Error should be null");
+            AssertTrue(ex.Message.Contains("validateRange") || ex.Message.Contains("ValidateRange"),
+                "Exception message should reference the method name");
+            TestLogger.Info($"ValidateRange typed catch: Error={ex.Error}, Message={ex.Message}");
+        }
+    }
+
+    #endregion
+
+    #region Typed Throws — Async (Tier 3: Mono JIT limitations)
+
+    [TestTier(TestTier.Tier3)]
+    public async Task TestAsyncParseTypedCatch()
+    {
+        // Async typed throws: SwiftException<ParseError> with non-null .Error
+        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        try
+        {
+            await WithTimeout(parser.ParseAsync("abc"), DefaultAsyncTimeout);
+            throw new AssertionException("AsyncParse should have thrown");
+        }
+        catch (SwiftException<ParseError> ex)
+        {
+            AssertNotNull(ex.Error, "Async typed throws .Error should be non-null");
+            AssertEqual(ParseError.CaseTag.InvalidInput, ex.Error!.Tag,
+                "Error should be ParseError.InvalidInput");
+            TestLogger.Info($"AsyncParse typed catch: Error.Tag={ex.Error.Tag}, Message={ex.Message}");
+        }
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public async Task TestAsyncParseSuccess()
+    {
+        var parser = SwiftBindingsTestLib.CreateLenientParser();
+        var result = await WithTimeout(parser.ParseAsync("42"), DefaultAsyncTimeout);
+        AssertEqual(42, result, "AsyncParse(\"42\") should return 42");
+        TestLogger.Info($"AsyncParse(\"42\") = {result}");
     }
 
     #endregion

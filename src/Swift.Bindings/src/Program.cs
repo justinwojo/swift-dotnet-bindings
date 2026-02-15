@@ -515,12 +515,15 @@ namespace BindingsGeneration
             // Parse swiftinterface for internal member detection and parameter names (supplementary data)
             HashSet<string>? internalMemberKeys = null;
             Dictionary<string, List<string>>? parameterNames = null;
+            Dictionary<string, string>? typedThrowsErrors = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
                 internalMemberKeys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} internal member keys from swiftinterface", internalMemberKeys.Count);
                 parameterNames = SwiftInterfaceAccessParser.GetParameterNames(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} parameter name entries from swiftinterface", parameterNames.Count);
+                typedThrowsErrors = SwiftInterfaceAccessParser.GetTypedThrowsErrors(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} typed throws entries from swiftinterface", typedThrowsErrors.Count);
             }
 
             // Parse symbol graph for doc comments (supplementary data)
@@ -539,7 +542,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);

@@ -274,6 +274,11 @@ public static class SwiftInterfaceAccessParser
         return result;
     }
 
+    // Regex for typed throws: captures the error type from "throws(Module.Type)"
+    private static readonly Regex TypedThrowsRegex = new(
+        @"throws\(([^)]+)\)",
+        RegexOptions.Compiled);
+
     // Regex for any func declaration (public, open, or no access modifier in extension scope)
     // Captures the function name. Handles static, class, final, mutating modifiers.
     private static readonly Regex AnyFuncRegex = new(
@@ -376,6 +381,138 @@ public static class SwiftInterfaceAccessParser
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns a dictionary mapping
+    /// "TypeName.printedName" keys to the fully-qualified error type string
+    /// from typed throws declarations (e.g., "throws(Module.ErrorType)").
+    /// For module-level free functions, the key is just "printedName".
+    ///
+    /// For example, for:
+    ///   public func parseNumber(_ input: Swift.String) throws(SwiftBindingsTestLib.ParseError) -> Swift.Int32
+    /// This produces: { "parseNumber(_:)": "SwiftBindingsTestLib.ParseError" }
+    ///
+    /// Only functions with typed throws are included; untyped "throws" and non-throwing
+    /// functions are not present in the result.
+    /// </summary>
+    /// <param name="swiftInterfacePath">Path to the .swiftinterface file.</param>
+    /// <returns>Dictionary mapping method keys to fully-qualified error type strings.</returns>
+    public static Dictionary<string, string> GetTypedThrowsErrors(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        string? continuationLine = null;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Handle multi-line signature continuation
+            if (continuationLine != null)
+            {
+                continuationLine += " " + trimmed;
+                if (!HasUnmatchedOpenParen(continuationLine))
+                {
+                    var completeLine = continuationLine;
+                    continuationLine = null;
+                    ProcessFuncLineForTypedThrows(completeLine, typeStack, result);
+                }
+                continue;
+            }
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Track type context (same logic as GetInternalMembers/GetParameterNames)
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                pushedScope = true;
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            // Check for func/init declarations with typed throws
+            if (IsFuncOrInitLine(trimmed))
+            {
+                if (HasUnmatchedOpenParen(trimmed))
+                {
+                    continuationLine = trimmed;
+                }
+                else
+                {
+                    ProcessFuncLineForTypedThrows(trimmed, typeStack, result);
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+            {
+                typeStack.Pop();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Processes a complete function/init line to extract typed throws error type and add to result.
+    /// </summary>
+    private static void ProcessFuncLineForTypedThrows(
+        string line,
+        Stack<(string Name, int Depth)> typeStack,
+        Dictionary<string, string> result)
+    {
+        // Check if this line has a typed throws pattern
+        var throwsMatch = TypedThrowsRegex.Match(line);
+        if (!throwsMatch.Success)
+            return;
+
+        var errorType = throwsMatch.Groups[1].Value.Trim();
+
+        // Try func match
+        var funcMatch = AnyFuncRegex.Match(line);
+        if (funcMatch.Success)
+        {
+            var funcName = funcMatch.Groups[1].Value;
+            var printedName = ExtractPrintedName(line, funcName);
+            var key = typeStack.Count > 0
+                ? $"{typeStack.Peek().Name}.{printedName}"
+                : printedName;
+            result[key] = errorType;
+            return;
+        }
+
+        // Try init match
+        var initMatch = AnyInitRegex.Match(line);
+        if (initMatch.Success)
+        {
+            var printedName = ExtractPrintedName(line, "init");
+            var key = typeStack.Count > 0
+                ? $"{typeStack.Peek().Name}.{printedName}"
+                : printedName;
+            result[key] = errorType;
+        }
     }
 
     /// <summary>

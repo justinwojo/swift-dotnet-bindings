@@ -91,6 +91,17 @@ public struct TypedThrowingParser {
     }
 }
 
+// MARK: - Async Typed Throws (Instance Method)
+// Instance methods on types work with async typed throws (free functions have a known bug).
+
+extension TypedThrowingParser {
+    /// Async parse with typed throws — simulates async parsing.
+    public func asyncParse(_ input: String) async throws(ParseError) -> Int32 {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return try parse(input)
+    }
+}
+
 // MARK: - Free Functions (Creation Helpers)
 
 /// Creates a strict TypedThrowingParser.

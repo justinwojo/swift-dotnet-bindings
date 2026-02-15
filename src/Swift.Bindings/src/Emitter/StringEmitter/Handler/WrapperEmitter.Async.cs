@@ -314,10 +314,63 @@ namespace BindingsGeneration
                 }
             }
 
+            // For typed throws, the error callback takes 4 params: (errorPtr, errorSize, messagePtr, task)
+            // For untyped throws, it takes 2 params: (messagePtr, task) — the existing pattern
+            var errorCallbackSwiftParam = useTypedErrorCallback
+                ? "errorCallback: @escaping @convention(c) (UnsafeRawPointer, Int, UnsafePointer<CChar>, Int64) -> Void"
+                : "errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void";
+
+            // Pre-compute the Swift catch block body for typed vs untyped throws.
+            // Used in all 6 Swift wrapper emission sites below.
+            // Note: indentation within the catch block is handled at each emission site.
+            string swiftCatchBody;
+            if (useTypedErrorCallback)
+            {
+                swiftCatchBody =
+                    $"let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
+                    $"                        let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
+                    $"                            byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
+                    $"                        withUnsafePointer(to: error) {{ _src in\n" +
+                    $"                            _errPtr.copyMemory(from: UnsafeRawPointer(_src), byteCount: _errSize)\n" +
+                    $"                        }}\n" +
+                    $"                        let errorMessage = String(describing: error)\n" +
+                    $"                        errorMessage.withCString {{ _msgPtr in\n" +
+                    $"                            errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, task)\n" +
+                    $"                        }}";
+            }
+            else
+            {
+                swiftCatchBody =
+                    $"let errorMessage = String(describing: error)\n" +
+                    $"                        errorMessage.withCString {{ errorCallback($0, task) }}";
+            }
+            // Extension-indented variant (4 more spaces for code inside extension { } blocks)
+            string swiftCatchBodyExt;
+            if (useTypedErrorCallback)
+            {
+                swiftCatchBodyExt =
+                    $"let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
+                    $"                            let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
+                    $"                                byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
+                    $"                            withUnsafePointer(to: error) {{ _src in\n" +
+                    $"                                _errPtr.copyMemory(from: UnsafeRawPointer(_src), byteCount: _errSize)\n" +
+                    $"                            }}\n" +
+                    $"                            let errorMessage = String(describing: error)\n" +
+                    $"                            errorMessage.withCString {{ _msgPtr in\n" +
+                    $"                                errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, task)\n" +
+                    $"                            }}";
+            }
+            else
+            {
+                swiftCatchBodyExt =
+                    $"let errorMessage = String(describing: error)\n" +
+                    $"                            errorMessage.withCString {{ errorCallback($0, task) }}";
+            }
+
             var baseParams = new[]
             {
                 $"callback: @escaping @convention(c) ({callbackParams}Int64) -> Void",
-                "errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void",
+                errorCallbackSwiftParam,
                 "task: Int64"
             };
 
@@ -513,8 +566,7 @@ namespace BindingsGeneration
                         {{stringMarshalCode}}
                         callback({{callbackResultArgs}}task)
                     } catch {
-                        let errorMessage = String(describing: error)
-                        errorMessage.withCString { errorCallback($0, task) }
+                        {{swiftCatchBody}}
                     }
                 }
             }
@@ -535,8 +587,7 @@ namespace BindingsGeneration
                         {{stringMarshalCode}}
                         callback({{callbackResultArgs}}task)
                     } catch {
-                        let errorMessage = String(describing: error)
-                        errorMessage.withCString { errorCallback($0, task) }
+                        {{swiftCatchBody}}
                     }
                 }
             }
@@ -566,8 +617,7 @@ namespace BindingsGeneration
                             {{stringMarshalCode}}
                             callback({{callbackResultArgs}}task)
                         } catch {
-                            let errorMessage = String(describing: error)
-                            errorMessage.withCString { errorCallback($0, task) }
+                            {{swiftCatchBodyExt}}
                         }
                     }
                 }
@@ -589,8 +639,7 @@ namespace BindingsGeneration
                             {{stringMarshalCode}}
                             callback({{callbackResultArgs}}task)
                         } catch {
-                            let errorMessage = String(describing: error)
-                            errorMessage.withCString { errorCallback($0, task) }
+                            {{swiftCatchBodyExt}}
                         }
                     }
                 }
@@ -618,8 +667,7 @@ namespace BindingsGeneration
                         {{stringMarshalCode}}
                         callback({{callbackResultArgs}}task)
                     } catch {
-                        let errorMessage = String(describing: error)
-                        errorMessage.withCString { errorCallback($0, task) }
+                        {{swiftCatchBody}}
                     }
                 }
             }
@@ -638,8 +686,7 @@ namespace BindingsGeneration
                         {{stringMarshalCode}}
                         callback({{callbackResultArgs}}task)
                     } catch {
-                        let errorMessage = String(describing: error)
-                        errorMessage.withCString { errorCallback($0, task) }
+                        {{swiftCatchBody}}
                     }
                 }
             }
@@ -780,50 +827,7 @@ namespace BindingsGeneration
                             }
                         }
 
-                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
-                        {
-                            GCHandle handle = GCHandle.FromIntPtr(task);
-                            try
-                            {
-                                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                var exception = new SwiftException(errorMessage);
-
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} holderTcs)
-                                {
-                                    // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
-                                    {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                        {
-                                            Arc.Release(retained.Ptr);
-                                        }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            // Release the SafeHandle that was kept alive for async safety
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            // Call Destroy to release Swift references, then free buffer
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
-                                    }
-                                    holderTcs.TrySetException(exception);
-                                }
-                                else if (handle.Target is TaskCompletionSource{{(voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}} directTcs)
-                                {
-                                    directTcs.TrySetException(exception);
-                                }
-                            }
-                            finally
-                            {
-                                handle.Free();
-                            }
-                        }
+                        {{BuildErrorCallbackBlock(errorCallbackFieldName, errorCallbackMethodName, voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}}
                 """;
             csWriter.WriteLine(text);
         }
@@ -923,50 +927,7 @@ namespace BindingsGeneration
                             }
                         }
 
-                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
-                        {
-                            GCHandle handle = GCHandle.FromIntPtr(task);
-                            try
-                            {
-                                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                var exception = new SwiftException(errorMessage);
-
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
-                                {
-                                    // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
-                                    {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                        {
-                                            Arc.Release(retained.Ptr);
-                                        }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            // Release the SafeHandle that was kept alive for async safety
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            // Call Destroy to release Swift references, then free buffer
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
-                                    }
-                                    holderTcs.TrySetException(exception);
-                                }
-                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
-                                {
-                                    directTcs.TrySetException(exception);
-                                }
-                            }
-                            finally
-                            {
-                                handle.Free();
-                            }
-                        }
+                        {{BuildErrorCallbackBlock(errorCallbackFieldName, errorCallbackMethodName, $"<{_wrapperSignature.ReturnType}>")}}
                 """;
             csWriter.WriteLine(text);
         }
@@ -1061,48 +1022,7 @@ namespace BindingsGeneration
                             }
                         }
 
-                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
-                        {
-                            GCHandle handle = GCHandle.FromIntPtr(task);
-                            try
-                            {
-                                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                var exception = new SwiftException(errorMessage);
-
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
-                                {
-                                    // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
-                                    {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                        {
-                                            Arc.Release(retained.Ptr);
-                                        }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
-                                    }
-                                    holderTcs.TrySetException(exception);
-                                }
-                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
-                                {
-                                    directTcs.TrySetException(exception);
-                                }
-                            }
-                            finally
-                            {
-                                handle.Free();
-                            }
-                        }
+                        {{BuildErrorCallbackBlock(errorCallbackFieldName, errorCallbackMethodName, $"<{_wrapperSignature.ReturnType}>")}}
                 """;
             csWriter.WriteLine(text);
         }
@@ -1255,48 +1175,7 @@ namespace BindingsGeneration
                             }
                         }
 
-                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
-                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
-                        {
-                            GCHandle handle = GCHandle.FromIntPtr(task);
-                            try
-                            {
-                                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                var exception = new SwiftException(errorMessage);
-
-                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
-                                {
-                                    // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
-                                    {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                        {
-                                            Arc.Release(retained.Ptr);
-                                        }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
-                                    }
-                                    holderTcs.TrySetException(exception);
-                                }
-                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
-                                {
-                                    directTcs.TrySetException(exception);
-                                }
-                            }
-                            finally
-                            {
-                                handle.Free();
-                            }
-                        }
+                        {{BuildErrorCallbackBlock(errorCallbackFieldName, errorCallbackMethodName, $"<{_wrapperSignature.ReturnType}>")}}
                 """;
             csWriter.WriteLine(text);
         }
@@ -1398,18 +1277,65 @@ namespace BindingsGeneration
                             }
                         }
 
-                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        {{BuildErrorCallbackBlock(errorCallbackFieldName, errorCallbackMethodName, $"<{_wrapperSignature.ReturnType}>")}}
+                """;
+            csWriter.WriteLine(text);
+        }
+
+        /// <summary>
+        /// Builds the C# error callback code block (delegate + method) for async wrappers.
+        /// For typed throws, emits a 4-param callback that marshals the error value via MarshalFromSwift.
+        /// For untyped throws, emits the standard 2-param callback with string message only.
+        /// </summary>
+        private string BuildErrorCallbackBlock(
+            string errorCallbackFieldName,
+            string errorCallbackMethodName,
+            string tcsType)
+        {
+            // tcsType is "" for void, "<ReturnType>" for non-void
+            if (useTypedErrorCallback)
+            {
+                // SBW_Free P/Invoke declaration — needed to free the error buffer allocated by Swift
+                var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
+                var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+                var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+                var freeSymbolName = Utf8SliceEmitter.GetFreeSymbolName(moduleDecl.Name);
+                var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
+                var needsFreePInvoke = !Utf8SliceEmitter.HasFreePInvokeForType(typeKey);
+                if (needsFreePInvoke)
+                {
+                    Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey);
+                }
+                var freePInvokeDecl = needsFreePInvoke
+                    ? $"""
+                        [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        private static extern void SBW_Free(IntPtr ptr);
+
+                """
+                    : "";
+
+                return $$"""
+                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
                             {
-                                var errorMessage = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                var exception = new SwiftException(errorMessage);
+                                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                {{typedThrowsCSharpErrorType}} typedError;
+                                try
+                                {
+                                    typedError = ({{typedThrowsCSharpErrorType}})SwiftMarshal.MarshalFromSwift<{{typedThrowsCSharpErrorType}}>(errorPtr);
+                                }
+                                finally
+                                {
+                                    SBW_Free(errorPtr);
+                                }
+                                var exception = new SwiftException<{{typedThrowsCSharpErrorType}}>(typedError, errorMessage);
 
                                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
-                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{tcsType}} holderTcs)
                                 {
                                     // Free copy buffer memory for non-frozen params and release retained self
                                     for (int i = 1; i < holder.Length; i++)
@@ -1430,7 +1356,7 @@ namespace BindingsGeneration
                                     }
                                     holderTcs.TrySetException(exception);
                                 }
-                                else if (handle.Target is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> directTcs)
+                                else if (handle.Target is TaskCompletionSource{{tcsType}} directTcs)
                                 {
                                     directTcs.TrySetException(exception);
                                 }
@@ -1441,7 +1367,54 @@ namespace BindingsGeneration
                             }
                         }
                 """;
-            csWriter.WriteLine(text);
+            }
+            else
+            {
+                return $$"""
+                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        {
+                            GCHandle handle = GCHandle.FromIntPtr(task);
+                            try
+                            {
+                                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                var exception = new SwiftException(errorMessage);
+
+                                // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
+                                if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{tcsType}} holderTcs)
+                                {
+                                    // Free copy buffer memory for non-frozen params and release retained self
+                                    for (int i = 1; i < holder.Length; i++)
+                                    {
+                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        {
+                                            Arc.Release(retained.Ptr);
+                                        }
+                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        {
+                                            deferred.Handle.DangerousRelease();
+                                        }
+                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                        {
+                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                            NativeMemory.Free((void*)copyBuffer.Buffer);
+                                        }
+                                    }
+                                    holderTcs.TrySetException(exception);
+                                }
+                                else if (handle.Target is TaskCompletionSource{{tcsType}} directTcs)
+                                {
+                                    directTcs.TrySetException(exception);
+                                }
+                            }
+                            finally
+                            {
+                                handle.Free();
+                            }
+                        }
+                """;
+            }
         }
 
         /// <summary>

@@ -22,6 +22,12 @@ namespace BindingsGeneration
         private readonly bool _requiresOpaqueReturnWrapper;
         private readonly bool _requiresFixedBlock;
         private readonly TypeDatabaseExtensions.AnyTypeFallbackInfo? _fallbackInfo;
+        // Typed throws state — resolved once, used by both EmitAsync (Swift) and EmitAsyncWrapper (C#).
+        // useTypedErrorCallback: true when the method has typed throws, the error type resolves,
+        // and the method is not a free-function async (D5 guard).
+        private readonly bool useTypedErrorCallback;
+        private readonly string? typedThrowsSwiftErrorType;  // e.g., "SwiftBindingsTestLib.ParseError"
+        private readonly string? typedThrowsCSharpErrorType;  // e.g., "ParseError"
         private bool _needsUnsafeBody;
 
         internal WrapperEmitter(
@@ -47,6 +53,22 @@ namespace BindingsGeneration
             _requiresSwiftSelf = MarshallingHelpers.MethodRequiresSwiftSelf(methodEnv);
             // Async methods call our generated Swift wrapper which handles errors internally
             _requiresSwiftError = !_requiresSwiftAsync && _env.MethodDecl.Throws;
+
+            // Resolve typed throws for async error callback emission.
+            // Falls back to untyped when: (a) no typed throws, (b) error type unresolvable,
+            // (c) free-function async typed throws (known _payload/this bug — D5 guard).
+            useTypedErrorCallback = false;
+            if (_env.MethodDecl.HasTypedThrows && _requiresSwiftAsync)
+            {
+                var parentTypeName_ = (_env.ParentDecl as TypeDecl)?.SwiftTypeName;
+                bool isFreeFunctionAsync = parentTypeName_ == null;
+                if (!isFreeFunctionAsync && _env.TypeDatabase.TryGetTypeRecord(_env.MethodDecl.ThrownErrorType!, out var errorTypeRecord))
+                {
+                    typedThrowsSwiftErrorType = _env.MethodDecl.ThrownErrorType!.ToString();
+                    typedThrowsCSharpErrorType = errorTypeRecord.CSharpTypeName.FullyQualifiedName;
+                    useTypedErrorCallback = true;
+                }
+            }
 
             // Frozen struct value types need a fixed block to pin 'this' and get a pointer.
             // Two cases: (1) setters modify the struct in-place (pointer semantics),
@@ -532,12 +554,35 @@ namespace BindingsGeneration
                 return;
             }
 
-            var text = $$"""
-            if (error.Value != null)
+            // For typed throws with a resolvable error type, throw SwiftException<TError>
+            // with the error message but no error value (sync path can't extract from existential box).
+            // This provides typed catch(SwiftException<ParseError>) IntelliSense.
+            string? syncTypedErrorType = null;
+            if (_env.MethodDecl.HasTypedThrows &&
+                _env.TypeDatabase.TryGetTypeRecord(_env.MethodDecl.ThrownErrorType!, out var syncErrorTypeRecord))
             {
-                throw new SwiftRuntimeException("Call to Swift method {{_env.MethodDecl.Name}} failed.");
+                syncTypedErrorType = syncErrorTypeRecord.CSharpTypeName.FullyQualifiedName;
             }
-            """;
+
+            string text;
+            if (syncTypedErrorType != null)
+            {
+                text = $$"""
+                if (error.Value != null)
+                {
+                    throw new SwiftException<{{syncTypedErrorType}}>("Call to Swift method {{_env.MethodDecl.Name}} failed.");
+                }
+                """;
+            }
+            else
+            {
+                text = $$"""
+                if (error.Value != null)
+                {
+                    throw new SwiftRuntimeException("Call to Swift method {{_env.MethodDecl.Name}} failed.");
+                }
+                """;
+            }
 
             csWriter.WriteLines(text);
             csWriter.WriteLine();

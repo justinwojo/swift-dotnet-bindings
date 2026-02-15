@@ -12,9 +12,9 @@ For completed work, see `Completed/` (notably `roadmap-completed-feb2026.md`, `p
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 2,542 passing |
+| Unit tests | 2,593 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
-| Runtime tests | 185 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
+| Runtime tests | 189 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 | Libraries validated | 25 clean (0 generator errors) + 5 environmental-only |
 
@@ -86,20 +86,24 @@ Both items are MSBuild SDK and NuGet packaging improvements. They share `Sdk.tar
 
 ---
 
-### Session 4: Typed Swift Exceptions
+### Session 4: Typed Swift Exceptions — **Done** (2026-02-14, 2593 unit tests)
 
 **Priority**: P1 | **Type**: Implementation | **Risk**: Medium
 
 Standalone feature touching the async error pipeline. Requires a new type in `Swift.Runtime` and changes to how error callbacks marshal exception information. Self-contained — doesn't share code paths with other sessions.
 
-| Item | Priority | Effort | Description |
-|------|----------|--------|-------------|
-| **Typed exceptions for Swift errors** | P1 | Medium | `SwiftException<TError>` in `Swift.Runtime` with access to error enum case and associated values. Async callback marshalling emits typed exception construction. Error enum type appears in catch clause IntelliSense. |
+| Item | Priority | Effort | Status |
+|------|----------|--------|--------|
+| **`SwiftException<TError>` runtime type** | P1 | Small | Done — generic exception class with nullable `Error` property. |
+| **Typed throws detection** | P1 | Medium | Done — `GetTypedThrowsErrors()` parses `.swiftinterface` for `throws(ErrorType)`, threaded to `MethodDecl.ThrownErrorType` via `SwiftABIParser`. |
+| **Async typed error callbacks** | P1 | Medium | Done — 4-param error callback (errorPtr + size + msg + task) with `MarshalFromSwift<TError>` + `SBW_Free`. `BuildErrorCallbackBlock()` helper deduplicates 5 emission sites. |
+| **Sync typed exceptions** | P1 | Small | Done — `SwiftException<TError>(message)` with `Error = null` (existential extraction deferred). |
+| **Free-function async guard** | P1 | Small | Done — D5 guard: `HasTypedThrows && IsAsync && parentTypeName == null` falls back to untyped (avoids known `_payload`/`this` bug). |
 
-**Key files**: `Swift.Runtime` (new exception type), `WrapperEmitter.Async.cs`, `ClosureEmitter.Throwing.cs`
-**Verification**: `./run-tests.sh` + runtime test with a throwing async method that catches `SwiftException<TError>` and inspects the error
-**Research ref**: Ugly #5 (generic SwiftException), comparison to ObjC `NSErrorException`
-**Design**: `Future/binding-api-future-work.md` (Exception Mapping)
+**Scope**: Async method wrappers (full error value transport) + sync method exception typing (message-only). Throwing closures (`ClosureEmitter.Throwing.cs`) explicitly out of scope — closures use `SwiftResult<TSuccess, SwiftError>`.
+**Key changes**: `SwiftException.cs` (generic subclass), `SwiftInterfaceAccessParser.cs` (`GetTypedThrowsErrors()`), `MethodDecl.cs` (`ThrownErrorType`, `HasTypedThrows`), `SwiftABIParser.cs` (typed throws dictionary), `Program.cs` (wiring), `WrapperEmitter.cs` (sync `SwiftException<T>`), `WrapperEmitter.Async.cs` (`BuildErrorCallbackBlock()`, typed catch blocks, `SBW_Free` P/Invoke in error callback), `TypedThrows.swift` (async instance method).
+**Tests**: 10 parser unit tests (`SwiftInterfaceTypedThrowsTests`), 10 emitter unit tests (`TypedThrowsEmitterTests`), 1 new Tier 1 runtime test (`TestValidateRangeTypedCatchNullError`), 2 Tier 3 async runtime tests, 5 existing runtime tests updated from `SwiftRuntimeException` to `SwiftException<T>`.
+**Note**: `SwiftException<TError>` requires `Swift.Runtime` NuGet re-publish to compile in consumer projects.
 
 ---
 
