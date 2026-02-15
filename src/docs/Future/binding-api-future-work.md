@@ -58,9 +58,9 @@ Async methods currently have no cancellation support. Target: optional `Cancella
 
 Swift methods with default parameter values emit only the full-parameter version. `DefaultParameterOverloadEmitter.cs` exists but scope is limited to wrapper-backed methods.
 
-### Collection Interfaces
+### Collection Interfaces — **Done** (2026-02-14)
 
-`SwiftArray<T>` appears in some public signatures. Target: implement `IReadOnlyList<T>` and `IList<T>` on `SwiftArray<T>` so consumers can use LINQ and pass `List<T>`.
+`SwiftArray<T>` now implements `IReadOnlyList<T>` and `IList<T>` with lazy indexed access. Constructors from `T[]` and `IEnumerable<T>`, implicit conversion from `T[]`, bounds-checked indexer, and `AsProjected<TResult>()` for zero-copy string array returns. See roadmap Session 5.
 
 ### Golden Scenarios
 

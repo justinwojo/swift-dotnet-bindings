@@ -313,6 +313,117 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
     }
 
     [Fact]
+    public void Constructor_FromArray_CopiesElements()
+    {
+        var array = new SwiftArray<int>(new[] { 1, 2, 3 });
+        Assert.Equal(3, array.Count);
+        Assert.Equal(1, array[0]);
+        Assert.Equal(2, array[1]);
+        Assert.Equal(3, array[2]);
+    }
+
+    [Fact]
+    public void Constructor_FromEnumerable_CopiesElements()
+    {
+        var list = new List<int> { 10, 20, 30 };
+        var array = new SwiftArray<int>(list);
+        Assert.Equal(3, array.Count);
+        Assert.Equal(10, array[0]);
+        Assert.Equal(20, array[1]);
+        Assert.Equal(30, array[2]);
+    }
+
+    [Fact]
+    public void Constructor_NullArray_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => new SwiftArray<int>((int[])null!));
+    }
+
+    [Fact]
+    public void Constructor_NullEnumerable_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => new SwiftArray<int>((IEnumerable<int>)null!));
+    }
+
+    [Fact]
+    public void ImplicitConversion_FromArray()
+    {
+        SwiftArray<int> array = new[] { 1, 2, 3 };
+        Assert.Equal(3, array.Count);
+        Assert.Equal(1, array[0]);
+        Assert.Equal(2, array[1]);
+        Assert.Equal(3, array[2]);
+    }
+
+    [Fact]
+    public void ImplicitConversion_NullArray_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+        {
+            SwiftArray<int> array = (int[])null!;
+        });
+    }
+
+    [Fact]
+    public void Indexer_NegativeIndex_Throws()
+    {
+        var array = new SwiftArray<int>(new[] { 1, 2, 3 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = array[-1]);
+    }
+
+    [Fact]
+    public void Indexer_IndexEqualToCount_Throws()
+    {
+        var array = new SwiftArray<int>(new[] { 1, 2, 3 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = array[3]);
+    }
+
+    [Fact]
+    public void Indexer_SetNegativeIndex_Throws()
+    {
+        var array = new SwiftArray<int>(new[] { 1, 2, 3 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => array[-1] = 99);
+    }
+
+    [Fact]
+    public void Indexer_SetIndexEqualToCount_Throws()
+    {
+        var array = new SwiftArray<int>(new[] { 1, 2, 3 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => array[3] = 99);
+    }
+
+    [Fact]
+    public void IListIndexOf_FindsElement()
+    {
+        var array = new SwiftArray<int>(new[] { 10, 20, 30 });
+        Assert.Equal(1, ((IList<int>)array).IndexOf(20));
+    }
+
+    [Fact]
+    public void IListContains_FindsElement()
+    {
+        var array = new SwiftArray<int>(new[] { 10, 20, 30 });
+        Assert.True(((ICollection<int>)array).Contains(20));
+        Assert.False(((ICollection<int>)array).Contains(99));
+    }
+
+    [Fact]
+    public void IListCopyTo_CopiesElements()
+    {
+        var array = new SwiftArray<int>(new[] { 10, 20, 30 });
+        var dest = new int[5];
+        ((ICollection<int>)array).CopyTo(dest, 1);
+        Assert.Equal(new[] { 0, 10, 20, 30, 0 }, dest);
+    }
+
+    [Fact]
+    public void AsProjected_NullSelector_Throws()
+    {
+        var array = new SwiftArray<int>(new[] { 1, 2, 3 });
+        Assert.Throws<ArgumentNullException>(() => array.AsProjected<string>(null!));
+    }
+
+    [Fact]
     public void ArrayTestString()
     {
         var value1 = new SwiftString("Hello");

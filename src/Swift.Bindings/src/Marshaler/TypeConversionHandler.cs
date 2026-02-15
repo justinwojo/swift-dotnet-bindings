@@ -360,12 +360,12 @@ public class TypeConversionHandler
 
         if (IsSwiftArray(namedTypeSpec))
         {
-            // If element type was converted (e.g., SwiftString → string), project with .Select()
+            // If element type was converted (e.g., SwiftString → string), project with .AsProjected()
             if (IsElementTypeConverted(namedTypeSpec, typeTranslator))
             {
                 if (IsSwiftString(namedTypeSpec.GenericParameters.FirstOrDefault()))
                 {
-                    return $"{resultVar}.Select(e => e.ToString()).ToList()";
+                    return $"{resultVar}.AsProjected(e => e.ToString())";
                 }
                 // Future: other element conversions can add their projections here
             }

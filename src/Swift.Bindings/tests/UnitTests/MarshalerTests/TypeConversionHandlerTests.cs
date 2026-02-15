@@ -315,7 +315,7 @@ public class TypeConversionHandlerTests
         var result = _handler.GetReturnConversion("value", typeSpec);
         Assert.NotNull(result);
         Assert.Contains("SwiftOptionalCases.None", result);
-        Assert.Contains(".Select(", result);
+        Assert.Contains(".AsProjected(", result);
         Assert.Contains(".ToString()", result);
     }
 
@@ -507,14 +507,14 @@ public class TypeConversionHandlerTests
     }
 
     [Fact]
-    public void ReturnConversion_Array_ConvertedElement_UsesSelect()
+    public void ReturnConversion_Array_ConvertedElement_UsesAsProjected()
     {
-        // Return conversion with SwiftString element should use .Select()
+        // Return conversion with SwiftString element should use .AsProjected() for lazy projection
         var typeSpec = new NamedTypeSpec("Swift.Array");
         typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         var result = _handler.GetReturnConversion("result", typeSpec);
-        Assert.Contains(".Select(", result!);
-        Assert.Contains(".ToList()", result);
+        Assert.Contains(".AsProjected(", result!);
+        Assert.DoesNotContain(".ToList()", result);
     }
 
     [Fact]

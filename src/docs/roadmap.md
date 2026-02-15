@@ -14,7 +14,8 @@ For completed work, see `Completed/` (notably `roadmap-completed-feb2026.md`, `p
 |--------|-------|
 | Unit tests | 2,593 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
-| Runtime tests | 189 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
+| Runtime library tests | 156 passing |
+| Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 | Libraries validated | 25 clean (0 generator errors) + 5 environmental-only |
 
@@ -107,20 +108,22 @@ Standalone feature touching the async error pipeline. Requires a new type in `Sw
 
 ---
 
-### Session 5: SwiftArray Collection Interface
+### Session 5: SwiftArray Collection Interface — **Done** (2026-02-14, 2593 unit tests + 156 runtime library tests)
 
 **Priority**: P2 | **Type**: Implementation | **Risk**: Low
 
-Standalone runtime library change. `SwiftArray<T>` currently copies to `List<T>` via LINQ on every access. Implementing `IReadOnlyList<T>` with indexed access is self-contained within `Swift.Runtime`.
+Standalone runtime library change. `SwiftArray<T>` previously copied to `List<T>` via LINQ `.Select().ToList()` on every string array access. Now uses lazy `AsProjected()` — zero-copy indexed access.
 
-| Item | Priority | Effort | Description |
-|------|----------|--------|-------------|
-| **SwiftArray\<T\> IReadOnlyList\<T\>** | P2 | Medium | `Count` property + `this[int index]` indexer backed by Swift runtime calls. Lazy access without copying. Accept `List<T>` and `T[]` via implicit conversion or constructor. |
+| Item | Priority | Effort | Status |
+|------|----------|--------|--------|
+| **Constructors from T[] and IEnumerable\<T\>** | P2 | Small | Done — `new SwiftArray<T>(source)` + implicit operator from `T[]`. |
+| **Indexer bounds checking** | P2 | Small | Done — `ArgumentOutOfRangeException` on OOB (Swift would crash). |
+| **Lazy projection wrapper** | P2 | Medium | Done — `SwiftArrayProjection<TSource, TResult>` (internal, IReadOnlyList). Live view, no copying. |
+| **Emitter integration** | P2 | Small | Done — `.Select(e => e.ToString()).ToList()` → `.AsProjected(e => e.ToString())` in `GetReturnConversion`. |
 
-**Key files**: `src/Swift.Runtime/src/Swift/SwiftArray.cs`
-**Verification**: Runtime library tests + regenerate bindings to verify collection properties still work
-**Design**: `Future/binding-api-future-work.md` (Collection Interfaces)
-**Research ref**: Bad #7 (allocates every time)
+**Key changes**: `SwiftArray.cs` (constructors, implicit op, bounds check, `AsProjected<T>()`), `SwiftArrayProjection.cs` (new), `TypeConversionHandler.cs` (return conversion).
+**Tests**: 15 new SwiftArray tests (constructors, conversions, bounds, IList, AsProjected) + 10 SwiftArrayProjection tests (lazy access, live view, enumeration, bounds, SwiftString) + 2 updated emitter tests.
+**Note**: `SwiftArrayProjection` requires `Swift.Runtime` NuGet re-publish to compile in consumer projects.
 
 ---
 

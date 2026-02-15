@@ -143,6 +143,32 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IList<E
     }
 
     /// <summary>
+    /// Constructs a new SwiftArray from an array of elements.
+    /// </summary>
+    /// <param name="source">The source array to copy elements from.</param>
+    public SwiftArray(Element[] source) : this()
+    {
+        if (source == null) throw new ArgumentNullException(nameof(source));
+        foreach (var item in source) Append(item);
+    }
+
+    /// <summary>
+    /// Constructs a new SwiftArray from an enumerable source.
+    /// </summary>
+    /// <param name="source">The source enumerable to copy elements from.</param>
+    public SwiftArray(IEnumerable<Element> source) : this()
+    {
+        if (source == null) throw new ArgumentNullException(nameof(source));
+        foreach (var item in source) Append(item);
+    }
+
+    /// <summary>
+    /// Implicitly converts a .NET array to a SwiftArray.
+    /// </summary>
+    public static implicit operator SwiftArray<Element>(Element[] source)
+        => new SwiftArray<Element>(source);
+
+    /// <summary>
     /// Gets the number of elements in the array.
     /// </summary>
     public int Count
@@ -245,6 +271,8 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IList<E
     {
         get
         {
+            if ((uint)index >= (uint)Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
             void* payload = NativeMemory.Alloc(ElementSize);
             try
@@ -259,6 +287,8 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IList<E
         }
         set
         {
+            if ((uint)index >= (uint)Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
             using PayloadBuffer<IntPtr> _ = PayloadBuffer;
             var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
             Span<byte> span = stackalloc byte[(int)ElementSize];
@@ -266,6 +296,18 @@ public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IList<E
             SwiftMarshal.MarshalToSwift(value, ref span);
             SwiftArrayPInvokes.Set(payload, index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
         }
+    }
+
+    /// <summary>
+    /// Returns a lazy projection of this array, applying the selector to each element on access.
+    /// The returned <see cref="IReadOnlyList{TResult}"/> is a live view — it does not copy elements.
+    /// </summary>
+    /// <typeparam name="TResult">The projected element type.</typeparam>
+    /// <param name="selector">The function to apply to each element.</param>
+    public IReadOnlyList<TResult> AsProjected<TResult>(Func<Element, TResult> selector)
+    {
+        if (selector == null) throw new ArgumentNullException(nameof(selector));
+        return new SwiftArrayProjection<Element, TResult>(this, selector);
     }
 
     #region IList<Element> explicit implementation
