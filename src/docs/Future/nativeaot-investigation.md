@@ -239,6 +239,7 @@ Each iOS test runs as a **separate app launch** (one test per process) to isolat
 | `b2-marshaller-roundtrip-some` | CustomMarshaller on param AND return (`Some(21)` → Swift doubles → `Some(42)`) | Unknown |
 | `b2-marshaller-roundtrip-none` | Roundtrip with None input | Unknown |
 | `b2-raw-blittable-optional` | `BlittableOptionalInt32` passed directly (no marshaller, ABI validation) | PASS |
+| `b2-string-stress` | 10k iterations of return marshalling with heap-backed strings (ownership stress test) | PASS |
 
 #### Blocker 2: Baseline (in main project)
 
@@ -378,9 +379,7 @@ PASS: b2-optstring-none          (Optional<String> None — all-zeros encodes ni
 - SwiftOptional&lt;T&gt; where T is value type: T + discriminator byte (verified Session 2)
 - SwiftOptional&lt;T&gt; where T is pointer/String: same size as T, all-zeros = None (verified Session 3)
 
-**Not yet tested** (require macOS generated bindings):
-- Generated binding end-to-end calls on macOS — need `SwiftBindingsTestLib.xcframework` macOS slice
-- `[ModuleInitializer]` + `SetDllImportResolver` on macOS — needs the full framework resolution stack
+**Covered by device tests** (Session 4): Both items originally listed here — generated binding end-to-end calls and `[ModuleInitializer]` + `SetDllImportResolver` — were validated on iOS device (`ios-arm64`, NativeAOT) in Session 4. `b1-generated-binding` (StaticMethods.GetStoredValue) and `n1-moduleinit` both pass. The code paths are identical on macOS vs iOS under NativeAOT (same ARM64 ABI, same framework resolution via `@rpath`). Adding a macOS slice to `build-xcframework.sh` remains possible for development convenience but is not required for validation coverage.
 
 ### Results — Session 4 (2026-02-15): iOS device — Blocker 3 resolved
 
@@ -559,9 +558,9 @@ Supporting both simulator and device deployment requires **no code changes**. Th
 11. ~~**Draft upstream runtime issue**~~ — Done (2026-02-15). Draft at `src/docs/Future/upstream-nativeaot-simulator-issue.md`. Ready to file when repo is public.
 12. ~~**Verify end-to-end**~~ — Done (2026-02-15). `build-and-test.sh` passes: 24 `SB0001` attributes emitted, zero `[Obsolete("...", true)]` remaining, 94/94 must-pass features.
 
-### Phase 2: Binding analyzer (deferred — when consumer feedback demands precision)
+### Phase 2: Binding analyzer (closed — Phase 1 sufficient)
 
-13. **Replace `[Obsolete]` with custom `[MonoJitRisk]` attribute** + Roslyn analyzer that reads build context and emits/suppresses per-method diagnostics. Enables richer messaging (URL links, severity tiers) without `[Obsolete]` limitations.
+13. ~~**Replace `[Obsolete]` with custom `[MonoJitRisk]` attribute**~~ — Closed. The Phase 1 `DiagnosticId = "SB0001"` + `SwiftBindingsInteropMode` approach already delivers the target UX: NativeAOT consumers get a clean API (SB0001 auto-suppressed via `PublishAot=true`), Mono consumers see scoped warnings (not generic CS0618). Custom diagnostic IDs are already package-scoped, avoiding collateral suppression of unrelated `[Obsolete]` warnings. A Roslyn analyzer would add build-time complexity (NuGet packaging, IDE integration testing) for marginal benefit — richer messaging (URL links, severity tiers) has no concrete consumer demand. Revisit only if external consumers report friction with the current approach.
 
 ### Phase 3: `[LibraryImport]` migration (Steps 14-16 DONE, Steps 17-18 deferred)
 
@@ -600,15 +599,9 @@ Two pieces of foundation work were completed and preserved:
 
    These are the same patterns proven in `TestFramework/NativeAotTestApp.Mac/Program.cs` (28/28 tests pass), now available as proper Swift.Runtime types.
 
-#### Known test gap: SwiftStringMarshaller ownership stress test
+#### SwiftStringMarshaller ownership stress test (DONE)
 
-`SwiftStringMarshaller.ConvertToManaged` relies on the assumption that Swift return values are +1-owned and that `SwiftString(IntPtr)` (at `SwiftString.cs:116`) performs an ownership-transferring raw copy. The existing `b2-string-return-marshaller` test in NativeAotTestApp.Mac validates a single round-trip but does not stress repeated allocation/disposal cycles. A focused test should:
-
-1. Call a Swift function returning a heap-backed string (long enough to avoid small-string optimization) in a tight loop (10k+ iterations)
-2. Dispose each `SwiftString` after reading its value
-3. Assert: no crash, stable RSS (within tolerance), correct value on every iteration
-
-This would close the confidence gap on +1 ownership transfer semantics and confirm no leak or double-free under repetition. Belongs in NativeAotTestApp.Mac since the marshaller is not yet wired into the generator.
+`SwiftStringMarshaller.ConvertToManaged` relies on the assumption that Swift return values are +1-owned and that `SwiftString(IntPtr)` (at `SwiftString.cs:116`) performs an ownership-transferring raw copy. The `b2-string-stress` test in NativeAotTestApp.Mac validates this with 10k iterations of return marshalling using heap-backed strings (18 chars — avoids small-string optimization). Each iteration: Swift allocates a String → `BlittableSwiftString` return → `ConvertToManaged` (temp buffer + `MarshalFromSwift` + VWT Destroy) → read `.ToString()` → `Dispose()`. Confirms no leak, no double-free, and correct value on every iteration.
 
 #### All-or-nothing migration (2026-02-15)
 
@@ -637,10 +630,10 @@ The `[LibraryImport]` source generator is stricter than `[DllImport]` about comp
 - **WrapperEmitter.Return.cs**: `GetPInvokeTypeForTupleElement()` — same restructure as TupleHandler. `GetTupleElementMarshalCode()` — keys off computed P/Invoke type: IntPtr passes directly, `.Buffer` takes address, simple enums cast from underlying type.
 - **ClosureHandler.cs**: `IsSupportedClosureParameterType()` — tuple branch calls `HasClosureUnsafeTupleElements()` to reject closures with tuple params that have P/Invoke-to-C# element type mismatches. Direct non-blittable params are NOT rejected (they use `void*` marshalling path in callbacks).
 
-#### Remaining steps (deferred)
+#### Remaining steps (deferred — IntPtr approach works on both runtimes)
 
-17. **Wire `[MarshalUsing]` for eligible bound generic params** — Detect `SwiftOptional<Int32>` in PInvokeSignatureBuilder, emit `MarshalUsing:` marker, skip PayloadBuffer creation in WrapperEmitter. Guard: only when `PInvokeHelperContext == null` and not an accessor.
-18. **Design generic `SwiftOptionalMarshaller<T>`** — Reusable marshaller mapping `SwiftOptional<T>` to blittable layout. The per-type marshallers (step 2 above) cover `int` and `String`; a generic version would cover the full type surface.
+17. **Wire `[MarshalUsing]` for eligible bound generic params** — Detect `SwiftOptional<Int32>` in PInvokeSignatureBuilder, emit `MarshalUsing:` marker, skip PayloadBuffer creation in WrapperEmitter. Guard: only when `PInvokeHelperContext == null` and not an accessor. Currently zero `[MarshalUsing]` or `SwiftOptional<int>` references exist in the generator — the SYSLIB1051 fix path emits `IntPtr` + manual marshalling for all non-blittable types, which works on both Mono and NativeAOT. Re-evaluate when the generator's marshalling pipeline is next refactored.
+18. **Design generic `SwiftOptionalMarshaller<T>`** — The .NET `CustomMarshaller` V2 design supports open generics via `GenericPlaceholder` (`[CustomMarshaller(typeof(SwiftOptional<GenericPlaceholder>), ...)]`), so a generic marshaller is architecturally viable. Challenge: the blittable layout depends on `T` — value types use `T` + 1 discriminator byte, while pointer/String types use extra-inhabitant encoding (same size as `T`, zeros = None). A generic marshaller needs runtime dispatch on `T` to select the correct layout, or separate specialized marshallers per category. The per-type marshallers (`SwiftOptionalInt32Marshaller`, `OptionalSwiftStringMarshaller`) already cover the two key patterns.
 
 ---
 

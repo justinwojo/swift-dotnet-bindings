@@ -421,6 +421,25 @@ RunTest("b2-string-return-marshaller", () =>
         throw new Exception($"Expected 'ababab', got '{str}'");
 });
 
+RunTest("b2-string-stress", () =>
+{
+    // Stress test: 10k iterations of return marshalling with heap-backed strings.
+    // Validates +1 ownership transfer in SwiftStringMarshaller.ConvertToManaged —
+    // each iteration allocates a Swift String, marshals through BlittableSwiftString,
+    // creates a managed SwiftString, reads it, and disposes. No leak or double-free
+    // should occur across 10k cycles.
+    using var input = new SwiftString("stress-test-value!");  // 18 chars — heap-backed
+    const string expected = "stress-test-value!stress-test-value!stress-test-value!";
+    for (int i = 0; i < 10_000; i++)
+    {
+        using var result = Blocker2PInvokes.StringRepeat(input, 3);
+        var str = result.ToString();
+        if (str != expected)
+            throw new Exception($"Iteration {i}: expected '{expected}', got '{str}'");
+    }
+    Console.WriteLine("PASS: b2-string-stress (10k iterations, heap-backed)");
+});
+
 RunTest("b2-optstring-some", () =>
 {
     // Optional<String> with a value. Extra-inhabitant type — no discriminator byte.
@@ -640,7 +659,12 @@ public static class SwiftStringMarshaller
     {
         // Swift returned a String with +1 ownership (two raw words in registers).
         // Write them into a temp buffer, then use MarshalFromSwift which calls
-        // ISwiftObject.NewFromPayload → private SwiftString(IntPtr) → InitializeWithCopy.
+        // SwiftString(IntPtr) — a raw byte copy (ownership transfer), NOT
+        // InitializeWithCopy. The +1 refcount from the Swift return value is
+        // transferred to the new SwiftString. We must NOT call VWT.Destroy here —
+        // that would decrement the refcount on heap-backed strings, leaving the
+        // new SwiftString with a dangling pointer. NativeMemory.Free only frees
+        // the 16-byte temp buffer without touching the Swift refcount.
         var temp = (nint*)NativeMemory.Alloc((nuint)(2 * sizeof(nint)));
         try
         {
@@ -650,10 +674,6 @@ public static class SwiftStringMarshaller
         }
         finally
         {
-            // After MarshalFromSwift, the SwiftString has its own retained reference.
-            // Destroy the temp copy to balance the +1 from Swift's return.
-            var metadata = SwiftObjectHelper<SwiftString>.GetTypeMetadata();
-            metadata.ValueWitnessTable->Destroy((byte*)temp, metadata);
             NativeMemory.Free(temp);
         }
     }
