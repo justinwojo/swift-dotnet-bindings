@@ -12,15 +12,15 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Tests for consumer safety attributes: [Obsolete] for JIT-risk and missing-symbol methods,
-/// [OriginalSwiftType] for AnyType-fallback parameters and return types.
+/// Tests for consumer safety attributes: [Obsolete] with DiagnosticId for JIT-risk (SB0001)
+/// and missing-symbol (SB0002) methods, [OriginalSwiftType] for AnyType-fallback parameters and return types.
 /// </summary>
 public class ConsumerSafetyAttributeTests
 {
     #region Deliverable 1: JIT Risk [Obsolete]
 
     [Fact]
-    public void JitRisk_ClosureParameter_Unmitigated_EmitsObsolete()
+    public void JitRisk_ClosureParameter_Unmitigated_EmitsObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -31,12 +31,13 @@ public class ConsumerSafetyAttributeTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("non-blittable Swift calling convention", csOutput);
-        Assert.Contains(", true)]", csOutput);
+        Assert.Contains("Mono JIT crash risk", csOutput);
+        Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
+        Assert.DoesNotContain(", true)]", csOutput);
     }
 
     [Fact]
-    public void JitRisk_SwiftStringReturn_Unmitigated_EmitsObsolete()
+    public void JitRisk_SwiftStringReturn_Unmitigated_EmitsObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -48,11 +49,12 @@ public class ConsumerSafetyAttributeTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("crash at runtime", csOutput);
+        Assert.Contains("Safe on NativeAOT", csOutput);
+        Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
     }
 
     [Fact]
-    public void JitRisk_ExistentialParameter_Unmitigated_EmitsObsolete()
+    public void JitRisk_ExistentialParameter_Unmitigated_EmitsObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -63,7 +65,8 @@ public class ConsumerSafetyAttributeTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("non-blittable Swift calling convention", csOutput);
+        Assert.Contains("Mono JIT crash risk", csOutput);
+        Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
     }
 
     [Fact]
@@ -113,7 +116,7 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
-    public void JitRisk_Constructor_Unmitigated_EmitsObsolete()
+    public void JitRisk_Constructor_Unmitigated_EmitsObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -124,7 +127,8 @@ public class ConsumerSafetyAttributeTests
         var (csOutput, _) = EmitConstructor(ctor, typeDatabase);
 
         Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("non-blittable Swift calling convention", csOutput);
+        Assert.Contains("Mono JIT crash risk", csOutput);
+        Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
     }
 
     #endregion
@@ -189,7 +193,7 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
-    public void SymbolMissing_IsMissingExportedSymbol_SetTrue_EmitsObsolete()
+    public void SymbolMissing_IsMissingExportedSymbol_SetTrue_EmitsObsoleteWithSB0002()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -202,6 +206,7 @@ public class ConsumerSafetyAttributeTests
 
         Assert.Contains("[Obsolete(\"", csOutput);
         Assert.Contains("EntryPointNotFoundException", csOutput);
+        Assert.Contains("DiagnosticId = \"SB0002\"", csOutput);
     }
 
     [Fact]
@@ -220,7 +225,7 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
-    public void CombinedJitRiskAndMissingSymbol_SingleObsoleteWithBothMessages()
+    public void CombinedJitRiskAndMissingSymbol_SingleObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -231,9 +236,10 @@ public class ConsumerSafetyAttributeTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Should have a single [Obsolete] with both messages
-        Assert.Contains("non-blittable Swift calling convention", csOutput);
+        // Should have a single [Obsolete] with both messages, using SB0001 (broader scope)
+        Assert.Contains("Mono JIT crash risk", csOutput);
         Assert.Contains("EntryPointNotFoundException", csOutput);
+        Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
         // Only one [Obsolete] attribute
         var obsoleteCount = CountOccurrences(csOutput, "[Obsolete(\"");
         Assert.Equal(1, obsoleteCount);

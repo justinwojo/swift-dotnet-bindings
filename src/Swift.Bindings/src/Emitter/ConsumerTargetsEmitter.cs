@@ -43,6 +43,25 @@ namespace BindingsGeneration
 
             var content = $"""
                 <Project>
+                  <!-- SwiftBindingsInteropMode: Auto (default) | Safe | Direct
+                       Auto: NativeAOT (PublishAot=true) -> Direct, everything else -> Safe
+                       Direct: Suppresses Mono JIT safety warnings (SB0001) - clean API for NativeAOT
+                       Safe: Shows Mono JIT safety warnings - protects simulator/Mono builds -->
+                  <PropertyGroup>
+                    <SwiftBindingsInteropMode Condition="'$(SwiftBindingsInteropMode)' == ''">Auto</SwiftBindingsInteropMode>
+                  </PropertyGroup>
+                  <!-- Auto mode resolution: PublishAot=true -> Direct, else -> Safe -->
+                  <PropertyGroup Condition="'$(SwiftBindingsInteropMode)' == 'Auto' AND '$(PublishAot)' == 'true'">
+                    <SwiftBindingsInteropMode>Direct</SwiftBindingsInteropMode>
+                  </PropertyGroup>
+                  <PropertyGroup Condition="'$(SwiftBindingsInteropMode)' == 'Auto'">
+                    <SwiftBindingsInteropMode>Safe</SwiftBindingsInteropMode>
+                  </PropertyGroup>
+                  <!-- Direct mode: suppress Mono JIT crash risk warnings (safe on NativeAOT) -->
+                  <PropertyGroup Condition="'$(SwiftBindingsInteropMode)' == 'Direct'">
+                    <NoWarn>$(NoWarn);SB0001</NoWarn>
+                  </PropertyGroup>
+
                   <!-- Idempotency guard: prevents duplicate injection when multiple projects reference the same package -->
                   <Target Name="_Resolve{sanitized}NativeReferences"
                           BeforeTargets="ResolveNativeReferences"

@@ -765,12 +765,14 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits [Obsolete("...", true)] for methods with unmitigated JIT risks or missing exported symbols.
-        /// Combines multiple issues into a single attribute (AllowMultiple=false).
-        /// Skips accessors — property-level [Obsolete] requires separate PropertyHandler wiring.
+        /// Emits [Obsolete] with custom DiagnosticId for methods with unmitigated JIT risks or missing exported symbols.
+        /// Uses SB0001 for JIT risk (Mono-specific, safe on NativeAOT) and SB0002 for missing symbols.
+        /// Combined issues use SB0001 (broader scope). Skips accessors — property-level [Obsolete] requires
+        /// separate PropertyHandler wiring. Consumer .targets suppress these via SwiftBindingsInteropMode=Direct.
         /// </summary>
         private void EmitSafetyObsolete(CSharpWriter csWriter)
         {
+            bool hasJitRisk = false;
             var issues = new List<string>();
 
             // Deliverable 1: JIT risk (skip accessors — see property deferral)
@@ -780,8 +782,9 @@ namespace BindingsGeneration
                 var (_, needsWrapper) = PInvokeEmitter.ComputeEntryPoint((MethodDecl)_env.MethodDecl);
                 if (!needsWrapper)
                 {
-                    issues.Add("This method requires non-blittable Swift calling convention support " +
-                        "not available on current .NET iOS runtime. Calling it will crash at runtime");
+                    hasJitRisk = true;
+                    issues.Add("Mono JIT crash risk: this method uses CallConvSwift P/Invoke patterns " +
+                        "that crash on Mono runtime. Safe on NativeAOT (PublishAot=true)");
                 }
             }
 
@@ -795,7 +798,12 @@ namespace BindingsGeneration
             if (issues.Count > 0)
             {
                 var message = string.Join(". ", issues) + ".";
-                csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", true)]");
+                // SB0001: JIT risk (suppressible on NativeAOT via SwiftBindingsInteropMode=Direct)
+                // SB0002: Missing symbol (not runtime-dependent — always relevant)
+                var diagnosticId = hasJitRisk ? "SB0001" : "SB0002";
+                csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
+                    $"DiagnosticId = \"{diagnosticId}\", " +
+                    $"UrlFormat = \"https://github.com/malinicr/swift-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
             }
         }
 

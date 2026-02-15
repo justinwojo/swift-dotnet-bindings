@@ -2,22 +2,32 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0-ios</TargetFramework>
-    <RuntimeIdentifier>iossimulator-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <ApplicationId>com.swiftbindings.runtimetestsapp</ApplicationId>
+    <ApplicationId>com.swiftbindings.nativeaot.device</ApplicationId>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
-    <!-- Suppress warnings that are not actual errors -->
-    <!-- CS0169: Field is never used (Buffer struct fields reserved for future use) -->
-    <!-- CA1422: Obsolete API warnings (UIWindow, etc.) -->
-    <!-- IL2075/IL2087: AOT trimming warnings (reflection use in tests) -->
-    <!-- SB0001: Mono JIT crash risk warnings (test code intentionally calls these methods) -->
-    <NoWarn>CS0169;SB0001;SB0002;CA1422;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
-    <!-- Disable trimming for test app (reflection-heavy) -->
-    <MtouchLink>None</MtouchLink>
+
+    <!-- NativeAOT settings -->
+    <PublishAot>true</PublishAot>
+    <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+    <TrimMode>partial</TrimMode>
+
+    <!-- Code signing -->
+    <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
+    <CodesignProvision>Wildcard Dev</CodesignProvision>
+    <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+
+    <!-- Suppress warnings -->
+    <!-- SB0001: Mono JIT crash risk warnings (test code calls these methods under NativeAOT) -->
+    <!-- CS0169: Buffer struct fields reserved for layout -->
+    <!-- IL2026/IL2087/IL2091: Trim analysis (SwiftMarshal tuple reflection) -->
+    <!-- IL3050: RequiresDynamicCode (tuple metadata MakeGenericMethod) -->
+    <NoWarn>CS0169;SB0001;SB0002;IL2026;IL2087;IL2091;IL3050</NoWarn>
+
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
@@ -36,7 +46,7 @@
     <Compile Include="../output/Swift.SwiftBindingsTestLib.cs" />
   </ItemGroup>
 
-  <!-- Include SwiftBindingsTestLib xcframework -->
+  <!-- Include SwiftBindingsTestLib xcframework (must have ios-arm64 device slice) -->
   <ItemGroup>
     <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">
       <Kind>Framework</Kind>
@@ -46,19 +56,6 @@
   <!-- Include SwiftBindings wrapper framework (async wrappers) -->
   <ItemGroup>
     <NativeReference Include="../output/SwiftBindings.xcframework" Condition="Exists('../output/SwiftBindings.xcframework')">
-      <Kind>Framework</Kind>
-    </NativeReference>
-  </ItemGroup>
-
-  <!-- SwiftUI bridge (conditional on generated output) -->
-  <PropertyGroup Condition="Exists('../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs')">
-    <DefineConstants>$(DefineConstants);SWIFTUI_BRIDGE</DefineConstants>
-  </PropertyGroup>
-  <ItemGroup Condition="Exists('../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs')">
-    <Compile Include="../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs" />
-  </ItemGroup>
-  <ItemGroup Condition="Exists('../SwiftBridge/SwiftBindingsTestLibBridge.framework')">
-    <NativeReference Include="../SwiftBridge/SwiftBindingsTestLibBridge.framework">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>

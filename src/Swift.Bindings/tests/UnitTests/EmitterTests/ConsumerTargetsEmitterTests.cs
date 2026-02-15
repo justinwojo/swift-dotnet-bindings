@@ -245,6 +245,95 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region C2. SwiftBindingsInteropMode Tests
+
+    public class ConsumerTargetsInteropModeTests
+    {
+        [Fact]
+        public void Emit_InteropMode_DefaultAutoProperty()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("SwiftBindingsInteropMode", content);
+                Assert.Contains("Auto", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_InteropMode_PublishAotCondition()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("$(PublishAot)", content);
+                Assert.Contains("'true'", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_InteropMode_DirectSuppressesSB0001()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("SB0001", content);
+                Assert.Contains("<NoWarn>$(NoWarn);SB0001</NoWarn>", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_InteropMode_DoesNotSuppressSB0002()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                // SB0002 (missing symbol) should never be suppressed — always relevant regardless of runtime
+                Assert.DoesNotContain("SB0002", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_InteropMode_DirectModeCondition()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("'$(SwiftBindingsInteropMode)' == 'Direct'", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_InteropMode_AutoResolvesToSafeByDefault()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                // Second PropertyGroup: when still Auto (PublishAot != true), resolves to Safe
+                Assert.Contains("'$(SwiftBindingsInteropMode)' == 'Auto'", content);
+                Assert.Contains(">Safe<", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
+        private static string EmitAndRead(string dir, string module, string packageId, string minOS, bool hasWrapper)
+            => ConsumerTargetsTestHelper.EmitAndRead(dir, module, packageId, minOS, hasWrapper);
+    }
+
+    #endregion
+
     #region D. NativeReference Exists() Guard Tests
 
     public class ConsumerTargetsExistsGuardTests

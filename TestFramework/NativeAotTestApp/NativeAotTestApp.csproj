@@ -6,18 +6,21 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <ApplicationId>com.swiftbindings.runtimetestsapp</ApplicationId>
+    <ApplicationId>com.swiftbindings.nativeaottestapp</ApplicationId>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
-    <!-- Suppress warnings that are not actual errors -->
-    <!-- CS0169: Field is never used (Buffer struct fields reserved for future use) -->
-    <!-- CA1422: Obsolete API warnings (UIWindow, etc.) -->
-    <!-- IL2075/IL2087: AOT trimming warnings (reflection use in tests) -->
-    <!-- SB0001: Mono JIT crash risk warnings (test code intentionally calls these methods) -->
-    <NoWarn>CS0169;SB0001;SB0002;CA1422;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
-    <!-- Disable trimming for test app (reflection-heavy) -->
-    <MtouchLink>None</MtouchLink>
+
+    <!-- NativeAOT settings -->
+    <PublishAot>true</PublishAot>
+    <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+    <TrimMode>partial</TrimMode>
+
+    <!-- Only suppress warnings that are not investigation artifacts -->
+    <!-- SB0001: Mono JIT crash risk warnings (test code calls these methods under NativeAOT) -->
+    <!-- CS0169: Field is never used (Buffer struct fields reserved for layout) -->
+    <NoWarn>CS0169;SB0001;SB0002</NoWarn>
+
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
@@ -46,19 +49,6 @@
   <!-- Include SwiftBindings wrapper framework (async wrappers) -->
   <ItemGroup>
     <NativeReference Include="../output/SwiftBindings.xcframework" Condition="Exists('../output/SwiftBindings.xcframework')">
-      <Kind>Framework</Kind>
-    </NativeReference>
-  </ItemGroup>
-
-  <!-- SwiftUI bridge (conditional on generated output) -->
-  <PropertyGroup Condition="Exists('../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs')">
-    <DefineConstants>$(DefineConstants);SWIFTUI_BRIDGE</DefineConstants>
-  </PropertyGroup>
-  <ItemGroup Condition="Exists('../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs')">
-    <Compile Include="../output/Swift.SwiftBindingsTestLib.SwiftUIBridge.cs" />
-  </ItemGroup>
-  <ItemGroup Condition="Exists('../SwiftBridge/SwiftBindingsTestLibBridge.framework')">
-    <NativeReference Include="../SwiftBridge/SwiftBindingsTestLibBridge.framework">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>
