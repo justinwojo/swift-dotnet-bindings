@@ -291,6 +291,13 @@ namespace BindingsGeneration
                     }
                 }
             }
+            // All async methods get CancellationToken at emission time — include it in the
+            // projected key so native async methods collide with completion handler overloads.
+            if (methodDecl.IsAsync)
+            {
+                paramTypes.Add("System.Threading.CancellationToken");
+            }
+
             return $"{methodName}({string.Join(",", paramTypes)})";
         }
 

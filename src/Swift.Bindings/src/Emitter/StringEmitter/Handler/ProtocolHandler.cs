@@ -611,6 +611,12 @@ namespace BindingsGeneration
                 }
             }
 
+            // Add CancellationToken to async interface methods (matches WrapperEmitter emission)
+            if (methodDecl.IsAsync)
+            {
+                parameters.Add("System.Threading.CancellationToken cancellationToken = default");
+            }
+
             // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType
             var closureHandler = new ClosureHandler(typeDatabase);
             bool emittedAttribute = false;

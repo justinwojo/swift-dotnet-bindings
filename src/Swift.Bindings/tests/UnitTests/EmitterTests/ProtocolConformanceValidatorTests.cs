@@ -329,6 +329,87 @@ public class ProtocolConformanceValidatorTests
 
     #endregion
 
+    #region Async CancellationToken Signature Consistency
+
+    [Fact]
+    public void CanFullyImplementProtocol_AsyncMethod_IncludesCancellationTokenInSignature()
+    {
+        // Async protocol methods now include CancellationToken in the interface.
+        // The validator's BuildInterfaceMethodSignature must also include CT
+        // so the concrete type's matching method (which also has CT) passes validation.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Protocol with async method
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Loader",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            MangledName = "$s10TestModule6LoaderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "load",
+                    MangledName = "$s10TestModule6LoaderP4loadyyYaKF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = true,
+                    IsAsync = true,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete type with matching async method
+        var concreteType = CreateStructDecl("MyLoader", moduleDecl);
+        var asyncMethod = new MethodDecl
+        {
+            Name = "load",
+            MangledName = "$s10TestModule8MyLoaderV4loadyyYaKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = concreteType,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+        concreteType.Methods.Add(asyncMethod);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        // Both protocol and concrete async methods include CancellationToken → match → true
+        Assert.True(result);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()

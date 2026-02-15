@@ -334,7 +334,169 @@ public class CancellationTokenEmitterTests
 
     #endregion
 
+    #region Projected Key Tests — Async Methods Include CancellationToken
+
+    [Fact]
+    public void AsyncMethod_ProjectedKeyIncludesCancellationToken()
+    {
+        // BaseHandler.GetProjectedCSharpMethodKey adds CancellationToken for async methods.
+        // Test via reflection since the method is private static.
+        var moduleDecl = CreateModuleDecl();
+        var parentDecl = CreateClassDecl(moduleDecl);
+        moduleDecl.Types.Add(parentDecl);
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "fetchData",
+            MangledName = "$s10TestModule8PipelineC9fetchDataSiyYaKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        var typeDatabase = CreateBasicTypeDatabase(parentDecl);
+        var key = InvokeGetProjectedCSharpMethodKey(methodDecl, typeDatabase);
+
+        Assert.Contains("System.Threading.CancellationToken", key);
+    }
+
+    [Fact]
+    public void SyncMethod_ProjectedKeyDoesNotIncludeCancellationToken()
+    {
+        // Sync methods should NOT have CancellationToken in their projected key.
+        var moduleDecl = CreateModuleDecl();
+        var parentDecl = CreateClassDecl(moduleDecl);
+        moduleDecl.Types.Add(parentDecl);
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "getData",
+            MangledName = "$s10TestModule8PipelineC7getDataSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var typeDatabase = CreateBasicTypeDatabase(parentDecl);
+        var key = InvokeGetProjectedCSharpMethodKey(methodDecl, typeDatabase);
+
+        Assert.DoesNotContain("CancellationToken", key);
+    }
+
+    /// <summary>
+    /// Invokes BaseHandler.GetProjectedCSharpMethodKey via reflection (private static).
+    /// </summary>
+    private static string InvokeGetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+    {
+        var method = typeof(BaseHandler).GetMethod(
+            "GetProjectedCSharpMethodKey",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+        return (string)method!.Invoke(null, new object[] { methodDecl, typeDatabase })!;
+    }
+
+    #endregion
+
     #region Helper Methods
+
+    private static ModuleDecl CreateModuleDecl()
+    {
+        return new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static ClassDecl CreateClassDecl(ModuleDecl moduleDecl)
+    {
+        var parentDecl = new ClassDecl
+        {
+            Name = "Pipeline",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Pipeline"),
+            MangledName = "$s10TestModule8PipelineCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        parentDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "shared",
+            IsStatic = true,
+            HasStorage = true,
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.Pipeline"),
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        });
+        return parentDecl;
+    }
+
+    private static TypeDatabase CreateBasicTypeDatabase(ClassDecl parentDecl)
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        module.RegisterType(
+            parentDecl.SwiftTypeName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Pipeline"),
+                SwiftTypeName = parentDecl.SwiftTypeName,
+                MetadataAccessor = "$s10TestModule8PipelineCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(module);
+        return typeDatabase;
+    }
 
     /// <summary>
     /// Generates an async instance method on a class (non-void return).

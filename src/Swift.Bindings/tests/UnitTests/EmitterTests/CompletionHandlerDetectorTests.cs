@@ -318,7 +318,218 @@ public class CompletionHandlerDetectorTests
 
     #endregion
 
+    #region Completion Handler Dedup with Native Async
+
+    [Fact]
+    public void CompletionHandler_SkipsOverload_WhenNativeAsyncExists()
+    {
+        // When a native async method is emitted first, its projected key now includes
+        // CancellationToken. The completion handler overload also includes CancellationToken
+        // in its key. So both keys match → overload is skipped → no CS0111.
+        CancellationTaskEmitter.ResetForModule();
+
+        var moduleDecl = CreateModuleDecl();
+        var parentDecl = CreateParentDecl(moduleDecl);
+        var typeDatabase = CreateTypeDatabase(parentDecl);
+
+        // Emit native async method first
+        var asyncMethod = new MethodDecl
+        {
+            Name = "presentPaymentOptions",
+            MangledName = "$s10TestModule8PipelineC22presentPaymentOptionsyySo16UIViewControllerCYaKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateAsyncReturnArg(moduleDecl, parentDecl),
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = "from",
+                    PrivateName = "from",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        // Pre-populate EmittedProjectedSignatures with the native async method's projected key.
+        // In production, HandleBaseDecl calls GetProjectedCSharpMethodKey and adds it.
+        // Here we simulate that by computing the key via reflection.
+        var emittedSignatures = new HashSet<string>();
+        var nativeAsyncKey = InvokeGetProjectedCSharpMethodKey(asyncMethod, typeDatabase);
+        emittedSignatures.Add(nativeAsyncKey);
+
+        // Now emit a completion handler method that would produce the same Async overload
+        var closureSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var completionMethod = new MethodDecl
+        {
+            Name = "presentPaymentOptions",
+            MangledName = "$s10TestModule8PipelineC22presentPaymentOptionsyySi_yyXEtF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = "from",
+                    PrivateName = "from",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = closureSpec,
+                    Name = "completion",
+                    PrivateName = "completion",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var csOutput2 = EmitMethodWithSignatures(completionMethod, typeDatabase, emittedSignatures);
+        // The completion handler Async overload should NOT be emitted (key collision with native async)
+        var asyncMethodCount = csOutput2.Split('\n')
+            .Count(l => l.Contains("PresentPaymentOptionsAsync(") && !l.TrimStart().StartsWith("//"));
+        Assert.Equal(0, asyncMethodCount);
+    }
+
+    [Fact]
+    public void CompletionHandler_EmitsOverload_WhenNoNativeAsyncConflict()
+    {
+        // Without a pre-existing native async with the same name,
+        // the completion handler overload should be emitted normally.
+        CancellationTaskEmitter.ResetForModule();
+
+        var moduleDecl = CreateModuleDecl();
+        var parentDecl = CreateParentDecl(moduleDecl);
+        var typeDatabase = CreateTypeDatabase(parentDecl);
+
+        var closureSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var method = new MethodDecl
+        {
+            Name = "loadData",
+            MangledName = "$s10TestModule8PipelineC8loadDatayyXEF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = closureSpec,
+                    Name = "completion",
+                    PrivateName = "completion",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var emittedSignatures = new HashSet<string>();
+        var csOutput = EmitMethodWithSignatures(method, typeDatabase, emittedSignatures);
+        Assert.Contains("LoadDataAsync(", csOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
+
+    private static ArgumentDecl CreateAsyncReturnArg(ModuleDecl moduleDecl, ClassDecl parentDecl)
+    {
+        return new ArgumentDecl
+        {
+            SwiftTypeSpec = TupleTypeSpec.Empty,
+            Name = string.Empty,
+            PrivateName = string.Empty,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static string EmitMethodWithSignatures(MethodDecl methodDecl, TypeDatabase typeDatabase, HashSet<string> emittedSignatures)
+    {
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+
+        // Inject EmittedProjectedSignatures for dedup testing
+        if (env is MethodEnvironment methodEnv)
+        {
+            methodEnv.EmittedProjectedSignatures = emittedSignatures;
+        }
+
+        handler.Emit(csWriter, swiftWriter, env, conductor);
+
+        return csStringWriter.ToString();
+    }
+
+    /// <summary>
+    /// Invokes BaseHandler.GetProjectedCSharpMethodKey via reflection (private static).
+    /// </summary>
+    private static string InvokeGetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+    {
+        var method = typeof(BaseHandler).GetMethod(
+            "GetProjectedCSharpMethodKey",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        return (string)method!.Invoke(null, new object[] { methodDecl, typeDatabase })!;
+    }
 
     private static ModuleDecl CreateModuleDecl() => new ModuleDecl
     {

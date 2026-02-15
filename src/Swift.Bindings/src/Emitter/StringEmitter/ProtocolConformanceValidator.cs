@@ -316,6 +316,12 @@ public class ProtocolConformanceValidator
             parameterTypes.Add(ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(projected, arg.SwiftTypeSpec, _typeDatabase));
         }
 
+        // Add CancellationToken to async method signatures (matches ProtocolHandler interface emission)
+        if (protoMethod.IsAsync)
+        {
+            parameterTypes.Add("System.Threading.CancellationToken");
+        }
+
         return $"{methodName}({string.Join(",", parameterTypes)})";
     }
 

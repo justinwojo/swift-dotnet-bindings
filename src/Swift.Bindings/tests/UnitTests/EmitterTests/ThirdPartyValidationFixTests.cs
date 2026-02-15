@@ -146,14 +146,14 @@ public class ThirdPartyValidationFixTests
         // not "_csharpImpl.Refresh(); return;"
         var output = EmitAsyncProtocolProxy("refresh", hasReturn: false);
         // Should use "return _csharpImpl" delegation, not bare call + return
-        Assert.Contains("return _csharpImpl.RefreshAsync()", output);
+        Assert.Contains("return _csharpImpl.RefreshAsync(cancellationToken)", output);
     }
 
     [Fact]
     public void ProtocolProxy_AsyncMethodWithReturn_BodyReturnsDelegation()
     {
         var output = EmitAsyncProtocolProxy("generateKey", hasReturn: true);
-        Assert.Contains("return _csharpImpl.GenerateKeyAsync()", output);
+        Assert.Contains("return _csharpImpl.GenerateKeyAsync(cancellationToken)", output);
     }
 
     #endregion

@@ -418,6 +418,12 @@ public static class DefaultParameterOverloadEmitter
                 }
             }
         }
+        // Mirror IHandler.GetProjectedCSharpMethodKey: async methods get CancellationToken at emission time.
+        if (overloadDecl.IsAsync)
+        {
+            paramTypes.Add("System.Threading.CancellationToken");
+        }
+
         return $"{methodName}({string.Join(",", paramTypes)})";
     }
 

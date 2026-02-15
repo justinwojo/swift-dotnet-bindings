@@ -175,7 +175,7 @@ public class ProtocolHandlerOutputTests
 
         Assert.Contains("public interface ICacheable : ISwiftHashable", csOutput);
         Assert.Contains("long Count { get; }", csOutput);
-        Assert.Contains("Task<long> FetchAsync(long key);", csOutput);
+        Assert.Contains("Task<long> FetchAsync(long key, System.Threading.CancellationToken cancellationToken = default);", csOutput);
         Assert.Contains("public unsafe class CacheableProxy : ICacheable, ISwiftObject", csOutput);
     }
 
@@ -984,10 +984,10 @@ public class ProtocolHandlerOutputTests
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
         // Should be FlushAsync (void return → no Get prefix)
-        Assert.Contains("FlushAsync()", csOutput);
+        Assert.Contains("FlushAsync(", csOutput);
         Assert.DoesNotContain("GetFlushAsync", csOutput);
-        // Return type should be Task, not Task<void>
-        Assert.Contains("Task FlushAsync()", csOutput);
+        // Return type should be Task, not Task<void>; async methods include CancellationToken
+        Assert.Contains("Task FlushAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
     }
 
     [Fact]
@@ -1036,8 +1036,8 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        // Non-void return + noun name → GetDataAsync
-        Assert.Contains("GetDataAsync()", csOutput);
+        // Non-void return + noun name → GetDataAsync (with CancellationToken)
+        Assert.Contains("GetDataAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
     }
 
     #endregion
@@ -1532,6 +1532,190 @@ public class ProtocolHandlerOutputTests
         // Interface should only have one Handle (duplicate skipped)
         var interfacePart = csOutput.Substring(0, csOutput.IndexOf("class HandlerProxy"));
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(interfacePart, "Handle("));
+    }
+
+    #endregion
+
+    #region Protocol Async CancellationToken Tests
+
+    [Fact]
+    public void Emit_ProtocolAsyncMethod_InterfaceHasCancellationTokenParam()
+    {
+        // Protocol interface async method must include CancellationToken to match WrapperEmitter emission.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "KeyGenerator",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.KeyGenerator"),
+            MangledName = "$s10TestModule12KeyGeneratorP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "generateKey",
+                    MangledName = "$s10TestModule12KeyGeneratorP11generateKeySiyYaKF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = true,
+                    IsAsync = true,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface method must have CancellationToken
+        Assert.Contains("System.Threading.CancellationToken cancellationToken = default", csOutput);
+        // Should be on the interface line
+        Assert.Contains("GenerateKeyAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ProtocolSyncMethod_InterfaceDoesNotHaveCancellationTokenParam()
+    {
+        // Sync protocol methods should NOT have CancellationToken.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Counter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Counter"),
+            MangledName = "$s10TestModule7CounterP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "increment",
+                    MangledName = "$s10TestModule7CounterP9incrementyyF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.DoesNotContain("CancellationToken", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ProtocolAsyncMethod_ProxyPassesCancellationTokenToImpl()
+    {
+        // Protocol proxy implementation must pass cancellationToken to _csharpImpl delegation.
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        // Register the protocol type so the proxy class is emitted
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var protoTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Fetcher");
+        testModule.RegisterType(protoTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IFetcher"),
+            SwiftTypeName = protoTypeName,
+            MetadataAccessor = "$s10TestModule7FetcherMa",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Protocol
+        });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Fetcher",
+            SwiftTypeName = protoTypeName,
+            MangledName = "$s10TestModule7FetcherP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "fetch",
+                    MangledName = "$s10TestModule7FetcherP5fetchSiyYaKF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = true,
+                    IsAsync = true,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Proxy class should have CancellationToken in method signature
+        Assert.Contains("FetcherProxy", csOutput);
+        // The proxy delegation should pass cancellationToken to _csharpImpl
+        Assert.Contains("cancellationToken", csOutput);
     }
 
     #endregion

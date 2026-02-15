@@ -475,6 +475,13 @@ public partial class ProtocolProxyEmitter
             paramSwiftTypeSpecs.Add(param.SwiftTypeSpec);
             argIndex++;
         }
+        // Add CancellationToken to async proxy methods (matches interface + WrapperEmitter emission)
+        if (method.IsAsync)
+        {
+            parameters.Add("System.Threading.CancellationToken cancellationToken = default");
+            argNames.Add("cancellationToken");
+        }
+
         var parametersString = string.Join(", ", parameters);
         var argsString = string.Join(", ", argNames);
 
