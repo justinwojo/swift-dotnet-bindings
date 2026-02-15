@@ -1,5 +1,12 @@
 ---
-globs: ["**/SwiftUIBridge*", "**/SwiftUIViewDetector*", "**/SwiftUIBridgeCollector*", "**/SwiftUIBridgeEmitter*", "**/AsyncPattern*", "**/InitAnalyzer*", "**/BridgeHint*"]
+paths:
+  - "**/SwiftUIBridge*"
+  - "**/SwiftUIViewDetector*"
+  - "**/SwiftUIBridgeCollector*"
+  - "**/SwiftUIBridgeEmitter*"
+  - "**/AsyncPattern*"
+  - "**/InitAnalyzer*"
+  - "**/BridgeHint*"
 ---
 
 # SwiftUI Bridge Architecture

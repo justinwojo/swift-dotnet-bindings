@@ -1,5 +1,6 @@
 ---
-globs: ["src/Swift.Bindings/src/Emitter/**"]
+paths:
+  - "src/Swift.Bindings/src/Emitter/**"
 ---
 
 # Emitter Architecture

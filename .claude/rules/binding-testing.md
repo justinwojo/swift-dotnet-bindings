@@ -1,5 +1,6 @@
 ---
-globs: ["BindingTesting/**"]
+paths:
+  - "BindingTesting/**"
 ---
 
 # Binding Testing Scripts

@@ -1,5 +1,8 @@
 ---
-globs: ["src/Swift.Bindings/src/Parser/**", "src/Swift.Bindings/src/Marshaler/**", "src/Swift.Bindings/src/Model/**"]
+paths:
+  - "src/Swift.Bindings/src/Parser/**"
+  - "src/Swift.Bindings/src/Marshaler/**"
+  - "src/Swift.Bindings/src/Model/**"
 ---
 
 # Parser & Marshaler Patterns

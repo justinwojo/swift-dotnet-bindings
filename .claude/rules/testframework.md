@@ -1,5 +1,6 @@
 ---
-globs: ["TestFramework/**"]
+paths:
+  - "TestFramework/**"
 ---
 
 # TestFramework Guide

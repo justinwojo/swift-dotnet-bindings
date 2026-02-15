@@ -1,5 +1,7 @@
 ---
-globs: ["**/*.cs", "**/*.swift"]
+paths:
+  - "**/*.cs"
+  - "**/*.swift"
 ---
 
 # Copyright Headers for Source Files
