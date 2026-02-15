@@ -30,7 +30,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public unsafe class TestProtocolProxy", output);
+        Assert.Contains("public unsafe partial class TestProtocolProxy", output);
     }
 
     [Fact]
@@ -363,7 +363,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("private static class NativeMethods", output);
+        Assert.Contains("private static partial class NativeMethods", output);
     }
 
     [Fact]
@@ -373,7 +373,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         // P/Invoke should target the module library path (fallback when AsyncLibraryName is null)
-        Assert.Contains("[DllImport(\"/fake/path\"", output);
+        Assert.Contains("[LibraryImport(\"/fake/path\"", output);
         Assert.Contains("EntryPoint = \"SetTestProtocol_vtable\"", output);
     }
 
@@ -384,8 +384,8 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("[DllImport(\"BlinkIDSwiftBindings\"", output);
-        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", output);
+        Assert.Contains("[LibraryImport(\"BlinkIDSwiftBindings\"", output);
+        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", output);
     }
 
     [Fact]
@@ -395,8 +395,8 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("[DllImport(\"/fake/path\"", output);
-        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", output);
+        Assert.Contains("[LibraryImport(\"/fake/path\"", output);
+        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", output);
     }
 
     #endregion
@@ -1235,7 +1235,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("EntryPoint = \"SBW_TestProtocol_get_value_0\"", output);
-        Assert.Contains("public static extern IntPtr SBW_TestProtocol_get_value_0(IntPtr containerPtr)", output);
+        Assert.Contains("public static partial IntPtr SBW_TestProtocol_get_value_0(IntPtr containerPtr)", output);
     }
 
     [Fact]
@@ -1246,7 +1246,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("EntryPoint = \"SBW_TestProtocol_free_get_value_0\"", output);
-        Assert.Contains("public static extern void SBW_TestProtocol_free_get_value_0(IntPtr ptr)", output);
+        Assert.Contains("public static partial void SBW_TestProtocol_free_get_value_0(IntPtr ptr)", output);
     }
 
     [Fact]
@@ -1256,10 +1256,18 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int32"));
         var output = EmitProxyClass(protocolDecl);
 
-        // Both accessor and free should use Cdecl
-        var accessorLine = output.Split('\n').FirstOrDefault(l => l.Contains("SBW_TestProtocol_get_value_0") && l.Contains("DllImport"));
-        Assert.NotNull(accessorLine);
-        Assert.Contains("CallingConvention.Cdecl", accessorLine);
+        // Both accessor and free should use Cdecl via UnmanagedCallConv attribute
+        var lines = output.Split('\n').Select(l => l.Trim()).ToArray();
+
+        // Verify accessor has its own UnmanagedCallConv + LibraryImport pair
+        var accessorLibraryImportIdx = Array.FindIndex(lines, l => l.Contains("LibraryImport") && l.Contains("SBW_TestProtocol_get_value_0"));
+        Assert.True(accessorLibraryImportIdx > 0, "Accessor LibraryImport not found");
+        Assert.Contains("CallConvCdecl", lines[accessorLibraryImportIdx - 1]);
+
+        // Verify free has its own UnmanagedCallConv + LibraryImport pair
+        var freeLibraryImportIdx = Array.FindIndex(lines, l => l.Contains("LibraryImport") && l.Contains("SBW_TestProtocol_free_get_value_0"));
+        Assert.True(freeLibraryImportIdx > 0, "Free LibraryImport not found");
+        Assert.Contains("CallConvCdecl", lines[freeLibraryImportIdx - 1]);
     }
 
     [Fact]
@@ -1364,7 +1372,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("EntryPoint = \"SBW_TestProtocol_set_value_0\"", output);
-        Assert.Contains("public static extern void SBW_TestProtocol_set_value_0(IntPtr containerPtr, IntPtr valuePtr)", output);
+        Assert.Contains("public static partial void SBW_TestProtocol_set_value_0(IntPtr containerPtr, IntPtr valuePtr)", output);
     }
 
     [Fact]
@@ -1573,7 +1581,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("EntryPoint = \"Get_EveryProtocol_TestProtocol_WitnessTable\"", output);
-        Assert.Contains("public static extern IntPtr GetWitnessTable()", output);
+        Assert.Contains("public static partial IntPtr GetWitnessTable()", output);
     }
 
     [Fact]

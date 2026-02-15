@@ -597,8 +597,8 @@ public class MonoJitRiskDetectorTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // DllImport should use module library, not wrapper
-        Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\"", csOutput);
+        // LibraryImport should use module library, not wrapper
+        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\"", csOutput);
     }
 
     [Fact]
@@ -623,8 +623,8 @@ public class MonoJitRiskDetectorTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // DllImport must use module library — NOT the async wrapper lib
-        Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\"", csOutput);
+        // LibraryImport must use module library — NOT the async wrapper lib
+        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\"", csOutput);
         Assert.DoesNotContain("AsyncWrapper", csOutput);
     }
 
@@ -649,7 +649,7 @@ public class MonoJitRiskDetectorTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("[DllImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
+        Assert.Contains("[LibraryImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
     }
 
     #endregion

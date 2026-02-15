@@ -312,8 +312,8 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // P/Invoke declaration for the case constructor
-            csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
-            csWriter.WriteLine($"private static extern IntPtr {pInvokeName}();");
+            csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
+            csWriter.WriteLine($"private static partial IntPtr {pInvokeName}();");
             csWriter.WriteLine();
         }
 

@@ -73,8 +73,8 @@ public static class AsyncStreamEmitter
         var selfParam = isStatic ? "" : "void* self, ";
 
         csWriter.WriteLines($$"""
-            [DllImport("{{libraryPath}}", EntryPoint = "{{swiftWrapperName}}")]
-            private static extern unsafe void PInvoke_{{swiftWrapperName}}(
+            [LibraryImport("{{libraryPath}}", EntryPoint = "{{swiftWrapperName}}")]
+            private static unsafe partial void PInvoke_{{swiftWrapperName}}(
                 {{selfParam}}delegate* unmanaged[Cdecl]<void*, long, byte> elementCallback,
                 delegate* unmanaged[Cdecl]<long, void> completionCallback,
                 long context);

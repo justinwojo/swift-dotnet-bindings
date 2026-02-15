@@ -10,7 +10,13 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
     <IsAotCompatible>true</IsAotCompatible>
+    <NoWarn>CA1420</NoWarn>
   </PropertyGroup>
+
+  <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/Swift.Bindings.csproj">

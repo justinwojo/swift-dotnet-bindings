@@ -176,7 +176,7 @@ public class ProtocolHandlerOutputTests
         Assert.Contains("public interface ICacheable : ISwiftHashable", csOutput);
         Assert.Contains("long Count { get; }", csOutput);
         Assert.Contains("Task<long> FetchAsync(long key, System.Threading.CancellationToken cancellationToken = default);", csOutput);
-        Assert.Contains("public unsafe class CacheableProxy : ICacheable, ISwiftObject", csOutput);
+        Assert.Contains("public unsafe partial class CacheableProxy : ICacheable, ISwiftObject", csOutput);
     }
 
     [Fact]

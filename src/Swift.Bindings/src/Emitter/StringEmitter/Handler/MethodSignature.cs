@@ -24,6 +24,8 @@ namespace BindingsGeneration
             // Existential types: use container type in P/Invoke declaration
             // Format: "Existential:{containerType}:{publicType}"
             var t when t.StartsWith("Existential:") => $"{modifier} {t.Split(':')[1]} {Name}",
+            // Bool requires explicit [MarshalAs] with LibraryImport + DisableRuntimeMarshalling
+            "bool" => $"[MarshalAs(UnmanagedType.U1)] {modifier} bool {Name}",
             // All other types delegate to SignatureString
             _ => SignatureString()
         };

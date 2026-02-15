@@ -167,9 +167,9 @@ public class ConstructorHandlerOutputTests
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
         Assert.Contains("public Animal(", csOutput);
-        // The extern P/Invoke should use IntPtr for the enum parameter
+        // The partial P/Invoke should use IntPtr for the enum parameter
         var lines = csOutput.Split('\n');
-        var externLine = Array.Find(lines, line => line.Contains("extern", StringComparison.Ordinal));
+        var externLine = Array.Find(lines, line => line.Contains("partial", StringComparison.Ordinal) && line.Contains("PInvoke_", StringComparison.Ordinal));
         Assert.NotNull(externLine);
         Assert.Contains("IntPtr", externLine);
         Assert.DoesNotContain("Swift.TestModule.Variant", externLine);

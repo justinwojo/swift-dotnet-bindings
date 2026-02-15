@@ -15,12 +15,12 @@ namespace BindingsGeneration.FunctionalTests
     /// <summary>
     /// Represents ChaChaPoly in C#.
     /// </summary>
-    public unsafe struct ChaChaPoly
+    public unsafe partial struct ChaChaPoly
     {
         /// <summary>
         /// Represents Nonce in C#.
         /// </summary>
-        public unsafe class Nonce : ISwiftObject
+        public unsafe partial class Nonce : ISwiftObject
         {
             static nuint _payloadSize = SwiftObjectHelper<Nonce>.GetTypeMetadata().Size;
 
@@ -31,8 +31,8 @@ namespace BindingsGeneration.FunctionalTests
             static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
 
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO5NonceVMa")]
-            internal static extern TypeMetadata PInvoke_getMetadata();
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO5NonceVMa")]
+            internal static partial TypeMetadata PInvoke_getMetadata();
 
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
@@ -97,8 +97,8 @@ namespace BindingsGeneration.FunctionalTests
             }
 
             [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO5NonceV4dataAEx_tKc10Foundation12DataProtocolRzlufC")]
-            public static unsafe extern void PInvoke_init(SwiftIndirectResult result, void* data, TypeMetadata metadata, ProtocolWitnessTable witnessTable, out SwiftError error);
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO5NonceV4dataAEx_tKc10Foundation12DataProtocolRzlufC")]
+            public static unsafe partial void PInvoke_init(SwiftIndirectResult result, void* data, TypeMetadata metadata, ProtocolWitnessTable witnessTable, out SwiftError error);
 
             public void Dispose() => _payload?.Dispose();
         }
@@ -106,7 +106,7 @@ namespace BindingsGeneration.FunctionalTests
         /// <summary>
         /// Represents SealedBox in C#.
         /// </summary>
-        public unsafe struct SealedBox
+        public unsafe partial struct SealedBox
         {
 #pragma warning disable 0169
             private Data _combined;
@@ -136,21 +136,21 @@ namespace BindingsGeneration.FunctionalTests
             }
 
             [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO9SealedBoxV5nonce10ciphertext3tagAeC5NonceV_xq_tKc10Foundation12DataProtocolRzAkLR_r0_lufC")]
-            public static unsafe extern ChaChaPoly.SealedBox PInvoke_init(SafeHandle nonce, void* ciphertext, void* tag, TypeMetadata ciphertextMetadata, TypeMetadata tagMetadata, ProtocolWitnessTable ciphertextWitnessTable, ProtocolWitnessTable tagWitnessTable, out SwiftError error);
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO9SealedBoxV5nonce10ciphertext3tagAeC5NonceV_xq_tKc10Foundation12DataProtocolRzAkLR_r0_lufC")]
+            public static unsafe partial ChaChaPoly.SealedBox PInvoke_init(SafeHandle nonce, void* ciphertext, void* tag, TypeMetadata ciphertextMetadata, TypeMetadata tagMetadata, ProtocolWitnessTable ciphertextWitnessTable, ProtocolWitnessTable tagWitnessTable, out SwiftError error);
 
 
             public Data Ciphertext => PInvoke_GetCiphertext(this);
 
             [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO9SealedBoxV10ciphertext10Foundation4DataVvg")]
-            public static unsafe extern Data PInvoke_GetCiphertext(ChaChaPoly.SealedBox sealedBox);
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO9SealedBoxV10ciphertext10Foundation4DataVvg")]
+            public static unsafe partial Data PInvoke_GetCiphertext(ChaChaPoly.SealedBox sealedBox);
 
             public Data Tag => PInvoke_GetTag(this);
 
             [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO9SealedBoxV3tag10Foundation4DataVvg")]
-            public static unsafe extern Data PInvoke_GetTag(ChaChaPoly.SealedBox sealedBox);
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO9SealedBoxV3tag10Foundation4DataVvg")]
+            public static unsafe partial Data PInvoke_GetTag(ChaChaPoly.SealedBox sealedBox);
         }
 
         /// <summary>
@@ -178,8 +178,8 @@ namespace BindingsGeneration.FunctionalTests
         }
 
         [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-        [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO4seal_5using5nonce14authenticatingAC9SealedBoxVx_AA12SymmetricKeyVAC5NonceVSgq_tK10Foundation12DataProtocolRzAoPR_r0_lFZ")]
-        public static unsafe extern ChaChaPoly.SealedBox PInvoke_Seal(void* plaintext, SafeHandle key, SafeHandle nonce, void* aad, TypeMetadata plaintextMetadata, TypeMetadata aadMetadata, ProtocolWitnessTable plaintextWitnessTable, ProtocolWitnessTable aadWitnessTable, out SwiftError error);
+        [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO4seal_5using5nonce14authenticatingAC9SealedBoxVx_AA12SymmetricKeyVAC5NonceVSgq_tK10Foundation12DataProtocolRzAoPR_r0_lFZ")]
+        public static unsafe partial ChaChaPoly.SealedBox PInvoke_Seal(void* plaintext, SafeHandle key, SafeHandle nonce, void* aad, TypeMetadata plaintextMetadata, TypeMetadata aadMetadata, ProtocolWitnessTable plaintextWitnessTable, ProtocolWitnessTable aadWitnessTable, out SwiftError error);
 
 
         /// <summary>
@@ -203,20 +203,20 @@ namespace BindingsGeneration.FunctionalTests
 
 
         [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-        [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO4open_5using14authenticating10Foundation4DataVAC9SealedBoxV_AA12SymmetricKeyVxtKAG0I8ProtocolRzlFZ")]
-        public static unsafe extern Data PInvoke_Open(ChaChaPoly.SealedBox sealedBox, SafeHandle key, void* aad, TypeMetadata metadata, ProtocolWitnessTable witnessTable, out SwiftError error);
+        [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit03ChaC4PolyO4open_5using14authenticating10Foundation4DataVAC9SealedBoxV_AA12SymmetricKeyVxtKAG0I8ProtocolRzlFZ")]
+        public static unsafe partial Data PInvoke_Open(ChaChaPoly.SealedBox sealedBox, SafeHandle key, void* aad, TypeMetadata metadata, ProtocolWitnessTable witnessTable, out SwiftError error);
 
     }
 
     /// <summary>
     /// Represents AesGcm in C#.
     /// </summary>
-    public unsafe struct AesGcm
+    public unsafe partial struct AesGcm
     {
         /// <summary>
         /// Represents Nonce in C#.
         /// </summary>
-        public unsafe class Nonce : ISwiftObject
+        public unsafe partial class Nonce : ISwiftObject
         {
             static nuint _payloadSize = SwiftObjectHelper<Nonce>.GetTypeMetadata().Size;
 
@@ -227,8 +227,8 @@ namespace BindingsGeneration.FunctionalTests
             static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
 
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO5NonceVMa")]
-            internal static extern TypeMetadata PInvoke_getMetadata();
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO5NonceVMa")]
+            internal static partial TypeMetadata PInvoke_getMetadata();
 
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
@@ -296,13 +296,13 @@ namespace BindingsGeneration.FunctionalTests
         }
 
         [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-        [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO5NonceV4dataAGx_tKc10Foundation12DataProtocolRzlufC")]
-        public static unsafe extern void PInvoke_init(SwiftIndirectResult result, void* data, TypeMetadata metadata, ProtocolWitnessTable witnessTable, out SwiftError error);
+        [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO5NonceV4dataAGx_tKc10Foundation12DataProtocolRzlufC")]
+        public static unsafe partial void PInvoke_init(SwiftIndirectResult result, void* data, TypeMetadata metadata, ProtocolWitnessTable witnessTable, out SwiftError error);
 
         /// <summary>
         /// Represents SealedBox in C#.
         /// </summary>
-        public unsafe class SealedBox : ISwiftObject
+        public unsafe partial class SealedBox : ISwiftObject
         {
             static nuint _payloadSize = SwiftObjectHelper<SealedBox>.GetTypeMetadata().Size;
 
@@ -313,8 +313,8 @@ namespace BindingsGeneration.FunctionalTests
             static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
 
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO9SealedBoxVMa")]
-            internal static extern TypeMetadata PInvoke_getMetadata();
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO9SealedBoxVMa")]
+            internal static partial TypeMetadata PInvoke_getMetadata();
 
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
@@ -395,21 +395,21 @@ namespace BindingsGeneration.FunctionalTests
             }
 
             [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO9SealedBoxV5nonce10ciphertext3tagAgE5NonceV_xq_tKc10Foundation12DataProtocolRzAmNR_r0_lufC")]
-            public static unsafe extern void PInvoke_init(SwiftIndirectResult result, SafeHandle nonce, void* ciphertext, void* tag, TypeMetadata ciphertextMetadata, TypeMetadata tagMetadata, ProtocolWitnessTable ciphertextWitnessTable, ProtocolWitnessTable tagWitnessTable, out SwiftError error);
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO9SealedBoxV5nonce10ciphertext3tagAgE5NonceV_xq_tKc10Foundation12DataProtocolRzAmNR_r0_lufC")]
+            public static unsafe partial void PInvoke_init(SwiftIndirectResult result, SafeHandle nonce, void* ciphertext, void* tag, TypeMetadata ciphertextMetadata, TypeMetadata tagMetadata, ProtocolWitnessTable ciphertextWitnessTable, ProtocolWitnessTable tagWitnessTable, out SwiftError error);
 
 
             public Data Ciphertext => PInvoke_GetCiphertext(new SwiftSelf((void*)_payload.DangerousGetHandle()));
 
             [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO9SealedBoxV10ciphertext10Foundation4DataVvg")]
-            public static unsafe extern Data PInvoke_GetCiphertext(SwiftSelf sealedBox);
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO9SealedBoxV10ciphertext10Foundation4DataVvg")]
+            public static unsafe partial Data PInvoke_GetCiphertext(SwiftSelf sealedBox);
 
             public Data Tag => PInvoke_GetTag(new SwiftSelf((void*)_payload.DangerousGetHandle()));
 
             [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-            [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO9SealedBoxV3tag10Foundation4DataVvg")]
-            public static unsafe extern Data PInvoke_GetTag(SwiftSelf sealedBox);
+            [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO9SealedBoxV3tag10Foundation4DataVvg")]
+            public static unsafe partial Data PInvoke_GetTag(SwiftSelf sealedBox);
 
             public void Dispose() => _payload?.Dispose();
         }
@@ -444,8 +444,8 @@ namespace BindingsGeneration.FunctionalTests
         }
 
         [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-        [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO4seal_5using5nonce14authenticatingAE9SealedBoxVx_AA12SymmetricKeyVAE5NonceVSgq_tK10Foundation12DataProtocolRzAqRR_r0_lFZ")]
-        public static unsafe extern void PInvoke_Seal(SwiftIndirectResult result, void* plaintext, SafeHandle key, SafeHandle nonce, void* aad, TypeMetadata plaintextMetadata, TypeMetadata aadMetadata, ProtocolWitnessTable plaintextWitnessTable, ProtocolWitnessTable aadWitnessTable, out SwiftError error);
+        [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO4seal_5using5nonce14authenticatingAE9SealedBoxVx_AA12SymmetricKeyVAE5NonceVSgq_tK10Foundation12DataProtocolRzAqRR_r0_lFZ")]
+        public static unsafe partial void PInvoke_Seal(SwiftIndirectResult result, void* plaintext, SafeHandle key, SafeHandle nonce, void* aad, TypeMetadata plaintextMetadata, TypeMetadata aadMetadata, ProtocolWitnessTable plaintextWitnessTable, ProtocolWitnessTable aadWitnessTable, out SwiftError error);
 
         /// <summary>
         /// Decrypts the sealed box using the key and authenticated data.
@@ -467,14 +467,14 @@ namespace BindingsGeneration.FunctionalTests
         }
 
         [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-        [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO4open_5using14authenticating10Foundation4DataVAE9SealedBoxV_AA12SymmetricKeyVxtKAI0I8ProtocolRzlFZ")]
-        public static unsafe extern Data PInvoke_Open(SafeHandle sealedBox, SafeHandle key, void* aad, TypeMetadata metadata, ProtocolWitnessTable witnessTable, out SwiftError error);
+        [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit3AESO3GCMO4open_5using14authenticating10Foundation4DataVAE9SealedBoxV_AA12SymmetricKeyVxtKAI0I8ProtocolRzlFZ")]
+        public static unsafe partial Data PInvoke_Open(SafeHandle sealedBox, SafeHandle key, void* aad, TypeMetadata metadata, ProtocolWitnessTable witnessTable, out SwiftError error);
     }
 
     /// <summary>
     /// Represents SymmetricKey in C#.
     /// </summary>
-    public unsafe class SymmetricKey : ISwiftObject
+    public unsafe partial class SymmetricKey : ISwiftObject
     {
         static nuint _payloadSize = SwiftObjectHelper<SymmetricKey>.GetTypeMetadata().Size;
 
@@ -484,9 +484,9 @@ namespace BindingsGeneration.FunctionalTests
 
         static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
 
-        [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit12SymmetricKeyVMa")]
+        [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit12SymmetricKeyVMa")]
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        internal static extern TypeMetadata PInvoke_getMetadata();
+        internal static partial TypeMetadata PInvoke_getMetadata();
 
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
@@ -546,8 +546,8 @@ namespace BindingsGeneration.FunctionalTests
         }
 
         [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-        [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit12SymmetricKeyV4dataACx_tc10Foundation15ContiguousBytesRzlufC")]
-        public static unsafe extern void PInvoke_init(SwiftIndirectResult result, void* data, TypeMetadata metadata, ProtocolWitnessTable witnessTable);
+        [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit12SymmetricKeyV4dataACx_tc10Foundation15ContiguousBytesRzlufC")]
+        public static unsafe partial void PInvoke_init(SwiftIndirectResult result, void* data, TypeMetadata metadata, ProtocolWitnessTable witnessTable);
 
         public void Dispose() => _payload?.Dispose();
     }
@@ -555,7 +555,7 @@ namespace BindingsGeneration.FunctionalTests
     /// <summary>
     /// Represents SymmetricKeySize in C#.
     /// </summary>
-    public unsafe struct SymmetricKeySize
+    public unsafe partial struct SymmetricKeySize
     {
         private readonly nint _bitCount;
 
@@ -567,7 +567,7 @@ namespace BindingsGeneration.FunctionalTests
         }
 
         [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-        [DllImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit16SymmetricKeySizeV8bitCountACSi_tcfC")]
-        public static unsafe extern void PInvoke_init(SwiftIndirectResult result, nint bitCount);
+        [LibraryImport("/System/Library/Frameworks/CryptoKit.framework/CryptoKit", EntryPoint = "$s9CryptoKit16SymmetricKeySizeV8bitCountACSi_tcfC")]
+        public static unsafe partial void PInvoke_init(SwiftIndirectResult result, nint bitCount);
     }
 }

@@ -535,7 +535,7 @@ public class PInvokeEmitterTests
         var emitted = EmitPInvokeToString(method, CreateBasicTypeDatabase("Loader"));
 
         Assert.Contains("Tj\"", emitted); // EntryPoint ends with Tj
-        Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\"", emitted); // module library path
+        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\"", emitted); // module library path
     }
 
     [Fact]
@@ -549,7 +549,7 @@ public class PInvokeEmitterTests
         var emitted = EmitPInvokeToString(method, CreateBasicTypeDatabase("Loader"));
 
         Assert.DoesNotContain("Tj\"", emitted);
-        Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\"", emitted);
+        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\"", emitted);
     }
 
     [Fact]
@@ -564,7 +564,7 @@ public class PInvokeEmitterTests
         typeDb.AsyncLibraryName = "SwiftBindings";
         var emitted = EmitPInvokeToString(method, typeDb);
 
-        Assert.Contains("[DllImport(\"SwiftBindings\"", emitted); // async library, not module
+        Assert.Contains("[LibraryImport(\"SwiftBindings\"", emitted); // async library, not module
     }
 
     [Fact]
@@ -579,7 +579,7 @@ public class PInvokeEmitterTests
         typeDb.AsyncLibraryName = "SwiftBindings";
         var emitted = EmitPInvokeToString(method, typeDb);
 
-        Assert.Contains("[DllImport(\"SwiftBindings\"", emitted);
+        Assert.Contains("[LibraryImport(\"SwiftBindings\"", emitted);
     }
 
     [Fact]

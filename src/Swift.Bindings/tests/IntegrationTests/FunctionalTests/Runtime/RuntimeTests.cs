@@ -17,7 +17,7 @@ using Bindings = Swift.RuntimeTests;
 
 namespace BindingsGeneration.FunctionalTests
 {
-    public class RuntimeTests : IClassFixture<RuntimeTests.TestFixture>
+    public partial class RuntimeTests : IClassFixture<RuntimeTests.TestFixture>
     {
         private readonly TestFixture _fixture;
 
@@ -250,16 +250,16 @@ namespace BindingsGeneration.FunctionalTests
         }
 
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("Runtime/libRuntimeTests.dylib", EntryPoint = "$s12RuntimeTests8getArray5countSays5Int32VGAE_tF")]
-        private static extern IntPtr PInvoke_GetSet(int count);
+        [LibraryImport("Runtime/libRuntimeTests.dylib", EntryPoint = "$s12RuntimeTests8getArray5countSays5Int32VGAE_tF")]
+        private static partial IntPtr PInvoke_GetSet(int count);
 
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("Runtime/libRuntimeTests.dylib", EntryPoint = "$s12RuntimeTests8sumArray5arrays5Int32VSayAEG_tF")]
-        private static extern int PInvoke_SumSet(IntPtr set);
+        [LibraryImport("Runtime/libRuntimeTests.dylib", EntryPoint = "$s12RuntimeTests8sumArray5arrays5Int32VSayAEG_tF")]
+        private static partial int PInvoke_SumSet(IntPtr set);
 
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport("Runtime/libRuntimeTests.dylib", EntryPoint = "$s12RuntimeTests16passThroughArray5arraySays5Int32VGAF_tF")]
-        private static extern IntPtr PInvoke_PassThroughSet(IntPtr set);
+        [LibraryImport("Runtime/libRuntimeTests.dylib", EntryPoint = "$s12RuntimeTests16passThroughArray5arraySays5Int32VGAF_tF")]
+        private static partial IntPtr PInvoke_PassThroughSet(IntPtr set);
 
         [Fact]
         public unsafe void TestSwiftMarshalSet()

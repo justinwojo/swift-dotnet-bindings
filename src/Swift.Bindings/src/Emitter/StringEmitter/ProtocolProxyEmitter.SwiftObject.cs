@@ -117,16 +117,18 @@ public partial class ProtocolProxyEmitter
         var mangledName = $"Set{protocolDecl.Name}_vtable";
 
         // Note: vtable and witness table functions are in the SwiftBindings wrapper, not the original module
-        writer.WriteLine("private static class NativeMethods");
+        writer.WriteLine("private static partial class NativeMethods");
         writer.WriteLine("{");
         writer.Indent++;
 
         writer.WriteLines($$"""
-            [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{mangledName}}")]
-            public static extern void {{setVtableName}}(IntPtr vtable);
+            [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+            [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{mangledName}}")]
+            public static partial void {{setVtableName}}(IntPtr vtable);
 
-            [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "Get_EveryProtocol_{{protocolDecl.Name}}_WitnessTable")]
-            public static extern IntPtr GetWitnessTable();
+            [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+            [LibraryImport("{{wrapperLibPath}}", EntryPoint = "Get_EveryProtocol_{{protocolDecl.Name}}_WitnessTable")]
+            public static partial IntPtr GetWitnessTable();
             """);
 
         // Emit P/Invoke declarations for witness dispatch accessors
@@ -167,11 +169,13 @@ public partial class ProtocolProxyEmitter
 
                 writer.WriteLine();
                 writer.WriteLines($$"""
-                    [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{accessorSymbol}}")]
-                    public static extern IntPtr {{accessorSymbol}}(IntPtr containerPtr);
+                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+                    [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{accessorSymbol}}")]
+                    public static partial IntPtr {{accessorSymbol}}(IntPtr containerPtr);
 
-                    [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{freeSymbol}}")]
-                    public static extern void {{freeSymbol}}(IntPtr ptr);
+                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+                    [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{freeSymbol}}")]
+                    public static partial void {{freeSymbol}}(IntPtr ptr);
                     """);
             }
         }
@@ -197,8 +201,9 @@ public partial class ProtocolProxyEmitter
 
                 writer.WriteLine();
                 writer.WriteLines($$"""
-                    [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{setterSymbol}}")]
-                    public static extern void {{setterSymbol}}(IntPtr containerPtr, IntPtr valuePtr);
+                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+                    [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{setterSymbol}}")]
+                    public static partial void {{setterSymbol}}(IntPtr containerPtr, IntPtr valuePtr);
                     """);
             }
         }
@@ -244,8 +249,9 @@ public partial class ProtocolProxyEmitter
 
                 writer.WriteLine();
                 writer.WriteLines($$"""
-                    [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{accessorSymbol}}")]
-                    public static extern {{returnTypeStr}} {{accessorSymbol}}({{pInvokeParamsString}});
+                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+                    [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{accessorSymbol}}")]
+                    public static partial {{returnTypeStr}} {{accessorSymbol}}({{pInvokeParamsString}});
                     """);
 
                 if (hasReturn)
@@ -253,8 +259,9 @@ public partial class ProtocolProxyEmitter
                     var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "method", method.Name, idx);
                     writer.WriteLines($$"""
 
-                        [DllImport("{{wrapperLibPath}}", CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{freeSymbol}}")]
-                        public static extern void {{freeSymbol}}(IntPtr ptr);
+                        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+                        [LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{freeSymbol}}")]
+                        public static partial void {{freeSymbol}}(IntPtr ptr);
                         """);
                 }
             }

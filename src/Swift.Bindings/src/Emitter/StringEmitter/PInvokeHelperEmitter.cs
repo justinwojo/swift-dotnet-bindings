@@ -122,7 +122,7 @@ public class PInvokeHelperContext
         if (Declarations.Count == 0)
             return;
 
-        csWriter.WriteLine($"internal static class {HelperClassName}");
+        csWriter.WriteLine($"internal static partial class {HelperClassName}");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -185,9 +185,11 @@ public class PInvokeDeclaration
     public void Emit(CSharpWriter csWriter)
     {
         csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-        csWriter.WriteLine($"[DllImport(\"{LibraryPath}\", EntryPoint = \"{EntryPoint}\")]");
+        csWriter.WriteLine($"[LibraryImport(\"{LibraryPath}\", EntryPoint = \"{EntryPoint}\")]");
 
         var returnTypeStr = IsAsync ? "void" : ReturnType;
+        if (returnTypeStr == "bool")
+            csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
         var paramsStr = ParametersString;
 
         // Add metadata parameters if present
@@ -200,6 +202,6 @@ public class PInvokeDeclaration
                 paramsStr = metadataParams;
         }
 
-        csWriter.WriteLine($"internal static extern {returnTypeStr} {MethodName}({paramsStr});");
+        csWriter.WriteLine($"internal static partial {returnTypeStr} {MethodName}({paramsStr});");
     }
 }

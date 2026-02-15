@@ -260,12 +260,15 @@ namespace BindingsGeneration
             foreach (var param in paramDecls)
             {
                 var paramType = GetSimpleParamType(param.SwiftTypeSpec, typeDatabase);
-                pinvokeParams.Add($"{paramType} {NameProvider.GetCSharpParameterName(param)}");
+                var marshalPrefix = paramType == "bool" ? "[MarshalAs(UnmanagedType.U1)] " : "";
+                pinvokeParams.Add($"{marshalPrefix}{paramType} {NameProvider.GetCSharpParameterName(param)}");
             }
 
             var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
-            csWriter.WriteLine($"[DllImport(\"SwiftBindings\", EntryPoint = \"{wrapperSymbol}\")]");
-            csWriter.WriteLine($"private static extern {pinvokeReturnType} PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
+            csWriter.WriteLine($"[LibraryImport(\"SwiftBindings\", EntryPoint = \"{wrapperSymbol}\")]");
+            if (pinvokeReturnType == "bool")
+                csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
+            csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
             csWriter.WriteLine();
 
             ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);

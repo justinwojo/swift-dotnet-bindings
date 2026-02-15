@@ -310,9 +310,9 @@ namespace BindingsGeneration
             }
             else
             {
-                csWriter.WriteLine("[DllImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
+                csWriter.WriteLine("[LibraryImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
                 csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                csWriter.WriteLine("private static extern TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
+                csWriter.WriteLine("private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
                 csWriter.WriteLine();
             }
         }

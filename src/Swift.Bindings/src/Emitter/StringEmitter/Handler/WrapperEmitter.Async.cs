@@ -810,8 +810,8 @@ namespace BindingsGeneration
             {
                 CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey);
                 csWriter.WriteLines($"""
-                    [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
-                    private static extern void SBW_CancelTask(long taskId);
+                    [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
+                    private static partial void SBW_CancelTask(long taskId);
 
                     """);
             }
@@ -1078,8 +1078,8 @@ namespace BindingsGeneration
             // We unmarshal to string and then call SBW_Free in finally block
             var freePInvokeDecl = needsFreePInvoke
                 ? $"""
-                        [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
-                        private static extern void SBW_Free(IntPtr ptr);
+                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        private static partial void SBW_Free(IntPtr ptr);
 
                 """
                 : "";
@@ -1170,8 +1170,8 @@ namespace BindingsGeneration
 
             var freePInvokeDecl = needsFreePInvoke
                 ? $"""
-                        [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
-                        private static extern void SBW_Free(IntPtr ptr);
+                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        private static partial void SBW_Free(IntPtr ptr);
 
                 """
                 : "";
@@ -1326,8 +1326,8 @@ namespace BindingsGeneration
 
             var freePInvokeDecl = needsFreePInvoke
                 ? $"""
-                        [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
-                        private static extern void SBW_Free(IntPtr ptr);
+                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        private static partial void SBW_Free(IntPtr ptr);
 
                 """
                 : "";
@@ -1463,8 +1463,8 @@ namespace BindingsGeneration
                 }
                 var freePInvokeDecl = needsFreePInvoke
                     ? $"""
-                        [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
-                        private static extern void SBW_Free(IntPtr ptr);
+                        [System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                        private static partial void SBW_Free(IntPtr ptr);
 
                 """
                     : "";

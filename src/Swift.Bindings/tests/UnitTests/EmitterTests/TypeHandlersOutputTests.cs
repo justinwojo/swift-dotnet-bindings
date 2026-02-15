@@ -38,7 +38,7 @@ public class TypeHandlersOutputTests
         Assert.Contains("public partial class Loader : ISwiftObject", csOutput);
         Assert.Contains("SwiftSafeHandle<Loader> _payload", csOutput);
         Assert.Contains("internal SwiftSafeHandle<Loader> Payload => _payload;", csOutput);
-        Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\", EntryPoint = \"$s10TestModule6LoaderCNMa\")]", csOutput);
+        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"$s10TestModule6LoaderCNMa\")]", csOutput);
     }
 
     [Fact]

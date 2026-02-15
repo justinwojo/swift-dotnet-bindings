@@ -5,8 +5,13 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <!-- CS0169: unused private field (generated backing fields) -->
-    <NoWarn>0169</NoWarn>
+    <!-- CA1420: using features that require runtime marshalling (LibraryImport with Swift types) -->
+    <NoWarn>0169;CA1420</NoWarn>
   </PropertyGroup>
+  <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
   </ItemGroup>

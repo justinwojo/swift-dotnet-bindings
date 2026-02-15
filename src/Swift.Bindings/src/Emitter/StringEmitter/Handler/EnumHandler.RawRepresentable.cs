@@ -118,8 +118,8 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
 
                     // P/Invoke for the Swift wrapper (not the original init)
-                    csWriter.WriteLine($"[DllImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
-                    csWriter.WriteLine("private static extern IntPtr PInvoke_InitWithRawValue_Wrapper(IntPtr slicePtr);");
+                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
+                    csWriter.WriteLine("private static partial IntPtr PInvoke_InitWithRawValue_Wrapper(IntPtr slicePtr);");
                     csWriter.WriteLine();
                 }
                 else
@@ -161,9 +161,9 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+                        csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
                         csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                        csWriter.WriteLine($"private static extern IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
+                        csWriter.WriteLine($"private static partial IntPtr PInvoke_InitWithRawValue({csharpRawType} rawValue);");
                         csWriter.WriteLine();
                     }
                 }
@@ -272,8 +272,8 @@ namespace BindingsGeneration
                 if (isStringRawType)
                 {
                     // String raw type: P/Invoke for the Swift wrapper
-                    csWriter.WriteLine($"[DllImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
-                    csWriter.WriteLine("private static extern void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);");
+                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
+                    csWriter.WriteLine("private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);");
                     csWriter.WriteLine();
                 }
                 else if (pinvokeHelperContext != null)
@@ -291,9 +291,9 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    csWriter.WriteLine($"[DllImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
+                    csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{initRawValueMethod.MangledName}\")]");
                     csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                    csWriter.WriteLine($"private static extern void PInvoke_InitWithRawValue(SwiftIndirectResult result, {csharpRawType} rawValue);");
+                    csWriter.WriteLine($"private static partial void PInvoke_InitWithRawValue(SwiftIndirectResult result, {csharpRawType} rawValue);");
                     csWriter.WriteLine();
                 }
 
@@ -313,9 +313,9 @@ namespace BindingsGeneration
                 else
                 {
                     csWriter.WriteLine("// SwiftOptional metadata accessor from Swift stdlib");
-                    csWriter.WriteLine("[DllImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
+                    csWriter.WriteLine("[LibraryImport(\"/usr/lib/swift/libswiftCore.dylib\", EntryPoint = \"$sSqMa\")]");
                     csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-                    csWriter.WriteLine("private static extern TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
+                    csWriter.WriteLine("private static partial TypeMetadata PInvokesForSwiftOptional_MetadataAccessor(TypeMetadataRequest request, TypeMetadata typeMetadata);");
                     csWriter.WriteLine();
                 }
             }

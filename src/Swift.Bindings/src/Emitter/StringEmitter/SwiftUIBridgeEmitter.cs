@@ -752,13 +752,13 @@ public static partial class SwiftUIBridgeEmitter
         var needsUnsafe = hasClosures || hasStrings;
 
         // NativeMethods class
-        sb.AppendLine($"    internal static class {info.ViewName}BridgeNativeMethods");
+        sb.AppendLine($"    internal static partial class {info.ViewName}BridgeNativeMethods");
         sb.AppendLine("    {");
         sb.AppendLine($"        private const string BridgeLib = \"{bridgeLib}\";");
         sb.AppendLine();
 
         // Create P/Invoke
-        sb.AppendLine($"        [DllImport(BridgeLib, EntryPoint = \"{prefix}_Create\")]");
+        sb.AppendLine($"        [LibraryImport(BridgeLib, EntryPoint = \"{prefix}_Create\")]");
         sb.AppendLine($"        [UnmanagedCallConv(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
 
         var createPInvokeParams = new List<string>();
@@ -792,19 +792,19 @@ public static partial class SwiftUIBridgeEmitter
                 createPInvokeParams.Add($"{param.CSharpPInvokeType} {param.Name}");
             }
         }
-        sb.AppendLine($"        internal static extern IntPtr Create({string.Join(", ", createPInvokeParams)});");
+        sb.AppendLine($"        internal static partial IntPtr Create({string.Join(", ", createPInvokeParams)});");
         sb.AppendLine();
 
         // GetViewController P/Invoke
-        sb.AppendLine($"        [DllImport(BridgeLib, EntryPoint = \"{prefix}_GetViewController\")]");
+        sb.AppendLine($"        [LibraryImport(BridgeLib, EntryPoint = \"{prefix}_GetViewController\")]");
         sb.AppendLine($"        [UnmanagedCallConv(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
-        sb.AppendLine($"        internal static extern IntPtr GetViewController(IntPtr handle);");
+        sb.AppendLine($"        internal static partial IntPtr GetViewController(IntPtr handle);");
         sb.AppendLine();
 
         // Free P/Invoke
-        sb.AppendLine($"        [DllImport(BridgeLib, EntryPoint = \"{prefix}_Free\")]");
+        sb.AppendLine($"        [LibraryImport(BridgeLib, EntryPoint = \"{prefix}_Free\")]");
         sb.AppendLine($"        [UnmanagedCallConv(CallConvs = new[] {{ typeof(CallConvCdecl) }})]");
-        sb.AppendLine($"        internal static extern void Free(IntPtr handle);");
+        sb.AppendLine($"        internal static partial void Free(IntPtr handle);");
         sb.AppendLine("    }");
         sb.AppendLine();
 

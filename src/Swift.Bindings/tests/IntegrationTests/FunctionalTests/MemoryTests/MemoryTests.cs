@@ -30,7 +30,7 @@ namespace BindingsGeneration.FunctionalTests
         }
     }
 
-    public class MemoryTests : IClassFixture<MemoryTests.TestFixture>
+    public partial class MemoryTests : IClassFixture<MemoryTests.TestFixture>
     {
         private readonly TestFixture _fixture;
 
@@ -808,7 +808,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
         }
 
-        class FrozenStructExtension : FrozenStructRequiresMemoryManagement
+        partial class FrozenStructExtension : FrozenStructRequiresMemoryManagement
         {
             public FrozenStructExtension() : base(42)
             {
@@ -844,8 +844,8 @@ namespace BindingsGeneration.FunctionalTests
             }
 
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-            [DllImport("MemoryTests/libMemoryTests.dylib", EntryPoint = "$s11MemoryTests020FrozenStructRequiresA10ManagementV11callDispose8callbackyyyc_tF")]
-            private unsafe static extern void PInvoke_CallDispose(delegate* unmanaged[Swift]<SwiftSelf, void> callback, void* context);
+            [LibraryImport("MemoryTests/libMemoryTests.dylib", EntryPoint = "$s11MemoryTests020FrozenStructRequiresA10ManagementV11callDispose8callbackyyyc_tF")]
+            private unsafe static partial void PInvoke_CallDispose(delegate* unmanaged[Swift]<SwiftSelf, void> callback, void* context);
         }
 
         [Fact]

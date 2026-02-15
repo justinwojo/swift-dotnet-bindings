@@ -113,8 +113,13 @@ namespace BindingsGeneration
                     <PackageId>{packageId}</PackageId>{versionComment}
                     <PackageVersion>{options.Metadata.PackageVersion}</PackageVersion>
                     <SupportedOSPlatformVersion>{options.Metadata.EffectiveMinimumOSVersion}</SupportedOSPlatformVersion>
-                    <NoWarn>CS0169</NoWarn>
+                    <NoWarn>CS0169;CA1420</NoWarn>
                   </PropertyGroup>
+
+                  <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types -->
+                  <ItemGroup>
+                    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+                  </ItemGroup>
 
                   <ItemGroup>
                     <PackageReference Include="Swift.Runtime" Version="{runtimeVersion}" />{dependencyRefs}

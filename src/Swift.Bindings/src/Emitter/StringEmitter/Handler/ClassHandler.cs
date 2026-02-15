@@ -331,8 +331,8 @@ namespace BindingsGeneration
 
                 var pinvokeText = $$"""
                 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-                [DllImport("{{libPath}}", EntryPoint = "{{metadataAccessor}}")]
-                internal static extern TypeMetadata PInvoke_getMetadata();
+                [LibraryImport("{{libPath}}", EntryPoint = "{{metadataAccessor}}")]
+                internal static partial TypeMetadata PInvoke_getMetadata();
                 """;
 
                 _writer.WriteLines(pinvokeText);

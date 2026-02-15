@@ -201,9 +201,9 @@ public class CancellationTokenEmitterTests
     {
         CancellationTaskEmitter.ResetForModule();
         var (csOutput, _) = GenerateAsyncMethod();
-        Assert.Contains("[System.Runtime.InteropServices.DllImport(", csOutput);
+        Assert.Contains("[System.Runtime.InteropServices.LibraryImport(", csOutput);
         Assert.Contains("SBW_CancelTask_TestModule", csOutput);
-        Assert.Contains("private static extern void SBW_CancelTask(long taskId)", csOutput);
+        Assert.Contains("private static partial void SBW_CancelTask(long taskId)", csOutput);
     }
 
     [Fact]

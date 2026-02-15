@@ -8,7 +8,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <NoWarn>$(NoWarn);CS0169;SB0001;SB0002</NoWarn>
+    <NoWarn>$(NoWarn);CS0169;CA1420;SB0001;SB0002</NoWarn>
 
     <!-- SDK internal paths -->
     <_SwiftBindingSdkVersion>0.1.0-preview.5</_SwiftBindingSdkVersion>
@@ -25,6 +25,11 @@
     <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->
     <SwiftGenerateDocComments Condition="'$(SwiftGenerateDocComments)' == ''">true</SwiftGenerateDocComments>
   </PropertyGroup>
+
+  <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
 
   <!-- Implicit Swift.Runtime reference with minimum version floor -->
   <ItemGroup>

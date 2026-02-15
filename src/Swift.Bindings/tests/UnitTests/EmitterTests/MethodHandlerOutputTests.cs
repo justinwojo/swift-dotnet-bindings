@@ -32,7 +32,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("[DllImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
+        Assert.Contains("[LibraryImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
         Assert.Contains("public Task<long> FetchAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
         Assert.Contains("return task.Task;", csOutput);
     }
@@ -272,11 +272,11 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // The P/Invoke (extern) declaration should use IntPtr for the frozen enum
-        var externLine = Array.Find(csOutput.Split('\n'), line => line.Contains("extern", StringComparison.Ordinal));
-        Assert.NotNull(externLine);
-        Assert.Contains("IntPtr variant", externLine!);
-        Assert.DoesNotContain("Swift.TestModule.Variant", externLine!);
+        // The P/Invoke (partial) declaration should use IntPtr for the frozen enum
+        var partialLine = Array.Find(csOutput.Split('\n'), line => line.Contains("partial", StringComparison.Ordinal) && line.Contains("PInvoke_", StringComparison.Ordinal));
+        Assert.NotNull(partialLine);
+        Assert.Contains("IntPtr variant", partialLine!);
+        Assert.DoesNotContain("Swift.TestModule.Variant", partialLine!);
         // Wrapper should extract handle from payload
         Assert.Contains("variant.Payload.DangerousGetHandle()", csOutput);
     }
@@ -302,9 +302,9 @@ public class MethodHandlerOutputTests
 
         // P/Invoke should use IntPtr for the frozen enum param
         // Find the method's P/Invoke line
-        var externLine = Array.Find(csOutput.Split('\n'), line => line.Contains("extern", StringComparison.Ordinal) && line.Contains("variant", StringComparison.Ordinal));
-        Assert.NotNull(externLine);
-        Assert.Contains("IntPtr variant", externLine!);
+        var partialLine = Array.Find(csOutput.Split('\n'), line => line.Contains("partial", StringComparison.Ordinal) && line.Contains("variant", StringComparison.Ordinal));
+        Assert.NotNull(partialLine);
+        Assert.Contains("IntPtr variant", partialLine!);
         // C# wrapper must synthesize variantHandle via InitializeWithCopy (copy-buffer pattern)
         Assert.Contains("variantHandle", csOutput);
         Assert.Contains("variantCopyBuffer", csOutput);

@@ -289,12 +289,12 @@ public static class ExistentialBypassEmitter
         {
             // Non-generic type: emit inline
             csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"[DllImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
-            csWriter.WriteLine($"private static extern IntPtr {wrapperSymbol}({pInvokeParams});");
+            csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
+            csWriter.WriteLine($"private static partial IntPtr {wrapperSymbol}({pInvokeParams});");
             csWriter.WriteLine();
             csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]");
-            csWriter.WriteLine($"[DllImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
-            csWriter.WriteLine($"private static extern void {freeSymbol}(IntPtr ptr);");
+            csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
+            csWriter.WriteLine($"private static partial void {freeSymbol}(IntPtr ptr);");
             csWriter.WriteLine();
         }
 

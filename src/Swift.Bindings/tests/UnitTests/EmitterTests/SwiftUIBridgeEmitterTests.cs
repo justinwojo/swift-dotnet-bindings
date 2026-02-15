@@ -263,7 +263,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
         Assert.Contains("TestViewBridgeNativeMethods", csContent);
-        Assert.Contains("DllImport", csContent);
+        Assert.Contains("LibraryImport", csContent);
         Assert.Contains("SBW_TestModule_TestView_Create", csContent);
         Assert.Contains("SBW_TestModule_TestView_GetViewController", csContent);
         Assert.Contains("SBW_TestModule_TestView_Free", csContent);
@@ -572,7 +572,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("SBW_BlinkIDUX_BlinkIDUXView_GetViewController", csContent);
         Assert.Contains("SBW_BlinkIDUX_BlinkIDUXView_Free", csContent);
         // Async create returns void (not IntPtr)
-        Assert.Contains("internal static extern void Create(", csContent);
+        Assert.Contains("internal static partial void Create(", csContent);
     }
 
     [Fact]
@@ -915,7 +915,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
         Assert.Contains("EnumViewBridgeNativeMethods", csContent);
         Assert.Contains("EnumViewSession : IDisposable", csContent);
-        Assert.Contains("DllImport", csContent);
+        Assert.Contains("LibraryImport", csContent);
     }
 
     #endregion
@@ -1236,7 +1236,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.TestModule.SwiftUIBridge.cs"));
         Assert.Contains("AnimViewBridgeNativeMethods", csContent);
         Assert.Contains("AnimViewSession : IDisposable", csContent);
-        Assert.Contains("DllImport", csContent);
+        Assert.Contains("LibraryImport", csContent);
     }
 
     [Fact]

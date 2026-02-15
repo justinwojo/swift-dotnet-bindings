@@ -136,8 +136,8 @@ public class EnumHandlerOutputTests
         Assert.Contains("public static partial class DirectionExtensions", csOutput);
         Assert.Contains("public static Direction Opposite(this Direction self)", csOutput);
         Assert.Contains("(Direction)PInvoke_Opposite((int)self)", csOutput);
-        // Simple enum P/Invoke uses its own emission path (DllImport, not PInvokeEmitter)
-        Assert.Contains("[DllImport(", csOutput);
+        // Simple enum P/Invoke uses its own emission path (LibraryImport, not PInvokeEmitter)
+        Assert.Contains("[LibraryImport(", csOutput);
 
         // Swift wrapper should have tag-to-case conversion
         Assert.Contains("switch tag {", swiftOutput);
@@ -270,7 +270,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();", csOutput);
         Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);
         Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, (IntPtr)value0SwiftBuffer", csOutput);
-        Assert.Contains("internal static class ValueProviderStorage_PInvoke", csOutput);
+        Assert.Contains("internal static partial class ValueProviderStorage_PInvoke", csOutput);
     }
 
     private static TypeDatabase CreateTypeDatabase()
@@ -514,8 +514,8 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // The wrapper P/Invoke (InitWithRawValue) should use AsyncLibraryName
-        Assert.Contains("[DllImport(\"BlinkIDSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
-        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", csOutput);
+        Assert.Contains("[LibraryImport(\"BlinkIDSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", csOutput);
     }
 
     [Fact]
@@ -533,8 +533,8 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // The wrapper P/Invoke (InitWithRawValue) should use AsyncLibraryName
-        Assert.Contains("[DllImport(\"BlinkIDSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
-        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", csOutput);
+        Assert.Contains("[LibraryImport(\"BlinkIDSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", csOutput);
     }
 
     [Fact]
@@ -552,8 +552,8 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Without AsyncLibraryName, wrapper P/Invoke falls back to module library path
-        Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
-        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", csOutput);
+        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", csOutput);
     }
 
     [Fact]
@@ -571,8 +571,8 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Without AsyncLibraryName, wrapper P/Invoke falls back to module library path
-        Assert.Contains("[DllImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
-        Assert.DoesNotContain("[DllImport(\"SwiftBindings\"", csOutput);
+        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
+        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", csOutput);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithString()

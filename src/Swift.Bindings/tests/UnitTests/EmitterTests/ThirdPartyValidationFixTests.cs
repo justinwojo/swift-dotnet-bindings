@@ -297,9 +297,9 @@ public class ThirdPartyValidationFixTests
         var output = stringWriter.ToString();
 
         // Both helper classes appear at the same level
-        Assert.Contains("internal static class Outer_PInvoke", output);
-        Assert.Contains("internal static class Outer_Inner_PInvoke", output);
-        Assert.Contains("[DllImport", output);
+        Assert.Contains("internal static partial class Outer_PInvoke", output);
+        Assert.Contains("internal static partial class Outer_Inner_PInvoke", output);
+        Assert.Contains("[LibraryImport", output);
 
         // Outer appears before Inner
         var outerIdx = output.IndexOf("Outer_PInvoke", StringComparison.Ordinal);

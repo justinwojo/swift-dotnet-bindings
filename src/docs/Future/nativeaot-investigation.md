@@ -105,8 +105,8 @@ Interpretation:
 
 - `[LibraryImport]` + `CustomMarshaller` is the **correct solution** for non-blittable types with `CallConvSwift` under NativeAOT.
 - This replaces the need for `IntPtr` + manual marshalling — the generator can emit typed, safe P/Invoke signatures with `[MarshalUsing]`.
-- `[DllImport]` remains necessary for Mono (which doesn't support `[LibraryImport]` source generation at runtime), but the generator could conditionally emit `[LibraryImport]` for NativeAOT targets.
-- **Remaining question**: Does `[LibraryImport]` handle `SafeHandle` natively with `CallConvSwift`, or does it need a custom marshaller too?
+- As of Phase 3 (2026-02-15), the generator now emits `[LibraryImport]` unconditionally across all emitters. `[LibraryImport]` works on both Mono and NativeAOT — the source generator runs at compile time, producing stubs that both runtimes execute correctly.
+- **Resolved (2026-02-15)**: `[LibraryImport]` handles `SafeHandle` natively with `CallConvSwift` — no custom marshaller needed. The source generator extracts `IntPtr` via `DangerousGetHandle()` and generates `DangerousAddRef`/`DangerousRelease` around the call. See Session 3 results below.
 
 ---
 
@@ -492,7 +492,7 @@ This means the **same binary** works correctly on both runtimes:
 
 **No workaround breaks NativeAOT.** They add unnecessary overhead (wrapper indirection, extra Swift code, spurious safety attributes) but the generated code and runtime function correctly on both paths.
 
-**New opportunity (Blocker 2 solved)**: Under NativeAOT, the generator could emit `[LibraryImport]` + `[MarshalUsing(CustomMarshaller)]` instead of `[DllImport]` + manual `IntPtr` marshalling. This produces typed, safe P/Invoke signatures while still using blittable types at the ABI level. The Mono path would continue using `[DllImport]` + `IntPtr`.
+**New opportunity (Blocker 2 solved, Phase 3 Steps 14-16 complete)**: The generator now emits `[LibraryImport]` + `static partial` across all emitters (Phase 3 migration, 2026-02-15). Next step is wiring `[MarshalUsing(CustomMarshaller)]` for types like `SwiftOptional<int>` (Steps 17-18), which would produce typed, safe P/Invoke signatures while still using blittable types at the ABI level.
 
 ### Rough edge: `[Obsolete]` safety attributes → `SwiftBindingsInteropMode`
 
@@ -563,7 +563,7 @@ Supporting both simulator and device deployment requires **no code changes**. Th
 
 13. **Replace `[Obsolete]` with custom `[MonoJitRisk]` attribute** + Roslyn analyzer that reads build context and emits/suppresses per-method diagnostics. Enables richer messaging (URL links, severity tiers) without `[Obsolete]` limitations.
 
-### Phase 3: `[LibraryImport]` + `CustomMarshaller` migration (deferred — blocked by DisableRuntimeMarshalling)
+### Phase 3: `[LibraryImport]` migration (Steps 14-16 DONE, Steps 17-18 deferred)
 
 #### Discovery: incremental migration is not viable (2026-02-15)
 
@@ -610,11 +610,33 @@ Two pieces of foundation work were completed and preserved:
 
 This would close the confidence gap on +1 ownership transfer semantics and confirm no leak or double-free under repetition. Belongs in NativeAotTestApp.Mac since the marshaller is not yet wired into the generator.
 
-#### Full migration plan (future session)
+#### All-or-nothing migration (2026-02-15)
 
-14. **Convert ALL emitters to `[LibraryImport]`** — Every site that emits `[DllImport]` must switch to `[LibraryImport]` + `partial`. This includes PInvokeEmitter, ExistentialBypassEmitter, EnumHandler (simple + case), PInvokeHelperEmitter, ProtocolProxyEmitter, OperatorHandler, SwiftUIBridgeEmitter, and CancellationTaskEmitter. Hand-written test files (CryptoKit.cs) also need conversion.
-15. **Add `DisableRuntimeMarshalling` to all project types** — Generated `.csproj` (via `<AssemblyAttribute>`), `Sdk.props`, integration test `.csproj`. Handle CS0579 duplicate-attribute for multi-file assemblies.
-16. **Add `[MarshalAs(UnmanagedType.U1)]` for `bool`** — Both `[return: MarshalAs]` for return types and `[MarshalAs]` on parameters in P/Invoke signatures.
+14. ~~**Convert ALL emitters to `[LibraryImport]`**~~ — Done. All 13+ emitters (~50 emission sites) converted from `[DllImport]` + `static extern` to `[LibraryImport]` + `static partial`. Protocol proxy sites that used `CallingConvention = CallingConvention.Cdecl` migrated to `[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]`. All containing types made `partial` (proxy classes, NativeMethods, PInvoke helper classes). Hand-written integration test P/Invokes (CryptoKit.cs, RuntimeTests.cs, MemoryTests.cs) also converted. ~35 unit test assertion edits across 13 test files.
+15. ~~**Add `DisableRuntimeMarshalling` to all project types**~~ — Done. Added `<AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />` to: BindingProjectEmitter (generated `.csproj`), `Sdk.props`, integration test `.csproj`, TestFramework `CompileCheck.csproj`. Added `CA1420` to `<NoWarn>` in all.
+16. ~~**Add `[MarshalAs(UnmanagedType.U1)]` for `bool`**~~ — Done. Parameters handled centrally in `Parameter.PInvokeSignatureString()` (MethodSignature.cs). Return types handled at 4 emission sites: PInvokeEmitter, PInvokeHelperEmitter, OperatorHandler, EnumHandler.SimpleEnum. These are the only sites with dynamic return types that can be `bool`; all others have hardcoded non-bool returns (void, IntPtr, TypeMetadata).
+
+**Test results**: 2695 unit tests (0 failures), 699 integration tests (0 failures, 11 pre-existing skips), 156 runtime library tests (0 failures), TestFramework CompileCheck (0 errors). Zero `[DllImport(` attribute emissions remain in generator code (only `SetDllImportResolver` runtime API calls and comments).
+
+#### SYSLIB1051 library validation regressions
+
+The `[LibraryImport]` source generator is stricter than `[DllImport]` about compile-time type validation. 12 new SYSLIB1051 errors across 4 third-party libraries:
+
+| Library | Errors | Types |
+|---------|--------|-------|
+| Nuke | 5 | `ImageDecodingContext` (class), `ImageResponse` (class), `ImageTask.ProgressInfo` (class), tuples with `ExistentialContainer1` |
+| CryptoSwift | 4 | Tuples returning `(BigUInt, BigUInt)`, `(BigUInt, bool)`, `(BigInt, BigInt)` — all classes |
+| BlinkID | 2 | `ResourceLoadError`, `MemoryReserveError` in closure callback params |
+| Lottie | 1 | Tuple with `AnyType` in closure callback |
+
+**Root cause**: The generator emits C# class types (`ClassWithOpaquePayload` — non-frozen structs mapped to C# classes with SafeHandle) directly in P/Invoke signatures. With `[DllImport]`, the compiler did not validate marshallability at compile time, so these passed compilation but were likely broken at runtime (passing a GC heap reference where Swift expects a value type). With `[LibraryImport]`, the source generator correctly rejects class types as non-marshallable.
+
+**These are pre-existing generator limitations, not migration bugs.** The `[LibraryImport]` migration surfaces them as compile errors instead of runtime failures.
+
+**Fix (future work)**: The generator's enum case constructor emission and tuple return emission need to convert `ClassWithOpaquePayload` types to `IntPtr` in P/Invoke signatures with manual marshalling at the call site, similar to how other non-blittable types are already handled. This would fix the SYSLIB1051 errors and also fix the pre-existing runtime incorrectness with `[DllImport]`.
+
+#### Remaining steps (deferred)
+
 17. **Wire `[MarshalUsing]` for eligible bound generic params** — Detect `SwiftOptional<Int32>` in PInvokeSignatureBuilder, emit `MarshalUsing:` marker, skip PayloadBuffer creation in WrapperEmitter. Guard: only when `PInvokeHelperContext == null` and not an accessor.
 18. **Design generic `SwiftOptionalMarshaller<T>`** — Reusable marshaller mapping `SwiftOptional<T>` to blittable layout. The per-type marshallers (step 2 above) cover `int` and `String`; a generic version would cover the full type surface.
 
@@ -632,7 +654,7 @@ This investigation combines documentation review, source code analysis, and cons
 Areas of agreement between models:
 - Blocker #1 is definitively Mono-specific and bypassed by NativeAOT
 - NativeAOT is viable for iOS deployment (.NET 9+)
-- `[LibraryImport]` handles Swift-specific types (`SwiftSelf`, etc.) identically to `[DllImport]`
+- `[LibraryImport]` handles Swift-specific types (`SwiftSelf`, etc.) at the ABI level, but requires `[assembly: DisableRuntimeMarshalling]` for the source generator to accept them as blittable, plus explicit `[MarshalAs(UnmanagedType.U1)]` for `bool` (see Phase 3 discovery)
 
 Areas of disagreement (resolved):
 - Whether `[LibraryImport]` + `CustomMarshaller` can work around Blocker #2 — **Gemini was correct**, verified 2026-02-14. Grok's analysis was right about `[DllImport]`, but `[LibraryImport]` source generation creates a blittable stub that bypasses the restriction.
