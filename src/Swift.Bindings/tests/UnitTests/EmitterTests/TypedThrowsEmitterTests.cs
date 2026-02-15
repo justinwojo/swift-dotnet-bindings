@@ -63,8 +63,8 @@ public class TypedThrowsEmitterTests
             hasTypedThrows: true,
             errorTypeName: "TestModule.ParseError");
 
-        // C# side: 4-param delegate with error ptr + size + message + task
-        Assert.Contains("IntPtr, nint, IntPtr, IntPtr, void", csOutput);
+        // C# side: 5-param delegate with error ptr + size + message + isCancellation + task
+        Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, void", csOutput);
         // Error type uses fully-qualified C# name from TypeDatabase
         Assert.Contains("MarshalFromSwift<Swift.TestModule.ParseError>", csOutput);
         Assert.Contains("SBW_Free(errorPtr)", csOutput);
@@ -73,7 +73,7 @@ public class TypedThrowsEmitterTests
         // Swift side: typed error callback with MemoryLayout + copyMemory
         Assert.Contains("MemoryLayout<TestModule.ParseError>.size", swiftOutput);
         Assert.Contains("copyMemory(from: UnsafeRawPointer(_src)", swiftOutput);
-        Assert.Contains("UnsafeRawPointer, Int, UnsafePointer<CChar>, Int64", swiftOutput);
+        Assert.Contains("UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64", swiftOutput);
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class TypedThrowsEmitterTests
             isAsync: true,
             hasTypedThrows: false);
 
-        // C# side: 2-param delegate (message + task)
+        // C# side: 3-param delegate (message + isCancellation + task)
         // Note: DoesNotContain checks are scoped to error-specific patterns
         // (MarshalFromSwift<int> exists for return value marshalling)
         Assert.DoesNotContain("SBW_Free", csOutput);
@@ -91,7 +91,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("SwiftException(errorMessage)", csOutput);
 
         // Swift side: untyped catch block
-        Assert.Contains("errorCallback($0, task)", swiftOutput);
+        Assert.Contains("errorCallback($0, _isCancelled, task)", swiftOutput);
         Assert.DoesNotContain("MemoryLayout<", swiftOutput);
     }
 
@@ -108,7 +108,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("SwiftException(errorMessage)", csOutput);
         Assert.DoesNotContain("SBW_Free", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
-        Assert.Contains("errorCallback($0, task)", swiftOutput);
+        Assert.Contains("errorCallback($0, _isCancelled, task)", swiftOutput);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("SwiftException(errorMessage)", csOutput);
         Assert.DoesNotContain("SBW_Free", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
-        Assert.Contains("errorCallback($0, task)", swiftOutput);
+        Assert.Contains("errorCallback($0, _isCancelled, task)", swiftOutput);
     }
 
     #endregion

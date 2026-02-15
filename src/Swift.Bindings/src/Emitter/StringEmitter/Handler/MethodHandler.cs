@@ -570,6 +570,12 @@ namespace BindingsGeneration
             // Emit default parameter overloads (additional convenience methods)
             DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, methodEnv, _logger);
 
+            // Emit Task-returning overload for callback-based methods (WU8)
+            if (!isAccessor)
+            {
+                TryEmitCompletionHandlerOverload(csWriter, methodEnv);
+            }
+
             csWriter.WriteLine();
         }
 
@@ -628,6 +634,162 @@ namespace BindingsGeneration
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Emits a Task-returning overload for methods with completion handler closures.
+        /// The overload calls the original method with a TCS-based lambda and returns the Task.
+        /// </summary>
+        private void TryEmitCompletionHandlerOverload(CSharpWriter csWriter, MethodEnvironment methodEnv)
+        {
+            var methodDecl = methodEnv.MethodDecl;
+            var parameters = methodDecl.CSSignature.Skip(1).ToList();
+            if (parameters.Count == 0)
+                return;
+
+            // Find the completion handler parameter (must be last)
+            var lastParam = parameters.Last();
+            if (!methodEnv.ClosureHandler.IsClosure(lastParam))
+                return;
+
+            if (!CompletionHandlerDetector.IsCompletionHandler(methodDecl, lastParam, methodEnv.ClosureHandler))
+                return;
+
+            var closureSpec = methodEnv.ClosureHandler.GetClosureTypeSpec(lastParam)!;
+            var shape = CompletionHandlerDetector.GetCallbackShape(closureSpec);
+            if (shape == CompletionHandlerDetector.CallbackShape.Unsupported)
+                return;
+
+            // Build the async method name
+            var baseMethodName = methodEnv.CSharpMethodName;
+            var asyncMethodName = baseMethodName + "Async";
+
+            // Check for name collision with existing methods
+            if (methodEnv.EmittedProjectedSignatures != null)
+            {
+                // Build projected key for the overload (same params minus closure, plus CancellationToken)
+                var overloadParamTypes = parameters
+                    .Take(parameters.Count - 1)
+                    .Select(p =>
+                    {
+                        var idiomaticType = methodEnv.TypeConversionHandler.GetIdiomaticCSharpType(p.SwiftTypeSpec, isParameter: true);
+                        if (idiomaticType != null) return idiomaticType;
+                        if (methodEnv.TypeDatabase.TryGetTypeRecord(p.SwiftTypeSpec, out var record))
+                            return record.CSharpTypeName.FullyQualifiedName;
+                        return p.SwiftTypeSpec.ToString();
+                    })
+                    .ToList();
+                overloadParamTypes.Add("System.Threading.CancellationToken");
+                var overloadKey = $"{asyncMethodName}({string.Join(",", overloadParamTypes)})";
+                if (!methodEnv.EmittedProjectedSignatures.Add(overloadKey))
+                    return; // Collision — skip
+            }
+
+            // Resolve the result type for the Task
+            var resultTypeName = CompletionHandlerDetector.GetResultTypeName(
+                closureSpec, shape, methodEnv.TypeDatabase, methodEnv.TypeConversionHandler);
+
+            // Guard: shapes that require a result type must have one resolved
+            // (e.g., bound generic Result<T, Error> with unresolvable generic args)
+            if (resultTypeName == null &&
+                (shape == CompletionHandlerDetector.CallbackShape.SingleResult ||
+                 shape == CompletionHandlerDetector.CallbackShape.ResultWithError))
+                return;
+
+            var taskType = resultTypeName != null ? $"Task<{resultTypeName}>" : "Task";
+            var tcsType = resultTypeName != null ? $"TaskCompletionSource<{resultTypeName}>" : "TaskCompletionSource<bool>";
+            var tcsSetResult = resultTypeName != null ? "" : "true";
+
+            // Build non-closure parameters for the overload signature
+            var nonClosureParams = parameters.Take(parameters.Count - 1).ToList();
+            var overloadParams = new List<string>();
+            foreach (var p in nonClosureParams)
+            {
+                var csName = NameProvider.GetCSharpParameterName(p);
+                var idiomaticType = methodEnv.TypeConversionHandler.GetIdiomaticCSharpType(p.SwiftTypeSpec, isParameter: true);
+                string paramType;
+                if (idiomaticType != null)
+                    paramType = idiomaticType;
+                else if (methodEnv.TypeDatabase.TryGetTypeRecord(p.SwiftTypeSpec, out var record))
+                    paramType = record.CSharpTypeName.FullyQualifiedName;
+                else
+                    paramType = p.SwiftTypeSpec.ToString();
+                overloadParams.Add($"{paramType} {csName}");
+            }
+            overloadParams.Add("System.Threading.CancellationToken cancellationToken = default");
+
+            var paramString = string.Join(", ", overloadParams);
+            var accessModifier = NameProvider.GetAccessModifier(methodDecl.Visibility);
+
+            // Build the lambda body based on callback shape
+            var callArgs = new List<string>();
+            foreach (var p in nonClosureParams)
+            {
+                callArgs.Add(NameProvider.GetCSharpParameterName(p));
+            }
+
+            string lambdaBody;
+            switch (shape)
+            {
+                case CompletionHandlerDetector.CallbackShape.VoidResult:
+                    lambdaBody = "() => tcs.TrySetResult(true)";
+                    break;
+                case CompletionHandlerDetector.CallbackShape.SingleResult:
+                    lambdaBody = "result => tcs.TrySetResult(result)";
+                    break;
+                case CompletionHandlerDetector.CallbackShape.ErrorOnly:
+                    lambdaBody = """
+                        error =>
+                                {
+                                    if (error is { } err)
+                                        tcs.TrySetException(new SwiftException(err.ToString()));
+                                    else
+                                        tcs.TrySetResult(true);
+                                }
+                        """;
+                    break;
+                case CompletionHandlerDetector.CallbackShape.ResultWithError:
+                    lambdaBody = $$"""
+                        (result, error) =>
+                                {
+                                    if (error is { } err)
+                                        tcs.TrySetException(new SwiftException(err.ToString()));
+                                    else
+                                        tcs.TrySetResult(result);
+                                }
+                        """;
+                    break;
+                default:
+                    return;
+            }
+
+            callArgs.Add(lambdaBody);
+            var callArgsString = string.Join(", ", callArgs);
+
+            // Determine if void result (Task without type param requires special handling)
+            var awaitResult = resultTypeName != null ? "return await tcs.Task;" : "await tcs.Task;";
+
+            // Emit the overload
+            csWriter.WriteLines($$"""
+                /// <summary>
+                /// Task-returning overload for <see cref="{{baseMethodName}}"/>.
+                /// </summary>
+                /// <param name="cancellationToken">Cancels the returned Task but does not cancel the underlying operation.</param>
+                {{accessModifier}} async {{taskType}} {{asyncMethodName}}({{paramString}})
+                {
+                    var tcs = new {{tcsType}}(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var registration = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
+                    try
+                    {
+                        {{baseMethodName}}({{callArgsString}});
+                        {{awaitResult}}
+                    }
+                    finally
+                    {
+                        registration.Dispose();
+                    }
+                }
+                """);
         }
     }
 }

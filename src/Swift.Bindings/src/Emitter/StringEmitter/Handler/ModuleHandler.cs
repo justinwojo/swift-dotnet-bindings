@@ -72,6 +72,7 @@ namespace BindingsGeneration
 
             // Reset per-module state for shared emitters
             EnumHandler.ResetUtf8SliceTracking();
+            CancellationTaskEmitter.ResetForModule();
 
             // Emit Swift imports at the top of the Swift wrapper file
             EmitSwiftImports(swiftWriter, moduleDecl);
@@ -137,6 +138,22 @@ namespace BindingsGeneration
                     {
                         Buffer = buffer;
                         Metadata = metadata;
+                    }
+                }
+
+                /// <summary>
+                /// Wraps a CancellationTokenRegistration for disposal in async callbacks.
+                /// Stored in the async holder array so the callback can dispose the registration
+                /// after completion, cancellation, or error.
+                /// </summary>
+                internal readonly struct CancellationRegistrationHolder
+                {
+                    public readonly System.Threading.CancellationTokenRegistration Registration;
+                    public readonly System.Threading.CancellationToken Token;
+                    public CancellationRegistrationHolder(System.Threading.CancellationTokenRegistration registration, System.Threading.CancellationToken token)
+                    {
+                        Registration = registration;
+                        Token = token;
                     }
                 }
 
@@ -307,6 +324,9 @@ namespace BindingsGeneration
             // are linked into the same wrapper library.
             Utf8SliceEmitter.EmitIfNeeded(swiftWriter);
             Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleDecl.Name);
+
+            // Emit Swift Task cancellation infrastructure (cancel function + task dictionary)
+            CancellationTaskEmitter.EmitIfNeeded(swiftWriter, moduleDecl.Name);
         }
 
         /// <summary>

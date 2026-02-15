@@ -127,20 +127,17 @@ Standalone runtime library change. `SwiftArray<T>` previously copied to `List<T>
 
 ---
 
-### Session 6: Async Method Improvements
+### Session 6: Async Method Improvements ✅
 
-**Priority**: P2/P3 | **Type**: Implementation | **Risk**: Medium
-
-Both items modify the async method generation pipeline — wrapper emission, Swift wrapper code, and method signature construction. Working on one requires understanding the other's code paths anyway.
+**Priority**: P2/P3 | **Type**: Implementation | **Risk**: Medium | **Status**: Done
 
 | Item | Priority | Effort | Description |
 |------|----------|--------|-------------|
-| **CancellationToken on async methods** | P2 | Medium | Optional `CancellationToken` parameter on all `Task`-returning methods. Wired to Swift's `Task.cancel()` via wrapper function. |
-| **Async method naming edge cases** | P3 | Medium | Callback-based methods could offer `Task`-based overloads via generated `TaskCompletionSource` wrappers. |
+| **CancellationToken on async methods** | P2 | Medium | Done — `CancellationToken cancellationToken = default` on all `Task`-returning methods. Swift Task store (`_SBWTaskEntry` + `_sbwActiveTasks` dictionary + `NSLock`), `@_cdecl("SBW_CancelTask_{Module}")` cancel function, C# registration → Swift cancel + `TrySetCanceled`, pre-cancel check with `Task.FromCanceled`. `isCancellation: Int32` error callback parameter (type-safe, not string matching). |
+| **Callback-to-Task overloads** | P3 | Medium | Done — `CompletionHandlerDetector` identifies completion handler closures (trailing, void-returning, recognized shapes: VoidResult, SingleResult, ErrorOnly, ResultWithError). Generates `Task<T>`-returning overloads with `TaskCompletionSource` + `RunContinuationsAsynchronously`. Bound generic type resolution with protocol guard. |
 
-**Key files**: `MethodHandler.cs` (async path), `WrapperEmitter.Async.cs`, `ClosureEmitter.SwiftWrapper.cs`
-**Verification**: `./run-tests.sh` + regenerate library bindings to verify naming + cancellation
-**Design**: `Future/binding-api-future-work.md` (CancellationToken, N5)
+**Key files**: `CancellationTaskEmitter.cs` (new), `CompletionHandlerDetector.cs` (new), `WrapperEmitter.Async.cs`, `WrapperEmitter.cs`, `ModuleHandler.cs`, `MethodHandler.cs`
+**Tests**: 52 new (30 CancellationTokenEmitterTests + 22 CompletionHandlerDetectorTests)
 
 ---
 
@@ -383,7 +380,7 @@ Workarounds exist for all. Not blocking any library validation.
 | **3. SDK & NuGet DX** | P1 | Implement | Small | Done — SWIFTBIND050 two-pass build + NativeRef Exists() guard + case-insensitive doc comments |
 | **4. Typed Swift Exceptions** | P1 | Implement | Medium | `SwiftException<TError>` with error details |
 | **5. SwiftArray Collection** | P2 | Implement | Medium | `IReadOnlyList<T>` on SwiftArray, no LINQ copying |
-| **6. Async Improvements** | P2/P3 | Implement | Medium | CancellationToken + async naming edge cases |
+| **6. Async Improvements** | P2/P3 | Done | Medium | CancellationToken on async + callback-to-Task overloads |
 | **7. Emitter Quality** | P3 | Implement | Small-Medium | Property collision + default param overloads |
 | **8. Existential Cleanup** | P2 | Implement | Hard | ExistentialContainer -> protocol interfaces |
 | **9. Roslyn Analyzer** | P3 | Implement | Medium | Undisposed ISwiftObject warnings |

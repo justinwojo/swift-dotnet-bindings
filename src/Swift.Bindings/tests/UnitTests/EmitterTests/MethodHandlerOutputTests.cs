@@ -33,7 +33,7 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[DllImport(\"/tmp/AsyncWrapper.dylib\"", csOutput);
-        Assert.Contains("public Task<long> FetchAsync()", csOutput);
+        Assert.Contains("public Task<long> FetchAsync(System.Threading.CancellationToken cancellationToken = default)", csOutput);
         Assert.Contains("return task.Task;", csOutput);
     }
 
@@ -301,7 +301,8 @@ public class MethodHandlerOutputTests
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
         // P/Invoke should use IntPtr for the frozen enum param
-        var externLine = Array.Find(csOutput.Split('\n'), line => line.Contains("extern", StringComparison.Ordinal));
+        // Find the method's P/Invoke line (not SBW_CancelTask which is also extern)
+        var externLine = Array.Find(csOutput.Split('\n'), line => line.Contains("extern", StringComparison.Ordinal) && line.Contains("variant", StringComparison.Ordinal));
         Assert.NotNull(externLine);
         Assert.Contains("IntPtr variant", externLine!);
         // C# wrapper must synthesize variantHandle via InitializeWithCopy (copy-buffer pattern)

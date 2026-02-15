@@ -132,7 +132,7 @@ namespace BindingsGeneration
 
                 csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            object[] _asyncCallHolder = new object[] { task, {{copyBufferList}}, {{originalParamList}}{{selfInHolder}} };
+            object[] _asyncCallHolder = new object[] { task, {{copyBufferList}}, {{originalParamList}}{{selfInHolder}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }
@@ -147,7 +147,7 @@ namespace BindingsGeneration
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
             IntPtr _selfPtr = *(IntPtr*)_payload.DangerousGetHandle();
             Arc.Retain(_selfPtr);
-            object[] _asyncCallHolder = new object[] { task, new RetainedSelfPtr(_selfPtr), (object)this };
+            object[] _asyncCallHolder = new object[] { task, new RetainedSelfPtr(_selfPtr), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -156,19 +156,56 @@ namespace BindingsGeneration
                     // For structs, keep 'this' alive and defer SafeHandle release until callback
                     csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this };
+            object[] _asyncCallHolder = new object[] { task, new DeferredSafeHandleRelease(_payload), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
             }
             else
             {
-                // Static method with no non-frozen parameters - no holder needed
+                // Static method with no non-frozen parameters
                 csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} task = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            GCHandle handle = GCHandle.Alloc(task, GCHandleType.Normal);
+            object[] _asyncCallHolder = new object[] { task, null! };
+            GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }
+
+            // Pre-cancel check: if token is already cancelled, clean up and return immediately
+            var tcsTypeParam = isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>";
+            csWriter.WriteLines($$"""
+            if (cancellationToken.IsCancellationRequested)
+            {
+                // Clean up resources that were allocated for the async call
+                for (int i = 1; i < _asyncCallHolder.Length; i++)
+                {
+                    if (_asyncCallHolder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                        Arc.Release(retained.Ptr);
+                    else if (_asyncCallHolder[i] is DeferredSafeHandleRelease deferred)
+                        deferred.Handle.DangerousRelease();
+                    else if (_asyncCallHolder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                    {
+                        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                        NativeMemory.Free((void*)copyBuffer.Buffer);
+                    }
+                }
+                handle.Free();
+                return Task.FromCanceled{{tcsTypeParam}}(cancellationToken);
+            }
+            if (cancellationToken.CanBeCanceled)
+            {
+                long taskId = (long)(IntPtr)handle;
+                var _cancelRegistration = cancellationToken.Register(
+                    static state =>
+                    {
+                        var (tcs, token, id) = ((TaskCompletionSource{{tcsTypeParam}}, System.Threading.CancellationToken, long))state!;
+                        SBW_CancelTask(id);
+                        tcs.TrySetCanceled(token);
+                    },
+                    (task, cancellationToken, taskId));
+                _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
+            }
+            """);
 
             // Build parameter string - non-frozen types use UnsafeRawPointer in Swift wrapper
             // For tuple returns, flatten the tuple elements into separate callback parameters
@@ -314,11 +351,12 @@ namespace BindingsGeneration
                 }
             }
 
-            // For typed throws, the error callback takes 4 params: (errorPtr, errorSize, messagePtr, task)
-            // For untyped throws, it takes 2 params: (messagePtr, task) — the existing pattern
+            // For typed throws, the error callback takes 5 params: (errorPtr, errorSize, messagePtr, isCancellation, task)
+            // For untyped throws, it takes 3 params: (messagePtr, isCancellation, task)
+            // isCancellation (Int32): 1 if error is CancellationError, 0 otherwise
             var errorCallbackSwiftParam = useTypedErrorCallback
-                ? "errorCallback: @escaping @convention(c) (UnsafeRawPointer, Int, UnsafePointer<CChar>, Int64) -> Void"
-                : "errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int64) -> Void";
+                ? "errorCallback: @escaping @convention(c) (UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64) -> Void"
+                : "errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int32, Int64) -> Void";
 
             // Pre-compute the Swift catch block body for typed vs untyped throws.
             // Used in all 6 Swift wrapper emission sites below.
@@ -327,7 +365,8 @@ namespace BindingsGeneration
             if (useTypedErrorCallback)
             {
                 swiftCatchBody =
-                    $"let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
+                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
+                    $"                        let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
                     $"                        let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
                     $"                            byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
                     $"                        withUnsafePointer(to: error) {{ _src in\n" +
@@ -335,21 +374,23 @@ namespace BindingsGeneration
                     $"                        }}\n" +
                     $"                        let errorMessage = String(describing: error)\n" +
                     $"                        errorMessage.withCString {{ _msgPtr in\n" +
-                    $"                            errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, task)\n" +
+                    $"                            errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, task)\n" +
                     $"                        }}";
             }
             else
             {
                 swiftCatchBody =
-                    $"let errorMessage = String(describing: error)\n" +
-                    $"                        errorMessage.withCString {{ errorCallback($0, task) }}";
+                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
+                    $"                        let errorMessage = String(describing: error)\n" +
+                    $"                        errorMessage.withCString {{ errorCallback($0, _isCancelled, task) }}";
             }
             // Extension-indented variant (4 more spaces for code inside extension { } blocks)
             string swiftCatchBodyExt;
             if (useTypedErrorCallback)
             {
                 swiftCatchBodyExt =
-                    $"let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
+                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
+                    $"                            let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
                     $"                            let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
                     $"                                byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
                     $"                            withUnsafePointer(to: error) {{ _src in\n" +
@@ -357,14 +398,15 @@ namespace BindingsGeneration
                     $"                            }}\n" +
                     $"                            let errorMessage = String(describing: error)\n" +
                     $"                            errorMessage.withCString {{ _msgPtr in\n" +
-                    $"                                errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, task)\n" +
+                    $"                                errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, task)\n" +
                     $"                            }}";
             }
             else
             {
                 swiftCatchBodyExt =
-                    $"let errorMessage = String(describing: error)\n" +
-                    $"                            errorMessage.withCString {{ errorCallback($0, task) }}";
+                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
+                    $"                            let errorMessage = String(describing: error)\n" +
+                    $"                            errorMessage.withCString {{ errorCallback($0, _isCancelled, task) }}";
             }
 
             var baseParams = new[]
@@ -558,7 +600,16 @@ namespace BindingsGeneration
                 {{selfConversion}}
                 {{selfComment}}
 
-                Task {
+                let _entry = _SBWTaskEntry()
+                _sbwTaskLock.lock()
+                _sbwActiveTasks[task] = _entry
+                _sbwTaskLock.unlock()
+                _entry.task = Task {
+                    defer {
+                        _sbwTaskLock.lock()
+                        _sbwActiveTasks.removeValue(forKey: task)
+                        _sbwTaskLock.unlock()
+                    }
                     do {
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
@@ -579,7 +630,16 @@ namespace BindingsGeneration
             public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
                 {{selfConversion}}
                 {{selfComment}}
-                Task {
+                let _entry = _SBWTaskEntry()
+                _sbwTaskLock.lock()
+                _sbwActiveTasks[task] = _entry
+                _sbwTaskLock.unlock()
+                _entry.task = Task {
+                    defer {
+                        _sbwTaskLock.lock()
+                        _sbwActiveTasks.removeValue(forKey: task)
+                        _sbwTaskLock.unlock()
+                    }
                     do {
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
@@ -609,7 +669,16 @@ namespace BindingsGeneration
                     {{readCode}}
                     {{selfComment}}
 
-                    Task {
+                    let _entry = _SBWTaskEntry()
+                    _sbwTaskLock.lock()
+                    _sbwActiveTasks[task] = _entry
+                    _sbwTaskLock.unlock()
+                    _entry.task = Task {
+                        defer {
+                            _sbwTaskLock.lock()
+                            _sbwActiveTasks.removeValue(forKey: task)
+                            _sbwTaskLock.unlock()
+                        }
                         do {
                             {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                                 {{methodCallArgs}}
@@ -631,7 +700,16 @@ namespace BindingsGeneration
                 @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
                     {{selfComment}}
-                    Task {
+                    let _entry = _SBWTaskEntry()
+                    _sbwTaskLock.lock()
+                    _sbwActiveTasks[task] = _entry
+                    _sbwTaskLock.unlock()
+                    _entry.task = Task {
+                        defer {
+                            _sbwTaskLock.lock()
+                            _sbwActiveTasks.removeValue(forKey: task)
+                            _sbwTaskLock.unlock()
+                        }
                         do {
                             {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                                 {{methodCallArgs}}
@@ -659,7 +737,16 @@ namespace BindingsGeneration
                 // C# created copies using InitializeWithCopy (owns a proper reference)
                 {{readCode}}
 
-                Task {
+                let _entry = _SBWTaskEntry()
+                _sbwTaskLock.lock()
+                _sbwActiveTasks[task] = _entry
+                _sbwTaskLock.unlock()
+                _entry.task = Task {
+                    defer {
+                        _sbwTaskLock.lock()
+                        _sbwActiveTasks.removeValue(forKey: task)
+                        _sbwTaskLock.unlock()
+                    }
                     do {
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
@@ -678,7 +765,16 @@ namespace BindingsGeneration
                     swiftWriter.WriteLine($$"""
             @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
             public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}){{whereClause}}{
-                Task {
+                let _entry = _SBWTaskEntry()
+                _sbwTaskLock.lock()
+                _sbwActiveTasks[task] = _entry
+                _sbwTaskLock.unlock()
+                _entry.task = Task {
+                    defer {
+                        _sbwTaskLock.lock()
+                        _sbwActiveTasks.removeValue(forKey: task)
+                        _sbwTaskLock.unlock()
+                    }
                     do {
                         {{(isEmptyTuple ? "" : $"let result{_env.MethodDecl.Name} = ")}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
                             {{methodCallArgs}}
@@ -703,6 +799,22 @@ namespace BindingsGeneration
         {
             if (!_requiresSwiftAsync)
                 return;
+
+            // Emit SBW_CancelTask P/Invoke once per C# type (for CancellationToken support)
+            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
+            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var wrapperLibPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+            var cancelSymbolName = CancellationTaskEmitter.GetCancelSymbolName(moduleDecl.Name);
+            var typeKey = (_env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleDecl.Name;
+            if (!CancellationTaskEmitter.HasCancelPInvokeForType(typeKey))
+            {
+                CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey);
+                csWriter.WriteLines($"""
+                    [System.Runtime.InteropServices.DllImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
+                    private static extern void SBW_CancelTask(long taskId);
+
+                    """);
+            }
 
             var returnType = _env.MethodDecl.CSSignature.First();
             var voidReturn = returnType.SwiftTypeSpec.IsEmptyTuple;
@@ -813,6 +925,8 @@ namespace BindingsGeneration
                                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                                             NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }
+                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
+                                            cancelReg.Registration.Dispose();
                                     }
                                     holderTcs.TrySetResult({{(voidReturn ? "" : "result")}});
                                 }
@@ -913,6 +1027,8 @@ namespace BindingsGeneration
                                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                                             NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }
+                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
+                                            cancelReg.Registration.Dispose();
                                     }
                                     holderTcs.TrySetResult(result);
                                 }
@@ -1006,6 +1122,8 @@ namespace BindingsGeneration
                                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                                             NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }
+                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
+                                            cancelReg.Registration.Dispose();
                                     }
                                     holderTcs.TrySetResult(result);
                                 }
@@ -1153,6 +1271,8 @@ namespace BindingsGeneration
                                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                                             NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }
+                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
+                                            cancelReg.Registration.Dispose();
                                     }
                                     if (deserializationError != null)
                                         holderTcs.TrySetException(deserializationError);
@@ -1261,6 +1381,8 @@ namespace BindingsGeneration
                                             copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                                             NativeMemory.Free((void*)copyBuffer.Buffer);
                                         }
+                                        else if (holder[i] is CancellationRegistrationHolder cancelReg)
+                                            cancelReg.Registration.Dispose();
                                     }
                                     holderTcs.TrySetResult(result);
                                 }
@@ -1284,14 +1406,47 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Builds the C# error callback code block (delegate + method) for async wrappers.
-        /// For typed throws, emits a 4-param callback that marshals the error value via MarshalFromSwift.
-        /// For untyped throws, emits the standard 2-param callback with string message only.
+        /// For typed throws, emits a 5-param callback (errorPtr, errorSize, messagePtr, isCancellation, task).
+        /// For untyped throws, emits a 3-param callback (messagePtr, isCancellation, task).
+        /// The isCancellation parameter (Int32) is 1 when the Swift error is CancellationError.
         /// </summary>
         private string BuildErrorCallbackBlock(
             string errorCallbackFieldName,
             string errorCallbackMethodName,
             string tcsType)
         {
+            // Common cancellation handling code — used by both typed and untyped paths.
+            // When isCancellation is set, find the CancellationToken from the holder and call TrySetCanceled.
+            // For typed throws, the Swift-allocated error buffer must also be freed.
+            var freeErrorInCancellation = useTypedErrorCallback
+                ? "\n                                        SBW_Free(errorPtr);"
+                : "";
+            var cancellationBlock = $$"""
+                                    if (isCancellation != 0)
+                                    {
+                                        // Swift reported CancellationError — find token and cancel the Task
+                                        System.Threading.CancellationToken cancelToken = default;
+                                        for (int i = 1; i < holder.Length; i++)
+                                        {
+                                            if (holder[i] is CancellationRegistrationHolder cancelReg)
+                                            {
+                                                cancelToken = cancelReg.Token;
+                                                cancelReg.Registration.Dispose();
+                                            }
+                                            else if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                                Arc.Release(retained.Ptr);
+                                            else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                                deferred.Handle.DangerousRelease();
+                                            else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                            {
+                                                copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                                NativeMemory.Free((void*)copyBuffer.Buffer);
+                                            }
+                                        }{{freeErrorInCancellation}}
+                                        holderTcs.TrySetCanceled(cancelToken);
+                                    }
+                """;
+
             // tcsType is "" for void, "<ReturnType>" for non-void
             if (useTypedErrorCallback)
             {
@@ -1315,50 +1470,61 @@ namespace BindingsGeneration
                     : "";
 
                 return $$"""
-                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, int, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, IntPtr task)
+                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
                             {
-                                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                {{typedThrowsCSharpErrorType}} typedError;
-                                try
-                                {
-                                    typedError = ({{typedThrowsCSharpErrorType}})SwiftMarshal.MarshalFromSwift<{{typedThrowsCSharpErrorType}}>(errorPtr);
-                                }
-                                finally
-                                {
-                                    SBW_Free(errorPtr);
-                                }
-                                var exception = new SwiftException<{{typedThrowsCSharpErrorType}}>(typedError, errorMessage);
-
                                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{tcsType}} holderTcs)
                                 {
-                                    // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
+                {{cancellationBlock}}
+                                    else
                                     {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                        {{typedThrowsCSharpErrorType}} typedError;
+                                        try
                                         {
-                                            Arc.Release(retained.Ptr);
+                                            typedError = ({{typedThrowsCSharpErrorType}})SwiftMarshal.MarshalFromSwift<{{typedThrowsCSharpErrorType}}>(errorPtr);
                                         }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                        finally
                                         {
-                                            deferred.Handle.DangerousRelease();
+                                            SBW_Free(errorPtr);
                                         }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                        var exception = new SwiftException<{{typedThrowsCSharpErrorType}}>(typedError, errorMessage);
+                                        // Free copy buffer memory for non-frozen params and release retained self
+                                        for (int i = 1; i < holder.Length; i++)
                                         {
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
+                                            if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                                Arc.Release(retained.Ptr);
+                                            else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                                deferred.Handle.DangerousRelease();
+                                            else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                            {
+                                                copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                                NativeMemory.Free((void*)copyBuffer.Buffer);
+                                            }
+                                            else if (holder[i] is CancellationRegistrationHolder cancelReg2)
+                                                cancelReg2.Registration.Dispose();
                                         }
+                                        holderTcs.TrySetException(exception);
                                     }
-                                    holderTcs.TrySetException(exception);
                                 }
                                 else if (handle.Target is TaskCompletionSource{{tcsType}} directTcs)
                                 {
-                                    directTcs.TrySetException(exception);
+                                    var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                    {{typedThrowsCSharpErrorType}} typedError;
+                                    try
+                                    {
+                                        typedError = ({{typedThrowsCSharpErrorType}})SwiftMarshal.MarshalFromSwift<{{typedThrowsCSharpErrorType}}>(errorPtr);
+                                    }
+                                    finally
+                                    {
+                                        SBW_Free(errorPtr);
+                                    }
+                                    directTcs.TrySetException(new SwiftException<{{typedThrowsCSharpErrorType}}>(typedError, errorMessage));
                                 }
                             }
                             finally
@@ -1371,41 +1537,43 @@ namespace BindingsGeneration
             else
             {
                 return $$"""
-                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        private static unsafe delegate* unmanaged[Cdecl]<IntPtr, int, IntPtr, void> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, IntPtr task)
+                        private static unsafe void {{errorCallbackMethodName}}(IntPtr errorMessagePtr, int isCancellation, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
                             {
-                                var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                var exception = new SwiftException(errorMessage);
-
                                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource{{tcsType}} holderTcs)
                                 {
-                                    // Free copy buffer memory for non-frozen params and release retained self
-                                    for (int i = 1; i < holder.Length; i++)
+                {{cancellationBlock}}
+                                    else
                                     {
-                                        if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                        var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                        var exception = new SwiftException(errorMessage);
+                                        // Free copy buffer memory for non-frozen params and release retained self
+                                        for (int i = 1; i < holder.Length; i++)
                                         {
-                                            Arc.Release(retained.Ptr);
+                                            if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                                Arc.Release(retained.Ptr);
+                                            else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                                deferred.Handle.DangerousRelease();
+                                            else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                            {
+                                                copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                                                NativeMemory.Free((void*)copyBuffer.Buffer);
+                                            }
+                                            else if (holder[i] is CancellationRegistrationHolder cancelReg2)
+                                                cancelReg2.Registration.Dispose();
                                         }
-                                        else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                        {
-                                            deferred.Handle.DangerousRelease();
-                                        }
-                                        else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                        {
-                                            copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                            NativeMemory.Free((void*)copyBuffer.Buffer);
-                                        }
+                                        holderTcs.TrySetException(exception);
                                     }
-                                    holderTcs.TrySetException(exception);
                                 }
                                 else if (handle.Target is TaskCompletionSource{{tcsType}} directTcs)
                                 {
-                                    directTcs.TrySetException(exception);
+                                    var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                    directTcs.TrySetException(new SwiftException(errorMessage));
                                 }
                             }
                             finally

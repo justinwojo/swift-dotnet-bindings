@@ -742,7 +742,11 @@ namespace BindingsGeneration
                 : _env.CSharpMethodName;
 
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
-            csWriter.WriteLine($"{accessModifier} {staticKeyword}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())})");
+            // Async methods get CancellationToken as the last parameter
+            var cancellationTokenParam = _requiresSwiftAsync
+                ? $"{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}System.Threading.CancellationToken cancellationToken = default"
+                : "";
+            csWriter.WriteLine($"{accessModifier} {staticKeyword}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}{cancellationTokenParam})");
 
             // Emit where clauses for generic constraints
             var whereClause = BuildWhereClause();
