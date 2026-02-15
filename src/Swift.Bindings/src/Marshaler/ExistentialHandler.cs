@@ -329,6 +329,50 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// Checks whether ALL protocols in a composition have TypeRecords with Kind == Protocol.
+    /// Returns false if any protocol is unknown/unregistered or not a Protocol kind.
+    /// </summary>
+    public bool AllProtocolsHaveTypeRecords(ProtocolListTypeSpec protocolList)
+    {
+        if (protocolList.Protocols.Count == 0)
+            return false;
+
+        foreach (var protocol in protocolList.Protocols.Keys)
+        {
+            try
+            {
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(protocol);
+                if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) ||
+                    typeRecord.Kind != TypeRecordKind.Protocol)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Tries to get the proxy class name using the same ObjC-filtered protocol set
+    /// as GetCompositionInterfaceName. Returns false if no non-ObjC protocols remain
+    /// (e.g., `any NSObjectProtocol` — the proxy class doesn't exist).
+    /// </summary>
+    public bool TryGetFilteredProxyClassName(ProtocolListTypeSpec protocolList, out string proxyClassName)
+    {
+        proxyClassName = "";
+        var protocols = protocolList.Protocols.Keys
+            .Where(p => !TypeDatabaseExtensions.IsObjCModuleType(p))
+            .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
+            .ToList();
+        if (protocols.Count == 0) return false;
+        if (protocols.Count == 1) { proxyClassName = $"{protocols[0].NameWithoutModule}Proxy"; return true; }
+        proxyClassName = string.Join("And", protocols.Select(p => p.NameWithoutModule)) + "Proxy";
+        return true;
+    }
+
+    /// <summary>
     /// Gets the combined interface name for a multi-protocol composition.
     /// Protocol names are sorted alphabetically for determinism.
     /// </summary>

@@ -135,7 +135,7 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                    if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
                         // Known proxy: marshal to temp container, then wrap in proxy
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
@@ -169,7 +169,7 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                    if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
                         // Known proxy: marshal to temp container, then wrap in proxy
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
@@ -208,7 +208,7 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                    if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
                         // Known proxy: marshal to temp container, then wrap in proxy
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);

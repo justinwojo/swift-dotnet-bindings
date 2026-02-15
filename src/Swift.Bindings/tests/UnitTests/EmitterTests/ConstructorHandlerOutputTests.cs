@@ -190,6 +190,88 @@ public class ConstructorHandlerOutputTests
         Assert.Contains("out Animal result)", csOutput);
     }
 
+    [Fact]
+    public void Emit_ConstructorWithOptionalExistential_KnownProtocol_NotBlockedByExistentialGuard()
+    {
+        // P3: Exercises ConstructorHandler.Emit() constructor existential bypass path (line 167).
+        // Optional<any KnownProtocol> should NOT set hasExistentialArg —
+        // the constructor proceeds past the existential guard to normal emission.
+        // It may still produce empty output due to SignatureHandler placeholder resolution
+        // with a minimal TypeDatabase — this test verifies the guard path, not full emission.
+        var typeDatabase = CreateTypeDatabaseWithOptionalAndProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Widget", moduleDecl);
+
+        // Register the parent type
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: parentDecl.SwiftTypeName, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Widget"),
+                SwiftTypeName = parentDecl.SwiftTypeName,
+                MetadataAccessor = "$s10TestModule6WidgetVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        var optionalExistentialSpec = new NamedTypeSpec("Swift.Optional");
+        var existentialInner = new NamedTypeSpec("TestModule.Drawable") { IsAny = true };
+        optionalExistentialSpec.GenericParameters.Add(existentialInner);
+
+        var constructor = CreateConstructorDecl("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("renderer", optionalExistentialSpec, moduleDecl)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        // The constructor should NOT be handled by ExistentialBypass (no "ExistentialBypass" report).
+        // It may still produce empty output if the signature has unresolvable types
+        // (UnsupportedSignature), but NOT because of UnsupportedExistential.
+        // Verify it does NOT emit an ExistentialBypass wrapper pattern.
+        Assert.DoesNotContain("ExistentialBypass", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ConstructorWithOptionalExistential_UnknownProtocol_Skipped()
+    {
+        // P3: Constructor with Optional<any UnknownProtocol> — no TypeRecord registered.
+        // hasExistentialArg is set, triggering ExistentialBypass or skip.
+        var typeDatabase = CreateTypeDatabaseWithOptional();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Widget", moduleDecl);
+
+        // Register the parent type
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: parentDecl.SwiftTypeName, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Widget"),
+                SwiftTypeName = parentDecl.SwiftTypeName,
+                MetadataAccessor = "$s10TestModule6WidgetVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+
+        var optionalExistentialSpec = new NamedTypeSpec("Swift.Optional");
+        var existentialInner = new NamedTypeSpec("TestModule.UnknownProtocol") { IsAny = true };
+        optionalExistentialSpec.GenericParameters.Add(existentialInner);
+
+        var constructor = CreateConstructorDecl("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("renderer", optionalExistentialSpec, moduleDecl)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        // Constructor is skipped — no "public Widget(" constructor emitted
+        Assert.DoesNotContain("public Widget(", csOutput);
+    }
+
     #endregion
 
     private static TypeDatabase CreateTypeDatabase()
@@ -427,6 +509,82 @@ public class ConstructorHandlerOutputTests
                 Kind = TypeRecordKind.Enum
             })
         });
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithOptionalAndProtocol()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IDrawable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
+                MetadataAccessor = "$s10TestModule8DrawablePAAWP",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithOptional()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
     }
 
     private static (string csOutput, string swiftOutput) EmitConstructor(MethodDecl methodDecl, TypeDatabase typeDatabase)

@@ -218,7 +218,7 @@ namespace BindingsGeneration
             if (existentialHandler.IsExistential(typeSpec))
             {
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
-                if (protocolList != null && AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                if (protocolList != null && existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 {
                     return existentialHandler.GetPublicExistentialType(protocolList);
                 }
@@ -227,7 +227,7 @@ namespace BindingsGeneration
             // Handle protocol list types (protocol composition)
             if (typeSpec is ProtocolListTypeSpec protocolListSpec)
             {
-                if (AllProtocolsHaveTypeRecords(protocolListSpec, typeDatabase))
+                if (existentialHandler.AllProtocolsHaveTypeRecords(protocolListSpec))
                 {
                     return existentialHandler.GetPublicExistentialType(protocolListSpec);
                 }
@@ -246,32 +246,6 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Checks whether ALL protocols in a composition have TypeRecords with Kind == Protocol.
-        /// Returns false if any protocol is unknown/unregistered or not a Protocol kind.
-        /// </summary>
-        private static bool AllProtocolsHaveTypeRecords(ProtocolListTypeSpec protocolList, ITypeDatabase typeDatabase)
-        {
-            if (protocolList.Protocols.Count == 0)
-                return false;
-
-            foreach (var protocol in protocolList.Protocols.Keys)
-            {
-                try
-                {
-                    var swiftTypeName = SwiftTypeName.FromTypeSpec(protocol);
-                    if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) ||
-                        typeRecord.Kind != TypeRecordKind.Protocol)
-                        return false;
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        /// <summary>
         /// Gets the P/Invoke argument expression for a parameter.
         /// </summary>
         private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase)
@@ -287,7 +261,7 @@ namespace BindingsGeneration
             if (existentialHandler.IsExistential(typeSpec))
             {
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
-                if (protocolList != null && AllProtocolsHaveTypeRecords(protocolList, typeDatabase))
+                if (protocolList != null && existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 {
                     // Interface-typed parameter: extract the container via ISwiftExistentialConvertible
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);

@@ -27,7 +27,7 @@ public static partial class ClosureEmitter
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName) + "_Start";
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var returnCSharpType = hasReturn
-            ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType)
+            ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
             : null;
 
         // Determine the state type based on return type
@@ -161,7 +161,7 @@ public static partial class ClosureEmitter
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var returnCSharpType = hasReturn
-            ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType)
+            ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
             : null;
 
         var stateType = hasReturn

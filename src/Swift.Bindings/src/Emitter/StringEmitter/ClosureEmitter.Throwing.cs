@@ -62,7 +62,7 @@ public static partial class ClosureEmitter
         var invokeArgsString = string.Join(", ", invokeArgs);
 
         // Determine the success type for the SwiftResult
-        var successType = hasReturn ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType) : "Swift.SwiftVoid";
+        var successType = hasReturn ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true) : "Swift.SwiftVoid";
         var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
 
         var callConvType = useCdecl ? "typeof(CallConvCdecl)" : "typeof(CallConvSwift)";
@@ -187,7 +187,7 @@ public static partial class ClosureEmitter
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
-        var successType = hasReturn ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType) : "Swift.SwiftVoid";
+        var successType = hasReturn ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true) : "Swift.SwiftVoid";
         var resultType = $"Swift.SwiftResult<{successType}, SwiftError>";
 
         csWriter.WriteLines($$"""

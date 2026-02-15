@@ -28,7 +28,7 @@ public static partial class ClosureEmitter
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
-        var returnCSharpType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
+        var returnCSharpType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
 
         // Build parameter list: void* indirectResult, arguments..., context
         var parameters = new List<string> { "void* indirectResult" };

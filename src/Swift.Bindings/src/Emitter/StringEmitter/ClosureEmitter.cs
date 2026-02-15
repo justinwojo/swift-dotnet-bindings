@@ -299,6 +299,11 @@ public static partial class ClosureEmitter
             return $"SwiftMarshal.MarshalFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
         }
 
+        // Direct existential params: P/Invoke type is ExistentialContainer (blittable),
+        // but delegate type is now the protocol interface. Wrap with proxy constructor.
+        if (closureHandler.NeedsProxyWrapping(typeSpec, out var proxyName))
+            return $"new {proxyName}(arg{argIndex})";
+
         return $"arg{argIndex}";
     }
 
@@ -348,7 +353,7 @@ public static partial class ClosureEmitter
             return "byte";
 
         if (closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
-            return closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
+            return closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
 
         return GetCallbackParameterType(closureTypeSpec.ReturnType, closureHandler);
     }

@@ -519,7 +519,7 @@ public class ClosureHandler
         string coreReturnType;
         if (hasReturn)
         {
-            coreReturnType = TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType);
+            coreReturnType = TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
         }
         else
         {
@@ -765,15 +765,37 @@ public class ClosureHandler
 
     /// <summary>
     /// Translates a TypeSpec to its C# equivalent for delegate type parameters.
+    /// When isReturnType is true, existential types keep using ExistentialContainer
+    /// because the callback/invoker code paths don't yet handle interface↔container
+    /// conversion for return types.
     /// </summary>
-    public string TranslateTypeSpecToCSharp(TypeSpec typeSpec)
+    public string TranslateTypeSpecToCSharp(TypeSpec typeSpec, bool isReturnType = false)
     {
-        // Handle existential types
+        // Handle existential types — use protocol interface for known protocols (params only)
         if (_existentialHandler.IsExistential(typeSpec))
         {
             var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
             if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
+            {
+                // Use public interface (e.g., IImageProcessing) when all protocols have TypeRecords
+                // AND a proxy class exists (TryGetFilteredProxyClassName filters ObjC protocols).
+                // Without a proxy class, the callback can't convert ExistentialContainer → interface.
+                // Return types are excluded — the callback/invoker don't have conversion logic yet.
+                // P1 fix: Also exclude mixed compositions where ObjC filtering drops protocols,
+                // because the proxy constructor accepts ExistentialContainer{filteredCount}
+                // but P/Invoke passes ExistentialContainer{originalCount}.
+                if (!isReturnType && _existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
+                {
+                    var publicType = _existentialHandler.GetPublicExistentialType(protocolList);
+                    var filteredCount = protocolList.Protocols.Keys
+                        .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+                    if (publicType != "object" &&
+                        filteredCount == protocolList.Protocols.Count &&
+                        _existentialHandler.TryGetFilteredProxyClassName(protocolList, out _))
+                        return publicType;
+                }
                 return _existentialHandler.GetCSharpExistentialType(protocolList);
+            }
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 
@@ -790,7 +812,21 @@ public class ClosureHandler
                 namedType.GenericParameters.Count == 1)
             {
                 var innerTypeSpec = namedType.GenericParameters[0];
-                var innerType = TranslateTypeSpecToCSharp(innerTypeSpec);
+                // For Optional<any Protocol>, use container type (not interface) because
+                // Optional existentials use void* in P/Invoke → MarshalFromSwift<IProtocol?>
+                // would throw NotSupportedException at runtime.
+                string innerType;
+                if (_existentialHandler.IsExistential(innerTypeSpec))
+                {
+                    var innerProtocolList = _existentialHandler.ToProtocolListTypeSpec(innerTypeSpec);
+                    innerType = innerProtocolList != null && _existentialHandler.IsSupportedExistential(innerProtocolList)
+                        ? _existentialHandler.GetCSharpExistentialType(innerProtocolList)
+                        : TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                }
+                else
+                {
+                    innerType = TranslateTypeSpecToCSharp(innerTypeSpec);
+                }
 
                 // Use nullable syntax only for primitive/simple types
                 // Keep SwiftOptional for complex types that need special marshalling
@@ -1161,5 +1197,36 @@ public class ClosureHandler
     public static string GetClosureWrapperFieldName(string parameterName)
     {
         return $"_{parameterName}Closure";
+    }
+
+    /// <summary>
+    /// Determines whether a direct existential type spec in a closure parameter needs proxy wrapping
+    /// when converting from the blittable ExistentialContainer to the protocol interface type.
+    /// Only applies to direct existentials (not Optional-wrapped ones).
+    /// </summary>
+    /// <param name="typeSpec">The type specification of the closure parameter.</param>
+    /// <param name="proxyClassName">The proxy class name to use for wrapping, if applicable.</param>
+    /// <returns>True if the parameter needs proxy construction; false otherwise.</returns>
+    public bool NeedsProxyWrapping(TypeSpec typeSpec, out string proxyClassName)
+    {
+        proxyClassName = "";
+        if (!_existentialHandler.IsExistential(typeSpec)) return false;
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList == null || !_existentialHandler.AllProtocolsHaveTypeRecords(protocolList)) return false;
+        var publicType = _existentialHandler.GetPublicExistentialType(protocolList);
+        if (publicType == "object") return false;
+        // P1 fix: Only wrap when filtered protocol count matches original count.
+        // If ObjC filtering drops protocols, the proxy class constructor accepts
+        // ExistentialContainer{filteredCount} but P/Invoke passes ExistentialContainer{originalCount}.
+        if (!_existentialHandler.TryGetFilteredProxyClassName(protocolList, out proxyClassName))
+            return false;
+        var filteredCount = protocolList.Protocols.Keys
+            .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+        if (filteredCount != protocolList.Protocols.Count)
+        {
+            proxyClassName = "";
+            return false;
+        }
+        return true;
     }
 }
