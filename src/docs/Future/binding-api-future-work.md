@@ -34,11 +34,11 @@ Edge cases in async naming not covered by WU1:
 - **Callback-based methods**: Methods accepting a completion callback could offer a `Task`-based overload (requires generating `TaskCompletionSource` wrappers)
 - **Library task types**: Methods returning library-specific task-like types (e.g., Nuke's `ImageTask`) correctly don't get `Async` suffix — no change needed
 
-### N6: Property Collision Logic (Value Suffix)
+### N6: Property Collision Logic (Value Suffix) — **Done** (2026-02-14)
 
 **Priority**: P3 | **Difficulty**: Easy
 
-When a type has both a nested type and a property of the same name, the generator appends `Value` to the property (e.g., `CacheTypeValue`). In C#, the compiler can disambiguate `response.CacheType` (property) from `ImageResponse.CacheType` (type reference). The `Value` suffix is likely unnecessary but needs verification across all C# contexts (generic type arguments, `typeof()`, `nameof()`).
+Nested type collision resolved by R11 (Wave 4 Polish): when a property collides with a nested type, the **nested type** is renamed with "Info" suffix (e.g., `Cache` → `CacheInfo`), leaving the property with its natural PascalCase name. The only remaining "Value" suffix is for CS0542 (property name == enclosing type name, e.g., class `Animation` with property `animation` → `AnimationValue`), which is a mandatory C# compiler error and cannot be removed. Verified across 25 libraries.
 
 ---
 
@@ -54,9 +54,9 @@ All Swift errors currently wrap in generic `SwiftRuntimeException`. Target: `Swi
 
 Async methods currently have no cancellation support. Target: optional `CancellationToken` parameter on all `Task`-returning methods, wired to Swift's `Task.cancel()`.
 
-### Default Parameters / Overloads
+### Default Parameters / Overloads — **Done** (2026-02-14)
 
-Swift methods with default parameter values emit only the full-parameter version. `DefaultParameterOverloadEmitter.cs` exists but scope is limited to wrapper-backed methods.
+Covers all emission-eligible methods (non-accessor, non-internal, non-generic-parent, non-placeholder). Intentional skip cases: property accessors, module-internal methods, internal/unregistered parent types, generic parent types (Swift extension syntax can't express type parameters), placeholder/AnyType signatures, and signature collisions. Remaining gap: generic parent types — zero affected methods across 25 validated libraries.
 
 ### Collection Interfaces — **Done** (2026-02-14)
 

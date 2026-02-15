@@ -141,20 +141,16 @@ Standalone runtime library change. `SwiftArray<T>` previously copied to `List<T>
 
 ---
 
-### Session 7: Emitter Quality Fixes
+### Session 7: Emitter Quality Fixes — **Done** (2026-02-14)
 
-**Priority**: P3 | **Type**: Implementation | **Risk**: Low
+**Priority**: P3 | **Type**: Verification + test hardening | **Risk**: Low
 
-Two small-medium emitter improvements that don't touch risky code paths. Both are about producing cleaner C# output. Can be done together since they're quick and independent within the emitter.
+Both items' original descriptions were stale — core behavioral work was completed in earlier sessions (R11 nested type renames, overload emitter scope expansion). This session verified correctness and added regression tests.
 
-| Item | Priority | Effort | Description |
-|------|----------|--------|-------------|
-| **Property collision logic** | P3 | Small | `Value` suffix on property names when nested type exists may be unnecessary — C# compiler can disambiguate. Verify across all contexts (generic type args, `typeof()`, `nameof()`). |
-| **Default parameter overloads** | P3 | Medium | Expand `DefaultParameterOverloadEmitter.cs` scope beyond wrapper-backed methods to cover all methods with default values. |
-
-**Key files**: `PropertyHandler.cs`, `DefaultParameterOverloadEmitter.cs`
-**Verification**: `./run-tests.sh` + spot-check generated output for Nuke/Lottie
-**Design**: `Future/binding-api-future-work.md` (N6, Default Parameters)
+| Item | Priority | Effort | Status |
+|------|----------|--------|--------|
+| **Property collision logic (N6)** | P3 | Small | Done — R11 already uses Info suffix for nested type collisions. CS0542 Value suffix verified mandatory. 4 unit tests added. |
+| **Default parameter overloads** | P3 | Small | Done — already covers all emission-eligible methods. Intentional skips: accessors, internal, generic parents, placeholders, collisions. 9 unit tests added. |
 
 ---
 
@@ -381,7 +377,7 @@ Workarounds exist for all. Not blocking any library validation.
 | **4. Typed Swift Exceptions** | P1 | Implement | Medium | `SwiftException<TError>` with error details |
 | **5. SwiftArray Collection** | P2 | Implement | Medium | `IReadOnlyList<T>` on SwiftArray, no LINQ copying |
 | **6. Async Improvements** | P2/P3 | Done | Medium | CancellationToken on async + callback-to-Task overloads |
-| **7. Emitter Quality** | P3 | Implement | Small-Medium | Property collision + default param overloads |
+| **7. Emitter Quality** | P3 | Verify + test | Small | Done — N6 collision verified (Info suffix correct), default overloads verified (all eligible methods covered) |
 | **8. Existential Cleanup** | P2 | Implement | Hard | ExistentialContainer -> protocol interfaces |
 | **9. Roslyn Analyzer** | P3 | Implement | Medium | Undisposed ISwiftObject warnings |
 | **10. API Snapshots** | P3 | Implement | Medium | API surface drift detection |

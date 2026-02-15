@@ -514,6 +514,45 @@ public class NameProviderRenameTests
 
     #endregion
 
+    #region GetPropertyName CS0542 Tests
+
+    [Fact]
+    public void GetPropertyName_CS0542_PascalCaseMatch_AppendsSuffix()
+    {
+        // Swift: class Config { var config: String }
+        // PascalCase "config" → "Config" collides with containing type "Config" → CS0542
+        var result = NameProvider.GetPropertyName("config", containingTypeName: "Config");
+        Assert.Equal("ConfigValue", result);
+    }
+
+    [Fact]
+    public void GetPropertyName_CS0542_ExactMatch_AppendsSuffix()
+    {
+        // Swift: class Animation { var Animation: Animation? }
+        // Already PascalCase, exact match with containing type
+        var result = NameProvider.GetPropertyName("Animation", containingTypeName: "Animation");
+        Assert.Equal("AnimationValue", result);
+    }
+
+    [Fact]
+    public void GetPropertyName_NoCS0542_DifferentName_NoSuffix()
+    {
+        // Swift: class MyType { var data: Data }
+        // PascalCase "data" → "Data" does NOT match "MyType" → no suffix
+        var result = NameProvider.GetPropertyName("data", containingTypeName: "MyType");
+        Assert.Equal("Data", result);
+    }
+
+    [Fact]
+    public void GetPropertyName_NullContainingType_NoSuffix()
+    {
+        // Module-level property — no containing type, no CS0542 possible
+        var result = NameProvider.GetPropertyName("config", containingTypeName: null);
+        Assert.Equal("Config", result);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static StructDecl CreateStructDecl(string name, SwiftTypeName swiftName, ModuleDecl moduleDecl)
