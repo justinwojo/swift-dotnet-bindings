@@ -310,6 +310,28 @@ public class TupleHandler
     }
 
     /// <summary>
+    /// Checks if any element has a P/Invoke-to-C# type mismatch that would break closure callbacks.
+    /// Returns true when a tuple element becomes IntPtr in P/Invoke but has a different C# type,
+    /// meaning the callback would receive ValueTuple&lt;IntPtr,...&gt; while the delegate expects the C# type.
+    /// Pointer types (UnsafeMutablePointer&lt;T&gt; etc.) are IntPtr in BOTH contexts, so they're safe.
+    /// </summary>
+    public bool HasClosureUnsafeTupleElements(TupleTypeSpec tupleTypeSpec)
+    {
+        foreach (var element in tupleTypeSpec.Elements)
+        {
+            var pinvokeType = TranslateElementTypeToPInvoke(element);
+            if (pinvokeType == "IntPtr")
+            {
+                var csharpType = TranslateElementTypeToCSharp(element);
+                // CSharpTypeName.FullyQualifiedName returns "System.IntPtr" while P/Invoke uses bare "IntPtr"
+                if (csharpType != "IntPtr" && csharpType != "System.IntPtr")
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Translates a TypeSpec element to its C# equivalent type.
     /// </summary>
     private string TranslateElementTypeToCSharp(TypeSpec typeSpec)
@@ -425,11 +447,24 @@ public class TupleHandler
                 return "IntPtr";
             }
 
-            // Non-frozen types needing memory management use Buffer type
-            if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 &&
-                (typeRecord.Flags & TypeRecordFlags.Frozen) == 0)
+            // Enums: simple enums use underlying integer type, complex enums use IntPtr
+            if (typeRecord.Kind == TypeRecordKind.Enum)
             {
-                return $"{typeRecord.CSharpTypeName.FullyQualifiedName}.Buffer";
+                if (typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                    return EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
+                return "IntPtr";
+            }
+
+            // Swift classes are non-blittable C# classes — must use IntPtr (no .Buffer)
+            if (typeRecord.Kind == TypeRecordKind.Class)
+            {
+                return "IntPtr";
+            }
+
+            // Non-frozen structs (ClassWithOpaquePayload) are non-blittable C# classes — must use IntPtr (no .Buffer)
+            if (typeRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(typeRecord))
+            {
+                return "IntPtr";
             }
 
             // Frozen types with memory management use Buffer type
@@ -439,10 +474,17 @@ public class TupleHandler
                 return $"{typeRecord.CSharpTypeName.FullyQualifiedName}.Buffer";
             }
 
-            return typeRecord.CSharpTypeName.FullyQualifiedName;
+            // Frozen blittable structs — use type name directly
+            if (typeRecord.Kind == TypeRecordKind.Struct && MarshallingHelpers.IsTypeFrozen(typeRecord))
+            {
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+            }
+
+            // Fallback — IntPtr is safe for any unknown type (was class name, which breaks LibraryImport)
+            return "IntPtr";
         }
 
         // Fallback for unsupported types
-        return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+        return "IntPtr";
     }
 }

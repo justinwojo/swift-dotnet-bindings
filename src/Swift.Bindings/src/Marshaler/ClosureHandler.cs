@@ -405,9 +405,24 @@ public class ClosureHandler
             return protocolList != null && _existentialHandler.IsSupportedExistential(protocolList);
         }
 
-        // Tuples are supported if they meet TupleHandler's criteria
+        // Tuples are supported if they meet TupleHandler's criteria and all elements are closure-safe
         if (typeSpec is TupleTypeSpec tuple && !tuple.IsEmptyTuple)
-            return _tupleHandler.IsSupportedTuple(tuple);
+        {
+            if (!_tupleHandler.IsSupportedTuple(tuple))
+                return false;
+            // Recursively check each element for general closure support
+            foreach (var element in tuple.Elements)
+            {
+                if (!IsSupportedClosureParameterType(element))
+                    return false;
+            }
+            // Closure-specific: reject tuples where P/Invoke element type differs from C# delegate type.
+            // Direct non-blittable params use void* with SwiftMarshal conversion, but tuple elements
+            // use ValueTuple<PInvokeType,...> vs ValueTuple<CSharpType,...> — type mismatch at invocation.
+            if (_tupleHandler.HasClosureUnsafeTupleElements(tuple))
+                return false;
+            return true;
+        }
 
         // Named types should be resolvable in the type database
         if (typeSpec is NamedTypeSpec namedType)

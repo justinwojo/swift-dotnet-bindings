@@ -1400,15 +1400,12 @@ public class ClosureHandlerTests
     [Fact]
     public void IsSupportedClosure_WithOptionalModuleLocalTypeParameter_ReturnsTrue()
     {
-        // Tests the case where a closure has Optional<ModuleLocalType> as a parameter
-        // e.g., progress closure: (Nuke.ImageResponse?, Int64, Int64) -> ()
+        // Closure: (Nuke.ImageResponse?, Int64, Int64) -> ()
+        // Direct Optional<NonFrozenStruct> params use void* in callbacks with SwiftMarshal conversion.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Create Optional<Nuke.ImageResponse>
         var optionalImageResponse = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageResponse"));
-
-        // Create tuple (Nuke.ImageResponse?, Swift.Int64, Swift.Int64)
         var tupleElements = new List<TypeSpec>
         {
             optionalImageResponse,
@@ -1418,24 +1415,20 @@ public class ClosureHandlerTests
         var tuple = new TupleTypeSpec();
         tuple.Elements.AddRange(tupleElements);
 
-        // Create closure (Nuke.ImageResponse?, Swift.Int64, Swift.Int64) -> ()
         var closure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
 
         Assert.True(handler.IsSupportedClosure(closure));
     }
 
     [Fact]
-    public void IsSupportedClosure_WithOptionalClosureContainingModuleLocalType_ReturnsTrue()
+    public void IsSupportedClosure_WithOptionalClosureContainingModuleLocalType_InnerClosureSupported()
     {
-        // Tests the case where we have Optional<Closure> and the closure has Optional<ModuleLocalType>
-        // e.g., ((Nuke.ImageResponse?, Int64, Int64) -> ())?
+        // Optional<Closure> where inner closure has Optional<ModuleLocalType> params.
+        // Direct params use void* in callbacks with SwiftMarshal conversion — supported.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Create Optional<Nuke.ImageResponse>
         var optionalImageResponse = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageResponse"));
-
-        // Create tuple (Nuke.ImageResponse?, Swift.Int64, Swift.Int64)
         var tupleElements = new List<TypeSpec>
         {
             optionalImageResponse,
@@ -1445,22 +1438,113 @@ public class ClosureHandlerTests
         var tuple = new TupleTypeSpec();
         tuple.Elements.AddRange(tupleElements);
 
-        // Create inner closure (Nuke.ImageResponse?, Swift.Int64, Swift.Int64) -> ()
         var innerClosure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
 
-        // Verify inner closure is supported
+        // Inner closure is supported (direct params use void* path)
         Assert.True(handler.IsSupportedClosure(innerClosure));
 
-        // Create Optional<Closure>
         var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
-
-        // Verify it's recognized as optional closure
         Assert.True(handler.IsOptionalClosure(optionalClosure));
 
-        // Verify we can extract and check the inner closure
         var extractedClosure = handler.GetClosureTypeSpec(optionalClosure);
         Assert.NotNull(extractedClosure);
         Assert.True(handler.IsSupportedClosure(extractedClosure!));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_DirectNonFrozenStructParams_ReturnsTrue()
+    {
+        // Direct non-frozen struct params (after EachArgument decomposition) use void* in callbacks.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Nuke.ImageDecodingContext"),
+            new NamedTypeSpec("Swift.Int64")
+        });
+        var closure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_DirectClassParams_ReturnsTrue()
+    {
+        // Direct Swift class params (after EachArgument decomposition) use void* in callbacks.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Nuke.ImageTask"),
+            new NamedTypeSpec("Swift.Int64")
+        });
+        var closure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_TupleParamWithNonFrozenStructElement_ReturnsFalse()
+    {
+        // Tuple PARAMETER containing non-frozen struct → ValueTuple element type mismatch → rejected.
+        // Unlike direct params (void* path), tuple elements use ValueTuple<IntPtr,...> in callback
+        // but delegate expects ValueTuple<ClassName,...> → type mismatch at invocation.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: ((NonFrozenStruct, Int), String) -> Void
+        // EachArgument gives: (NonFrozenStruct, Int) as TupleTypeSpec, String as NamedTypeSpec
+        var innerTuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Nuke.ImageDecodingContext"),
+            new NamedTypeSpec("Swift.Int64")
+        });
+        var argsWrapper = new TupleTypeSpec(new List<TypeSpec>
+        {
+            innerTuple,
+            new NamedTypeSpec("Swift.String")
+        });
+        var closure = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_TupleWithPointerElement_ReturnsTrue()
+    {
+        // UnsafeMutablePointer<T> in tuple → IntPtr in BOTH contexts → no mismatch → allowed
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var pointerType = new NamedTypeSpec("Swift.UnsafeMutablePointer");
+        pointerType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            pointerType,
+            new NamedTypeSpec("Swift.Int64")
+        });
+        var closure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_TupleWithOnlyPrimitives_ReturnsTrue()
+    {
+        // (Int64, Int64) tuple → no IntPtr elements → still supported
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int64"),
+            new NamedTypeSpec("Swift.Int64")
+        });
+        var closure = new ClosureTypeSpec(tuple, TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closure));
     }
 
     #endregion
@@ -1857,7 +1941,19 @@ public class ClosureHandlerTests
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.None, // NOT frozen
                     Kind = TypeRecordKind.Struct
-                }
+                },
+                // Swift class for testing tuple element mismatch in closures
+                ["Nuke.ImageTask"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageTask"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageTask"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class
+                },
+                // Pointer type — must return the exact TypeDatabaseExtensions.IntPtrType instance
+                // so TranslateBoundGenericToCSharp recognizes it as a pointer (reference equality check)
+                ["Swift.UnsafeMutablePointer"] = TypeDatabaseExtensions.IntPtrType
             };
         }
 

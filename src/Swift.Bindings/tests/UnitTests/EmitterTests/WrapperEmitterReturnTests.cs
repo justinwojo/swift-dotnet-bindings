@@ -61,6 +61,93 @@ public class WrapperEmitterReturnTests
         Assert.Contains("ToNSUrl()", csOutput);
     }
 
+    [Fact]
+    public void TupleReturn_SimpleEnumElement_UsesCastToEnumType()
+    {
+        // Simple enum in tuple return → P/Invoke uses underlying int type, marshal code casts to C# enum
+        var typeDatabase = CreateTypeDatabaseWithSimpleEnum();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        // Method returning (Direction, Int64) tuple
+        var returnType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("TestModule.Direction"),
+            new NamedTypeSpec("Swift.Int")
+        });
+        var method = CreateMethodDecl(
+            name: "getDirectionAndValue",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: returnType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // P/Invoke signature uses ValueTuple with underlying int type for the enum element
+        Assert.Contains("ValueTuple<int, long>", csOutput);
+        // Marshal code casts from underlying type back to C# enum
+        Assert.Contains("(Swift.TestModule.Direction)result.Item1", csOutput);
+        // The enum name should NOT appear in the P/Invoke ValueTuple type
+        Assert.DoesNotContain("ValueTuple<Swift.TestModule.Direction", csOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithSimpleEnum()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+                MetadataAccessor = "$s10TestModule9ContainerCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Direction"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Direction"),
+                MetadataAccessor = "$s10TestModule9DirectionOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Int"
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithURL()
     {
         var typeDatabase = new TypeDatabase();

@@ -315,6 +315,28 @@ namespace BindingsGeneration
                 return $"{paramName}.Payload.DangerousGetHandle()";
             }
 
+            // Non-frozen structs (ClassWithOpaquePayload) — extract SafeHandle payload
+            if (typeRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(typeRecord))
+            {
+                return $"{paramName}.Payload.DangerousGetHandle()";
+            }
+
+            // Swift classes — extract SafeHandle payload
+            if (typeRecord.Kind == TypeRecordKind.Class)
+            {
+                return $"{paramName}.Payload.DangerousGetHandle()";
+            }
+
+            // AnyType fallback — extract SafeHandle payload. Reached when an unknown type
+            // appears inside a tuple (GetPInvokeArgument recurses per element; the unknown
+            // element resolves to AnyType which has Kind=Protocol). Direct AnyType associated
+            // values are caught earlier (line 32 skip). Protocol existentials use
+            // ProtocolListTypeSpec handled by the existential path above.
+            if (typeRecord == TypeDatabaseExtensions.AnyType)
+            {
+                return $"{paramName}.Payload.DangerousGetHandle()";
+            }
+
             return paramName;
         }
 
@@ -367,8 +389,26 @@ namespace BindingsGeneration
                 return "IntPtr";
             }
 
-            // For primitives and frozen structs, use the C# type directly
-            return typeRecord.CSharpTypeName.FullyQualifiedName;
+            // Non-frozen structs (ClassWithOpaquePayload) are C# classes — non-blittable.
+            if (typeRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(typeRecord))
+            {
+                return "IntPtr";
+            }
+
+            // Swift classes are also non-blittable C# classes.
+            if (typeRecord.Kind == TypeRecordKind.Class)
+            {
+                return "IntPtr";
+            }
+
+            // Frozen blittable structs — use the C# type directly
+            if (typeRecord.Kind == TypeRecordKind.Struct && MarshallingHelpers.IsTypeFrozen(typeRecord))
+            {
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+            }
+
+            // Fallback — IntPtr is safe for any unknown type (Protocol/AnyType, etc.)
+            return "IntPtr";
         }
 
         private static bool TryGetGenericTypeParameterName(string swiftTypeName, out string typeParameterName)

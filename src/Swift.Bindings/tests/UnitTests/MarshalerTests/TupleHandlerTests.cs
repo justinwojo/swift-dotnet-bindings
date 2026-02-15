@@ -368,6 +368,91 @@ public class TupleHandlerTests
         Assert.Equal("ValueTuple<IntPtr, IntPtr>", result);
     }
 
+    [Fact]
+    public void GetPInvokeTupleType_NonFrozenStructElement_ReturnsIntPtr()
+    {
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Nuke.ImageResponse"),
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        var result = _tupleHandler.GetPInvokeTupleType(tuple);
+
+        Assert.Equal("ValueTuple<IntPtr, long>", result);
+    }
+
+    [Fact]
+    public void GetPInvokeTupleType_ClassElement_ReturnsIntPtr()
+    {
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Nuke.ImageTask"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        var result = _tupleHandler.GetPInvokeTupleType(tuple);
+
+        Assert.Equal("ValueTuple<IntPtr, bool>", result);
+    }
+
+    [Fact]
+    public void GetPInvokeTupleType_AnyTypeElement_ReturnsIntPtr()
+    {
+        // An unknown type that resolves to AnyType should use IntPtr fallback
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("SomeModule.UnknownType"),
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        var result = _tupleHandler.GetPInvokeTupleType(tuple);
+
+        Assert.Equal("ValueTuple<IntPtr, long>", result);
+    }
+
+    [Fact]
+    public void HasClosureUnsafeTupleElements_WithOptionalNonFrozen_ReturnsTrue()
+    {
+        // Optional<NonFrozenStruct> → P/Invoke IntPtr vs C# SwiftOptional<T> → mismatch
+        var optionalResponse = new NamedTypeSpec("Swift.Optional");
+        optionalResponse.GenericParameters.Add(new NamedTypeSpec("Nuke.ImageResponse"));
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            optionalResponse,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.True(_tupleHandler.HasClosureUnsafeTupleElements(tuple));
+    }
+
+    [Fact]
+    public void HasClosureUnsafeTupleElements_WithPointerType_ReturnsFalse()
+    {
+        // UnsafeMutablePointer<T> → IntPtr in BOTH contexts → no mismatch
+        var pointerType = new NamedTypeSpec("Swift.UnsafeMutablePointer");
+        pointerType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            pointerType,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.False(_tupleHandler.HasClosureUnsafeTupleElements(tuple));
+    }
+
+    [Fact]
+    public void HasClosureUnsafeTupleElements_WithOnlyPrimitives_ReturnsFalse()
+    {
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        Assert.False(_tupleHandler.HasClosureUnsafeTupleElements(tuple));
+    }
+
     #endregion
 
     #region TupleTypeSpec Kind Tests
@@ -451,7 +536,28 @@ public class TupleHandlerTests
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Struct
-                }
+                },
+                // Non-frozen struct (ClassWithOpaquePayload)
+                ["Nuke.ImageResponse"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageResponse"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.None, // NOT frozen
+                    Kind = TypeRecordKind.Struct
+                },
+                // Swift class
+                ["Nuke.ImageTask"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageTask"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageTask"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class
+                },
+                // Pointer type — must return the exact TypeDatabaseExtensions.IntPtrType instance
+                // so TranslateBoundGenericToCSharp recognizes it as a pointer (reference equality check)
+                ["Swift.UnsafeMutablePointer"] = TypeDatabaseExtensions.IntPtrType
             };
         }
 

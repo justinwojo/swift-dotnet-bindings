@@ -616,24 +616,26 @@ This would close the confidence gap on +1 ownership transfer semantics and confi
 15. ~~**Add `DisableRuntimeMarshalling` to all project types**~~ — Done. Added `<AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />` to: BindingProjectEmitter (generated `.csproj`), `Sdk.props`, integration test `.csproj`, TestFramework `CompileCheck.csproj`. Added `CA1420` to `<NoWarn>` in all.
 16. ~~**Add `[MarshalAs(UnmanagedType.U1)]` for `bool`**~~ — Done. Parameters handled centrally in `Parameter.PInvokeSignatureString()` (MethodSignature.cs). Return types handled at 4 emission sites: PInvokeEmitter, PInvokeHelperEmitter, OperatorHandler, EnumHandler.SimpleEnum. These are the only sites with dynamic return types that can be `bool`; all others have hardcoded non-bool returns (void, IntPtr, TypeMetadata).
 
-**Test results**: 2695 unit tests (0 failures), 699 integration tests (0 failures, 11 pre-existing skips), 156 runtime library tests (0 failures), TestFramework CompileCheck (0 errors). Zero `[DllImport(` attribute emissions remain in generator code (only `SetDllImportResolver` runtime API calls and comments).
+**Test results**: 2708 unit tests (0 failures), 699 integration tests (0 failures, 11 pre-existing skips), 156 runtime library tests (0 failures), TestFramework CompileCheck (0 errors). Zero `[DllImport(` attribute emissions remain in generator code (only `SetDllImportResolver` runtime API calls and comments).
 
-#### SYSLIB1051 library validation regressions
+#### SYSLIB1051 library validation regressions — FIXED (2026-02-15)
 
-The `[LibraryImport]` source generator is stricter than `[DllImport]` about compile-time type validation. 12 new SYSLIB1051 errors across 4 third-party libraries:
+The `[LibraryImport]` source generator is stricter than `[DllImport]` about compile-time type validation. 12 SYSLIB1051 errors surfaced across 4 third-party libraries. **All 12 fixed with zero API surface change.**
 
-| Library | Errors | Types |
-|---------|--------|-------|
-| Nuke | 5 | `ImageDecodingContext` (class), `ImageResponse` (class), `ImageTask.ProgressInfo` (class), tuples with `ExistentialContainer1` |
-| CryptoSwift | 4 | Tuples returning `(BigUInt, BigUInt)`, `(BigUInt, bool)`, `(BigInt, BigInt)` — all classes |
-| BlinkID | 2 | `ResourceLoadError`, `MemoryReserveError` in closure callback params |
-| Lottie | 1 | Tuple with `AnyType` in closure callback |
+| Library | Errors | Types | Fix |
+|---------|--------|-------|-----|
+| Nuke | 5 | Non-frozen structs (`ImageDecodingContext`, `ImageResponse`, `ImageTask.ProgressInfo`) as enum case params + in tuples | EnumHandler.GetPInvokeType/GetPInvokeArgument + TupleHandler/WrapperEmitter.Return |
+| CryptoSwift | 4 | Tuples returning `(BigUInt, BigUInt)`, `(BigUInt, bool)`, `(BigInt, BigInt)` — all non-frozen struct classes | TupleHandler.TranslateElementTypeToPInvoke + WrapperEmitter.Return.GetPInvokeTypeForTupleElement |
+| BlinkID | 2 | Class types in closure/enum paths | TupleHandler + ClosureHandler tuple guard |
+| Lottie | 1 | Tuple with `AnyType` in enum case constructor | TupleHandler fallback → IntPtr + EnumHandler AnyType guard |
 
-**Root cause**: The generator emits C# class types (`ClassWithOpaquePayload` — non-frozen structs mapped to C# classes with SafeHandle) directly in P/Invoke signatures. With `[DllImport]`, the compiler did not validate marshallability at compile time, so these passed compilation but were likely broken at runtime (passing a GC heap reference where Swift expects a value type). With `[LibraryImport]`, the source generator correctly rejects class types as non-marshallable.
+**Root cause**: The generator emitted C# class types (`ClassWithOpaquePayload` — non-frozen structs mapped to C# classes with SafeHandle) directly in P/Invoke signatures. With `[DllImport]`, the compiler did not validate marshallability at compile time, so these passed compilation but were broken at runtime. With `[LibraryImport]`, the source generator correctly rejects class types as non-marshallable.
 
-**These are pre-existing generator limitations, not migration bugs.** The `[LibraryImport]` migration surfaces them as compile errors instead of runtime failures.
-
-**Fix (future work)**: The generator's enum case constructor emission and tuple return emission need to convert `ClassWithOpaquePayload` types to `IntPtr` in P/Invoke signatures with manual marshalling at the call site, similar to how other non-blittable types are already handled. This would fix the SYSLIB1051 errors and also fix the pre-existing runtime incorrectness with `[DllImport]`.
+**Fix (4 source files, 4 test files)**:
+- **EnumHandler.CaseConstruction.cs**: `GetPInvokeType()` — non-frozen structs, classes, simple enums (underlying type), and AnyType fallback all → `IntPtr`. `GetPInvokeArgument()` — `.Payload.DangerousGetHandle()` for non-frozen structs, classes, and AnyType (narrowed from broad Protocol-kind check to exact AnyType reference check).
+- **TupleHandler.cs**: `TranslateElementTypeToPInvoke()` restructured — explicit handling for enums (simple → underlying int type, complex → IntPtr), classes → IntPtr, non-frozen structs → IntPtr, fallback → IntPtr. Added `HasClosureUnsafeTupleElements()` to detect P/Invoke-to-C# type mismatches in closure tuple params (rejects tuples where an element is IntPtr in P/Invoke but a different type in C#, except pointer types which are IntPtr in both contexts).
+- **WrapperEmitter.Return.cs**: `GetPInvokeTypeForTupleElement()` — same restructure as TupleHandler. `GetTupleElementMarshalCode()` — keys off computed P/Invoke type: IntPtr passes directly, `.Buffer` takes address, simple enums cast from underlying type.
+- **ClosureHandler.cs**: `IsSupportedClosureParameterType()` — tuple branch calls `HasClosureUnsafeTupleElements()` to reject closures with tuple params that have P/Invoke-to-C# element type mismatches. Direct non-blittable params are NOT rejected (they use `void*` marshalling path in callbacks).
 
 #### Remaining steps (deferred)
 

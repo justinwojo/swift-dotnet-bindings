@@ -465,11 +465,24 @@ namespace BindingsGeneration
                     return "IntPtr";
                 }
 
-                // Non-frozen types needing memory management use Buffer type
-                if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 &&
-                    (typeRecord.Flags & TypeRecordFlags.Frozen) == 0)
+                // Enums: simple enums use underlying integer type, complex enums use IntPtr
+                if (typeRecord.Kind == TypeRecordKind.Enum)
                 {
-                    return $"{typeRecord.CSharpTypeName.FullyQualifiedName}.Buffer";
+                    if (typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                        return EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
+                    return "IntPtr";
+                }
+
+                // Swift classes are non-blittable C# classes — must use IntPtr (no .Buffer)
+                if (typeRecord.Kind == TypeRecordKind.Class)
+                {
+                    return "IntPtr";
+                }
+
+                // Non-frozen structs (ClassWithOpaquePayload) are non-blittable C# classes — must use IntPtr (no .Buffer)
+                if (typeRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(typeRecord))
+                {
+                    return "IntPtr";
                 }
 
                 // Frozen types with memory management use Buffer type
@@ -479,7 +492,14 @@ namespace BindingsGeneration
                     return $"{typeRecord.CSharpTypeName.FullyQualifiedName}.Buffer";
                 }
 
-                return typeRecord.CSharpTypeName.FullyQualifiedName;
+                // Frozen blittable structs — use type name directly
+                if (typeRecord.Kind == TypeRecordKind.Struct && MarshallingHelpers.IsTypeFrozen(typeRecord))
+                {
+                    return typeRecord.CSharpTypeName.FullyQualifiedName;
+                }
+
+                // Fallback — IntPtr is safe for any unknown type
+                return "IntPtr";
             }
 
             return "IntPtr";
@@ -557,7 +577,9 @@ namespace BindingsGeneration
                 return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>({itemName});";
             }
 
-            // Handle non-generic types
+            // Handle non-generic types — key off computed P/Invoke type to handle all IntPtr cases uniformly
+            var pinvokeType = GetPInvokeTypeForTupleElement(element);
+
             if (element is NamedTypeSpec named)
             {
                 if (_env.TypeDatabase.TryGetTypeRecord(named, out var typeRecord))
@@ -567,27 +589,30 @@ namespace BindingsGeneration
                     {
                         return $"var {resultName} = ObjCRuntime.Runtime.GetNSObject<{csharpType}>({itemName});";
                     }
-
-                    // Primitive types - use directly
-                    if (typeRecord.Kind == TypeRecordKind.Struct &&
-                        (typeRecord.Flags & TypeRecordFlags.Frozen) != 0 &&
-                        (typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) == 0)
-                    {
-                        return $"var {resultName} = {itemName};";
-                    }
-
-                    // Frozen structs requiring memory management
-                    if (MarshallingHelpers.IsTypeFrozen(typeRecord))
-                    {
-                        return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";
-                    }
-
-                    // Non-frozen types
-                    return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";
                 }
             }
 
-            // Fallback
+            // Use the computed P/Invoke type to determine marshalling
+            if (pinvokeType == "IntPtr")
+            {
+                // IntPtr IS the pointer — pass directly (no address-of)
+                return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>({itemName});";
+            }
+            else if (pinvokeType.EndsWith(".Buffer"))
+            {
+                // Inline struct — take address
+                return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";
+            }
+
+            // Simple enums: P/Invoke uses underlying type (int, long), need cast to C# enum
+            if (element is NamedTypeSpec enumNamed &&
+                _env.TypeDatabase.TryGetTypeRecord(enumNamed, out var enumRecord) &&
+                enumRecord.Kind == TypeRecordKind.Enum && enumRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            {
+                return $"var {resultName} = ({csharpType}){itemName};";
+            }
+
+            // Frozen blittable primitives — use directly
             return $"var {resultName} = {itemName};";
         }
     }

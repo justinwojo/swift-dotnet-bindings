@@ -697,6 +697,47 @@ public class EnumHandlerOutputTests
         };
     }
 
+    private static TypeDatabase CreateTypeDatabaseWithNonFrozenStruct()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var nukeModule = new ModuleTypeDatabase("Nuke", "/tmp/Nuke.dylib");
+        nukeModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Nuke", "ImageResponse"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImageResponse"),
+                MetadataAccessor = "$s4Nuke13ImageResponseVMa",
+                Flags = TypeRecordFlags.None, // NOT frozen — ClassWithOpaquePayload
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(nukeModule);
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithProtocol(string protocolModule, string protocolName)
     {
         var typeDatabase = new TypeDatabase();
@@ -834,6 +875,61 @@ public class EnumHandlerOutputTests
         Assert.Contains("out Swift.Runtime.ExistentialContainer1 value1", csOutput);
         // Proxy wrapping for known protocol
         Assert.Contains("new ImageProcessingProxy(", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumCaseWithNonFrozenStructParam_UsesIntPtrAndPayloadExtract()
+    {
+        // Non-frozen struct as enum case associated value → P/Invoke uses IntPtr + .Payload.DangerousGetHandle()
+        var typeDatabase = CreateTypeDatabaseWithNonFrozenStruct();
+        var moduleDecl = CreateModuleDecl("Nuke");
+        var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: false);
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("Nuke.ImageResponse"));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // P/Invoke parameter should use IntPtr (not the C# class name)
+        Assert.Contains("IntPtr value0)", csOutput);
+        // Call site should extract the SafeHandle payload
+        Assert.Contains(".Payload.DangerousGetHandle()", csOutput);
+        // P/Invoke declaration should use IntPtr, not ImageResponse
+        Assert.Contains("PInvoke_Failed(SwiftIndirectResult", csOutput);
+        Assert.DoesNotContain("PInvoke_Failed(SwiftIndirectResult result, Swift.Nuke.ImageResponse", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumCaseWithTupleContainingAnyType_UsesIntPtrAndPayloadExtractForUnknownElement()
+    {
+        // Tuple associated value where one element is unknown → resolves to AnyType (Kind=Protocol).
+        // GetPInvokeArgument recurses into each tuple element; the unknown element hits the AnyType
+        // branch and emits .Payload.DangerousGetHandle(). This is the exact Lottie (nint, AnyType) scenario.
+        var typeDatabase = CreateTypeDatabase();
+        var lottieModule = new ModuleTypeDatabase("Lottie", "/tmp/Lottie.dylib");
+        typeDatabase.AddModuleDatabase(lottieModule);
+
+        var moduleDecl = CreateModuleDecl("Lottie");
+        var enumDecl = CreateEnumDecl("AnimationResult", moduleDecl, isFrozen: false);
+        var dataCase = CreateCase("data");
+        // Tuple: (Int, UnknownType) — Int is registered, UnknownType resolves to AnyType
+        dataCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Lottie.UnknownType")
+        }));
+        enumDecl.Cases.Add(dataCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // P/Invoke signature: unknown element becomes IntPtr in the ValueTuple
+        Assert.Contains("ValueTuple<long, IntPtr> value0)", csOutput);
+        // Call site: known element passes directly, unknown element extracts SafeHandle payload
+        Assert.Contains("value0.Item2.Payload.DangerousGetHandle()", csOutput);
+        // The AnyType class name should NOT appear in the P/Invoke ValueTuple
+        Assert.DoesNotContain("ValueTuple<long, Swift.AnyType>", csOutput);
     }
 
     [Fact]
