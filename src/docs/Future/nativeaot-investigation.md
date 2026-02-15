@@ -1,7 +1,7 @@
 # NativeAOT Investigation for Swift Interop (.NET 10)
 
 _Date: 2026-02-04_
-_Updated: 2026-02-15 (Session 4: device testing — Blocker 3 resolved)_
+_Updated: 2026-02-15 (Phase 1 complete: SwiftBindingsInteropMode + DiagnosticId + docs)_
 
 ## Scope and context
 This investigates whether moving Swift interop paths from Mono JIT to NativeAOT can avoid the three known runtime blockers documented in:
@@ -551,13 +551,13 @@ Supporting both simulator and device deployment requires **no code changes**. Th
 6. ~~**Test `CustomMarshaller` for `SwiftString`**~~ — Done (2026-02-15, 16-byte BlittableSwiftString + CustomMarshaller, input + return + Optional<String>)
 7. ~~**Test Blocker 3 on device**~~ — Done (2026-02-15, 3/3 async tests pass on iPhone, SafeHandle survives suspension)
 
-### Phase 1: `SwiftBindingsInteropMode` + custom diagnostics (next)
+### Phase 1: `SwiftBindingsInteropMode` + custom diagnostics (DONE)
 
-8. **Implement `SwiftBindingsInteropMode` property** — `Auto`/`Safe`/`Direct` in consumer `.targets`. `Auto` checks `$(PublishAot)`: NativeAOT → `Direct` (suppress SB0001), Mono → `Safe` (warnings visible). Conservative default: unknown context → `Safe`.
-9. **Migrate `[Obsolete]` to `DiagnosticId`** — Change generator's `MonoJitRiskDetector` from `[Obsolete("msg", true)]` (CS0619, unsuppressible) to `[Obsolete("msg", DiagnosticId = "SB0001")]` (custom ID, suppressible). Update all emission sites.
-10. **Document NativeAOT deployment** — Consumer-facing docs: `.csproj` properties (`PublishAot`, `PublishAotUsingRuntimePack`, `TrimMode`), `SwiftBindingsInteropMode` property, device publish workflow.
-11. **File upstream runtime issue** for NativeAOT simulator support (`iossimulator-arm64` publish)
-12. **Verify end-to-end** — TestFramework device + simulator builds both produce correct diagnostic behavior (SB0001 suppressed on device, visible on sim)
+8. ~~**Implement `SwiftBindingsInteropMode` property**~~ — Done (2026-02-15, commit c696095). `Auto`/`Safe`/`Direct` in consumer `.targets`. `Auto` checks `$(PublishAot)`: NativeAOT → `Direct` (suppress SB0001), Mono → `Safe` (warnings visible).
+9. ~~**Migrate `[Obsolete]` to `DiagnosticId`**~~ — Done (2026-02-15, commit c696095). `SB0001` for JIT risk, `SB0002` for missing symbols. All emission sites updated.
+10. ~~**Document NativeAOT deployment**~~ — Done (2026-02-15). Consumer-facing docs at `src/docs/nativeaot-deployment.md`.
+11. ~~**Draft upstream runtime issue**~~ — Done (2026-02-15). Draft at `src/docs/Future/upstream-nativeaot-simulator-issue.md`. Ready to file when repo is public.
+12. ~~**Verify end-to-end**~~ — Done (2026-02-15). `build-and-test.sh` passes: 24 `SB0001` attributes emitted, zero `[Obsolete("...", true)]` remaining, 94/94 must-pass features.
 
 ### Phase 2: Binding analyzer (deferred — when consumer feedback demands precision)
 
