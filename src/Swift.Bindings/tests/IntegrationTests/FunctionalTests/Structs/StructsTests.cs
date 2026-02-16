@@ -191,7 +191,7 @@ namespace BindingsGeneration.FunctionalTests
             var frozen = new FrozenStruct(frozenX, frozenY);
             var nonFrozen = new NonFrozenStruct(nonFrozenX, nonFrozenY);
 
-            var result = StructsTests.SumFrozenAndNonFrozen(frozen, nonFrozen);
+            var result = Functions.SumFrozenAndNonFrozen(frozen, nonFrozen);
 
             Assert.Equal(1 + 2 + 30 + 40, result);
         }
@@ -202,7 +202,7 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr x = 1;
             IntPtr y = 2;
 
-            var result = StructsTests.CreateFrozenStruct(x, y);
+            var result = Functions.CreateFrozenStruct(x, y);
 
             Assert.Equal(x, result.GetX());
             Assert.Equal(y, result.GetY());
@@ -214,7 +214,7 @@ namespace BindingsGeneration.FunctionalTests
             IntPtr x = 1;
             IntPtr y = 2;
 
-            var result = StructsTests.CreateNonFrozenStruct(x, y);
+            var result = Functions.CreateNonFrozenStruct(x, y);
 
             Assert.Equal(x, result.GetX());
             Assert.Equal(y, result.GetY());

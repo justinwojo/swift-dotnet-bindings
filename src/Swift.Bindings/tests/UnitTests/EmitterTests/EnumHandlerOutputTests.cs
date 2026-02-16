@@ -265,7 +265,7 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public partial class ValueProviderStorage<T0> : ISwiftObject where T0 : ISwiftObject", csOutput);
+        Assert.Contains("public partial class ValueProviderStorage<T0> : ISwiftObject, IDisposable where T0 : ISwiftObject", csOutput);
         Assert.Contains("public static unsafe ValueProviderStorage<T0> Boxed(T0 value0)", csOutput);
         Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T0>();", csOutput);
         Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);
@@ -956,6 +956,110 @@ public class EnumHandlerOutputTests
         Assert.Contains("ExistentialContainer2", csOutput);
         // Should NOT contain a composition interface name
         Assert.DoesNotContain("IImageProcessingAndUnknownProtocol", csOutput);
+    }
+
+    [Fact]
+    public void Emit_TupleWithSwiftStringAndExistential_KeepsSwiftStringButConvertsExistential()
+    {
+        // Tuple: (SwiftString, known protocol) — SwiftString must keep ABI type for marshalling,
+        // but the existential should still get its interface type.
+        var typeDatabase = CreateTypeDatabaseWithStringAndProtocol("TestModule", "ImageProcessing");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("FilterError", moduleDecl, isFrozen: true);
+
+        var failedCase = CreateCase("invalidFilter");
+        // Tuple: (String, known protocol existential)
+        failedCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.String"),
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.ImageProcessing") })
+        }));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Factory signature: single tuple param — SwiftString stays as ABI type, existential gets interface
+        Assert.Contains("(Swift.SwiftString, IImageProcessing) value0)", csOutput);
+        // SwiftString inside tuple should NOT become "string" (would break P/Invoke marshalling)
+        Assert.DoesNotContain("(string,", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StandaloneSwiftStringEnumCase_UsesStringInPublicSignature()
+    {
+        // Standalone SwiftString (not in a tuple) → public API should use "string"
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Message", moduleDecl, isFrozen: true);
+
+        var textCase = CreateCase("text");
+        textCase.AssociatedValues.Add(new NamedTypeSpec("Swift.String"));
+        enumDecl.Cases.Add(textCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Factory: public signature uses "string"
+        Assert.Contains("public static unsafe Message Text(string value0)", csOutput);
+        // Body: converts string → SwiftString for P/Invoke
+        Assert.Contains("using var __value0 = new SwiftString(value0);", csOutput);
+        // TryGet: out parameter uses "string"
+        Assert.Contains("out string value", csOutput);
+        // TryGet body: converts SwiftString → string via .ToString()
+        Assert.Contains(".ToString()", csOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithStringAndProtocol(string protocolModule, string protocolName)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModuleDb = new ModuleTypeDatabase(protocolModule, $"/tmp/{protocolModule}.dylib");
+        testModuleDb.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{protocolModule}", $"I{protocolName}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{protocolModule}.{protocolName}"),
+                MetadataAccessor = $"$s{protocolModule}{protocolName}Ma",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModuleDb);
+
+        return typeDatabase;
     }
 
     private static (string csOutput, string swiftOutput) EmitEnum(EnumDecl enumDecl, TypeDatabase typeDatabase)

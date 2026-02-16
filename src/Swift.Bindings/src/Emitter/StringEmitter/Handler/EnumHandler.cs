@@ -131,8 +131,11 @@ namespace BindingsGeneration
                 csWriter.Indent++;
 
                 // Emit payload field and property - enums need this for property accessors
+                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
+                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                 csWriter.WriteLine();
                 csWriter.WriteLine("public void Dispose() => _payload.Dispose();");

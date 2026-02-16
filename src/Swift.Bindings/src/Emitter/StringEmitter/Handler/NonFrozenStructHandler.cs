@@ -229,7 +229,9 @@ namespace BindingsGeneration
         /// </summary>
         private static void WritePrivateFields(CSharpWriter csWriter, string typeNameWithGenerics)
         {
+            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
             csWriter.WriteLine();
         }
@@ -239,6 +241,7 @@ namespace BindingsGeneration
         /// </summary>
         private static void WritePayload(CSharpWriter csWriter, string typeNameWithGenerics)
         {
+            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
             csWriter.WriteLine();
             csWriter.WriteLine("public void Dispose() => _payload.Dispose();");

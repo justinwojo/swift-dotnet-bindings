@@ -217,10 +217,19 @@ namespace BindingsGeneration
 
             // Marshal the payload to C# type(s)
             csWriter.WriteLine("// Marshal the payload to C# type(s)");
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
             if (parameters.Count == 1)
             {
                 var (type, publicType, name, typeSpec) = parameters[0];
-                EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase);
+                if (typeConversionHandler.IsSwiftString(typeSpec))
+                {
+                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase);
+                    csWriter.WriteLine("value = __value_raw.ToString();");
+                }
+                else
+                {
+                    EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase);
+                }
             }
             else
             {
@@ -236,7 +245,12 @@ namespace BindingsGeneration
                     var valueName = $"_val{i}";
                     valueNames.Add(valueName);
 
-                    if (i == 0)
+                    if (typeConversionHandler.IsSwiftString(typeSpec))
+                    {
+                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, $"{valueName}_raw", "enumCopy", typeDatabase);
+                        csWriter.WriteLine($"var {valueName} = {valueName}_raw.ToString();");
+                    }
+                    else if (i == 0)
                     {
                         EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, valueName, "enumCopy", typeDatabase);
                     }

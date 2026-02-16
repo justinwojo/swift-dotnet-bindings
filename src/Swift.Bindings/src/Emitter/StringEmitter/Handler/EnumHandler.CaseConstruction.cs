@@ -64,6 +64,17 @@ namespace BindingsGeneration
             csWriter.Indent++;
             csWriter.WriteLine($"var {resultVarName} = new {enumTypeName}();");
 
+            // Emit SwiftString conversions for string parameters
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var (type, publicType, name, typeSpec) = parameters[i];
+                if (typeConversionHandler.IsSwiftString(typeSpec))
+                {
+                    csWriter.WriteLine($"using var __{name} = new SwiftString({name});");
+                }
+            }
+
             // Swift enum case constructors use indirect return - allocate buffer and pass it
             var getMetadataCall = pinvokeHelperContext != null
                 ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
@@ -88,7 +99,8 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    argList.Add(GetPInvokeArgument(name, typeSpec, typeDatabase));
+                    var argName = typeConversionHandler.IsSwiftString(typeSpec) ? $"__{name}" : name;
+                    argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase));
                 }
             }
 
@@ -213,6 +225,7 @@ namespace BindingsGeneration
         private static string GetPublicCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
+            var typeConversionHandler = new TypeConversionHandler(typeDatabase);
 
             // Handle existential types (any Protocol) - return interface if all protocols are known
             if (existentialHandler.IsExistential(typeSpec))
@@ -233,13 +246,24 @@ namespace BindingsGeneration
                 }
             }
 
-            // Handle tuple types - recurse per element
+            // Handle tuple types - recurse per element, but keep SwiftString as-is
+            // inside tuples (P/Invoke marshalling needs the ABI type for tuple elements).
+            // Other conversions (existential→interface) still apply.
             if (typeSpec is TupleTypeSpec tupleType)
             {
                 var tupleHandler = new TupleHandler(typeDatabase);
                 return tupleHandler.GetCSharpTupleType(tupleType, elementTypeSpec =>
-                    GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler));
+                {
+                    // SwiftString inside tuples keeps ABI type (marshalling needs SwiftString, not string)
+                    if (typeConversionHandler.IsSwiftString(elementTypeSpec))
+                        return GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler);
+                    return GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler);
+                });
             }
+
+            // Handle SwiftString → string for public API
+            if (typeConversionHandler.IsSwiftString(typeSpec))
+                return "string";
 
             // Everything else: delegate to the internal type
             return GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler);

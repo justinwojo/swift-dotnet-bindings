@@ -43,7 +43,7 @@ namespace BindingsGeneration.FunctionalTests
         public void TestInt32Callback()
         {
             // Pass a C# delegate that doubles the input
-            int result = Bindings.ClosuresTests.CallWithInt32(x => x * 2);
+            int result = Bindings.Functions.CallWithInt32(x => x * 2);
             Assert.Equal(84, result); // 42 * 2 = 84
         }
 
@@ -51,7 +51,7 @@ namespace BindingsGeneration.FunctionalTests
         public void TestVoidCallback()
         {
             bool wasCalled = false;
-            Bindings.ClosuresTests.CallVoidCallback(() => { wasCalled = true; });
+            Bindings.Functions.CallVoidCallback(() => { wasCalled = true; });
             Assert.True(wasCalled);
         }
 
@@ -59,7 +59,7 @@ namespace BindingsGeneration.FunctionalTests
         public void TestMultiArgCallback()
         {
             // Swift calls callback(10, 20)
-            int result = Bindings.ClosuresTests.CallMultiArg((a, b) => a + b);
+            int result = Bindings.Functions.CallMultiArg((a, b) => a + b);
             Assert.Equal(30, result); // 10 + 20 = 30
         }
 
@@ -67,14 +67,14 @@ namespace BindingsGeneration.FunctionalTests
         public void TestBoolCallback()
         {
             // Swift calls callback(true), we negate it
-            bool result = Bindings.ClosuresTests.CallBoolCallback(b => !b);
+            bool result = Bindings.Functions.CallBoolCallback(b => !b);
             Assert.False(result);
         }
 
         [Fact]
         public void TestDoubleCallback()
         {
-            double result = Bindings.ClosuresTests.CallDoubleCallback(d => d * 2.0);
+            double result = Bindings.Functions.CallDoubleCallback(d => d * 2.0);
             Assert.Equal(6.28318, result, precision: 4); // 3.14159 * 2
         }
 
@@ -103,7 +103,7 @@ namespace BindingsGeneration.FunctionalTests
         {
             // callback is called with 1, 2, 3, 4, 5 and results are summed
             // If callback doubles input: 2 + 4 + 6 + 8 + 10 = 30
-            int result = Bindings.ClosuresTests.CallMultipleTimes(x => x * 2, times: 5);
+            int result = Bindings.Functions.CallMultipleTimes(x => x * 2, times: 5);
             Assert.Equal(30, result);
         }
 
@@ -112,7 +112,7 @@ namespace BindingsGeneration.FunctionalTests
         {
             int counter = 0;
             // Each call increments counter and returns it
-            int result = Bindings.ClosuresTests.CallMultipleTimes(x => { counter++; return x + counter; }, times: 3);
+            int result = Bindings.Functions.CallMultipleTimes(x => { counter++; return x + counter; }, times: 3);
             // i=1: counter=1, return 1+1=2
             // i=2: counter=2, return 2+2=4
             // i=3: counter=3, return 3+3=6

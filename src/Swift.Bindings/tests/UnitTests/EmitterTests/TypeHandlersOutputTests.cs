@@ -35,7 +35,7 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
-        Assert.Contains("public partial class Loader : ISwiftObject", csOutput);
+        Assert.Contains("public partial class Loader : ISwiftObject, IDisposable", csOutput);
         Assert.Contains("SwiftSafeHandle<Loader> _payload", csOutput);
         Assert.Contains("internal SwiftSafeHandle<Loader> Payload => _payload;", csOutput);
         Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"$s10TestModule6LoaderCNMa\")]", csOutput);
@@ -73,7 +73,7 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
-        Assert.Contains("public partial class Loader : ISwiftObject, IEquatable<Loader>", csOutput);
+        Assert.Contains("public partial class Loader : ISwiftObject, IDisposable, IEquatable<Loader>", csOutput);
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public class TypeHandlersOutputTests
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
         // Same-module protocol conformance should appear in the interface list
-        Assert.Contains("ISwiftObject, IAnyInterpolatable", csOutput);
+        Assert.Contains("ISwiftObject, IDisposable, IAnyInterpolatable", csOutput);
         // And the conformance should also be in the dictionary for GetProtocolConformanceDescriptor
         Assert.Contains("{typeof(IAnyInterpolatable)", csOutput);
     }
@@ -185,7 +185,7 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
-        Assert.Contains("public partial class Keyframe<T0> : ISwiftObject, IEquatable<Keyframe<T0>>", csOutput);
+        Assert.Contains("public partial class Keyframe<T0> : ISwiftObject, IDisposable, IEquatable<Keyframe<T0>>", csOutput);
         Assert.Contains("return new Keyframe<T0>(handle);", csOutput);
         Assert.Contains("{typeof(IEquatable<Keyframe<T0>>)", csOutput);
     }
@@ -199,7 +199,7 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
 
-        Assert.Contains("public partial class CacheKey : ISwiftObject", csOutput);
+        Assert.Contains("public partial class CacheKey : ISwiftObject, IDisposable", csOutput);
         Assert.Contains("SwiftSafeHandle<CacheKey> _payload", csOutput);
         Assert.Contains("internal SwiftSafeHandle<CacheKey> Payload => _payload;", csOutput);
     }
@@ -213,8 +213,8 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
 
-        Assert.Contains("public unsafe partial struct Point : ISwiftObject", csOutput);
-        Assert.DoesNotContain("public unsafe class Point : ISwiftObject", csOutput);
+        Assert.Contains("public unsafe partial struct Point : ISwiftObject, IDisposable", csOutput);
+        Assert.DoesNotContain("public unsafe class Point : ISwiftObject, IDisposable", csOutput);
     }
 
     [Fact]
@@ -226,7 +226,7 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
 
-        Assert.Contains("public partial class Blob : ISwiftObject", csOutput);
+        Assert.Contains("public partial class Blob : ISwiftObject, IDisposable", csOutput);
         Assert.Contains("public struct Buffer {", csOutput);
         Assert.Contains("public unsafe PayloadBuffer<Blob.Buffer> PayloadBuffer => new PayloadBuffer<Blob.Buffer>(_payload);", csOutput);
     }

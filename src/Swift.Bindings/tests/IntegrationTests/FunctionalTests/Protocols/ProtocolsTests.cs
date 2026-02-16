@@ -6,7 +6,7 @@ using Swift.ProtocolsTests;
 using Xunit;
 
 // Alias the Swift module class to avoid collision with test class name
-using SwiftProtocols = Swift.ProtocolsTests.ProtocolsTests;
+using SwiftProtocols = Swift.ProtocolsTests.Functions;
 
 namespace BindingsGeneration.FunctionalTests
 {

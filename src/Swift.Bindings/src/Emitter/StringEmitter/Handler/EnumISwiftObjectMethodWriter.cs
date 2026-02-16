@@ -85,6 +85,7 @@ namespace BindingsGeneration
         private void WriteNewFromPayload()
         {
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
                 return new {{_typeNameWithGenerics}}(handle);
@@ -135,6 +136,7 @@ namespace BindingsGeneration
         private void WriteMarshalToSwift()
         {
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
                 var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
@@ -173,6 +175,7 @@ namespace BindingsGeneration
             WriteStaticConstructor();
             var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
                 where TProtocol : class
             {
@@ -195,6 +198,7 @@ namespace BindingsGeneration
         private void WriteStaticConstructor()
         {
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             private static Dictionary<Type, string> _protocolConformanceSymbols;
 
             static {{_constructorName}}()

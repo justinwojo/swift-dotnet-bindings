@@ -116,6 +116,7 @@ namespace BindingsGeneration
             {
                 // Constructor name uses _constructorName (may differ from _structDecl.Name if renamed)
                 var text = $$"""
+                [EditorBrowsable(EditorBrowsableState.Never)]
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
                     return new {{_typeNameWithGenerics}}(handle);
@@ -135,6 +136,7 @@ namespace BindingsGeneration
             else
             {
                 var text = $$"""
+                [EditorBrowsable(EditorBrowsableState.Never)]
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
                     return *({{_typeNameWithGenerics}}*)handle;
@@ -152,6 +154,7 @@ namespace BindingsGeneration
         private void WriteNewFromPayloadNonFrozenStruct()
         {
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
                 return new {{_typeNameWithGenerics}}(handle);
@@ -189,6 +192,7 @@ namespace BindingsGeneration
             if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
             {
                 var text = $$"""
+                [EditorBrowsable(EditorBrowsableState.Never)]
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
                     var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
@@ -220,6 +224,7 @@ namespace BindingsGeneration
             else
             {
                 var text = $$"""
+                [EditorBrowsable(EditorBrowsableState.Never)]
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
                     var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
@@ -248,6 +253,7 @@ namespace BindingsGeneration
         private void WriteMarshalToSwiftNonFrozenStruct()
         {
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
                 var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
@@ -288,6 +294,7 @@ namespace BindingsGeneration
             var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
             // Note: LoadFromSymbol is a runtime call, not a DllImport, so no helper class needed
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
                 where TProtocol : class
             {
@@ -310,6 +317,7 @@ namespace BindingsGeneration
         private void WriteStaticConstructor()
         {
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             private static Dictionary<Type, string> _protocolConformanceSymbols;
 
             static {{_constructorName}}()
@@ -477,7 +485,7 @@ internal static class ProtocolConformanceHelper
         ITypeDatabase typeDatabase,
         ProtocolConformanceValidator? conformanceValidator = null)
     {
-        var interfaces = new List<string> { typeof(ISwiftObject).Name };
+        var interfaces = new List<string> { typeof(ISwiftObject).Name, nameof(IDisposable) };
         var emitted = new HashSet<string>(interfaces);
 
         // Only classes and structs get Equatable interface (they have Equals via SwiftEquatable)

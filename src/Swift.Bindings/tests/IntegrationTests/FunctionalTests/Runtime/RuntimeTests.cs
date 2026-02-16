@@ -42,35 +42,35 @@ namespace BindingsGeneration.FunctionalTests
         [Fact]
         public void SmokeTestArray()
         {
-            var array = Bindings.RuntimeTests.GetArray(3);
+            var array = Bindings.Functions.GetArray(3);
             Assert.Equal(3, array.Count);
             Assert.Equal(0, array[0]);
             Assert.Equal(1, array[1]);
             Assert.Equal(2, array[2]);
-            Assert.Equal(3, Bindings.RuntimeTests.SumArray(array));
+            Assert.Equal(3, Bindings.Functions.SumArray(array));
         }
 
         [Fact]
         public void TestEmptyArray()
         {
-            var array = Bindings.RuntimeTests.GetArray(0);
+            var array = Bindings.Functions.GetArray(0);
             Assert.Empty(array);
-            Assert.Equal(0, Bindings.RuntimeTests.SumArray(array));
+            Assert.Equal(0, Bindings.Functions.SumArray(array));
         }
 
         [Fact]
         public void TestOneElementArray()
         {
-            var array = Bindings.RuntimeTests.GetArray(1);
+            var array = Bindings.Functions.GetArray(1);
             Assert.Single(array);
             Assert.Equal(0, array[0]);
-            Assert.Equal(0, Bindings.RuntimeTests.SumArray(array));
+            Assert.Equal(0, Bindings.Functions.SumArray(array));
         }
 
         [Fact]
         public void TestBigArray()
         {
-            var array = Bindings.RuntimeTests.GetArray(10000);
+            var array = Bindings.Functions.GetArray(10000);
             Assert.Equal(10000, array.Count);
             var sum = 0;
             for (int i = 0; i < 10000; i++)
@@ -78,16 +78,16 @@ namespace BindingsGeneration.FunctionalTests
                 Assert.Equal(i, array[i]);
                 sum += i;
             }
-            Assert.Equal(sum, Bindings.RuntimeTests.SumArray(array));
+            Assert.Equal(sum, Bindings.Functions.SumArray(array));
         }
 
         [Fact]
         public void TestArrayPassThrough()
         {
-            IReadOnlyList<int> array = Bindings.RuntimeTests.GetArray(3);
+            IReadOnlyList<int> array = Bindings.Functions.GetArray(3);
             Assert.Equal(3, array.Count);
 
-            IReadOnlyList<int> arrayCopy = Bindings.RuntimeTests.PassThroughArray(array);
+            IReadOnlyList<int> arrayCopy = Bindings.Functions.PassThroughArray(array);
             Assert.Equal(3, arrayCopy.Count);
 
             for (int i = 0; i < 3; i++)
@@ -99,9 +99,9 @@ namespace BindingsGeneration.FunctionalTests
         [Fact]
         public void TestArrayPassThroughDifferentPayloads()
         {
-            IReadOnlyList<int> array = Bindings.RuntimeTests.GetArray(3);
-            IReadOnlyList<int> copy1 = Bindings.RuntimeTests.PassThroughArray(array);
-            IReadOnlyList<int> copy2 = Bindings.RuntimeTests.PassThroughArray(array);
+            IReadOnlyList<int> array = Bindings.Functions.GetArray(3);
+            IReadOnlyList<int> copy1 = Bindings.Functions.PassThroughArray(array);
+            IReadOnlyList<int> copy2 = Bindings.Functions.PassThroughArray(array);
 
             for (int i = 0; i < array.Count; i++)
             {
@@ -139,7 +139,7 @@ namespace BindingsGeneration.FunctionalTests
         {
             for (int i = 0; i < 10; i++)
             {
-                IReadOnlyList<int> array = Bindings.RuntimeTests.GetArray(100);
+                IReadOnlyList<int> array = Bindings.Functions.GetArray(100);
                 var barrier = new Barrier(2);
 
                 var readerTask = Task.Run(() =>
@@ -320,7 +320,7 @@ namespace BindingsGeneration.FunctionalTests
         [Fact]
         public void SmokeTestString()
         {
-            var str = Bindings.RuntimeTests.GetString(3);
+            var str = Bindings.Functions.GetString(3);
             Assert.Equal(3, str.Length);
             Assert.Equal("aaa", str.ToString());
         }
@@ -328,38 +328,38 @@ namespace BindingsGeneration.FunctionalTests
         [Fact]
         public void TestEmptyString()
         {
-            var str = Bindings.RuntimeTests.GetString(0);
+            var str = Bindings.Functions.GetString(0);
             Assert.Equal(0, str.Length);
             Assert.Equal(string.Empty, str.ToString());
-            Assert.Equal(str.Length, Bindings.RuntimeTests.VerifyString(str));
+            Assert.Equal(str.Length, Bindings.Functions.VerifyString(str));
         }
 
         [Fact]
         public void TestOneElementString()
         {
-            var str = Bindings.RuntimeTests.GetString(1);
+            var str = Bindings.Functions.GetString(1);
             Assert.Equal(1, str.Length);
             Assert.Equal("a", str.ToString());
-            Assert.Equal(str.Length, Bindings.RuntimeTests.VerifyString(str));
+            Assert.Equal(str.Length, Bindings.Functions.VerifyString(str));
         }
 
         [Fact]
         public void TestBigString()
         {
-            var str = Bindings.RuntimeTests.GetString(10000);
+            var str = Bindings.Functions.GetString(10000);
             Assert.Equal(10000, str.Length);
             Assert.Equal(new string('a', 10000), str.ToString());
-            Assert.Equal(str.Length, Bindings.RuntimeTests.VerifyString(str));
+            Assert.Equal(str.Length, Bindings.Functions.VerifyString(str));
         }
 
         [Fact]
         public void TestStringPassThrough()
         {
-            string heapString = Bindings.RuntimeTests.GetString(16);
+            string heapString = Bindings.Functions.GetString(16);
             Assert.Equal(16, heapString.Length);
             Assert.Equal(new string('a', 16), heapString);
 
-            string strCopy = Bindings.RuntimeTests.PassThroughString(heapString);
+            string strCopy = Bindings.Functions.PassThroughString(heapString);
             Assert.Equal(heapString, strCopy);
         }
 
@@ -367,7 +367,7 @@ namespace BindingsGeneration.FunctionalTests
         public void TestSwiftMarshalString()
         {
             string input = new string('a', 16);
-            string result = Bindings.RuntimeTests.PassThroughString(input);
+            string result = Bindings.Functions.PassThroughString(input);
             Assert.Equal(input, result);
         }
 
@@ -376,13 +376,13 @@ namespace BindingsGeneration.FunctionalTests
         {
             for (int i = 0; i < 10; i++)
             {
-                string original = Bindings.RuntimeTests.GetString(16);
+                string original = Bindings.Functions.GetString(16);
                 var barrier = new Barrier(2);
 
                 var passThroughTask = Task.Run(() =>
                 {
                     barrier.SignalAndWait();
-                    string copy = Bindings.RuntimeTests.PassThroughString(original);
+                    string copy = Bindings.Functions.PassThroughString(original);
                     Assert.Equal(original, copy);
                 });
 

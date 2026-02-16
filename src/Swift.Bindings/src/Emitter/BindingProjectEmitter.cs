@@ -27,7 +27,7 @@ namespace BindingsGeneration
     /// </summary>
     public static class BindingProjectEmitter
     {
-        internal const string DefaultSwiftRuntimeVersion = "0.1.0-preview.1";
+        internal const string DefaultSwiftRuntimeVersion = "0.1.0-preview.5";
 
         /// <summary>
         /// Emits a {PackageId}.csproj file into the output directory.

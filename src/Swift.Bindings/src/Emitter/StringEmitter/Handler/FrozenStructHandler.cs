@@ -137,8 +137,10 @@ namespace BindingsGeneration
                     csWriter.Indent++;
 
                     // Payload used for reference counting
+                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                     csWriter.WriteLine($"private SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
                     csWriter.WriteLine();
+                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                     csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                     csWriter.WriteLine();
                     csWriter.WriteLine("public void Dispose() => _payload.Dispose();");

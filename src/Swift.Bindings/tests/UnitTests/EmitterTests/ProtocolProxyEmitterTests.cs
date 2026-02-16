@@ -39,7 +39,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains(": ITestProtocol, ISwiftObject", output);
+        Assert.Contains(": ITestProtocol, ISwiftObject, IDisposable", output);
     }
 
     [Fact]

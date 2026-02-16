@@ -768,7 +768,7 @@ namespace BindingsGeneration.FunctionalTests
             Assert.Equal(3, vtype.Y);
 
             Assert.Equal(1, Arc.RetainCount(vtype.Payload.DangerousGetHandle().At(1)));
-            EmbeddedStruct copy = Bindings.MemoryTests.PassThroughEmbeddedStruct(vtype);
+            EmbeddedStruct copy = Bindings.Functions.PassThroughEmbeddedStruct(vtype);
 
             Assert.Equal(1, copy.X.X);
             Assert.Equal(2, copy.X.Y);
@@ -897,8 +897,8 @@ namespace BindingsGeneration.FunctionalTests
                     barrier.SignalAndWait();
                     try
                     {
-                        var copy = Bindings.MemoryTests.PassThroughFrozenStruct(resource);
-                        var genericCopy = Bindings.MemoryTests.PassThroughGeneric<FrozenStructRequiresMemoryManagement>(resource);
+                        var copy = Bindings.Functions.PassThroughFrozenStruct(resource);
+                        var genericCopy = Bindings.Functions.PassThroughGeneric<FrozenStructRequiresMemoryManagement>(resource);
                         copy.Payload.Dispose();
                         genericCopy.Payload.Dispose();
                     }
@@ -961,8 +961,8 @@ namespace BindingsGeneration.FunctionalTests
                     barrier.SignalAndWait();
                     try
                     {
-                        var copy = Bindings.MemoryTests.PassThroughNonFrozenStruct(resource);
-                        var genericCopy = Bindings.MemoryTests.PassThroughGeneric<NonFrozenStructRequiresMemoryManagement>(resource);
+                        var copy = Bindings.Functions.PassThroughNonFrozenStruct(resource);
+                        var genericCopy = Bindings.Functions.PassThroughGeneric<NonFrozenStructRequiresMemoryManagement>(resource);
                         copy.Payload.Dispose();
                         genericCopy.Payload.Dispose();
                     }

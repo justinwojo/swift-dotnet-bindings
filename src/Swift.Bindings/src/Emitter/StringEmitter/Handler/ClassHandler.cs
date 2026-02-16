@@ -242,7 +242,9 @@ namespace BindingsGeneration
         /// </summary>
         private static void WriteClassPrivateFields(CSharpWriter csWriter, string typeNameWithGenerics)
         {
+            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
             csWriter.WriteLine();
         }
@@ -252,6 +254,7 @@ namespace BindingsGeneration
         /// </summary>
         private static void WriteClassPayload(CSharpWriter csWriter, string typeNameWithGenerics)
         {
+            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
             csWriter.WriteLine();
             csWriter.WriteLine("public void Dispose() => _payload.Dispose();");
@@ -346,6 +349,7 @@ namespace BindingsGeneration
         private void WriteNewFromPayload()
         {
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
                 return new {{_typeNameWithGenerics}}(handle);
@@ -380,6 +384,7 @@ namespace BindingsGeneration
         private void WriteMarshalToSwift()
         {
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
                 var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
@@ -418,6 +423,7 @@ namespace BindingsGeneration
             WriteStaticConstructor();
             var libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
                 where TProtocol : class
             {
@@ -440,6 +446,7 @@ namespace BindingsGeneration
         private void WriteStaticConstructor()
         {
             var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
             private static Dictionary<Type, string> _protocolConformanceSymbols;
 
             static {{_constructorName}}()

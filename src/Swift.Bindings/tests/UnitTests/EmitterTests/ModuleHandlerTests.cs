@@ -285,6 +285,130 @@ public class ModuleHandlerTests
         Assert.Contains("namespace Acme.MyKit", csOutput);
     }
 
+    [Fact]
+    public void Emit_ModuleNamedFunctions_WrapperEscalatesToGlobalFunctions()
+    {
+        // A module literally named "Functions" → namespace Swift.Functions.
+        // Renaming the wrapper to "Functions" wouldn't help (still stutters).
+        // Should escalate to "GlobalFunctions".
+        var (csOutput, _) = EmitModuleWithDependencies("Functions", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.Methods.Add(new MethodDecl
+                {
+                    Name = "doSomething",
+                    MangledName = "$s9Functions11doSomethingSiyF",
+                    MethodType = MethodType.Static,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        new()
+                        {
+                            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                            Name = string.Empty,
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    Throws = false,
+                    IsAsync = false,
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    Visibility = Visibility.Public,
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                });
+            });
+
+        Assert.Contains("namespace Swift.Functions", csOutput);
+        Assert.Contains("public partial class GlobalFunctions", csOutput);
+        Assert.DoesNotContain("public partial class Functions", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ModuleWithStutter_WrapperRenamedToFunctions()
+    {
+        // A module named "Nuke" with namespace Swift.Nuke → wrapper should be "Functions"
+        var (csOutput, _) = EmitModuleWithDependencies("Nuke", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.Methods.Add(new MethodDecl
+                {
+                    Name = "loadImage",
+                    MangledName = "$s4Nuke9loadImageSiyF",
+                    MethodType = MethodType.Static,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        new()
+                        {
+                            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                            Name = string.Empty,
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    Throws = false,
+                    IsAsync = false,
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    Visibility = Visibility.Public,
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                });
+            });
+
+        Assert.Contains("namespace Swift.Nuke", csOutput);
+        Assert.Contains("public partial class Functions", csOutput);
+        Assert.DoesNotContain("public partial class Nuke", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ModuleWithCustomNamespace_NoStutter_KeepsModuleName()
+    {
+        // Custom namespace pattern that doesn't stutter → keep module name as wrapper class
+        var namespaceResolver = new NamespacePatternResolver("{Module}Bindings");
+        var (csOutput, _) = EmitModuleWithDependencies("Nuke", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.Methods.Add(new MethodDecl
+                {
+                    Name = "loadImage",
+                    MangledName = "$s4Nuke9loadImageSiyF",
+                    MethodType = MethodType.Static,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        new()
+                        {
+                            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                            Name = string.Empty,
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl
+                        }
+                    },
+                    Throws = false,
+                    IsAsync = false,
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    Visibility = Visibility.Public,
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                });
+            },
+            namespaceResolver: namespaceResolver);
+
+        Assert.Contains("namespace NukeBindings", csOutput);
+        Assert.Contains("public partial class Nuke", csOutput);
+        Assert.DoesNotContain("public partial class Functions", csOutput);
+    }
+
     #endregion
 
     #region Helper Methods

@@ -96,68 +96,11 @@ namespace BindingsGeneration
             csWriter.WriteLine($"using Swift;");
             csWriter.WriteLine($"using Swift.Runtime;");
             csWriter.WriteLine($"using Swift.Runtime.InteropServices;");
+            csWriter.WriteLine($"using System.ComponentModel;");
             csWriter.WriteLine();
             csWriter.WriteLine($"namespace {generatedNamespace}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-
-            // Emit helper structs for tracking retained self pointers in async operations
-            csWriter.WriteLines("""
-                /// <summary>
-                /// Wraps a retained Swift class pointer for async operations.
-                /// Used to track self pointers that were explicitly retained via Arc.Retain()
-                /// before calling async Swift methods. Must be released via Arc.Release() after callback.
-                /// </summary>
-                internal readonly struct RetainedSelfPtr
-                {
-                    public readonly IntPtr Ptr;
-                    public RetainedSelfPtr(IntPtr ptr) => Ptr = ptr;
-                }
-
-                /// <summary>
-                /// Wraps a SafeHandle that needs DangerousRelease() called after async completion.
-                /// Used for async instance methods on structs where the SafeHandle must stay alive
-                /// until the Swift async operation completes.
-                /// </summary>
-                internal readonly struct DeferredSafeHandleRelease
-                {
-                    public readonly SafeHandle Handle;
-                    public DeferredSafeHandleRelease(SafeHandle handle) => Handle = handle;
-                }
-
-                /// <summary>
-                /// Wraps a copy buffer pointer with its TypeMetadata for proper cleanup.
-                /// Used for non-frozen struct parameters in async operations.
-                /// Destroy must be called before freeing the buffer to release Swift references.
-                /// </summary>
-                internal readonly struct CopyBufferWithType
-                {
-                    public readonly IntPtr Buffer;
-                    public readonly TypeMetadata Metadata;
-                    public CopyBufferWithType(IntPtr buffer, TypeMetadata metadata)
-                    {
-                        Buffer = buffer;
-                        Metadata = metadata;
-                    }
-                }
-
-                /// <summary>
-                /// Wraps a CancellationTokenRegistration for disposal in async callbacks.
-                /// Stored in the async holder array so the callback can dispose the registration
-                /// after completion, cancellation, or error.
-                /// </summary>
-                internal readonly struct CancellationRegistrationHolder
-                {
-                    public readonly System.Threading.CancellationTokenRegistration Registration;
-                    public readonly System.Threading.CancellationToken Token;
-                    public CancellationRegistrationHolder(System.Threading.CancellationTokenRegistration registration, System.Threading.CancellationToken token)
-                    {
-                        Registration = registration;
-                        Token = token;
-                    }
-                }
-
-                """);
 
             // Pre-compute all nested type renames before emitting any types.
             // This ensures cross-type references to renamed nested types resolve correctly
@@ -174,7 +117,26 @@ namespace BindingsGeneration
                 // Emit top-level methods
                 if (moduleDecl.Methods.Any())
                 {
-                    csWriter.WriteLine($"public partial class {moduleDecl.Name}");
+                    var wrapperClassName = moduleDecl.Name;
+                    bool stutters = generatedNamespace.EndsWith($".{moduleDecl.Name}") || generatedNamespace == moduleDecl.Name;
+                    if (stutters)
+                    {
+                        wrapperClassName = "Functions";
+                        // Check if a top-level type or the module itself already uses the chosen name
+                        var typeNames = new HashSet<string>(moduleDecl.Types.Select(t => t.Name));
+                        if (wrapperClassName == moduleDecl.Name || typeNames.Contains(wrapperClassName))
+                            wrapperClassName = "GlobalFunctions";
+                        if (wrapperClassName == moduleDecl.Name || typeNames.Contains(wrapperClassName))
+                        {
+                            // Ultimate fallback: append suffix until unique
+                            var candidate = $"{moduleDecl.Name}Functions";
+                            int suffix = 2;
+                            while (typeNames.Contains(candidate))
+                                candidate = $"Functions{suffix++}";
+                            wrapperClassName = candidate;
+                        }
+                    }
+                    csWriter.WriteLine($"public partial class {wrapperClassName}");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     csWriter.WriteLine();
@@ -583,7 +545,7 @@ namespace BindingsGeneration
             csWriter.WriteLine($"/// Wrap-only proxy for the {compositionName} composition existential.");
             csWriter.WriteLine($"/// Wraps a Swift existential container; member access is not supported.");
             csWriter.WriteLine($"/// </summary>");
-            csWriter.WriteLine($"public unsafe class {proxyClassName} : {compositionName}, ISwiftObject, Swift.Runtime.ISwiftExistentialConvertible<{containerType}>");
+            csWriter.WriteLine($"public unsafe class {proxyClassName} : {compositionName}, ISwiftObject, IDisposable, Swift.Runtime.ISwiftExistentialConvertible<{containerType}>");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
