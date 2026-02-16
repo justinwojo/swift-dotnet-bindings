@@ -670,14 +670,40 @@ All 13 bugs fixed (2026-02-16). 2782 unit tests + 699 integration tests passing,
 - Bug #11: Added `try/catch { NativeMemory.Free; throw; }` in WrapperEmitter.Return
 - Bug #12: Sanitized `GetPInvokeMethodName` fallback in OperatorHandler
 
-### Sessions 2 & 3: Test Coverage — PLANNED
+### Sessions 2 & 3: Test Coverage — COMPLETE
 
-Detailed implementation plan with test specifications at `~/.claude/plans/prancy-foraging-muffin.md`.
+104 new tests added (2782 → 2886 unit tests), 0 failures. Codex review incorporated.
 
-Covers:
-- **Regression tests** for Session 1 bug fixes (Bugs #1, #5, #11, #12)
-- **Tier 1** (6 areas): TypeHandlerHelpers, GetCallArgumentString, PInvokeHelperEmitter, ProtocolConformanceValidator, ProtocolSignatureHelper, MemberEmissionValidator
-- **~60 new tests** across 4 new files + 5 expanded files
+**7 new test files:**
+- `EmitterUtilityTests.cs` (8) — DeterministicHash8, FindLastTopLevelComma
+- `GetCallArgumentStringTests.cs` (15) — 15 of ~25 pattern branches (SafeHandle, enum, existential, closure, ref/out, self variants)
+- `TypeHandlerHelpersTests.cs` (11) — GetImplementedInterfaces (6), EqualityMethodsWriter (5)
+- `PInvokeHelperEmitterTests.cs` (12) — CreateIfGeneric, AddDeclaration dedup, EmitHelperClass, PInvokeDeclaration.Emit
+- `MemberEmissionValidatorTests.cs` (10) — CanEmitSubscript, Codable pruning, HasUnsupportedPropertyType, SwiftUI
+- `UnsupportedSwiftTypeSupportTests.cs` (5) — TryFindFallbackInfo recursive search, EscapeStringLiteral
+- `Utf8SliceEmitterTests.cs` (6) — Dedup, reset, per-type tracking
 
-Files to create: `EmitterUtilityTests.cs`, `TypeHandlerHelpersTests.cs`, `GetCallArgumentStringTests.cs`, `PInvokeHelperEmitterTests.cs`
-Files to expand: `ClosureCdeclEmitterTests.cs`, `ProtocolConformanceValidatorTests.cs`, `ProtocolSignatureHelperTests.cs`, `OperatorHandlerTests.cs`, `WrapperEmitterReturnTests.cs`
+**8 expanded test files:**
+- `SwiftTypeNameHelperTests.cs` (+7) — GetSwiftTypeName all TypeSpec variants
+- `ClosureCdeclEmitterTests.cs` (+2) — Bug #5 nested generic regression
+- `OperatorHandlerTests.cs` (+6) — Bug #12 regression + 4 pair synthesis paths
+- `ProtocolSignatureHelperTests.cs` (+5) — NormalizeParamTypeForOverloadIdentity
+- `ProtocolConformanceValidatorTests.cs` (+4) — Bug #1 subscript regression + property accessor contracts + inheritance
+- `WrapperEmitterReturnTests.cs` (+4) — Bug #11 class leak regression + string/enum/void return paths
+- `TypeHandlersOutputTests.cs` (+6) — Finalizer (class, frozen struct, non-frozen struct), Hashable, Equatable
+- `EnumHandlerOutputTests.cs` (+4) — Finalizer, GC.SuppressFinalize, StringRawValue ToRawValue/FromRawValue
+
+**Tier coverage:**
+
+| Tier | DONE | PARTIAL | OPEN (deferred) |
+|------|------|---------|-----------------|
+| Tier 1 (6 items) | 3 | 3 | 0 |
+| Tier 2 (10 items) | 2 | 2 | 6 |
+| Tier 3 (9 items) | 5 | 1 | 3 |
+
+**Remaining OPEN items** (deferred — require test infrastructure that doesn't exist):
+- ModuleEmitter `EmitModule` (file I/O mocking)
+- WrapperEmitter `EmitFailableFactory` (full MethodEnvironment construction)
+- ClassHandler actor emission, FrozenStructHandler stored properties, constructor happy path
+- EveryProtocolEmitter global dedup
+- AsyncStreamEmitter standalone, WrapperEmitter.Marshalling, ModuleHandler composition proxy
