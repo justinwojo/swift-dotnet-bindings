@@ -212,7 +212,7 @@ CryptoSwift fix steps (9 total) addressed 24 generator bugs spanning P/Invoke en
 | `Future/mono-jit-future-work.md` | Remaining Mono JIT edge cases |
 | `Future/emitter-redesign-proposal.md` | Architectural north star for emitter refactoring |
 | `Future/dx-multi-framework-auto-detection.md` | Auto-detection design for multi-framework dependencies |
-| `Future/nativeaot-investigation.md` | NativeAOT desk research (hands-on validation pending) |
+| `nativeaot-investigation.md` | NativeAOT investigation — all 3 blockers verified resolved, 28/28 tests pass |
 | `Future/upstream-bug-reports-draft.md` | Draft .NET runtime bug reports (waiting for repo to go public) |
 | `Future/interop-performance-validation-plan.md` | Performance benchmarking plan |
 | `Completed/` | Archived phase completion records (includes `developer-experience.md`, `swiftui-bridge-design.md`) |

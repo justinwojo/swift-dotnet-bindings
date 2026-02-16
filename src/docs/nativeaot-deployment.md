@@ -185,5 +185,5 @@ Generated bindings use `[ModuleInitializer]` to register a `DllImportResolver` f
 ## Further Reading
 
 - [Known Issues and Workarounds](known-issues-workarounds.md) — detailed Mono JIT workaround documentation
-- [NativeAOT Investigation](Future/nativeaot-investigation.md) — deep technical analysis of all three blockers
+- [NativeAOT Investigation](nativeaot-investigation.md) — deep technical analysis of all three blockers
 - [Microsoft NativeAOT iOS docs](https://learn.microsoft.com/en-us/dotnet/maui/deployment/nativeaot) — general .NET MAUI NativeAOT deployment

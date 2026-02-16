@@ -42,7 +42,7 @@ Strategy C (existential metadata wrapper) handles the zero-protocol case (`Any` 
 
 **Priority**: Opportunistic | **Difficulty**: High | **Depends on**: .NET 10 iOS tooling
 
-Eliminates the JIT bug entirely (NativeAOT has no JIT) but doesn't replace non-blittable type or async SafeHandle workarounds. See `Future/nativeaot-investigation.md`.
+Eliminates the JIT bug entirely (NativeAOT has no JIT). All three blockers (JIT assertion, non-blittable types, SafeHandle async) verified resolved under NativeAOT. See `nativeaot-investigation.md`.
 
 ### Upstream Bug Reports
 
