@@ -349,6 +349,131 @@ public class TypeHandlersOutputTests
         Assert.DoesNotContain("ConfigurationValue", output);
     }
 
+    [Fact]
+    public void Emit_ClassHandler_Finalizer_EmitsGCSuppressFinalize()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = new ClassDecl
+        {
+            Name = "Loader",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            MangledName = "$s10TestModule6LoaderCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        // Class types should emit finalizer and GC.SuppressFinalize in Dispose
+        Assert.Contains("~Loader()", csOutput);
+        Assert.Contains("GC.SuppressFinalize", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ClassHandler_Hashable_EmitsSwiftHashableGetHashCode()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = new ClassDecl
+        {
+            Name = "Point",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+            MangledName = "$s10TestModule5PointCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                    "$s10TestModule5PointCSQAAMc"),
+                new(
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+                    "$s10TestModule5PointCSHAAMc")
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        Assert.Contains("SwiftHashable.GetHashCode(this)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_Equatable_EmitsEquatable()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Point", moduleDecl, isFrozen: true, requiresMemoryManagement: false);
+        structDecl.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$s10TestModule5PointVSQAAMc"));
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        Assert.Contains("IEquatable<Point>", csOutput);
+        Assert.Contains("SwiftEquatable.Equals", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenStructHandler_Equatable_EmitsEquatable()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("CacheKey", moduleDecl, isFrozen: false, requiresMemoryManagement: true);
+        structDecl.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.CacheKey"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$s10TestModule8CacheKeyVSQAAMc"));
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
+
+        Assert.Contains("IEquatable<CacheKey>", csOutput);
+        Assert.Contains("SwiftEquatable.Equals", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_ClassProjection_EmitsFinalizer()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        // Frozen struct with memory management → class projection with finalizer
+        var structDecl = CreateStructDecl("Blob", moduleDecl, isFrozen: true, requiresMemoryManagement: true);
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        Assert.Contains("~Blob()", csOutput);
+        Assert.Contains("GC.SuppressFinalize", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenStructHandler_EmitsFinalizer()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("CacheKey", moduleDecl, isFrozen: false, requiresMemoryManagement: true);
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
+
+        Assert.Contains("~CacheKey()", csOutput);
+        Assert.Contains("GC.SuppressFinalize", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         return new TypeDatabase();

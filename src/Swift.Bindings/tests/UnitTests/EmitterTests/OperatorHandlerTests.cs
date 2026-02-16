@@ -286,6 +286,90 @@ public class OperatorHandlerTests
 
     #endregion
 
+    #region Bug #12 Regression — GetPInvokeMethodName Sanitization
+
+    [Fact]
+    public void GetPInvokeMethodName_UnknownSymbol_ReturnsSanitizedName()
+    {
+        // Unknown operator symbol with no alphanumeric chars → "PInvoke_op_"
+        var result = OperatorHandler.GetPInvokeMethodName("??");
+        Assert.Equal("PInvoke_op_", result);
+    }
+
+    [Fact]
+    public void GetPInvokeMethodName_MixedInvalidChars_FiltersAll()
+    {
+        // All special chars are filtered out → "PInvoke_op_"
+        var result = OperatorHandler.GetPInvokeMethodName("&+=");
+        Assert.Equal("PInvoke_op_", result);
+    }
+
+    #endregion
+
+    #region Pair Synthesis — Comparison Operators
+
+    [Fact]
+    public void ValidateAndEmitPairs_LessThan_SynthesizesGreaterThan()
+    {
+        var opDecl = CreateOperatorDecl("<", OperatorKind.Binary);
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        using var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var emittedSymbols = new HashSet<string> { "<" };
+
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { opDecl }, "Point", emittedSymbols);
+
+        Assert.Contains("operator >", output.ToString());
+        Assert.Contains(">", emittedSymbols);
+    }
+
+    [Fact]
+    public void ValidateAndEmitPairs_GreaterThan_SynthesizesLessThan()
+    {
+        var opDecl = CreateOperatorDecl(">", OperatorKind.Binary);
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        using var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var emittedSymbols = new HashSet<string> { ">" };
+
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { opDecl }, "Point", emittedSymbols);
+
+        Assert.Contains("operator <", output.ToString());
+        Assert.Contains("<", emittedSymbols);
+    }
+
+    [Fact]
+    public void ValidateAndEmitPairs_LessEqual_SynthesizesGreaterEqual()
+    {
+        var opDecl = CreateOperatorDecl("<=", OperatorKind.Binary);
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        using var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var emittedSymbols = new HashSet<string> { "<=" };
+
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { opDecl }, "Point", emittedSymbols);
+
+        Assert.Contains("operator >=", output.ToString());
+        Assert.Contains(">=", emittedSymbols);
+    }
+
+    [Fact]
+    public void ValidateAndEmitPairs_GreaterEqual_SynthesizesLessEqual()
+    {
+        var opDecl = CreateOperatorDecl(">=", OperatorKind.Binary);
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        using var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var emittedSymbols = new HashSet<string> { ">=" };
+
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { opDecl }, "Point", emittedSymbols);
+
+        Assert.Contains("operator <=", output.ToString());
+        Assert.Contains("<=", emittedSymbols);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static OperatorDecl CreateOperatorDecl(string symbol, OperatorKind kind, bool isPrefix = true)

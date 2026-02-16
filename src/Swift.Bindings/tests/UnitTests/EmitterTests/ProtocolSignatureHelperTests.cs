@@ -144,6 +144,75 @@ public class ProtocolSignatureHelperTests
 
     #endregion
 
+    #region NormalizeParamTypeForOverloadIdentity Tests
+
+    [Fact]
+    public void NormalizeParamType_OptionalClass_StripsNullable()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("TestModule.Loader"));
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "Loader?", optionalType, typeDatabase);
+
+        Assert.Equal("Loader", result);
+    }
+
+    [Fact]
+    public void NormalizeParamType_OptionalProtocol_StripsNullable()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("TestModule.Describable"));
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "IDescribable?", optionalType, typeDatabase);
+
+        Assert.Equal("IDescribable", result);
+    }
+
+    [Fact]
+    public void NormalizeParamType_OptionalComplexEnum_StripsNullable()
+    {
+        var typeDatabase = CreateTypeDatabaseWithComplexEnum();
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("TestModule.Variant"));
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "Variant?", optionalType, typeDatabase);
+
+        Assert.Equal("Variant", result);
+    }
+
+    [Fact]
+    public void NormalizeParamType_OptionalStruct_PreservesNullable()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "long?", optionalType, typeDatabase);
+
+        // Value types (structs) preserve the ? — not stripped
+        Assert.Equal("long?", result);
+    }
+
+    [Fact]
+    public void NormalizeParamType_NonOptional_ReturnsSameString()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var namedType = new NamedTypeSpec("Swift.Int");
+
+        var result = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+            "long", namedType, typeDatabase);
+
+        Assert.Equal("long", result);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()
@@ -215,6 +284,96 @@ public class ProtocolSignatureHelperTests
                 Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(foundationModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithClassAndProtocol()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+                MetadataAccessor = "$s10TestModule6LoaderCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "IDescribable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithComplexEnum()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+                MetadataAccessor = "$s10TestModule7VariantOMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(testModule);
         return typeDatabase;
     }
 

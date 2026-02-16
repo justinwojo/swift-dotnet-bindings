@@ -706,6 +706,79 @@ public class EnumHandlerOutputTests
         };
     }
 
+    [Fact]
+    public void Emit_ComplexEnum_EmitsFinalizer()
+    {
+        // Complex enum with associated values that need memory management → finalizer
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Result", moduleDecl, isFrozen: false);
+        var successCase = CreateCase("success");
+        successCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(successCase);
+        enumDecl.Cases.Add(CreateCase("failure"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Non-frozen complex enum → class emission with finalizer
+        Assert.Contains("~Result()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ComplexEnum_EmitsGCSuppressFinalize()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Result", moduleDecl, isFrozen: false);
+        var successCase = CreateCase("success");
+        successCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(successCase);
+        enumDecl.Cases.Add(CreateCase("failure"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Dispose should suppress finalizer
+        Assert.Contains("GC.SuppressFinalize", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StringRawValueEnum_EmitsToRawValueMethod()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Level", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("low"));
+        enumDecl.Cases.Add(CreateCase("high"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        EnumHandler.ResetUtf8SliceTracking();
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Must emit ToRawValue extension method
+        Assert.Contains("public static string ToRawValue(this Level value)", csOutput);
+        Assert.Contains("\"low\"", csOutput);
+        Assert.Contains("\"high\"", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StringRawValueEnum_EmitsFromRawValueMethod()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Level", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("low"));
+        enumDecl.Cases.Add(CreateCase("high"));
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        EnumHandler.ResetUtf8SliceTracking();
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Must emit FromRawValue extension method
+        Assert.Contains("public static Level? FromRawValue(", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithNonFrozenStruct()
     {
         var typeDatabase = new TypeDatabase();

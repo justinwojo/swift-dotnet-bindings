@@ -86,4 +86,80 @@ public class SwiftTypeNameHelperTests
     }
 
     #endregion
+
+    #region GetSwiftTypeName Tests
+
+    [Fact]
+    public void GetSwiftTypeName_NullTypeSpec_ReturnsAny()
+    {
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(null);
+        Assert.Equal("Any", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_SimpleNamed_ReturnsName()
+    {
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(new NamedTypeSpec("Swift.Int"));
+        Assert.Equal("Swift.Int", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_GenericNamed_ReturnsWithAngleBrackets()
+    {
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(arrayType);
+
+        Assert.Equal("Swift.Array<Swift.Int>", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_Optional_ReturnsQuestionMark()
+    {
+        var optType = new NamedTypeSpec("Swift.Optional");
+        optType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(optType);
+
+        Assert.Equal("(Swift.String)?", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_EmptyTuple_ReturnsVoid()
+    {
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(TupleTypeSpec.Empty);
+        Assert.Equal("Void", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_Closure_ReturnsArrowSyntax()
+    {
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            new NamedTypeSpec("Swift.String"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.Contains("->", result);
+        Assert.Contains("Swift.Int", result);
+        Assert.Contains("Swift.String", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_ProtocolList_ReturnsComposition()
+    {
+        var protocols = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.P1"),
+            new NamedTypeSpec("TestModule.P2")
+        });
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(protocols);
+
+        Assert.Contains("any", result);
+        Assert.Contains("&", result);
+    }
+
+    #endregion
 }

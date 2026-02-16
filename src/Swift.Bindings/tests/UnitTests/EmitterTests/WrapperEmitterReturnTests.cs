@@ -122,6 +122,152 @@ public class WrapperEmitterReturnTests
         Assert.DoesNotContain("partial Swift.TestModule.Variant PInvoke_", csOutput);
     }
 
+    [Fact]
+    public void DirectReturn_Class_EmitsTryCatchAroundAlloc()
+    {
+        // Bug #11 regression: class return must use try/catch to free NativeMemory on failure
+        var typeDatabase = CreateTypeDatabaseWithURL();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var method = CreateMethodDecl(
+            name: "getLoader",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("TestModule.Loader"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Class return must have try-catch wrapping the allocation with free-on-exception
+        Assert.Contains("try", csOutput);
+        Assert.Contains("catch", csOutput);
+        Assert.Contains("NativeMemory.Free", csOutput);
+    }
+
+    [Fact]
+    public void DirectReturn_SwiftString_EmitsConversion()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var method = CreateMethodDecl(
+            name: "getName",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.String"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // SwiftString return → string conversion in public API
+        Assert.Contains("string", csOutput);
+        Assert.Contains("SwiftString", csOutput);
+    }
+
+    [Fact]
+    public void DirectReturn_SimpleEnum_EmitsCast()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSimpleEnum();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var method = CreateMethodDecl(
+            name: "getDirection",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("TestModule.Direction"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Simple enum return → cast from underlying type: (Swift.TestModule.Direction)result
+        Assert.Contains("(Swift.TestModule.Direction)result", csOutput);
+    }
+
+    [Fact]
+    public void DirectReturn_Void_EmitsNoReturnConversion()
+    {
+        var typeDatabase = CreateTypeDatabaseWithURL();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var method = CreateMethodDecl(
+            name: "doWork",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Void return → no return value conversion
+        Assert.DoesNotContain("MarshalFromSwift", csOutput);
+        Assert.DoesNotContain("return new", csOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithString()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Loader"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+                MetadataAccessor = "$s10TestModule6LoaderCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithComplexEnum()
     {
         var typeDatabase = new TypeDatabase();

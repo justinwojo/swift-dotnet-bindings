@@ -1,3 +1,4 @@
+#nullable enable
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
@@ -410,6 +411,245 @@ public class ProtocolConformanceValidatorTests
 
     #endregion
 
+    #region Bug #1 Regression — Subscript with Bound Generic Return
+
+    [Fact]
+    public void CanFullyImplementProtocol_SubscriptWithBoundGenericReturn_DoesNotCrash()
+    {
+        // Bug #1 regression: subscript returning Array<UnknownType> should gracefully
+        // return false (not throw NotSupportedException). The protocol must use
+        // Subscripts (not Methods) to exercise the subscript matching code path.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var arrayReturn = new NamedTypeSpec("Swift.Array");
+        arrayReturn.GenericParameters.Add(new NamedTypeSpec("UnknownModule.Foo"));
+
+        var subscriptDecl = new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s10TestModule9ContainerPySaySiGSicig",
+            IsStatic = false,
+            ReturnTypeSpec = arrayReturn,
+            IndexParameters = new List<ArgumentDecl>
+            {
+                CreateArgument("index", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = "subscript_Get",
+                        MangledName = "$s10TestModule9ContainerPySaySiGSicig",
+                        MethodType = MethodType.Instance,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl>
+                        {
+                            CreateArgument(string.Empty, arrayReturn, moduleDecl),
+                            CreateArgument("index", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                        },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = null,
+                        ModuleDecl = moduleDecl,
+                        Throws = false,
+                        IsAsync = false,
+                        Visibility = Visibility.Public
+                    }
+                }
+            },
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Container",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            MangledName = "$s10TestModule9ContainerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl> { subscriptDecl },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("MyContainer", moduleDecl);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        // Should not throw — gracefully returns false (subscript iteration +
+        // GetSubscriptSignatureKey + FindMatchingSubscript exercised)
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.False(result);
+    }
+
+    #endregion
+
+    #region Member Matching — Property Conformance
+
+    [Fact]
+    public void CanFullyImplementProtocol_PropertyGetOnly_ConcreteHasGetSet_ReturnsTrue()
+    {
+        // Protocol requires get-only property, concrete has get and set → should still match
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Readable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Readable"),
+            MangledName = "$s10TestModule8ReadableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        protocolDecl.Properties.Add(
+            CreatePropertyDecl("count", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false, accessorParent: protocolDecl));
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("MyReadable", moduleDecl);
+        concreteType.Properties.Add(
+            CreatePropertyDecl("count", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: true, accessorParent: concreteType));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_PropertyGetSet_ConcreteHasGetOnly_ReturnsFalse()
+    {
+        // Protocol requires get/set, concrete only has get → should fail
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Writable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Writable"),
+            MangledName = "$s10TestModule8WritableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        protocolDecl.Properties.Add(
+            CreatePropertyDecl("count", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: true, accessorParent: protocolDecl));
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("MyWritable", moduleDecl);
+        concreteType.Properties.Add(
+            CreatePropertyDecl("count", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false, accessorParent: concreteType));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_InheritedProtocol_ChecksRecursively()
+    {
+        // Protocol B inherits from Protocol A. Concrete type must satisfy both.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Protocol A: has method "doA"
+        var protocolA = new ProtocolDecl
+        {
+            Name = "ProtoA",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ProtoA"),
+            MangledName = "$s10TestModule6ProtoAP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateVoidMethod("doA", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolA);
+
+        // Protocol B inherits from A, adds method "doB"
+        var protocolB = new ProtocolDecl
+        {
+            Name = "ProtoB",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ProtoB"),
+            MangledName = "$s10TestModule6ProtoBP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>
+            {
+                new NamedTypeSpec("TestModule.ProtoA")
+            },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateVoidMethod("doB", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolB);
+
+        // Concrete type with both doA and doB
+        var concreteType = CreateStructDecl("ConcreteAB", moduleDecl);
+        var methodA = CreateVoidMethod("doA", moduleDecl);
+        methodA.ParentDecl = concreteType;
+        concreteType.Methods.Add(methodA);
+        var methodB = CreateVoidMethod("doB", moduleDecl);
+        methodB.ParentDecl = concreteType;
+        concreteType.Methods.Add(methodB);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolB);
+
+        Assert.True(result);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()
@@ -501,6 +741,69 @@ public class ProtocolConformanceValidatorTests
             Throws = false,
             IsAsync = false,
             Visibility = Visibility.Public
+        };
+    }
+
+    private static PropertyDecl CreatePropertyDecl(string name, TypeSpec typeSpec, ModuleDecl moduleDecl, bool hasGetter, bool hasSetter, BaseDecl? accessorParent = null)
+    {
+        var accessors = new List<AccessorDecl>();
+        if (hasGetter)
+        {
+            accessors.Add(new GetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Get",
+                    MangledName = $"$s10TestModule{name}Sivg",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, typeSpec, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = accessorParent,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+        if (hasSetter)
+        {
+            accessors.Add(new SetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Set",
+                    MangledName = $"$s10TestModule{name}Sivs",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("newValue", typeSpec, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = accessorParent,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = typeSpec,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = accessors,
+            ParentDecl = accessorParent,
+            ModuleDecl = moduleDecl
         };
     }
 

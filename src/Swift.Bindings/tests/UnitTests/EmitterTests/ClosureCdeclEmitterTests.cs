@@ -347,6 +347,26 @@ public class ClosureCdeclEmitterTests
         Assert.Equal("delegate* unmanaged[Cdecl]<long, double, IntPtr, byte>", result);
     }
 
+    [Fact]
+    public void AddCdeclContext_NestedGeneric_InsertsBeforeReturn()
+    {
+        // Bug #5 regression: nested generic brackets must not confuse comma detection
+        var result = ClosureEmitter.AddCdeclContextToFunctionPointerType(
+            "delegate* unmanaged[Cdecl]<SwiftOptional<int>, void>");
+
+        Assert.Equal("delegate* unmanaged[Cdecl]<SwiftOptional<int>, IntPtr, void>", result);
+    }
+
+    [Fact]
+    public void AddCdeclContext_MultipleNestedGenerics_InsertsCorrectly()
+    {
+        // Bug #5 regression: multiple nested generics with top-level comma
+        var result = ClosureEmitter.AddCdeclContextToFunctionPointerType(
+            "delegate* unmanaged[Cdecl]<SwiftOptional<int>, SwiftArray<long>, void>");
+
+        Assert.Equal("delegate* unmanaged[Cdecl]<SwiftOptional<int>, SwiftArray<long>, IntPtr, void>", result);
+    }
+
     #endregion
 
     #region P/Invoke and Routing Tests
