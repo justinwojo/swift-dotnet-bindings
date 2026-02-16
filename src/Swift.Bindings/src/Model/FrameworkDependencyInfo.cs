@@ -49,6 +49,12 @@ namespace BindingsGeneration
         public bool IsObjCOnly { get; init; }
 
         /// <summary>
+        /// Path to the resolved dylib. Used internally for recursive dependency graph analysis.
+        /// Null for ObjC-only dependencies.
+        /// </summary>
+        public string? DylibPath { get; init; }
+
+        /// <summary>
         /// Effective package ID: explicit override or convention.
         /// </summary>
         public string EffectivePackageId => PackageId ?? $"{ModuleName}.Swift.iOS";

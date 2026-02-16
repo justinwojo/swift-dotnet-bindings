@@ -79,6 +79,10 @@ namespace BindingsGeneration
                 description: "Path to a dependency xcframework. Repeatable. Adds -F search paths for wrapper compilation " +
                              "and PackageReference entries in the emitted .csproj. Requires --xcframework.")
             { AllowMultipleArgumentsPerToken = false };
+            Option<bool> noAutoDetectOption = new(
+                aliases: new[] { "--no-auto-detect" },
+                description: "Disable automatic dependency detection from binary linkage.",
+                getDefaultValue: () => false);
             Option<int> verboseOption = new(
                 aliases: new[] { "-v", "--verbose" },
                 description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -104,6 +108,7 @@ namespace BindingsGeneration
                 packageIdOption,
                 wrapperArchitecturesOption,
                 frameworkDependencyOption,
+                noAutoDetectOption,
                 configOption,
                 verboseOption,
                 helpOption,
@@ -128,6 +133,7 @@ namespace BindingsGeneration
                 var packageId = parseResult.GetValueForOption(packageIdOption);
                 var wrapperArchitectures = parseResult.GetValueForOption(wrapperArchitecturesOption);
                 var frameworkDependencies = parseResult.GetValueForOption(frameworkDependencyOption);
+                var noAutoDetect = parseResult.GetValueForOption(noAutoDetectOption);
                 var configPath = parseResult.GetValueForOption(configOption);
                 var verbose = parseResult.GetValueForOption(verboseOption);
                 var help = parseResult.GetValueForOption(helpOption);
@@ -152,6 +158,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.iOS'.");
                     Console.WriteLine("  --wrapper-architectures  Optional. Wrapper compilation scope: 'simulator' (default), 'device', or 'all'.");
                     Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");
+                    Console.WriteLine("  --no-auto-detect     Optional. Disable automatic dependency detection from binary linkage.");
                     Console.WriteLine($"  --config             Optional. Path to config file. Default: {DefaultConfigFileName}");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
                     return;
@@ -251,6 +258,45 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Auto-detect dependencies from binary linkage (xcframework mode only)
+                List<FrameworkDependencyInfo>? autoDetectedDeps = null;
+                DependencyAnalysisResult? analysisResult = null;
+
+                if (hasXcframework && !noAutoDetect)
+                {
+                    analysisResult = BinaryDependencyAnalyzer.Analyze(
+                        resolution!.DylibPath, xcframeworkPath!, resolution.ModuleName,
+                        platformTarget,
+                        wrapperArchitectures?.ToLowerInvariant() ?? "simulator",
+                        logger);
+                    if (analysisResult != null)
+                    {
+                        autoDetectedDeps = analysisResult.ResolvedDependencies;
+                        foreach (var dep in autoDetectedDeps)
+                            logger.LogInformation("Auto-detected dependency: {Module} ({Path})",
+                                dep.ModuleName, dep.XCFrameworkPath);
+                        foreach (var unresolved in analysisResult.UnresolvedDependencies)
+                        {
+                            if (unresolved.UnresolvedReason == "missing-slice")
+                            {
+                                logger.LogWarning(
+                                    "SWIFTBIND060: Detected dependency '{Name}' but its xcframework " +
+                                    "lacks the required platform slice. " +
+                                    "Use --framework-dependency to specify a complete xcframework.",
+                                    unresolved.FrameworkName);
+                            }
+                            else
+                            {
+                                logger.LogWarning(
+                                    "SWIFTBIND060: Detected dependency '{Name}' but no matching " +
+                                    "{Name}.xcframework found. " +
+                                    "Use --framework-dependency to specify its location.",
+                                    unresolved.FrameworkName, unresolved.FrameworkName);
+                            }
+                        }
+                    }
+                }
+
                 // Validate and resolve --framework-dependency options
                 var hasFrameworkDeps = frameworkDependencies != null && frameworkDependencies.Length > 0;
                 List<FrameworkDependencyInfo>? resolvedDependencies = null;
@@ -272,6 +318,29 @@ namespace BindingsGeneration
                     {
                         context.ExitCode = 1;
                         return; // Validation failed — error already logged
+                    }
+                }
+
+                // Merge auto-detected deps with manual deps (manual takes precedence)
+                if (autoDetectedDeps?.Count > 0)
+                {
+                    var manualModules = new HashSet<string>(
+                        resolvedDependencies?.Select(d => d.ModuleName) ?? Enumerable.Empty<string>(),
+                        StringComparer.Ordinal);
+                    foreach (var autoDep in autoDetectedDeps)
+                    {
+                        if (manualModules.Contains(autoDep.ModuleName))
+                        {
+                            logger.LogInformation(
+                                "Skipping auto-detected '{Module}' — overridden by manual --framework-dependency.",
+                                autoDep.ModuleName);
+                        }
+                        else
+                        {
+                            resolvedDependencies ??= new List<FrameworkDependencyInfo>();
+                            resolvedDependencies.Add(autoDep);
+                            logger.LogInformation("Using auto-detected dependency: {Module}", autoDep.ModuleName);
+                        }
                     }
                 }
 
@@ -463,6 +532,17 @@ namespace BindingsGeneration
                         }, logger);
 
                         XCFrameworkMetadataExtractor.EmitMetadataJson(metadata, outputDirectory, logger);
+
+                        // Emit dependency manifest (always in xcframework mode)
+                        DependencyManifestEmitter.Emit(
+                            outputDirectory,
+                            resolution.ModuleName,
+                            resolution.XCFrameworkPath,
+                            resolution.DylibPath,
+                            analysisResult,
+                            resolvedDependencies,
+                            frameworkDependencies,
+                            logger);
 
                         logger.LogInformation("Binding project emitted successfully.");
                     }
@@ -962,7 +1042,8 @@ namespace BindingsGeneration
                     ModuleName = moduleName,
                     PackageVersion = packageVersion,
                     SimulatorFrameworkSearchPath = simSearchPath,
-                    DeviceFrameworkSearchPath = deviceSearchPath
+                    DeviceFrameworkSearchPath = deviceSearchPath,
+                    DylibPath = depDylibPath
                 });
             }
 

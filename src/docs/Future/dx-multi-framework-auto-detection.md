@@ -1,9 +1,20 @@
 # Multi-Framework Automatic Dependency Detection
 
 **Date**: February 2026
-**Status**: Design only — not yet implemented
+**Status**: Partially implemented
 **Context**: `Completed/developer-experience.md` contains the full DX design (Steps 1-5 all implemented).
 Manual `--framework-dependency` and `<SwiftFrameworkDependency>` are available today.
+
+### Implemented
+- **Binary linkage analysis** (`BinaryDependencyAnalyzer.cs`): `otool -L` parsing, framework name extraction, sibling xcframework search, full analysis with resolution
+- **Dependency manifest** (`DependencyManifestEmitter.cs`): `dependency-manifest.json` with effective deps, unresolved, overridden, build order, graph warnings
+- **Topological sort** (`TopologicalSort.cs`): Kahn's algorithm with lexical tie-breaking for deterministic build ordering
+- **CLI opt-out**: `--no-auto-detect` flag to disable auto-detection
+- **MSBuild SDK**: `SwiftAutoDetectDependencies` property (defaults to `true`), fingerprint integration
+
+### Not yet implemented
+- Type-level cross-framework analysis (ABI-based `using` directives)
+- `pack-all.sh` orchestration script for multi-package builds
 
 ---
 

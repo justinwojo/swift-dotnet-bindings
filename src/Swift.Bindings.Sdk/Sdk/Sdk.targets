@@ -83,7 +83,7 @@
           find &quot;$$dep&quot; -path &quot;*.framework/*&quot; -not -name &quot;Info.plist&quot; -not -path &quot;*/Modules/*&quot; -not -path &quot;*/_CodeSignature/*&quot; -type f -exec shasum -a 256 {} \; ; \
         fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) @(SwiftFrameworkDependency, '|')&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) @(SwiftFrameworkDependency, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -138,6 +138,7 @@
       <_SwiftGenCmd Condition="'%(SwiftFramework.BridgeHints)' != ''">$(_SwiftGenCmd) --bridge-hints "%(SwiftFramework.BridgeHints)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftFramework.SwiftInterface)' != ''">$(_SwiftGenCmd) -s "%(SwiftFramework.SwiftInterface)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="!$([System.String]::Equals('$(SwiftGenerateDocComments)', 'true', StringComparison.OrdinalIgnoreCase))">$(_SwiftGenCmd) --no-docs</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="!$([System.String]::Equals('$(SwiftAutoDetectDependencies)', 'true', StringComparison.OrdinalIgnoreCase))">$(_SwiftGenCmd) --no-auto-detect</_SwiftGenCmd>
       <!-- Append framework dependency flags for each SwiftFrameworkDependency item -->
       <_SwiftGenCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftGenCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
     </PropertyGroup>
