@@ -1,75 +1,31 @@
-# Multi-Framework Automatic Dependency Detection
+# Multi-Framework — Remaining Future Work
 
-**Date**: February 2026
-**Status**: Core implementation complete (2026-02-15)
-**Context**: `Completed/developer-experience.md` contains the full DX design (Steps 1-5 all implemented).
-Manual `--framework-dependency` and `<SwiftFrameworkDependency>` are available today.
+**Created**: February 2026
+**Completed work**: See `Completed/multi-framework-auto-detection.md` and `Completed/developer-experience.md`
 
-### Implemented
-- **Binary linkage analysis** (`BinaryDependencyAnalyzer.cs`): `otool -L` parsing, framework name extraction, sibling xcframework search, full analysis with resolution
-- **Dependency manifest** (`DependencyManifestEmitter.cs`): `dependency-manifest.json` with effective deps, unresolved, overridden, build order, graph warnings
-- **Topological sort** (`TopologicalSort.cs`): Kahn's algorithm with lexical tie-breaking for deterministic build ordering
-- **CLI opt-out**: `--no-auto-detect` flag to disable auto-detection
-- **MSBuild SDK**: `SwiftAutoDetectDependencies` property (defaults to `true`), fingerprint integration
-
-### Not yet implemented
-- Type-level cross-framework analysis (ABI-based `using` directives)
-- `pack-all.sh` orchestration script for multi-package builds
+Core auto-detection is complete (binary linkage analysis, dependency manifest, topological sort, CLI/MSBuild integration). The items below are not yet implemented.
 
 ---
 
-## Problem
+## Not Yet Implemented
 
-When a library ships as multiple dependent frameworks (e.g., Nuke + NukeUI + NukeExtensions), the user currently must manually specify each dependency. Automatic detection would eliminate this manual step.
+### Type-Level Cross-Framework Analysis
 
-## Binary Linkage Analysis
+ABI-based `using` directives from cross-framework type references. When NukeUI methods accept Nuke types, the generated C# should automatically include the correct `using` directives. Requires parsing type references across module boundaries in the ABI JSON.
 
-The SDK can detect dependencies from the Mach-O binary (authoritative source):
+### `pack-all.sh` Orchestration Script
 
-- Inspects `LC_LOAD_DYLIB` / `LC_LOAD_WEAK_DYLIB` load commands
-- Catches dependencies that don't surface in public API signatures
-- Extraction: `otool -L <binary>` lists all linked dylibs
-
-```bash
-$ otool -L NukeUI.xcframework/ios-arm64/NukeUI.framework/NukeUI
-  @rpath/Nuke.framework/Nuke (compatibility version 0.0.0)
-  /usr/lib/libobjc.A.dylib (compatibility version 1.0.0)
-  ...
-```
-
-Only `@rpath` entries indicate companion framework dependencies — system dylibs (`/usr/lib/*`) are filtered out.
-
-## Type-Level Analysis
-
-Cross-framework type references in the ABI (e.g., NukeUI methods that accept Nuke types) provide detail about *which* types are referenced. This feeds into correct `using` directives for cross-framework types.
-
-## Dependency Manifest
-
-Both methods feed into a `dependency-manifest.json` that drives:
-- Layer 3 validation target generation
-- NuGet dependency declarations
-- Topological sort for multi-package build ordering (`pack-all.sh`)
-
-## Dependent Package Versioning
-
-For multi-framework libraries, dependent packages use semver ranges matching the major version:
-
-```
-Nuke.Swift.iOS         version 12.8.0
-NukeUI.Swift.iOS       version 12.8.0, depends on Nuke.Swift.iOS [12.0.0, 13.0.0)
-```
-
-This allows independent patch releases while preventing ABI-breaking mismatches across major versions.
+Multi-package build orchestration for libraries that ship as multiple frameworks. Uses topological sort output to build and pack in dependency order.
 
 ---
 
-## Platform Coverage (Future)
+## Platform Coverage
 
-The packaging design targets all Apple platforms that .NET supports:
+Currently iOS-only. Extending to other Apple platforms that .NET supports.
 
 | Platform | TFM | Status |
 |----------|-----|--------|
-| **iOS** | `net10.0-ios` | Primary target (implemented) |
+| **iOS** | `net10.0-ios` | Implemented |
 | **Mac Catalyst** | `net10.0-maccatalyst` | Under investigation |
 | **macOS** | `net10.0-macos` | Under investigation |
 | **tvOS** | `net10.0-tvos` | Under investigation |

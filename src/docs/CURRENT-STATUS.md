@@ -1,8 +1,9 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (DX Steps 1-5 + Validation Passes 1-4 + Framework Dependencies + DX Improvements)
-**Unit Tests**: 2,395 passed
-**Runtime Tests**: 185 passing on iOS Simulator at Tier 2 safe-only (28 pre-existing failures)
+**Last Updated**: February 2026 (DX Steps 1-5 + Validation Passes 1-4 + Framework Dependencies + DX Improvements + Emitter Test Audit)
+**Unit Tests**: 2,916 passed
+**Runtime Tests**: 188 passing on iOS Simulator at Tier 2 safe-only (28 pre-existing failures)
+**Runtime Library Tests**: 156 passing
 **Integration Tests**: 699 passing (11 skipped, pre-existing)
 **Libraries Validated**: 25 clean (0 generator errors) + 5 environmental-only — see `binding-errors.md` for full list
 
@@ -49,7 +50,7 @@ Remaining member gaps are primarily unsupported existential type arguments in bo
 | Degraded | 0 |
 | Compiled-out | See disabled dirs |
 | Known-unsupported | See testing-gaps.md |
-| Runtime tests | 185 passing at Tier 2 safe-only |
+| Runtime tests | 188 passing at Tier 2 safe-only |
 
 Tier promotion pass added runtime tests across string/enum/class/closure/composition/blittable marshalling. Coverage includes error handling, SwiftUI bridge, operators, optionals, tuples, pointers, arrays, closures, and protocol proxies.
 
@@ -204,15 +205,13 @@ CryptoSwift fix steps (9 total) addressed 24 generator bugs spanning P/Invoke en
 | `roadmap.md` | Forward-looking prioritized work queue |
 | `CURRENT-STATUS.md` | Project dashboard (this file) |
 | `binding-errors.md` | Library validation tracking (25 clean + 5 environmental) |
-| `testing-gaps.md` | Known testing gaps across all layers |
-| `testframework-review.md` | Test pipeline hardening recommendations |
 | `known-issues-workarounds.md` | Three active Mono runtime blockers and workarounds |
 | `dx-msbuild-sdk-design.md` | MSBuild SDK reference (complete, authoritative) |
 | `Future/binding-api-future-work.md` | Remaining binding API improvements |
 | `Future/mono-jit-future-work.md` | Remaining Mono JIT edge cases |
 | `Future/emitter-redesign-proposal.md` | Architectural north star for emitter refactoring |
 | `Future/dx-multi-framework-auto-detection.md` | Auto-detection design for multi-framework dependencies |
-| `nativeaot-investigation.md` | NativeAOT investigation — all 3 blockers verified resolved, 28/28 tests pass |
 | `Future/upstream-bug-reports-draft.md` | Draft .NET runtime bug reports (waiting for repo to go public) |
 | `Future/interop-performance-validation-plan.md` | Performance benchmarking plan |
-| `Completed/` | Archived phase completion records (includes `developer-experience.md`, `swiftui-bridge-design.md`) |
+| `docs/nativeaot-deployment.md` | NativeAOT deployment guide (user-facing, in wiki docs) |
+| `Completed/` | Archived phase/session records |
