@@ -13,7 +13,7 @@ For completed work, see `Completed/` (notably `roadmap-sessions-1-14.md`, `roadm
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 2,782 passing |
+| Unit tests | 2,916 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | Runtime library tests | 156 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
@@ -157,16 +157,27 @@ Extends the SwiftUI bridge with coverage tracking across a real library corpus. 
 
 ---
 
+### ~~Session 21a: Alamofire Runtime Validation~~ (Done)
+
+**Priority**: P2 | **Type**: Done | **Risk**: Low
+
+| Item | Status | Summary |
+|------|--------|---------|
+| **Alamofire test app** | Done | `BindingTesting/Alamofire/` — 10 test cases covering URLEncoding, JSONEncoding, HTTPMethod (static properties + custom construction + RawValue), HTTPHeader (name/value), HTTPHeaders, serializers, ConnectionLostRetryPolicy, Empty type, Session.Default. |
+
+**Key files**: `BindingTesting/Alamofire/` (build scripts, test app, xcframework)
+
+---
+
 ### Session 21+: Library Validation Expansion
 
 **Priority**: P2 | **Type**: Implementation | **Risk**: Low
 **Multiple sessions** — one per library set
 
-Runtime test apps for additional libraries beyond the current 5 (Nuke, BlinkID, Lottie, CryptoSwift, BridgeTest). Each library is a self-contained session.
+Runtime test apps for additional libraries beyond the current 6 (Nuke, BlinkID, Lottie, CryptoSwift, BridgeTest, Alamofire). Each library is a self-contained session.
 
 | Session | Libraries | Notes |
 |---------|-----------|-------|
-| 21a | Alamofire | Popular networking, good API coverage test |
 | 21b | Stripe end-to-end | Multi-module with `--framework-dependency` chain |
 | 21c | Additional 2-3 | Based on ecosystem demand |
 
@@ -239,7 +250,7 @@ Workarounds exist for all. Not blocking any library validation.
 |-----|--------|------------|
 | String enum raw values use case names | ABI JSON lacks individual case raw values | Case names used; cosmetic only |
 | `UnsafePointer<T>` -> AnyType | No concrete projection for immutable pointers | Use `UnsafeMutablePointer<T>` |
-| Named tuples with String elements | `(SwiftString.Buffer, ...)` -> `(SwiftString, ...)` CS0029 | Avoid String in named tuples |
+| ~~Named tuples with String elements~~ | **Fixed** — bare `Swift.String` in tuple returns now converts to `string` | N/A |
 | Throwing closure thunks | `SwiftString` return emitted as `void*` | Exclude throwing closures |
 | `async throws(ErrorType)` free functions | Emit `_payload`/`this` in static context | Guarded — no runtime impact |
 | ExistentialContainer0 in tuple element | Lottie edge case | Not reached by current guards |
@@ -255,6 +266,7 @@ Workarounds exist for all. Not blocking any library validation.
 | ~~15. Type System Quality~~ | P1/P2 | Done | Medium-Hard | `GetHashCode`, enum param naming, String enums as C# enum, finalizer, Info suffix |
 | ~~16. Roslyn Analyzer~~ | ~~P3~~ | Deprioritized | — | Not needed — NativeAOT finalizer handles cleanup |
 | ~~16b. Property Disposal~~ | P2 | Done | Small | `using var` disposal + URL/Data native remapping in property bodies |
+| ~~18. Tuple String Fix + Alamofire~~ | P2 | Done | Small | Named tuple String→string conversion, Alamofire runtime validation |
 | **17. API Snapshots** | P3 | Implement | Medium | API surface drift detection |
 | **18. CI Integration** | P3 | Implement | Large | GitHub Actions tiered pipeline |
 | **19. Perf Benchmarks** | P3 | Implement | Medium | Interop overhead measurement |

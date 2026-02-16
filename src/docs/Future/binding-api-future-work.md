@@ -18,11 +18,11 @@ Enum associated values now use typed interfaces for known protocols, but `Existe
 
 Requires mapping existential containers to their corresponding protocol interfaces in these contexts. Gated on `AllProtocolsHaveTypeRecords()` — unregistered protocols (e.g., `Swift.Error`) can't be projected.
 
-### R7 (Partial): AnyType Fallback — Original Type Info
+### R7: AnyType Fallback — Original Type Info — **Done** (2026-02-16)
 
 **Priority**: P3 | **Difficulty**: Easy
 
-When a Swift type can't be resolved and falls back to `AnyType`, the original Swift type name is lost. Proposal: emit `[OriginalSwiftType("CoreText.CTFont")]` attribute so consumers know what the Swift API actually expects.
+`[OriginalSwiftType("CoreText.CTFont")]` attribute emitted on AnyType-fallback parameters and return types. Consumers can see what the Swift API actually expects even when the type can't be resolved.
 
 The AnyType reduction pass eliminated 7 occurrences. Remaining AnyType instances are structural and unlikely to be resolved without architecture changes: ArraySlice in protocol interfaces (15), Protocol Self type (6), Any/Any.Type (3), generic type arguments (4), associated type protocols (2), cross-module nested types (1), closure containing ArraySlice (1).
 

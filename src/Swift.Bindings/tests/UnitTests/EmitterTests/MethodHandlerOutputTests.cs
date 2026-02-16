@@ -625,6 +625,198 @@ public class MethodHandlerOutputTests
         Assert.DoesNotContain("MarshalFromSwift", csOutput);
     }
 
+    #region Tuple String Idiomatic Conversion
+
+    [Fact]
+    public void Emit_TupleReturnWithBareString_ConvertsToIdiomaticString()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Tuple return: (Swift.String, Swift.Int)
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        var method = CreateMethodDecl(
+            name: "getName",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Wrapper return type should use idiomatic 'string', not 'SwiftString'
+        Assert.Contains("(string, long)", csOutput);
+        // P/Invoke should still use SwiftString.Buffer (ABI type)
+        Assert.Contains("Swift.SwiftString.Buffer", csOutput);
+        // Marshalling should include .ToString() for the string element
+        Assert.Contains(".ToString()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_TupleReturnWithBareString_PInvokeUsesBuffer()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Tuple return: (Swift.Int, Swift.String)
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.String")
+        });
+
+        var method = CreateMethodDecl(
+            name: "getInfo",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // P/Invoke return uses ValueTuple with SwiftString.Buffer (fully qualified)
+        Assert.Contains("ValueTuple<long, Swift.SwiftString.Buffer>", csOutput);
+        // Wrapper signature uses idiomatic string
+        Assert.Contains("(long, string)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_LabeledTupleReturnWithString_PreservesLabelsAndConvertsString()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Labeled tuple return: (name: Swift.String, count: Swift.Int)
+        var nameElement = new NamedTypeSpec("Swift.String") { TypeLabel = "name" };
+        var countElement = new NamedTypeSpec("Swift.Int") { TypeLabel = "count" };
+        var tupleType = new TupleTypeSpec(new List<TypeSpec> { nameElement, countElement });
+
+        var method = CreateMethodDecl(
+            name: "getSummary",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Labels preserved, String converted to string
+        Assert.Contains("(string name, long count)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_TupleReturnWithOptionalString_DoesNotConvertInnerString()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Tuple return: (Optional<Swift.String>, Swift.Int)
+        var optionalString = new NamedTypeSpec("Swift.Optional");
+        optionalString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            optionalString,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        var method = CreateMethodDecl(
+            name: "getOptName",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Optional<String> should remain as SwiftOptional<SwiftString>, NOT SwiftOptional<string>
+        Assert.Contains("Swift.SwiftOptional<Swift.SwiftString>", csOutput);
+        Assert.DoesNotContain("SwiftOptional<string>", csOutput);
+    }
+
+    [Fact]
+    public void Emit_TupleReturnWithArrayString_DoesNotConvertInnerString()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Tuple return: (Array<Swift.String>, Swift.Int)
+        var arrayString = new NamedTypeSpec("Swift.Array");
+        arrayString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            arrayString,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        var method = CreateMethodDecl(
+            name: "getNames",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Array<String> should remain as SwiftArray<SwiftString>, NOT SwiftArray<string>
+        Assert.Contains("Swift.SwiftArray<Swift.SwiftString>", csOutput);
+        Assert.DoesNotContain("SwiftArray<string>", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MixedTupleReturnWithBareAndOptionalString_OnlyConvertsBareString()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Tuple return: (Swift.String, Optional<Swift.String>, Swift.Int)
+        var optionalString = new NamedTypeSpec("Swift.Optional");
+        optionalString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.String"),
+            optionalString,
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        var method = CreateMethodDecl(
+            name: "getMixed",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: tupleType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Static);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Bare String → string, Optional<String> stays as SwiftOptional<SwiftString>
+        Assert.Contains("(string, Swift.SwiftOptional<Swift.SwiftString>, long)", csOutput);
+        Assert.DoesNotContain("SwiftOptional<string>", csOutput);
+    }
+
+    #endregion
+
     [Fact]
     public void Emit_MethodReturningAny_EmitsDirectReturnWithoutProxyWrapping()
     {
@@ -896,6 +1088,16 @@ public class MethodHandlerOutputTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
                 MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct
             });

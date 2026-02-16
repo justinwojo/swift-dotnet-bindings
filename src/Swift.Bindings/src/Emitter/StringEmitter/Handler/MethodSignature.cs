@@ -343,7 +343,13 @@ namespace BindingsGeneration
                 // and the method is not async (async methods skip indirect result, which generic tuples need).
                 if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
                     (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext) && !(hasGenericElements && _env.MethodDecl.IsAsync)))
-                    SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, _genericContext));
+                    SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, typeSpec =>
+                    {
+                        // Convert bare Swift.String → string (not inside generics — only top-level elements)
+                        if (_env.TypeConversionHandler.IsSwiftString(typeSpec))
+                            return "string";
+                        return TranslateTypeSpecForConversion(typeSpec);
+                    }));
                 else
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
                 return;
