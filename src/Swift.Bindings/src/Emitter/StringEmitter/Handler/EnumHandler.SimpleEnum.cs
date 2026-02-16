@@ -620,18 +620,6 @@ namespace BindingsGeneration
             return $"{swiftScalarType}(result.rawValue)";
         }
 
-        /// <summary>
-        /// Computes a deterministic 8-character hex hash from a string using FNV-1a.
-        /// </summary>
-        private static string DeterministicHash8(string input)
-        {
-            uint hash = 2166136261;
-            foreach (char c in input)
-            {
-                hash ^= c;
-                hash *= 16777619;
-            }
-            return hash.ToString("X8");
-        }
+        private static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);
     }
 }

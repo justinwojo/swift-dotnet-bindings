@@ -315,6 +315,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
             {
                 // Preflight must mirror actual accessor emission behavior.
+                // Note: This mutation is persistent on the MethodDecl graph, but idempotent —
+                // property accessor methods should always have IsAccessor = true. The same
+                // flag is set again in the emission loop below.
                 accessor.Method.IsAccessor = true;
                 var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
                 if (conductor.CurrentPInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
@@ -472,11 +475,6 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (returnConversion != null)
         {
             csWriter.WriteLine($"get => {returnConversion};");
-        }
-        else if (propertyEnv.TypeConversionHandler.HasNativeTypeRemapping(propertyDecl.SwiftTypeSpec))
-        {
-            var nativeConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec, typeTranslator);
-            csWriter.WriteLine($"get => {nativeConversion ?? $"{methodName}()"};");
         }
         else
         {

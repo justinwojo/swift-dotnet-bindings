@@ -107,7 +107,9 @@ namespace BindingsGeneration
         /// <param name="symbol">The operator symbol.</param>
         /// <returns>The PInvoke method name.</returns>
         public static string GetPInvokeMethodName(string symbol) =>
-            _pinvokeMethodNames.TryGetValue(symbol, out var name) ? $"PInvoke_{name}" : $"PInvoke_op_{symbol}";
+            _pinvokeMethodNames.TryGetValue(symbol, out var name)
+                ? $"PInvoke_{name}"
+                : $"PInvoke_op_{new string(symbol.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray())}";
 
         /// <summary>
         /// Gets the paired operator that is required for C# if the given operator is defined.

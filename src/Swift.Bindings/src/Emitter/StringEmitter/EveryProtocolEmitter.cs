@@ -858,19 +858,17 @@ public class EveryProtocolEmitter
     /// <summary>
     /// Checks if a name is a Swift keyword that needs backtick escaping.
     /// </summary>
-    private static bool IsSwiftKeyword(string name)
+    private static readonly HashSet<string> _swiftKeywords = new HashSet<string>
     {
-        var swiftKeywords = new HashSet<string>
-        {
-            "as", "break", "case", "catch", "class", "continue", "default", "defer",
-            "do", "else", "enum", "extension", "fallthrough", "false", "for", "func",
-            "guard", "if", "import", "in", "init", "inout", "internal", "is", "let",
-            "nil", "operator", "private", "protocol", "public", "repeat", "rethrows",
-            "return", "self", "Self", "static", "struct", "subscript", "super",
-            "switch", "throw", "throws", "true", "try", "typealias", "var", "where", "while"
-        };
-        return swiftKeywords.Contains(name);
-    }
+        "as", "break", "case", "catch", "class", "continue", "default", "defer",
+        "do", "else", "enum", "extension", "fallthrough", "false", "for", "func",
+        "guard", "if", "import", "in", "init", "inout", "internal", "is", "let",
+        "nil", "operator", "private", "protocol", "public", "repeat", "rethrows",
+        "return", "self", "Self", "static", "struct", "subscript", "super",
+        "switch", "throw", "throws", "true", "try", "typealias", "var", "where", "while"
+    };
+
+    private static bool IsSwiftKeyword(string name) => _swiftKeywords.Contains(name);
 
     #endregion
 }

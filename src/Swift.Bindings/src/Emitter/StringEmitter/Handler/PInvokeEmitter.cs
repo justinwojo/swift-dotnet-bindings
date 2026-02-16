@@ -529,16 +529,15 @@ namespace BindingsGeneration
         /// </summary>
         private static string AddContextToFunctionPointerType(string funcPtrType)
         {
-            // Find the last comma before '>'
             int lastAngle = funcPtrType.LastIndexOf('>');
             if (lastAngle == -1)
                 return funcPtrType;
 
-            int lastComma = funcPtrType.LastIndexOf(',', lastAngle);
+            // Use nesting-aware search to skip commas inside generic type arguments
+            int lastComma = EmitterUtility.FindLastTopLevelComma(funcPtrType, lastAngle);
             if (lastComma == -1)
             {
                 // No parameters, just return type: "delegate* unmanaged[Cdecl]<void>"
-                // Insert "IntPtr, " before the return type
                 int openAngle = funcPtrType.IndexOf('<');
                 if (openAngle == -1)
                     return funcPtrType;
@@ -546,7 +545,6 @@ namespace BindingsGeneration
                 return funcPtrType.Insert(openAngle + 1, "IntPtr, ");
             }
 
-            // Insert ", IntPtr" after the last comma
             return funcPtrType.Insert(lastComma + 1, " IntPtr,");
         }
 

@@ -353,7 +353,15 @@ public class ProtocolConformanceValidator
                 ParentDecl = null,
                 ModuleDecl = null
             };
-            return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+            try
+            {
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(tempProperty);
+            }
+            catch (NotSupportedException)
+            {
+                // Unrecognized bound generic subscript return type — fall back to AnyType
+                return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+            }
         }
         else
         {

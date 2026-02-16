@@ -135,7 +135,7 @@ public static class ExistentialBypassEmitter
             ? swiftModuleQualifiedName.Substring(swiftModuleQualifiedName.IndexOf('.') + 1)
             : swiftModuleQualifiedName;
 
-        var mangledHash = Math.Abs(methodDecl.MangledName.GetHashCode()).ToString("X8");
+        var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
         var wrapperSymbol = $"SBW_{typeName}_init_{mangledHash}";
         var freeSymbol = $"SBW_{typeName}_free_{mangledHash}";
         var factoryName = $"Create_{mangledHash}";

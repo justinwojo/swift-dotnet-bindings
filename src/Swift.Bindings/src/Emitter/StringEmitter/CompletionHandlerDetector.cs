@@ -159,6 +159,8 @@ public static class CompletionHandlerDetector
 
             case CallbackShape.ResultWithError:
             {
+                // Keep the full Optional<T> type — the callback parameter is T? and Swift APIs
+                // can legitimately return nil result + nil error. Task<T?> is the correct mapping.
                 var argType = closureSpec.GetArgument(0);
                 return ResolveTypeName(argType, typeDatabase, typeConversionHandler);
             }

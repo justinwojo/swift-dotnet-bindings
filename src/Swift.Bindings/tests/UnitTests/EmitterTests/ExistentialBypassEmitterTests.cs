@@ -143,7 +143,7 @@ public class ExistentialBypassEmitterTests
                 CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
             });
 
-        var mangledHash = Math.Abs(constructor.MangledName.GetHashCode()).ToString("X8");
+        var mangledHash = ArraySliceNormalizationEmitter.DeterministicHash8(constructor.MangledName);
 
         var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 

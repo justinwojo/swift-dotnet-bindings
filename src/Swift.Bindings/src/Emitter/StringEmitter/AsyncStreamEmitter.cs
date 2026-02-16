@@ -32,7 +32,6 @@ public static class AsyncStreamEmitter
                 var stream = SwiftAsyncStream<{{elementType}}>.FromContext(context);
                 if (stream == null) return 0;
 
-                var element = SwiftMarshal.MarshalFromSwift<{{elementType}}>(new IntPtr(elementPtr));
                 return stream.GetElementCallback()(new IntPtr(elementPtr), context) ? (byte)1 : (byte)0;
             }
             """);

@@ -547,20 +547,7 @@ public static class ArraySliceNormalizationEmitter
         return $"SBW_{typeName}_{methodDecl.Name}_{hash}";
     }
 
-    /// <summary>
-    /// Deterministic 8-character hex hash using FNV-1a 32-bit.
-    /// Unlike string.GetHashCode(), this is stable across processes and platforms.
-    /// </summary>
-    internal static string DeterministicHash8(string input)
-    {
-        uint hash = 2166136261u;
-        foreach (char c in input)
-        {
-            hash ^= (uint)c;
-            hash *= 16777619u;
-        }
-        return hash.ToString("X8");
-    }
+    internal static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);
 
     /// <summary>
     /// Reverses the C# keyword escaping applied by SwiftABIParser.ExtractUniqueName().

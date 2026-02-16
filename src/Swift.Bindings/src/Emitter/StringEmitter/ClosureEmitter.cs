@@ -317,16 +317,15 @@ public static partial class ClosureEmitter
         // Transform "delegate* unmanaged[Swift]<int, void>" to "delegate* unmanaged[Swift]<int, SwiftSelf, void>"
         // The context is the last parameter before the return type
 
-        // Find the last comma before '>'
         int lastAngle = funcPtrType.LastIndexOf('>');
         if (lastAngle == -1)
             return funcPtrType;
 
-        int lastComma = funcPtrType.LastIndexOf(',', lastAngle);
+        // Use nesting-aware search to skip commas inside generic type arguments
+        int lastComma = EmitterUtility.FindLastTopLevelComma(funcPtrType, lastAngle);
         if (lastComma == -1)
         {
             // No parameters, just return type: "delegate* unmanaged[Swift]<void>"
-            // Insert "SwiftSelf, " before the return type
             int openAngle = funcPtrType.IndexOf('<');
             if (openAngle == -1)
                 return funcPtrType;
@@ -334,7 +333,6 @@ public static partial class ClosureEmitter
             return funcPtrType.Insert(openAngle + 1, "SwiftSelf, ");
         }
 
-        // Insert ", SwiftSelf" after the last comma
         return funcPtrType.Insert(lastComma + 1, " SwiftSelf,");
     }
 
@@ -410,7 +408,8 @@ public static partial class ClosureEmitter
         if (lastAngle == -1)
             return funcPtrType;
 
-        int lastComma = funcPtrType.LastIndexOf(',', lastAngle);
+        // Use nesting-aware search to skip commas inside generic type arguments
+        int lastComma = EmitterUtility.FindLastTopLevelComma(funcPtrType, lastAngle);
         if (lastComma == -1)
         {
             // No parameters, just return type: "delegate* unmanaged[Cdecl]<void>"

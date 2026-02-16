@@ -202,8 +202,16 @@ namespace BindingsGeneration
                 {
                     csWriter.WriteLines($$"""
                         var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
-                        *(IntPtr*)classPayload = result;
-                        return ({{_wrapperSignature.ReturnType}})SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(new IntPtr(classPayload));
+                        try
+                        {
+                            *(IntPtr*)classPayload = result;
+                            return ({{_wrapperSignature.ReturnType}})SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(new IntPtr(classPayload));
+                        }
+                        catch
+                        {
+                            NativeMemory.Free(classPayload);
+                            throw;
+                        }
                         """);
                     return;
                 }
