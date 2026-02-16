@@ -140,14 +140,15 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Searches for a sibling xcframework matching the given framework name.
-        /// Looks in the same directory and parent directory of the primary xcframework.
+        /// Looks in the same directory, parent directory, and peer subdirectories
+        /// of the primary xcframework.
         /// </summary>
         /// <param name="primaryXCFrameworkPath">Path to the primary xcframework.</param>
         /// <param name="frameworkName">Framework name to search for.</param>
         /// <returns>Path to the found xcframework, or null if not found.</returns>
         public static string? FindSiblingXCFramework(string primaryXCFrameworkPath, string frameworkName)
         {
-            var parentDir = Path.GetDirectoryName(primaryXCFrameworkPath);
+            var parentDir = Path.GetDirectoryName(Path.GetFullPath(primaryXCFrameworkPath));
             if (parentDir == null)
                 return null;
 
@@ -163,6 +164,12 @@ namespace BindingsGeneration
                 var parentDirPath = Path.Combine(grandparentDir, $"{frameworkName}.xcframework");
                 if (Directory.Exists(parentDirPath))
                     return Path.GetFullPath(parentDirPath);
+
+                // Peer subdirectory (e.g., ../StripeCore/StripeCore.xcframework)
+                // Common in multi-product monorepos where each product has its own directory
+                var peerSubdirPath = Path.Combine(grandparentDir, frameworkName, $"{frameworkName}.xcframework");
+                if (Directory.Exists(peerSubdirPath))
+                    return Path.GetFullPath(peerSubdirPath);
             }
 
             return null;

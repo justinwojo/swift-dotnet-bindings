@@ -1,7 +1,7 @@
 # Multi-Framework Automatic Dependency Detection
 
 **Date**: February 2026
-**Status**: Partially implemented
+**Status**: Core implementation complete (2026-02-15)
 **Context**: `Completed/developer-experience.md` contains the full DX design (Steps 1-5 all implemented).
 Manual `--framework-dependency` and `<SwiftFrameworkDependency>` are available today.
 

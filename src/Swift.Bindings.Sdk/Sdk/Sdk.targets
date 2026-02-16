@@ -145,7 +145,8 @@
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'"
           Command="$(_SwiftGenCmd)" ConsoleToMSBuild="true"
-          StandardOutputImportance="low" StandardErrorImportance="high" />
+          StandardOutputImportance="low" StandardErrorImportance="high"
+          IgnoreStandardErrorWarningFormat="true" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

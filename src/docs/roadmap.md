@@ -12,7 +12,7 @@ For completed work, see `Completed/` (notably `roadmap-completed-feb2026.md`, `p
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 2,725 passing |
+| Unit tests | 2,823 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | Runtime library tests | 156 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
@@ -233,18 +233,22 @@ New standalone project. No overlap with generator or runtime code. Measures inte
 
 ---
 
-### Session 13: Multi-Framework Auto-Detection
+### Session 13: Multi-Framework Auto-Detection — **Done** (2026-02-15)
 
 **Priority**: P2 | **Type**: Implementation | **Risk**: Medium
 
 Builds on existing `--framework-dependency` / `<SwiftFrameworkDependency>` support. Adds automatic detection so users don't need to specify dependencies manually.
 
-| Item | Priority | Effort | Description |
-|------|----------|--------|-------------|
-| **Auto-detection via binary linkage** | P2 | Medium | `otool -L` analysis for automatic dependency detection. `dependency-manifest.json` generation. Topological sort for multi-package build ordering. |
+| Item | Priority | Effort | Status |
+|------|----------|--------|--------|
+| **BinaryDependencyAnalyzer** | P2 | Medium | Done — `otool -L` parsing, framework name extraction, sibling xcframework search, full analysis with slice validation. |
+| **TopologicalSort** | P2 | Small | Done — Kahn's algorithm with lexical tie-breaking for deterministic build ordering across runs/platforms. |
+| **DependencyManifestEmitter** | P2 | Small | Done — `dependency-manifest.json` with effective deps, unresolved/overridden tracking, build order, and graph warnings. |
+| **CLI `--no-auto-detect` opt-out** | P2 | Small | Done — disables auto-detection when manual control needed. |
+| **MSBuild SDK integration** | P2 | Small | Done — `SwiftAutoDetectDependencies` property (defaults to `true`), fingerprint integration. |
 
-**Key files**: `Program.cs` (dependency resolution), new `DependencyAnalyzer.cs`
-**Verification**: `./run-tests.sh` + Stripe multi-module build with auto-detected deps
+**Key changes**: `BinaryDependencyAnalyzer.cs` (new, 579 lines), `TopologicalSort.cs` (new, 103 lines), `DependencyManifestEmitter.cs` (new, 204 lines), `FrameworkDependencyInfo.cs` (model), `Program.cs` (CLI wiring), `Sdk.props` + `Sdk.targets` (MSBuild integration).
+**Tests**: 49 new unit tests covering parsing, extraction, sibling search, slice demotion, manifest emission, topological sort, cycle fallback, name-mismatch handling, and CLI/SDK integration.
 **Design**: `Future/dx-multi-framework-auto-detection.md`
 
 ---
@@ -377,7 +381,7 @@ Workarounds exist for all. Not blocking any library validation.
 | **10. API Snapshots** | P3 | Implement | Medium | API surface drift detection |
 | **11. CI Integration** | P3 | Implement | Large | GitHub Actions tiered pipeline |
 | **12. Perf Benchmarks** | P3 | Implement | Medium | Interop overhead measurement |
-| **13. Auto-Detection** | P2 | Implement | Medium | `otool -L` dependency discovery |
+| **13. Auto-Detection** | P2 | Done | Medium | `otool -L` dependency discovery, topological sort, manifest, SDK integration |
 | **14. SwiftUI Corpus** | P3 | Implement | Medium | Bridge coverage tracking |
 | **15a-c. Library Validation** | P2 | Implement | Medium each | Runtime test apps for additional libraries |
 | **P4-1 through P4-5** | P4 | Multi-session | Large-Very Large | Architecture: inheritance, ObjC, emitter redesign, NativeAOT, multi-platform |
