@@ -143,7 +143,22 @@ namespace BindingsGeneration
                     csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                     csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                     csWriter.WriteLine();
-                    csWriter.WriteLine("public void Dispose() => _payload.Dispose();");
+                    var simpleName = typeNameWithGenerics.Contains('<')
+                        ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
+                        : typeNameWithGenerics;
+                    var disposeMethods = $$"""
+                    public void Dispose()
+                    {
+                        _payload.Dispose();
+                        GC.SuppressFinalize(this);
+                    }
+
+                    ~{{simpleName}}()
+                    {
+                        Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+                    }
+                    """;
+                    csWriter.WriteLines(disposeMethods);
                 }
 
                 if (swiftTypeInfo.HasValue && swiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)

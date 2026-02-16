@@ -257,7 +257,22 @@ namespace BindingsGeneration
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
             csWriter.WriteLine();
-            csWriter.WriteLine("public void Dispose() => _payload.Dispose();");
+            var simpleName = typeNameWithGenerics.Contains('<')
+                ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
+                : typeNameWithGenerics;
+            var disposeMethods = $$"""
+            public void Dispose()
+            {
+                _payload.Dispose();
+                GC.SuppressFinalize(this);
+            }
+
+            ~{{simpleName}}()
+            {
+                Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+            }
+            """;
+            csWriter.WriteLines(disposeMethods);
             csWriter.WriteLine();
         }
     }
@@ -481,6 +496,7 @@ namespace BindingsGeneration
         private readonly ClassDecl _classDecl;
         private readonly string _typeNameWithGenerics;
         private readonly bool _implementsEquatable;
+        private readonly bool _implementsHashable;
         private readonly bool _hasExplicitEqualityOperator;
         private readonly bool _hasExplicitInequalityOperator;
 
@@ -490,6 +506,7 @@ namespace BindingsGeneration
             _classDecl = classDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
             _implementsEquatable = _classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+            _implementsHashable = _classDecl.Conformances.Any(c => c.Protocol.ModuleQualifiedName == "Swift.Hashable");
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
         }
@@ -510,6 +527,9 @@ namespace BindingsGeneration
         {
             // Always write Equals and GetHashCode methods
             // Use typeNameWithGenerics for is-check
+            var hashCodeBody = _implementsHashable
+                ? "return Swift.Runtime.SwiftHashable.GetHashCode(this);"
+                : "return 0;";
             var equalsMethods = $$"""
             public override bool Equals(object? obj)
             {
@@ -518,11 +538,7 @@ namespace BindingsGeneration
 
             public override int GetHashCode()
             {
-                // TODO: Implement when Swift Hashable protocol binding is supported.
-                // Returning constant 0 satisfies the Equals/GetHashCode contract
-                // (equal objects must have equal hashes). This is correct but makes
-                // hash-based collections O(n) until Hashable is supported.
-                return 0;
+                {{hashCodeBody}}
             }
             """;
 

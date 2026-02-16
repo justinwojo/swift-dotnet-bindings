@@ -349,6 +349,7 @@ namespace BindingsGeneration
         private readonly StructDecl _structDecl;
         private readonly string _typeNameWithGenerics;
         private readonly bool _implementsEquatable;
+        private readonly bool _implementsHashable;
         private readonly bool _isRefType;
         private readonly bool _hasExplicitEqualityOperator;
         private readonly bool _hasExplicitInequalityOperator;
@@ -364,6 +365,7 @@ namespace BindingsGeneration
             _structDecl = structDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
             _implementsEquatable = _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+            _implementsHashable = _structDecl.Conformances.Any(c => c.Protocol.ModuleQualifiedName == "Swift.Hashable");
             _isRefType = refType;
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
@@ -385,6 +387,9 @@ namespace BindingsGeneration
         {
             // Always write Equals and GetHashCode methods
             // Use simple name for is-check and error messages
+            var hashCodeBody = _implementsHashable
+                ? "return Swift.Runtime.SwiftHashable.GetHashCode(this);"
+                : "return 0;";
             var equalsMethods = $$"""
             public override bool Equals(object? obj)
             {
@@ -393,11 +398,7 @@ namespace BindingsGeneration
 
             public override int GetHashCode()
             {
-                // TODO: Implement when Swift Hashable protocol binding is supported.
-                // Returning constant 0 satisfies the Equals/GetHashCode contract
-                // (equal objects must have equal hashes). This is correct but makes
-                // hash-based collections O(n) until Hashable is supported.
-                return 0;
+                {{hashCodeBody}}
             }
             """;
 
@@ -463,7 +464,8 @@ internal static class ProtocolConformanceHelper
         /// </summary>
     private static readonly HashSet<string> CrossModuleSupportedProtocols = new()
     {
-        "Swift.Equatable"
+        "Swift.Equatable",
+        "Swift.Hashable"
     };
 
     /// <summary>
@@ -502,6 +504,11 @@ internal static class ProtocolConformanceHelper
 
         foreach (var conformance in conformances)
         {
+            // Hashable is a marker interface (ISwiftHashable) for PWT lookup only — not a user-facing
+            // C# interface. The conformance descriptor is still emitted via GenerateProtocolConformanceDictionaryEntries().
+            if (conformance.Protocol.ModuleQualifiedName == "Swift.Hashable")
+                continue;
+
             // Special handling for Equatable: only emit for classes/structs with Equals implementation
             if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
             {
@@ -585,8 +592,10 @@ internal static class ProtocolConformanceHelper
             return false;
         }
 
-        // Preserve existing behavior for Equatable even when protocol records are unavailable.
+        // Preserve existing behavior for Equatable/Hashable even when protocol records are unavailable.
         if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
+            return true;
+        if (conformance.Protocol.ModuleQualifiedName == "Swift.Hashable")
             return true;
 
         // Skip unknown protocols and protocols with associated types (PATs).

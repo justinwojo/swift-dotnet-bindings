@@ -56,9 +56,9 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_StringRawRepresentableEnum_EmitsClassNotSimpleEnum()
+    public void Emit_StringRawRepresentableEnum_EmitsCSharpEnum()
     {
-        // String enums should NOT qualify as simple enums
+        // Frozen String-raw-value enums with no methods/properties qualify as simple enums
         var typeDatabase = CreateTypeDatabaseWithString();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("LogLevel", moduleDecl, isFrozen: true);
@@ -69,10 +69,11 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Should be class-based, not C# enum
-        Assert.Contains("public partial class LogLevel", csOutput);
+        // Should be a C# enum with ToRawValue/FromRawValue extensions
+        Assert.Contains("public enum LogLevel", csOutput);
         Assert.Contains("FromRawValue", csOutput);
-        Assert.DoesNotContain("public enum LogLevel", csOutput);
+        Assert.Contains("ToRawValue", csOutput);
+        Assert.DoesNotContain("public partial class LogLevel", csOutput);
     }
 
     [Fact]
@@ -466,20 +467,21 @@ public class EnumHandlerOutputTests
     {
         // Regression test: same-named nested enums in different containers should
         // produce distinct SBW_*_InitWithRawValue wrapper symbols to avoid collisions.
+        // Use non-frozen to keep class-based emission (frozen String enums are now C# enums).
         var typeDatabase = CreateTypeDatabaseWithString();
         var moduleDecl = CreateModuleDecl("TestModule");
 
-        // Create first nested enum: TestModule.Container1.ErrorType
+        // Create first nested enum: TestModule.Container1.ErrorType (non-frozen → class emission)
         var container1 = CreateStructDecl("Container1", moduleDecl);
-        var enum1 = CreateNestedEnumDecl("ErrorType", container1, moduleDecl, isFrozen: true);
+        var enum1 = CreateNestedEnumDecl("ErrorType", container1, moduleDecl, isFrozen: false);
         enum1.RawValueTypeName = "String";
         enum1.Cases.Add(CreateCase("unknown"));
         enum1.Methods.Add(CreateStringRawValueInitializer(enum1, moduleDecl));
         container1.Types.Add(enum1);
 
-        // Create second nested enum: TestModule.Container2.ErrorType
+        // Create second nested enum: TestModule.Container2.ErrorType (non-frozen → class emission)
         var container2 = CreateStructDecl("Container2", moduleDecl);
-        var enum2 = CreateNestedEnumDecl("ErrorType", container2, moduleDecl, isFrozen: true);
+        var enum2 = CreateNestedEnumDecl("ErrorType", container2, moduleDecl, isFrozen: false);
         enum2.RawValueTypeName = "String";
         enum2.Cases.Add(CreateCase("failed"));
         enum2.Methods.Add(CreateStringRawValueInitializer(enum2, moduleDecl));
@@ -500,8 +502,9 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_FrozenStringEnum_DllImportUsesAsyncLibraryName()
+    public void Emit_FrozenStringEnum_EmitsCSharpEnumNotClass()
     {
+        // Frozen String-raw-value enums with only constructors are now emitted as C# enums
         var typeDatabase = CreateTypeDatabaseWithString();
         typeDatabase.AsyncLibraryName = "BlinkIDSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -513,9 +516,10 @@ public class EnumHandlerOutputTests
         EnumHandler.ResetUtf8SliceTracking();
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // The wrapper P/Invoke (InitWithRawValue) should use AsyncLibraryName
-        Assert.Contains("[LibraryImport(\"BlinkIDSwiftBindings\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
-        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", csOutput);
+        // Should be a C# enum with no wrapper P/Invokes
+        Assert.Contains("public enum ErrorCode", csOutput);
+        Assert.Contains("ToRawValue", csOutput);
+        Assert.DoesNotContain("[LibraryImport(", csOutput);
     }
 
     [Fact]
@@ -538,22 +542,27 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_FrozenStringEnum_DllImportFallsBackToModuleLibrary()
+    public void Emit_FrozenStringEnum_WithRawValueConversions()
     {
+        // Frozen String-raw-value enums emit as C# enums with raw value conversion extensions
         var typeDatabase = CreateTypeDatabaseWithString();
-        // No AsyncLibraryName set — should fall back to module library path
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("ErrorCode", moduleDecl, isFrozen: true);
         enumDecl.RawValueTypeName = "String";
         enumDecl.Cases.Add(CreateCase("unknown"));
+        enumDecl.Cases.Add(CreateCase("timeout"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
         EnumHandler.ResetUtf8SliceTracking();
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Without AsyncLibraryName, wrapper P/Invoke falls back to module library path
-        Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
-        Assert.DoesNotContain("[LibraryImport(\"SwiftBindings\"", csOutput);
+        // Should emit C# enum with conversion extensions
+        Assert.Contains("public enum ErrorCode", csOutput);
+        Assert.Contains("Unknown = 0,", csOutput);
+        Assert.Contains("Timeout = 1,", csOutput);
+        Assert.Contains("ErrorCodeExtensions", csOutput);
+        Assert.Contains("\"unknown\" => ErrorCode.Unknown,", csOutput);
+        Assert.Contains("\"timeout\" => ErrorCode.Timeout,", csOutput);
     }
 
     [Fact]

@@ -596,6 +596,7 @@ namespace BindingsGeneration
             HashSet<string>? internalMemberKeys = null;
             Dictionary<string, List<string>>? parameterNames = null;
             Dictionary<string, string>? typedThrowsErrors = null;
+            Dictionary<string, List<string?>>? enumCaseLabels = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
                 internalMemberKeys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath);
@@ -604,6 +605,8 @@ namespace BindingsGeneration
                 logger.LogInformation("Loaded {Count} parameter name entries from swiftinterface", parameterNames.Count);
                 typedThrowsErrors = SwiftInterfaceAccessParser.GetTypedThrowsErrors(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} typed throws entries from swiftinterface", typedThrowsErrors.Count);
+                enumCaseLabels = SwiftInterfaceAccessParser.GetEnumCaseLabels(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} enum case label entries from swiftinterface", enumCaseLabels.Count);
             }
 
             // Parse symbol graph for doc comments (supplementary data)
@@ -622,7 +625,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);

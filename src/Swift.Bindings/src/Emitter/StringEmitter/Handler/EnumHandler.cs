@@ -89,9 +89,9 @@ namespace BindingsGeneration
 
             ReportCollector.RecordTypeEmitted(enumDecl);
 
-            // Simple enums (no associated values, frozen, non-generic, integral or no raw value)
+            // Simple enums (no associated values, frozen, non-generic, integral/String/no raw value)
             // get emitted as C# enum value types instead of unsafe classes.
-            if (enumDecl.IsSimpleEnum)
+            if (enumDecl.IsSimpleEnum || enumDecl.IsStringRawValueSimpleEnum)
             {
                 EmitSimpleEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor);
                 return;
@@ -138,7 +138,22 @@ namespace BindingsGeneration
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
                 csWriter.WriteLine();
-                csWriter.WriteLine("public void Dispose() => _payload.Dispose();");
+                var simpleName = typeNameWithGenerics.Contains('<')
+                    ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
+                    : typeNameWithGenerics;
+                var disposeMethods = $$"""
+                public void Dispose()
+                {
+                    _payload.Dispose();
+                    GC.SuppressFinalize(this);
+                }
+
+                ~{{simpleName}}()
+                {
+                    Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+                }
+                """;
+                csWriter.WriteLines(disposeMethods);
                 csWriter.WriteLine();
 
             // Emit case constructors for all cases

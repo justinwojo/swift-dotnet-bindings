@@ -555,7 +555,15 @@ public static class NameProvider
     /// <returns>A dictionary mapping original nested type name → renamed name.</returns>
     public static Dictionary<string, string> ComputeAndApplyNestedTypeRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
-        var memberNames = typeDecl.Properties.Select(p => GetPropertyName(p.Name, typeDecl.Name));
+        // Only include properties whose types can be resolved — properties with unsupported types
+        // (AnyType, SwiftUI references, etc.) are skipped by the emitter and should not trigger
+        // nested type renames. Without this filter, a skipped property named "priority" would cause
+        // a nested type "Priority" to be unnecessarily renamed to "PriorityInfo".
+        // We use a lightweight type-resolution check rather than the full CanEmitProperty() which
+        // also rejects properties for structural reasons (no accessors, etc.) that don't affect naming.
+        var memberNames = typeDecl.Properties
+            .Where(p => !MemberEmissionValidator.HasUnsupportedPropertyType(p, typeDatabase))
+            .Select(p => GetPropertyName(p.Name, typeDecl.Name));
 
         // For enums, include PascalCase'd case names in the collision set.
         // Enum cases produce factory methods (e.g., case "pong" → static method "Pong()"),

@@ -210,6 +210,13 @@ namespace BindingsGeneration
         /// </summary>
         private readonly Dictionary<string, string>? _typedThrowsErrors;
 
+        /// <summary>
+        /// Optional enum case parameter labels from swiftinterface parsing.
+        /// Keys are "TypeName.caseName" (e.g., "Shape.circle").
+        /// Values are lists of labels (null entries for unlabeled parameters).
+        /// </summary>
+        private readonly Dictionary<string, List<string?>>? _enumCaseLabels;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -218,7 +225,8 @@ namespace BindingsGeneration
             HashSet<string>? internalMemberKeys = null,
             Dictionary<string, List<string>>? parameterNames = null,
             Dictionary<string, DocComment>? docComments = null,
-            Dictionary<string, string>? typedThrowsErrors = null)
+            Dictionary<string, string>? typedThrowsErrors = null,
+            Dictionary<string, List<string?>>? enumCaseLabels = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -228,6 +236,7 @@ namespace BindingsGeneration
             _parameterNames = parameterNames;
             _docComments = docComments;
             _typedThrowsErrors = typedThrowsErrors;
+            _enumCaseLabels = enumCaseLabels;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -602,7 +611,44 @@ namespace BindingsGeneration
                 }
             }
 
+            // Apply parameter labels from swiftinterface if available
+            if (_enumCaseLabels != null && enumCaseDecl.AssociatedValues.Count > 0 && parentDecl is TypeDecl parentType)
+            {
+                // Build fully-qualified type path matching the parser's dot-joined key format
+                // e.g., "OrderContainer.Status.caseName" for nested enum Status inside OrderContainer
+                var typePath = BuildTypeQualifiedPath(parentType);
+                var key = $"{typePath}.{enumCaseDecl.Name}";
+                if (_enumCaseLabels.TryGetValue(key, out var labels))
+                {
+                    for (int i = 0; i < Math.Min(labels.Count, enumCaseDecl.AssociatedValues.Count); i++)
+                    {
+                        if (labels[i] != null)
+                        {
+                            enumCaseDecl.AssociatedValues[i].TypeLabel = labels[i];
+                        }
+                    }
+                }
+            }
+
             return enumCaseDecl;
+        }
+
+        /// <summary>
+        /// Builds a fully-qualified type path by walking up the parent chain.
+        /// Matches the dot-joined format used by SwiftInterfaceAccessParser's type stack.
+        /// e.g., for Status nested inside OrderContainer: "OrderContainer.Status"
+        /// </summary>
+        private static string BuildTypeQualifiedPath(TypeDecl typeDecl)
+        {
+            var parts = new List<string>();
+            BaseDecl? current = typeDecl;
+            while (current is TypeDecl td)
+            {
+                parts.Add(td.Name);
+                current = td.ParentDecl;
+            }
+            parts.Reverse();
+            return string.Join(".", parts);
         }
 
         /// <summary>

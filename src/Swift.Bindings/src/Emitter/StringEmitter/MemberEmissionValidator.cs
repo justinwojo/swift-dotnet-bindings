@@ -10,6 +10,51 @@ namespace BindingsGeneration;
 public static class MemberEmissionValidator
 {
     /// <summary>
+    /// Checks whether a property's type is unsupported for naming collision purposes.
+    /// Returns true for properties that will be skipped by the emitter — these should not
+    /// trigger nested type renames. Checks both unsupported modules (SwiftUI/Combine) and
+    /// unresolvable named types (AnyType fallbacks).
+    /// For non-NamedTypeSpec types (closures, tuples, generics), conservatively returns false
+    /// (includes them in collision set — false positive renames are safer than missing collisions).
+    /// </summary>
+    public static bool HasUnsupportedPropertyType(PropertyDecl property, ITypeDatabase typeDatabase)
+    {
+        if (ReferencesUnsupportedModule(property.SwiftTypeSpec))
+            return true;
+
+        // For named types, check if the type can be resolved in the database.
+        // Unresolvable types fall through to AnyType and the emitter skips them.
+        if (property.SwiftTypeSpec is NamedTypeSpec namedType)
+        {
+            // Generic type parameters are always handled by the emitter
+            if (TypeSpecHelpers.IsGenericTypeParameter(namedType.Name))
+                return false;
+
+            // Well-known Swift standard library types are always resolvable at runtime
+            // even if not registered in a unit test's type database
+            var moduleName = namedType.Name.Contains('.')
+                ? namedType.Name.Substring(0, namedType.Name.IndexOf('.'))
+                : null;
+            if (moduleName is "Swift" or "Foundation" or "CoreFoundation" or "CoreGraphics" or "Darwin")
+                return false;
+
+            // Check type database — if resolvable to a concrete type, property will be emitted.
+            // TryGetTypeRecord returns true with AnyType for existentials and generics that
+            // can't be concretely resolved — those are NOT truly supported and the emitter
+            // will skip them, so we must treat them as unsupported here too.
+            if (typeDatabase.TryGetTypeRecord(property.SwiftTypeSpec, out var record)
+                && record != TypeDatabaseExtensions.AnyType)
+                return false;
+
+            // Unresolvable type from non-standard module → will be AnyType → skipped
+            return true;
+        }
+
+        // Non-named types (closures, tuples, existentials) — conservatively include
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a property can be emitted. Returns null if valid, SkipReason if not.
     /// </summary>
     public static SkipReason? CanEmitProperty(

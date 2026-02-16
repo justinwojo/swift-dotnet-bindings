@@ -36,21 +36,19 @@ For completed work, see `Completed/` (notably `roadmap-sessions-1-14.md`, `roadm
 
 Items grouped by shared code paths, shared context, and realistic single-session scope. Sessions are ordered by priority — highest-impact work first.
 
-### Session 15: Type System Quality
+### ~~Session 15: Type System Quality~~ (Done)
 
-**Priority**: P1/P2 | **Type**: Implementation | **Risk**: Medium
-**Motivation**: Same binding analysis — these items require deeper changes to type handling but have high impact on collection performance and API discoverability.
+**Priority**: P1/P2 | **Type**: Done | **Risk**: Medium
 
-| Item | Priority | Effort | Description |
-|------|----------|--------|-------------|
-| **`GetHashCode()` via Swift Hashable** | P1 | Medium | Every equatable type returns `GetHashCode() => 0`, making `Dictionary<T,V>` and `HashSet<T>` O(n). P/Invoke into Swift's `Hashable.hash(into:)` or at minimum `hashValue` property. Requires wrapper function + emitter change. |
-| **Enum case parameter naming** | P2 | Medium | `value0`, `value1` are meaningless. The `.swiftinterface` has parameter labels (typed-throws parser already reads it). Extract enum case parameter labels and thread to emission. |
-| **No-payload enums as C# `enum`** | P2 | Medium | Simple enums without associated values (e.g., `DetectionStatus`) should emit as native C# `enum` types instead of classes requiring `Dispose()`. Detect no-payload + no-method enums and emit lightweight representation. |
-| **Finalizer safety net** | P2 | Small | Add `~ClassName()` destructor that calls VWT destroy to prevent permanent memory leaks from forgotten `Dispose()` calls. NativeAOT unblocks this (Mono JIT crashes on VWT destroy). Gate behind `SwiftBindingsInteropMode` or emit unconditionally with try-catch. |
-| **Info suffix collision strategy** | P2 | Medium | `PriorityInfo`, `CacheTypeInfo`, `StateInfo` are unintuitive. Only apply `Info` suffix when an actual name collision exists (type name == member name). Use the Swift name directly otherwise. |
+| Item | Status | Summary |
+|------|--------|---------|
+| **`GetHashCode()` via Swift Hashable** | Done | `SwiftHashable.cs` runtime helper P/Invokes `$sSH9hashValueSivgTj` (dispatch thunk). Emitter conditionally generates `SwiftHashable.GetHashCode(this)` for Hashable-conforming types, `return 0` fallback for Equatable-only. `ISwiftHashable` conformance descriptors emitted for PWT lookup. |
+| **Enum case parameter naming** | Done | `SwiftInterfaceAccessParser.GetEnumCaseLabels()` parses `.swiftinterface` for case labels (including `indirect case`). Labels threaded through `SwiftABIParser` → `TypeSpec.TypeLabel`. Fully-qualified keys (`Parent.Nested.caseName`) prevent collision between same-named nested enums. |
+| **No-payload String enums as C# `enum`** | Done | `EnumDecl.IsStringRawValueSimpleEnum` predicate (frozen, no associated values, no methods/properties). Emits C# `enum` with tag-based values + `ToRawValue()`/`FromRawValue()` extension methods. Enums with methods keep class-based emission. |
+| **Finalizer safety net** | Done | `SwiftDispose.FinalizerCleanup<T>()` — NativeAOT calls `Dispose()` (VWT Destroy), Mono no-ops (avoids jit-info.c crash). Destructors + `GC.SuppressFinalize(this)` emitted in all class/complex-enum/non-frozen-struct handlers. |
+| **Info suffix collision strategy** | Done | `HasUnsupportedPropertyType()` filters SwiftUI/Combine references + unresolvable AnyType-fallback types from collision set. `TryGetTypeRecord` result checked against `AnyType` sentinel to catch existential/generic false positives. Well-known modules (`Swift`, `Foundation`, etc.) bypass DB lookup. |
 
-**Key files**: `EnumHandler.cs`, `EnumHandler.CaseConstruction.cs`, `WrapperEmitter.cs`, `SwiftInterfaceAccessParser.cs`, `TypeHandler.cs`, base type emission boilerplate
-**Verification**: Regenerate bindings for Nuke/BlinkID (heavy enum usage), verify compiled output; run unit + integration tests
+**Key files**: new `SwiftHashable.cs`, new `SwiftDispose.cs`, `TypeHandlerHelpers.cs`, `ClassHandler.cs`, `EnumHandler.cs`, `EnumHandler.SimpleEnum.cs`, `EnumDecl.cs`, `SwiftInterfaceAccessParser.cs`, `SwiftABIParser.cs`, `MemberEmissionValidator.cs`, `NameProvider.cs`
 
 ---
 
@@ -230,7 +228,7 @@ Workarounds exist for all. Not blocking any library validation.
 | Session | Priority | Type | Effort | Theme |
 |---------|----------|------|--------|-------|
 | ~~14. Consumer API Polish~~ | P1 | Done | Medium | `IDisposable`, `[EditorBrowsable]`, shared helpers, SwiftString in factories, module stutter |
-| **15. Type System Quality** | P1/P2 | Implement | Medium-Hard | `GetHashCode`, enum param naming, no-payload C# enums, finalizer, Info suffix |
+| ~~15. Type System Quality~~ | P1/P2 | Done | Medium-Hard | `GetHashCode`, enum param naming, String enums as C# enum, finalizer, Info suffix |
 | **16. Roslyn Analyzer** | P3 | Implement | Medium | Undisposed ISwiftObject warnings |
 | **17. API Snapshots** | P3 | Implement | Medium | API surface drift detection |
 | **18. CI Integration** | P3 | Implement | Large | GitHub Actions tiered pipeline |

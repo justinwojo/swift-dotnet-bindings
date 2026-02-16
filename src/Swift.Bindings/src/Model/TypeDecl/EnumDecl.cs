@@ -92,6 +92,26 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Whether the raw value type is String.
+        /// </summary>
+        public bool IsStringRawValue => RawValueTypeName == "String";
+
+        /// <summary>
+        /// Whether this enum qualifies for emission as a C# enum with String raw value conversions.
+        /// Requires: no associated values, frozen, non-generic, String raw value,
+        /// and no methods/properties/operators (pure discriminated-value enums only).
+        /// Enums with methods keep the class-based emission to support method wrappers.
+        /// </summary>
+        public bool IsStringRawValueSimpleEnum =>
+            !HasAssociatedValueCases &&
+            IsFrozen &&
+            !IsGeneric &&
+            IsStringRawValue &&
+            Methods.Count(m => !m.IsConstructor) == 0 &&
+            Properties.Count == 0 &&
+            Operators.Count == 0;
+
+        /// <summary>
         /// Gets the enum cases that have associated values (payload cases).
         /// Swift orders these first in the tag sequence.
         /// </summary>

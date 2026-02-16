@@ -274,6 +274,180 @@ public static class SwiftInterfaceAccessParser
         return result;
     }
 
+    // Regex for enum case declarations with associated values
+    // Matches: case caseName(label: Type) or case caseName(Type) or case caseName(label: Type, label2: Type2)
+    private static readonly Regex EnumCaseRegex = new(
+        @"case\s+(\w+)\s*\(",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns a dictionary mapping
+    /// "TypeName.caseName" keys to lists of parameter labels.
+    /// Labels are null for unlabeled parameters (e.g., "case point(FrozenPoint)").
+    ///
+    /// For example, for:
+    ///   case circle(radius: Swift.Double)
+    ///   case point(SwiftBindingsTestLib.FrozenPoint)
+    /// This produces:
+    ///   { "Shape.circle": ["radius"], "Shape.point": [null] }
+    /// </summary>
+    public static Dictionary<string, List<string?>> GetEnumCaseLabels(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, List<string?>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        string? continuationLine = null;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Handle multi-line case continuation (rare but possible with many associated values)
+            if (continuationLine != null)
+            {
+                continuationLine += " " + trimmed;
+                if (!HasUnmatchedOpenParen(continuationLine))
+                {
+                    var completeLine = continuationLine;
+                    continuationLine = null;
+                    ProcessEnumCaseLine(completeLine, typeStack, result);
+                }
+                continue;
+            }
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Track type context (same logic as other methods)
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                pushedScope = true;
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            // Check for enum case declarations with parentheses
+            // Also handle "indirect case" which appears in recursive enums
+            var caseLine = trimmed;
+            if (caseLine.StartsWith("indirect "))
+                caseLine = caseLine.Substring("indirect ".Length);
+            if (caseLine.StartsWith("case ") && caseLine.Contains("("))
+            {
+                if (HasUnmatchedOpenParen(caseLine))
+                {
+                    continuationLine = caseLine;
+                }
+                else
+                {
+                    ProcessEnumCaseLine(caseLine, typeStack, result);
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+            {
+                typeStack.Pop();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Processes a complete enum case line to extract parameter labels.
+    /// </summary>
+    private static void ProcessEnumCaseLine(
+        string line,
+        Stack<(string Name, int Depth)> typeStack,
+        Dictionary<string, List<string?>> result)
+    {
+        if (typeStack.Count == 0)
+            return;
+
+        var caseMatch = EnumCaseRegex.Match(line);
+        if (!caseMatch.Success)
+            return;
+
+        var caseName = caseMatch.Groups[1].Value;
+
+        // Build fully-qualified type path from the type stack to disambiguate
+        // nested enums with the same local name (e.g., OrderContainer.Status vs PaymentContainer.Status)
+        var currentType = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+
+        // Find the opening parenthesis
+        var parenStart = line.IndexOf('(', caseMatch.Index);
+        if (parenStart < 0)
+            return;
+
+        // Find matching close paren
+        int depth = 0;
+        int parenEnd = parenStart;
+        for (int i = parenStart; i < line.Length; i++)
+        {
+            if (line[i] == '(') depth++;
+            if (line[i] == ')')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    parenEnd = i;
+                    break;
+                }
+            }
+        }
+
+        var paramStr = line.Substring(parenStart + 1, parenEnd - parenStart - 1);
+        if (string.IsNullOrWhiteSpace(paramStr))
+            return;
+
+        var labels = new List<string?>();
+        var parts = SplitParameters(paramStr);
+        foreach (var part in parts)
+        {
+            var trimPart = part.Trim();
+            var colonIdx = trimPart.IndexOf(':');
+            if (colonIdx < 0)
+            {
+                // No colon — unlabeled parameter (e.g., "SwiftBindingsTestLib.FrozenPoint")
+                labels.Add(null);
+            }
+            else
+            {
+                var beforeColon = trimPart.Substring(0, colonIdx).Trim();
+                // The label is the text before the colon (e.g., "radius" from "radius: Swift.Double")
+                // For "_" labels, treat as unlabeled
+                if (beforeColon == "_")
+                    labels.Add(null);
+                else
+                    labels.Add(beforeColon);
+            }
+        }
+
+        if (labels.Count > 0)
+        {
+            result[$"{currentType}.{caseName}"] = labels;
+        }
+    }
+
     // Regex for typed throws: captures the error type from "throws(Module.Type)"
     private static readonly Regex TypedThrowsRegex = new(
         @"throws\(([^)]+)\)",

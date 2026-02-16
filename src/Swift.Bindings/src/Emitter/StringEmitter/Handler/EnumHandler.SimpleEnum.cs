@@ -72,9 +72,14 @@ namespace BindingsGeneration
                 var casePascalName = NameProvider.ToPascalCase(caseDecl.Name);
                 int tagValue;
 
-                if (enumDecl.IsRawRepresentable)
+                if (enumDecl.IsStringRawValue)
                 {
-                    // Use raw values for RawRepresentable enums
+                    // String raw value enums use tag values (not raw values)
+                    tagValue = enumDecl.GetCaseTag(caseDecl);
+                }
+                else if (enumDecl.IsRawRepresentable)
+                {
+                    // Use raw values for integral RawRepresentable enums
                     tagValue = GetRawValueAsInt(enumDecl, caseDecl);
                 }
                 else
@@ -90,6 +95,12 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+
+            // For String-raw-value enums, emit ToRawValue/FromRawValue extension methods
+            if (enumDecl.IsStringRawValue)
+            {
+                EmitStringRawValueExtensions(csWriter, enumDecl, enumName);
+            }
 
             // Emit extension methods class if there are instance methods or properties
             var instanceMethods = enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType != MethodType.Static).ToList();
@@ -166,6 +177,59 @@ namespace BindingsGeneration
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
             }
+        }
+
+        /// <summary>
+        /// Emits ToRawValue/FromRawValue extension methods for String-raw-value enums.
+        /// These are pure C# (no Swift P/Invoke needed) since the mapping is known at codegen time.
+        /// Note: Uses case names as raw values (known limitation — ABI JSON lacks individual case raw values).
+        /// </summary>
+        private static void EmitStringRawValueExtensions(CSharpWriter csWriter, EnumDecl enumDecl, string enumName)
+        {
+            csWriter.WriteLine($"public static partial class {enumName}Extensions");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // ToRawValue()
+            csWriter.WriteLine($"public static string ToRawValue(this {enumName} value)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("return value switch");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            foreach (var caseDecl in enumDecl.Cases)
+            {
+                var casePascalName = NameProvider.ToPascalCase(caseDecl.Name);
+                csWriter.WriteLine($"{enumName}.{casePascalName} => \"{caseDecl.Name}\",");
+            }
+            csWriter.WriteLine($"_ => throw new ArgumentOutOfRangeException(nameof(value), value, null),");
+            csWriter.Indent--;
+            csWriter.WriteLine("};");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // FromRawValue()
+            csWriter.WriteLine($"public static {enumName}? FromRawValue(string rawValue)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("return rawValue switch");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            foreach (var caseDecl in enumDecl.Cases)
+            {
+                var casePascalName = NameProvider.ToPascalCase(caseDecl.Name);
+                csWriter.WriteLine($"\"{caseDecl.Name}\" => {enumName}.{casePascalName},");
+            }
+            csWriter.WriteLine("_ => null,");
+            csWriter.Indent--;
+            csWriter.WriteLine("};");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
         }
 
         /// <summary>
