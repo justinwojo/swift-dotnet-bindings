@@ -12,7 +12,7 @@ For completed work, see `Completed/` (notably `roadmap-completed-feb2026.md`, `p
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 2,593 passing |
+| Unit tests | 2,725 passing |
 | Integration tests | 699 passing (11 skipped, pre-existing) |
 | Runtime library tests | 156 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
@@ -154,19 +154,17 @@ Both items' original descriptions were stale — core behavioral work was comple
 
 ---
 
-### Session 8: ExistentialContainer Cleanup
+### Session 8: ExistentialContainer Cleanup — **Done** (2026-02-14)
 
 **Priority**: P2 | **Type**: Implementation | **Risk**: High
 
-Hard difficulty — deep in the marshaler's existential handling. `ExistentialContainer` still appears in closure parameters and protocol proxy constructors (26 skipped members across Nuke/Lottie). Requires its own session due to complexity and the amount of marshaler context needed.
+| Item | Priority | Effort | Status |
+|------|----------|--------|--------|
+| **ExistentialContainer in public API** | P2 | Hard | Done — `AllProtocolsHaveTypeRecords()` gate, closure params emit `IProtocol`, enum case constructors use typed interfaces, `Optional<any Protocol>` guard relaxed, mixed ObjC composition safety guards. |
 
-| Item | Priority | Effort | Description |
-|------|----------|--------|-------------|
-| **ExistentialContainer in public API** | P2 | Hard | Map existential containers to protocol interfaces in closure and constructor contexts. Gated on `AllProtocolsHaveTypeRecords()`. |
-
-**Key files**: Marshaler existential handling, `ClosureEmitter.cs`, `ProtocolProxyEmitter.cs`
-**Verification**: `./run-tests.sh` + regenerate Nuke/Lottie, verify reduction in `UnsupportedExistential` skips
-**Design**: `Future/binding-api-future-work.md` (R6), `Future/unsupported-existential-analysis.md`
+**Key changes**: `ExistentialHandler.AllProtocolsHaveTypeRecords()`, `ClosureEmitter.cs` + 3 partials (Async, IndirectReturn, Throwing), `ClosureHandler.NeedsProxyWrapping()`, `EnumHandler.CaseConstruction.cs`, `MemberEmissionValidator.cs`, `MethodHandler.cs`.
+**Tests**: `ClosureExistentialTests.cs` (413 lines), `ExistentialOptionalGuardTests.cs` (561 lines), `ConstructorHandlerOutputTests.cs` (158 lines).
+**Remaining ExistentialContainer usages are intentional**: unknown protocols without TypeRecords, Optional existentials in closures (MarshalFromSwift limitation), mixed ObjC compositions (safety guard prevents size mismatch). None fixable without upstream changes.
 
 ---
 
@@ -315,15 +313,11 @@ Replace Objective Sharpie. Uses `clang -ast-dump=json`. Same CLI/SDK for Swift a
 
 Three-phase architecture: type pre-processing (graph traversal + label assignment), type processing (handler-based member population), emission from representations. High risk — touches everything.
 
-### P4-4: NativeAOT Migration
+### P4-4: NativeAOT Migration — **Done** (2026-02-15)
 
-**Effort**: Large (3+ sessions estimated)
-**Design**: `Future/nativeaot-investigation.md`
+**Design**: `nativeaot-investigation.md`
 
-Bypasses Mono JIT crash entirely. Suggested session breakdown:
-1. Minimal NativeAOT iOS test app reproducing three known failures
-2. `[LibraryImport]` + `CustomMarshaller` experiments for `SwiftOptional<T>`
-3. SafeHandle async validation + production migration path
+All three Mono JIT blockers verified resolved under NativeAOT (28/28 tests pass on macOS, 13/14 on device). `[LibraryImport]` migration complete across all emitters. `SwiftBindingsInteropMode` (Auto/Safe/Direct) ships in consumer `.targets`. Remaining: Step 22 device re-validation after loose ends cleanup, Steps 17-18 (`[MarshalUsing]` for typed non-blittable params) deferred — IntPtr approach works on both runtimes.
 
 ### P4-5: Multi-Platform Support
 
@@ -363,7 +357,7 @@ Workarounds exist for all. Not blocking any library validation.
 | Throwing closure thunks | `SwiftString` return emitted as `void*` | Exclude throwing closures |
 | `async throws(ErrorType)` free functions | Emit `_payload`/`this` in static context | Guarded — no runtime impact |
 | ExistentialContainer0 in tuple element | Lottie edge case | Not reached by current guards |
-| `Optional<T>` P/Invoke truncation for T.Size > 8 | `PayloadBuffer<IntPtr>` passes 8 bytes; `Optional<String>` is 16 bytes | Runtime tests at Tier 3; value types and class refs (<=8 bytes) work. **Fixable** — route through Swift `@_cdecl` wrapper that accepts `UnsafeRawPointer` to optional buffer (same pattern as async methods). Generator-only change, no upstream fix needed. |
+| `Optional<T>` P/Invoke truncation for T.Size > 8 | `PayloadBuffer<IntPtr>` passes 8 bytes; `Optional<String>` is 16 bytes | **Partially fixed** — `_optbuf` Swift wrapper covers standalone methods, frozen struct constructors, property setters, and mutating methods for String/Int/UInt/Int64/UInt64/Double. Still truncated for: async, wrapper-owned (closure Cdecl, opaque return), and Optional return values. |
 
 ---
 
@@ -378,7 +372,7 @@ Workarounds exist for all. Not blocking any library validation.
 | **5. SwiftArray Collection** | P2 | Implement | Medium | `IReadOnlyList<T>` on SwiftArray, no LINQ copying |
 | **6. Async Improvements** | P2/P3 | Done | Medium | CancellationToken on async + callback-to-Task overloads |
 | **7. Emitter Quality** | P3 | Verify + test | Small | Done — N6 collision verified (Info suffix correct), default overloads verified (all eligible methods covered) |
-| **8. Existential Cleanup** | P2 | Implement | Hard | ExistentialContainer -> protocol interfaces |
+| **8. Existential Cleanup** | P2 | Done | Hard | ExistentialContainer -> protocol interfaces (intentional remainders) |
 | **9. Roslyn Analyzer** | P3 | Implement | Medium | Undisposed ISwiftObject warnings |
 | **10. API Snapshots** | P3 | Implement | Medium | API surface drift detection |
 | **11. CI Integration** | P3 | Implement | Large | GitHub Actions tiered pipeline |

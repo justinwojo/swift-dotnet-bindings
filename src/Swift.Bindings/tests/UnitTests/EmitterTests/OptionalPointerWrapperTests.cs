@@ -234,8 +234,9 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
-    public void Emit_Accessor_DoesNotSetOptionalWrapper()
+    public void Emit_Accessor_Getter_DoesNotSetOptionalWrapper()
     {
+        // Getters have no params beyond return type, so HasLargeOptionalParams returns false
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Foo", moduleDecl);
@@ -292,7 +293,7 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
-    public void Emit_MutatingMethod_DoesNotSetOptionalWrapper()
+    public void Emit_MutatingMethod_WithLargeOptional_SetsWrapper()
     {
         var typeDatabase = CreateConstructorTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -308,7 +309,7 @@ public class OptionalPointerWrapperTests
         method.IsMutating = true;
 
         EmitMethod(method, typeDatabase);
-        Assert.False(method.HasOptionalPointerWrapper);
+        Assert.True(method.HasOptionalPointerWrapper);
     }
 
     #endregion
@@ -653,6 +654,211 @@ public class OptionalPointerWrapperTests
 
         Assert.Contains("throws", swiftOutput);
         Assert.Contains("try ", swiftOutput);
+    }
+
+    #endregion
+
+    #region Expanded Type Detection Tests
+
+    [Theory]
+    [InlineData("Swift.Int64")]
+    [InlineData("Swift.UInt64")]
+    [InlineData("Swift.Double")]
+    [InlineData("Swift.Int")]
+    [InlineData("Swift.UInt")]
+    public void IsLargeOptionalParam_8ByteValueType_ReturnsTrue(string innerTypeName)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new BoundGenericsHandler(typeDatabase);
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec(innerTypeName));
+
+        Assert.True(handler.IsLargeOptionalParam(typeSpec));
+    }
+
+    [Theory]
+    [InlineData("Swift.Float")]
+    [InlineData("Swift.Bool")]
+    [InlineData("Swift.Int8")]
+    [InlineData("Swift.UInt32")]
+    public void IsLargeOptionalParam_SmallValueType_ReturnsFalse(string innerTypeName)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new BoundGenericsHandler(typeDatabase);
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec(innerTypeName));
+
+        Assert.False(handler.IsLargeOptionalParam(typeSpec));
+    }
+
+    #endregion
+
+    #region Setter Emission Tests
+
+    [Fact]
+    public void Emit_Setter_WithLargeOptional_SetsWrapper()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("title_Set", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("arg0", optStringType, moduleDecl));
+        method.IsAccessor = true;
+
+        EmitMethod(method, typeDatabase);
+        Assert.True(method.HasOptionalPointerWrapper);
+        Assert.True(method.UsesWrapperLibrary);
+    }
+
+    [Fact]
+    public void Emit_Setter_SwiftWrapper_EmitsPropertyAssignment()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("title_Set", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("arg0", optStringType, moduleDecl));
+        method.IsAccessor = true;
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Should emit property assignment, not method call
+        Assert.Contains(".title = ", swiftOutput);
+        Assert.DoesNotContain("title_Set(", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_Setter_Class_SwiftWrapper_UsesBitCast()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("title_Set", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("arg0", optStringType, moduleDecl));
+        method.IsAccessor = true;
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("unsafeBitCast(OpaquePointer(_self)", swiftOutput);
+        Assert.Contains("__self.title = ", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_Setter_ValueType_SwiftWrapper_UsesPointeeAssignment()
+    {
+        var typeDatabase = CreateConstructorTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("label_Set", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("arg0", optStringType, moduleDecl));
+        method.IsAccessor = true;
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Value type setter: through-pointer assignment
+        Assert.Contains(".pointee.label = ", swiftOutput);
+        Assert.DoesNotContain("__self", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_StaticSetter_SwiftWrapper_EmitsTypeQualifiedAssignment()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("defaultTitle_Set", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("arg0", optStringType, moduleDecl));
+        method.IsAccessor = true;
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("TestModule.Foo.defaultTitle = ", swiftOutput);
+        Assert.DoesNotContain("_self", swiftOutput);
+    }
+
+    #endregion
+
+    #region Mutating Emission Tests
+
+    [Fact]
+    public void Emit_Mutating_SwiftWrapper_UsesPointeeMethodCall()
+    {
+        var typeDatabase = CreateConstructorTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("updateLabel", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("label", optStringType, moduleDecl));
+        method.IsMutating = true;
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Should use through-pointer call, not copy
+        Assert.Contains(".pointee.updateLabel(", swiftOutput);
+        Assert.DoesNotContain("let __self", swiftOutput);
+    }
+
+    #endregion
+
+    #region Regression Tests
+
+    [Fact]
+    public void Emit_NonAccessorMethodEndingInSet_DoesNotUseSetter()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        // Method named "resetData_Set" but NOT an accessor
+        var method = CreateMethodDecl("resetData_Set", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("value", optStringType, moduleDecl));
+        method.IsAccessor = false; // Explicitly not an accessor
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Should use normal method call, not property assignment
+        Assert.Contains("resetData_Set(", swiftOutput);
+        Assert.DoesNotContain("resetData = ", swiftOutput);
     }
 
     #endregion

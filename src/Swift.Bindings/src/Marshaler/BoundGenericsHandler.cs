@@ -780,21 +780,31 @@ public class BoundGenericsHandler
         return false;
     }
 
+    // 8-byte Swift stdlib value types whose Optionals exceed IntPtr capacity.
+    // String = 16 bytes → Optional is 16 bytes. Others = 8 bytes → Optional is 9 bytes (value + discriminator).
+    // Int/UInt are 8 bytes because all supported targets are 64-bit ARM64.
+    private static readonly HashSet<string> s_largeOptionalInnerTypes = new(StringComparer.Ordinal)
+    {
+        "Swift.String",
+        "Swift.Int",
+        "Swift.UInt",
+        "Swift.Int64",
+        "Swift.UInt64",
+        "Swift.Double",
+    };
+
     /// <summary>
-    /// Returns true if typeSpec is Optional&lt;T&gt; where T's size exceeds IntPtr (8 bytes).
-    /// Currently detects Optional&lt;String&gt; (16 bytes). Extensible via TypeRecord size.
+    /// Returns true if typeSpec is Optional&lt;T&gt; where T's size is ≥ 8 bytes,
+    /// making the Optional too large for IntPtr (8 bytes) to hold without truncation.
     /// </summary>
     public bool IsLargeOptionalParam(TypeSpec typeSpec)
     {
         if (typeSpec is not NamedTypeSpec namedType || namedType.Name != "Swift.Optional")
             return false;
         var innerElement = namedType.GenericParameters.FirstOrDefault();
-        if (innerElement == null) return false;
-        // String is 16 bytes (2 words) — always large
-        if (innerElement is NamedTypeSpec innerNamed && innerNamed.Name == "Swift.String")
-            return true;
-        // Extensibility point: check TypeRecord size for other types
-        return false;
+        if (innerElement is not NamedTypeSpec innerNamed)
+            return false;
+        return s_largeOptionalInnerTypes.Contains(innerNamed.Name);
     }
 
     /// <summary>

@@ -567,13 +567,15 @@ namespace BindingsGeneration
             }
 
             // Optional pointer wrapper for methods with large Optional params (e.g., Optional<String>).
-            // Excluded: async (own wrapper), accessors (setter self-mutation), already-wrapped methods,
-            // opaque returns (their own _opaque wrapper doesn't handle Optional param rewriting),
-            // mutating methods (wrapper copies self by value, mutations would be lost).
+            // Excluded: async (own wrapper), already-wrapped methods,
+            // opaque returns (their own _opaque wrapper doesn't handle Optional param rewriting).
+            // Accessors: getters have no params beyond return so HasLargeOptionalParams returns false;
+            // setters with large Optional value params are handled (property assignment in Swift wrapper).
+            // NOTE: If a concrete SubscriptHandler is added in the future, revisit this — subscript
+            // accessors may need different treatment.
+            // Mutating: wrapper uses through-pointer access (.pointee.method()) to preserve mutations.
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsAsync &&
-                !methodEnv.MethodDecl.IsAccessor &&
-                !methodEnv.MethodDecl.IsMutating &&
                 !_requiresOpaqueReturn(methodEnv) &&
                 methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl))
             {
