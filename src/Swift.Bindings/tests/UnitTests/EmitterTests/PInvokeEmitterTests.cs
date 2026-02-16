@@ -187,6 +187,39 @@ public class PInvokeEmitterTests
         Assert.Equal("int", sig.ReturnType);
     }
 
+    [Fact]
+    public void ReturnType_FrozenComplexEnum_ReturnsIntPtr()
+    {
+        // Frozen complex enums (non-simple, e.g. with associated values) are C# classes with SafeHandle
+        // payloads — non-blittable for LibraryImport, must return IntPtr (SYSLIB1051 fix).
+        // Frozen enums bypass the indirect result path, so the return type check must handle them.
+        var typeDb = CreateTypeDatabaseWithEnum(TypeRecordFlags.Frozen);
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("getVariant", classDecl, moduleDecl);
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("TestModule.Variant"), moduleDecl);
+
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.Equal("IntPtr", sig.ReturnType);
+    }
+
+    [Fact]
+    public void ReturnType_NonFrozenComplexEnum_UsesIndirectResult()
+    {
+        // Non-frozen complex enums go through the indirect result path (void return + SwiftIndirectResult)
+        var typeDb = CreateTypeDatabaseWithEnum(TypeRecordFlags.None);
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("getVariant", classDecl, moduleDecl);
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("TestModule.Variant"), moduleDecl);
+
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.Equal("void", sig.ReturnType);
+        Assert.Contains(sig.Parameters, p => p.Type == "SwiftIndirectResult");
+    }
+
     #endregion
 
     #region Parameter Marshalling

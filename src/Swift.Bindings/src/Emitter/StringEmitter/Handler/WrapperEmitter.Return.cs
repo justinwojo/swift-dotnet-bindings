@@ -208,6 +208,13 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // Complex enums (non-simple) have SafeHandle-based opaque payloads — P/Invoke returns IntPtr
+                if (typeRecord.Kind == TypeRecordKind.Enum && !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                {
+                    csWriter.WriteLine($"return ({_wrapperSignature.ReturnType})SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(result);");
+                    return;
+                }
+
                 // Native type remapping: convert Swift type to native .NET type
                 if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(returnArg.SwiftTypeSpec))
                 {

@@ -94,6 +94,87 @@ public class WrapperEmitterReturnTests
         Assert.DoesNotContain("ValueTuple<Swift.TestModule.Direction", csOutput);
     }
 
+    [Fact]
+    public void DirectReturn_FrozenComplexEnum_UsesMarshalFromSwift()
+    {
+        // Frozen complex enums (non-simple, e.g. with associated values) are C# classes with SafeHandle
+        // payloads. P/Invoke returns IntPtr, wrapper must marshal via MarshalFromSwift (SYSLIB1051 fix).
+        // Frozen enums bypass the indirect result path, so the wrapper must handle them explicitly.
+        var typeDatabase = CreateTypeDatabaseWithComplexEnum();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var method = CreateMethodDecl(
+            name: "getVariant",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("TestModule.Variant"),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // P/Invoke signature must use IntPtr, not the enum class name
+        Assert.Contains("IntPtr", csOutput);
+        Assert.Contains("MarshalFromSwift", csOutput);
+        // The enum class name should not appear as a P/Invoke return type
+        Assert.DoesNotContain("partial Swift.TestModule.Variant PInvoke_", csOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithComplexEnum()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+                MetadataAccessor = "$s10TestModule9ContainerCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Variant"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
+                MetadataAccessor = "$s10TestModule7VariantOMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithSimpleEnum()
     {
         var typeDatabase = new TypeDatabase();

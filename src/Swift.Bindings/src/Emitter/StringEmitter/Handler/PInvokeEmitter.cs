@@ -154,6 +154,13 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Complex enums (non-simple) have SafeHandle-based payloads — non-blittable in P/Invoke
+            if (returnTypeRecord.Kind == TypeRecordKind.Enum)
+            {
+                SetReturnType("IntPtr");
+                return;
+            }
+
             if (MarshallingHelpers.RequiresMemoryManagement(returnTypeRecord))
                 SetReturnType(returnTypeRecord.CSharpTypeName.FullyQualifiedName + ".Buffer");
             else
