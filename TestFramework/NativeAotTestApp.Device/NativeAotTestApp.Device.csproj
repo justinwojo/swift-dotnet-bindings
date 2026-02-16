@@ -14,7 +14,6 @@
     <!-- NativeAOT settings -->
     <PublishAot>true</PublishAot>
     <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
-    <TrimMode>partial</TrimMode>
 
     <!-- Code signing -->
     <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
@@ -24,13 +23,16 @@
     <!-- Suppress warnings -->
     <!-- SB0001: Mono JIT crash risk warnings (test code calls these methods under NativeAOT) -->
     <!-- CS0169: Buffer struct fields reserved for layout -->
-    <!-- IL2026/IL2087/IL2091: Trim analysis (SwiftMarshal tuple reflection) -->
-    <!-- IL3050: RequiresDynamicCode (tuple metadata MakeGenericMethod) -->
-    <NoWarn>CS0169;SB0001;SB0002;IL2026;IL2087;IL2091;IL3050</NoWarn>
+    <NoWarn>CS0169;SB0001;SB0002;CA1420</NoWarn>
 
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
+
+  <!-- Required for [LibraryImport] with Swift interop types (SwiftSelf, TypeMetadata, etc.) -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
 
   <ItemGroup>
     <None Include="Info.plist" />

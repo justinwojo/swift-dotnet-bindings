@@ -12,10 +12,7 @@
     <TrimMode>partial</TrimMode>
 
     <!-- CS0169: Buffer struct fields -->
-    <!-- IL2026/IL2087/IL2091: Trim analysis (SwiftMarshal tuple reflection) -->
-    <!-- IL3050: RequiresDynamicCode (tuple metadata MakeGenericMethod) -->
-    <!-- These are investigation artifacts, not test failures -->
-    <NoWarn>CS0169;IL2026;IL2087;IL2091;IL3050</NoWarn>
+    <NoWarn>CS0169</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

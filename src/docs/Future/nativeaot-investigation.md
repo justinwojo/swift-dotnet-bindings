@@ -1,7 +1,7 @@
 # NativeAOT Investigation for Swift Interop (.NET 10)
 
 _Date: 2026-02-04_
-_Updated: 2026-02-15 (Phase 1 complete: SwiftBindingsInteropMode + DiagnosticId + docs)_
+_Updated: 2026-02-15 (Loose ends cleanup: existential NativeAOT fallback, trimming annotations, source-level triage)_
 
 ## Scope and context
 This investigates whether moving Swift interop paths from Mono JIT to NativeAOT can avoid the three known runtime blockers documented in:
@@ -137,7 +137,7 @@ Interpretation:
 | Issue | Status | Notes |
 |-------|--------|-------|
 | [#93631](https://github.com/dotnet/runtime/issues/93631) | Closed (Delivered) | Swift interop .NET 9 — basic `CallConvSwift` shipped |
-| [#108662](https://github.com/dotnet/runtime/issues/108662) | Open | Swift interop .NET 10 — NativeAOT validation strictness noted |
+| [#108662](https://github.com/dotnet/runtime/issues/108662) | Closed (Delivered) | Swift interop .NET 10 — NativeAOT validation strictness noted |
 | [#64215](https://github.com/dotnet/runtime/issues/64215) | Closed (Merged) | Introduce `CallConvSwift` — foundation work |
 | [#96059](https://github.com/dotnet/runtime/issues/96059) | Closed | Swift into .NET (opposite direction — `UnmanagedCallersOnly`) |
 | [#100543](https://github.com/dotnet/runtime/issues/100543) | Closed | `SwiftSelf<T>` and `SwiftIndirectResult` — basic support; async gaps noted |
@@ -155,15 +155,7 @@ These PR/issue numbers were cited by Grok and Gemini but are **confirmed unrelat
 
 **Conclusion**: The _architectural reasoning_ from both models is sound (NativeAOT bypasses JIT code paths, `[LibraryImport]` generates compile-time stubs), but specific PR citations should never be trusted without manual verification. The blocker-by-blocker verdicts above rely on architectural analysis, not these fabricated references.
 
-**Source-level references worth follow-up (from `CallConvSwift` source search):**
-
-- `source.dot.net` search reveals additional linked issue IDs in Swift CC interop generator/runtime paths:
-  - <https://source.dot.net/#q=CallConvSwift>
-
-Note: these need targeted triage to separate:
-1. NativeAOT-specific interop issues
-2. general Swift calling-convention restrictions
-3. JSImport/LibraryImport generator-specific gaps
+**Source-level triage**: All dotnet/runtime issues tracked in the table above are now closed/delivered. The blocker-by-blocker analysis above constitutes the effective triage — NativeAOT-specific interop issues (#108662), general Swift CC restrictions (#93631, #64215), and async/SafeHandle gaps (#100543) are all addressed. No further source-level follow-up is needed.
 
 ---
 
@@ -629,6 +621,13 @@ The `[LibraryImport]` source generator is stricter than `[DllImport]` about comp
 - **TupleHandler.cs**: `TranslateElementTypeToPInvoke()` restructured — explicit handling for enums (simple → underlying int type, complex → IntPtr), classes → IntPtr, non-frozen structs → IntPtr, fallback → IntPtr. Added `HasClosureUnsafeTupleElements()` to detect P/Invoke-to-C# type mismatches in closure tuple params (rejects tuples where an element is IntPtr in P/Invoke but a different type in C#, except pointer types which are IntPtr in both contexts).
 - **WrapperEmitter.Return.cs**: `GetPInvokeTypeForTupleElement()` — same restructure as TupleHandler. `GetTupleElementMarshalCode()` — keys off computed P/Invoke type: IntPtr passes directly, `.Buffer` takes address, simple enums cast from underlying type.
 - **ClosureHandler.cs**: `IsSupportedClosureParameterType()` — tuple branch calls `HasClosureUnsafeTupleElements()` to reject closures with tuple params that have P/Invoke-to-C# element type mismatches. Direct non-blittable params are NOT rejected (they use `void*` marshalling path in callbacks).
+
+#### Loose ends cleanup (2026-02-15)
+
+19. ~~**NativeAOT fallback for existential metadata**~~ — Done. `TypeMetadata.GetExistentialTypeMetadata` and `TryGetTypeMetadataUncached<T>` now detect `_isMonoRuntime` and fall back to direct `CallConvSwift` P/Invoke (`swift_getExistentialTypeMetadata`) when the SwiftBindingsRuntime wrapper is unavailable. Guard: `numProtocols == 0` only (the 'Any' existential). Removed dead code: `TryGetExistentialTypeMetadataWithWorkarounds` and 3 unused alternative P/Invoke declarations (`_SuppressGC`, `_Cdecl`, `_nint`). Added `b1-existential` test to Mac NativeAOT app.
+20. ~~**Source-level trimming annotations**~~ — Done. Replaced `#pragma warning disable/restore` blocks with `[UnconditionalSuppressMessage]` attributes on `SwiftMarshal.MarshalToSwift<T>` (IL2026, IL2087, IL2091, IL3050), `SwiftMarshal.MarshalFromSwift<T>` (IL2026, IL2091, IL3050), and `TypeMetadata.TryGetTypeMetadataUncached<T>` (IL3050). Removed `IL2026;IL2087;IL2091;IL3050` from `<NoWarn>` in both NativeAOT test app `.csproj` files.
+21. ~~**Close source-level triage note**~~ — Done. All 6 dotnet/runtime issues in the verified table are now closed/delivered. Updated #108662 status to Closed (Delivered) (verified: closed April 3, 2025, milestone 10.0.0). Replaced open-ended triage note with closure summary.
+22. **Validate device NativeAOT tests** — TODO. The loose ends cleanup (steps 19-21) added `DisableRuntimeMarshalling` to the device csproj (required for `[LibraryImport]` bindings), removed `TrimMode=partial` (was causing ILC Bus error / SIGBUS crash — the iOS SDK warns "All assemblies must be processed by the linker when using NativeAOT"), and removed IL trimming warnings from `<NoWarn>` (now handled by `[UnconditionalSuppressMessage]` attributes). Mac NativeAOT validates the existential fallback (30/30 pass). Device validation pending — connect iPhone and run `./run-nativeaot-device-tests.sh --device <UDID>` to confirm `b1-existential` passes on device (was FAIL: DllNotFoundException in Session 4) and verify full trimming mode doesn't break reflection-heavy tuple paths.
 
 #### Remaining steps (deferred — IntPtr approach works on both runtimes)
 

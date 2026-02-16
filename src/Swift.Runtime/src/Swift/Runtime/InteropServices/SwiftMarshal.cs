@@ -23,6 +23,10 @@ public static class SwiftMarshal
     /// <param name="value">The value to marshal</param>
     /// <param name="swiftDestSpan">the destination for marshaling</param>
     /// <returns>the number of bytes written to the destination</returns>
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Tuple marshalling path only; non-tuple paths are AOT-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
     public static int MarshalToSwift<T>(T value, ref Span<byte> swiftDestSpan)
     {
         if (value is ISwiftObject swiftValue)
@@ -51,12 +55,10 @@ public static class SwiftMarshal
         // Handle tuple types (ValueTuple<T1, T2, ...>)
         // Note: Tuple marshalling uses reflection internally, but this is intentional
         // for the generic runtime path. Generated bindings use inline code instead.
-#pragma warning disable IL3050, IL2026, IL2087, IL2091 // Suppressing trimming/AOT warnings for tuple marshalling
         if (TypeMetadata.IsValueTupleType(type))
         {
             return MarshalTupleToSwift(value, type, ref swiftDestSpan);
         }
-#pragma warning restore IL3050, IL2026, IL2087, IL2091
 
         // Handle delegate types (closures)
         if (typeof(Delegate).IsAssignableFrom(type))
@@ -183,6 +185,9 @@ public static class SwiftMarshal
     /// <param name="swiftSource">Memory to read from</param>
     /// <returns>The C# type created by marshaling</returns>
     /// <exception cref="NotSupportedException"></exception>
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Tuple marshalling path only; non-tuple paths are AOT-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
     public static T MarshalFromSwift<T>(IntPtr swiftSource)
     {
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
@@ -202,12 +207,10 @@ public static class SwiftMarshal
         // Handle tuple types (ValueTuple<T1, T2, ...>)
         // Note: Tuple marshalling uses reflection internally, but this is intentional
         // for the generic runtime path. Generated bindings use inline code instead.
-#pragma warning disable IL3050, IL2026, IL2091 // Suppressing trimming/AOT warnings for tuple marshalling
         if (TypeMetadata.IsValueTupleType(type))
         {
             return MarshalTupleFromSwift<T>(swiftSource);
         }
-#pragma warning restore IL3050, IL2026, IL2091
 
         // Handle delegate types (closures) - Phase 3 support
         if (typeof(Delegate).IsAssignableFrom(typeof(T)))

@@ -199,6 +199,19 @@ RunTest("b1-optional-none", () =>
         throw new Exception($"Expected None, got {opt.Case}");
 });
 
+RunTest("b1-existential", () =>
+{
+    // Existential type metadata for 'Any' (0 protocols).
+    // Under NativeAOT, this falls back to direct CallConvSwift P/Invoke
+    // (swift_getExistentialTypeMetadata) when the wrapper library is unavailable.
+    // On Mono, this requires libSwiftBindingsRuntime.dylib.
+    var metadata = TypeMetadata.GetExistentialTypeMetadata(0);
+    if (metadata.IsValid)
+        Console.WriteLine("PASS: b1-existential");
+    else
+        throw new Exception("Existential metadata is not valid");
+});
+
 // -----------------------------------------------------------------------
 // Trimming tests — MakeGenericType / reflection
 // -----------------------------------------------------------------------
