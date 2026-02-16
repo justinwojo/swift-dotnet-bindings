@@ -215,6 +215,111 @@ public class WrapperEmitterReturnTests
         Assert.DoesNotContain("return new", csOutput);
     }
 
+    [Fact]
+    public void Return_ClosureType_EmitsEscapingClosureWrapper()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Method returning a closure: (Int) -> Int
+        var closureReturnType = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+
+        var method = CreateMethodDecl(
+            name: "getTransform",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: closureReturnType,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("SwiftEscapingClosure", csOutput);
+        Assert.Contains("FromSwift", csOutput);
+    }
+
+    [Fact]
+    public void Return_Existential_EmitsProxyConstruction()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        // Method returning `any Drawable` — existential return
+        var protocolList = new ProtocolListTypeSpec(
+            new[] { new NamedTypeSpec("TestModule.Drawable") });
+
+        var method = CreateMethodDecl(
+            name: "getDrawable",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: protocolList,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("new DrawableProxy(result)", csOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithProtocol()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+                MetadataAccessor = "$s10TestModule9ContainerCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Drawable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithString()
     {
         var typeDatabase = new TypeDatabase();

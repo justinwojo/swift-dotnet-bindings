@@ -4,6 +4,12 @@
 using System.IO;
 using Xunit;
 
+// Utf8SliceEmitter uses static mutable state that production emitters also touch.
+// xUnit's default class-level parallelism causes races when handler tests (ClassHandler,
+// WitnessDispatchEmitter, etc.) trigger Utf8SliceEmitter.EmitIfNeeded concurrently.
+// The full suite runs in ~1s, so disabling parallelization has negligible cost.
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+
 namespace BindingsGeneration.Tests;
 
 /// <summary>

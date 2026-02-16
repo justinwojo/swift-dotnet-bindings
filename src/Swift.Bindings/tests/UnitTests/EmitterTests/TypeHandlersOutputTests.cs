@@ -474,9 +474,188 @@ public class TypeHandlersOutputTests
         Assert.Contains("GC.SuppressFinalize", csOutput);
     }
 
+    [Fact]
+    public void Emit_ClassHandler_Actor_SkipsUnownedExecutor()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Build a getter accessor for the "count" property so it gets fully emitted
+        var getterMethod = new MethodDecl
+        {
+            Name = "count",
+            MangledName = "$s10TestModule9DataStoreC5countSivg",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, // set after classDecl created
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var classDecl = new ClassDecl
+        {
+            Name = "DataStore",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataStore"),
+            MangledName = "$s10TestModule9DataStoreCN",
+            IsActor = true,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "unownedExecutor",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.UnownedSerialExecutor"),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new()
+                {
+                    Name = "count",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsStatic = false,
+                    HasStorage = false,
+                    Accessors = new List<AccessorDecl>
+                    {
+                        new GetAccessorDecl { Method = getterMethod }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        getterMethod.ParentDecl = classDecl;
+
+        var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
+
+        // Actor type should still emit a class declaration
+        Assert.Contains("public partial class DataStore", csOutput);
+        // Non-runtime property "count" should be emitted (proves actor gate is selective)
+        Assert.Contains("Count", csOutput);
+        // unownedExecutor should be skipped (actor runtime property)
+        Assert.DoesNotContain("UnownedExecutor", csOutput);
+        Assert.DoesNotContain("unownedExecutor", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_StoredValueTypeProperty_EmitsTypedField()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Counter", moduleDecl, isFrozen: true, requiresMemoryManagement: false);
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        Assert.Contains("private long count_", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_StoredRefTypeProperty_EmitsIntPtrField()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Person", moduleDecl, isFrozen: true, requiresMemoryManagement: true);
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        Assert.Contains("private IntPtr name_", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         return new TypeDatabase();
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithSwiftInt()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithSwiftString()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        return typeDatabase;
     }
 
     private static ModuleDecl CreateModuleDecl(string name)

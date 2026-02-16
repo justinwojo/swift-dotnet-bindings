@@ -1,6 +1,6 @@
 # Emitter Test Evaluation & Audit
 
-> Generated 2026-02-16 (revised 2026-02-16 — Codex review fixes + Hashable/Finalizer/StringEnum changes). Comprehensive audit of all 67 files in `src/Swift.Bindings/src/Emitter/` against 2700+ unit tests.
+> Generated 2026-02-16 (revised 2026-02-16 — Sessions 1–4 complete). Comprehensive audit of all 67 files in `src/Swift.Bindings/src/Emitter/` against 2900+ unit tests.
 
 ---
 
@@ -157,17 +157,17 @@ Trivial base class. No tests needed.
 
 ### ClassHandler
 
-**Coverage**: `ClassHandlerTests.cs` (614 lines) tests **data model only** (factory pattern, declaration construction). `TypeHandlersOutputTests.cs` has 5 actual emission tests.
+**Coverage**: `ClassHandlerTests.cs` (614 lines) tests **data model only** (factory pattern, declaration construction). `TypeHandlersOutputTests.cs` has 6 actual emission tests including actor `unownedExecutor` skipping.
 
 **SYSTEMIC ISSUE**: Tests prove the model accepts data, NOT that the emitter processes it correctly. Property dedup tests manually reimplement detection logic rather than calling the handler.
 
 **Code Issues**:
-- Actor-specific code path (lines 116-138) has NO test coverage
+- Actor-specific code path (lines 116-138) now tested (`Emit_ClassHandler_Actor_SkipsUnownedExecutor`)
 - `IsFinal` on `ClassDecl` is completely unused in ClassHandler
 - `ReportCollector` static state not reset between tests
 
 **Missing Tests**:
-- Actor class emission (`IsActor = true`, `unownedExecutor` skipping)
+- ~~Actor class emission (`IsActor = true`, `unownedExecutor` skipping)~~ — **DONE** (Session 4)
 - Equatable class body output (`Equals`/`GetHashCode`/operators)
 - Hashable class `GetHashCode` output — new `_implementsHashable` field emits `SwiftHashable.GetHashCode(this)` vs `return 0`, no test for either path
 - Dispose/Finalizer pattern — new `~ClassName()` with `SwiftDispose.FinalizerCleanup` + `GC.SuppressFinalize`, no test for finalizer emission
@@ -179,7 +179,7 @@ Trivial base class. No tests needed.
 
 ### FrozenStructHandler
 
-**Coverage**: `FrozenStructHandlerTests.cs` (586 lines) again tests **data model only**. `TypeHandlersOutputTests.cs` has 3 emission tests.
+**Coverage**: `FrozenStructHandlerTests.cs` (586 lines) again tests **data model only**. `TypeHandlersOutputTests.cs` has 5 emission tests including stored property field emission (value-type and ref-type).
 
 **Code Issues**:
 - **BUG (line 73)**: Wrong `nameof` in exception: `nameof(structDecl.ParentDecl)` should be `nameof(structDecl.ModuleDecl)`
@@ -187,7 +187,7 @@ Trivial base class. No tests needed.
 - Line 200: Asymmetric indent management (`csWriter.Indent -= 2` without matching increment)
 
 **Missing Tests**:
-- Struct with stored properties (value type and reference type)
+- ~~Struct with stored properties (value type and reference type)~~ — **DONE** (Session 4)
 - Operator emission output
 - Equatable frozen struct
 - Hashable frozen struct — new `_implementsHashable` path in `EqualityMethodsWriter`, untested
@@ -243,8 +243,8 @@ Trivial base class. No tests needed.
 - No test for failable constructor (`IsFailable`)
 
 **MethodSignature.cs**:
-- `Signature.GetCallArgumentString` (57 lines, 25+ pattern branches) has **ZERO direct tests**. This is the most dangerous coverage gap -- incorrect call argument strings produce runtime P/Invoke crashes, not compile errors.
-- `WrapperSignatureBuilder.HandleReturnType()` and `HandleArguments()` have many untested branches (closure return, existential return, generic return, native remapping)
+- `Signature.GetCallArgumentString` (57 lines, 25+ pattern branches) now has **26 direct tests** covering all major branches (SafeHandle, enum, existential, closure, async, Cdecl closure, ObjC bridged, native remapped, self variants).
+- `WrapperSignatureBuilder.HandleReturnType()` and `HandleArguments()` have many untested branches (generic return, native remapping)
 
 ### PropertyHandler
 
@@ -355,9 +355,9 @@ Trivial base class. No tests needed.
 
 ### ClosureEmitter (6 files, ~1500 lines total)
 
-**Coverage**: **17 of 22 public methods have ZERO direct tests.** All coverage is indirect through `MethodHandler.Emit()` in `ClosureCdeclEmitterTests.cs` (37 tests). `CompletionHandlerDetector` is the exception with 20 well-focused direct tests.
+**Coverage**: **14 of 22 public methods have ZERO direct tests.** Most coverage is indirect through `MethodHandler.Emit()` in `ClosureCdeclEmitterTests.cs` (37 tests). `CompletionHandlerDetector` is the exception with 20 well-focused direct tests.
 
-**Only directly tested**: `AddCdeclContextToFunctionPointerType` (3 tests)
+**Directly tested**: `AddCdeclContextToFunctionPointerType` (3 tests), `EmitEscapingClosureCallback` (2 tests — Swift + Cdecl modes), `EmitClosureReturnMarshalling` (1 test — non-void return)
 
 **Code Issues**:
 - **DEAD CODE**: `EmitAsyncThrowingClosureSwiftHelpers()` (line 188, ClosureEmitter.Async.cs) is public but never called from any production code
@@ -413,13 +413,13 @@ Trivial base class. No tests needed.
 
 ### WrapperEmitter.Return.cs (624 lines)
 
-**Coverage**: Only 4 tests for ~20 code paths.
+**Coverage**: 10 tests for ~20 code paths. Closure return and existential return paths added in Session 4.
 
 **Code Issues**:
 - Line 203-208: Class return allocates via `NativeMemory.Alloc` with no try/finally -- memory leak on exception
 - Line 169: `result.Equals(default({containerType}))` uses reflection-based `ValueType.Equals()` for struct comparison
 
-**Missing Tests**: Constructor returns, closure returns, existential returns, generic returns, void returns, ObjC bridged returns, SwiftString/SwiftArray/SwiftOptional conversions
+**Missing Tests**: Constructor returns, ~~closure returns~~, ~~existential returns~~, generic returns, ~~void returns~~, ObjC bridged returns, SwiftArray/SwiftOptional conversions
 
 ### WrapperEmitter.Marshalling.cs (703 lines)
 
@@ -697,13 +697,45 @@ All 13 bugs fixed (2026-02-16). 2782 unit tests + 699 integration tests passing,
 
 | Tier | DONE | PARTIAL | OPEN (deferred) |
 |------|------|---------|-----------------|
-| Tier 1 (6 items) | 3 | 3 | 0 |
-| Tier 2 (10 items) | 2 | 2 | 6 |
+| Tier 1 (6 items) | 4 | 2 | 0 |
+| Tier 2 (10 items) | 4 | 3 | 3 |
 | Tier 3 (9 items) | 5 | 1 | 3 |
 
-**Remaining OPEN items** (deferred — require test infrastructure that doesn't exist):
-- ModuleEmitter `EmitModule` (file I/O mocking)
-- WrapperEmitter `EmitFailableFactory` (full MethodEnvironment construction)
-- ClassHandler actor emission, FrozenStructHandler stored properties, constructor happy path
-- EveryProtocolEmitter global dedup
-- AsyncStreamEmitter standalone, WrapperEmitter.Marshalling, ModuleHandler composition proxy
+**Remaining OPEN items** (not worth the investment):
+- ModuleEmitter `EmitModule` — file I/O orchestration, actual emission logic already tested via handlers
+- EveryProtocolEmitter global dedup — hard to test directly, better caught at integration level
+- AsyncStreamEmitter standalone — core path already validated via PropertyHandlerTests
+- WrapperEmitter.Marshalling SafeHandle — runtime ref-counting concern, not generator output
+
+### Session 4: High-Value Regression Tests — COMPLETE
+
+19 new tests across 4 files, targeting crash-prone code paths where bugs manifest as runtime P/Invoke crashes. Also fixed 1 pre-existing test race condition.
+
+#### 4.1 GetCallArgumentString — 11 new tests ✓
+**File:** `GetCallArgumentStringTests.cs` (15 → 26 tests)
+**Tests added:** AsyncCallback, AsyncErrorCallback, AsyncContext, AsyncTask, CdeclClosureFuncPtr, CdeclClosureContext, AsyncThrowingContext, AsyncThrowingStartFunc, ObjCBridged, NativeRemappedSafeHandle, NativeRemapped. Covers all remaining non-trivial branches in `Signature.GetCallArgumentString`.
+
+#### 4.2 Closure/existential return paths — 2 new tests ✓
+**File:** `WrapperEmitterReturnTests.cs` (8 → 10 tests)
+**Tests added:** `Return_ClosureType_EmitsEscapingClosureWrapper` (ClosureTypeSpec return → SwiftEscapingClosure marshalling), `Return_Existential_EmitsProxyConstruction` (ProtocolListTypeSpec return → Proxy construction). Optional class return dropped — requires complex `Optional<T>` generic resolution better suited to integration tests.
+
+#### 4.3 Constructor emission — DROPPED (already covered)
+`ConstructorHandlerOutputTests.cs` already has 10 tests covering struct/class/failable/closure/throwing constructors.
+
+#### 4.4 ClosureEmitter direct tests — 3 new tests ✓
+**File:** `ClosureEmitterDirectTests.cs` (NEW, 3 tests)
+**Tests added:** `EmitClosureReturnMarshalling_NonVoidReturn_EmitsEscapingClosure`, `EmitEscapingClosureCallback_SwiftMode_EmitsCallConvSwift`, `EmitEscapingClosureCallback_CdeclMode_EmitsCallConvCdecl`. Directly tests `ClosureEmitter` static methods with `ClosureTypeSpec` + `ClosureHandler(typeDatabase)`.
+
+#### 4.5 ClassHandler actor emission — 1 new test ✓
+**File:** `TypeHandlersOutputTests.cs`
+**Test added:** `Emit_ClassHandler_Actor_SkipsUnownedExecutor` — verifies `unownedExecutor` property is skipped while non-runtime properties (Count with real getter accessor) still emit. Uses `CreateTypeDatabaseWithSwiftInt()` for type resolution.
+
+#### 4.6 FrozenStructHandler stored property fields — 2 new tests ✓
+**File:** `TypeHandlersOutputTests.cs`
+**Tests added:** `Emit_FrozenStructHandler_StoredValueTypeProperty_EmitsTypedField` (Swift.Int → `private long count_`), `Emit_FrozenStructHandler_StoredRefTypeProperty_EmitsIntPtrField` (Swift.String → `private IntPtr name_`). Mixed-properties test dropped — two single-property tests provide equivalent regression coverage.
+
+#### Infrastructure fix: Utf8SliceEmitterTests parallelization race ✓
+**File:** `Utf8SliceEmitterTests.cs`
+Added `[assembly: CollectionBehavior(DisableTestParallelization = true)]`. `Utf8SliceEmitter` uses static mutable state that production emitters touch during parallel test execution. Suite runs in ~1s, so negligible cost.
+
+**Verification: 2910 unit tests passing, 0 failures.**

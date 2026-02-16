@@ -130,4 +130,96 @@ public class GetCallArgumentStringTests
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("count", result);
     }
+
+    [Fact]
+    public void GetCallArgumentString_AsyncCallback_ReturnsName()
+    {
+        var param = new Parameter("AsyncCallback", "onComplete");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Equal("onComplete", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_AsyncErrorCallback_ReturnsName()
+    {
+        var param = new Parameter("AsyncErrorCallback", "onError");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Equal("onError", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_AsyncContext_ReturnsNull()
+    {
+        var param = new Parameter("AsyncContext", "context");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Equal("null", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_AsyncTask_ReturnsGCHandleConversion()
+    {
+        var param = new Parameter("AsyncTask", "task");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Equal("GCHandle.ToIntPtr(task)", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_CdeclClosureFuncPtr_ReturnsHandleGuard()
+    {
+        var param = new Parameter("CdeclClosureFuncPtr:onComplete:handler", "funcPtr");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Contains("handlerHandle.IsAllocated", result);
+        Assert.Contains("s_onComplete", result);
+        Assert.Contains("IntPtr.Zero", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_CdeclClosureContext_ReturnsHandleGuard()
+    {
+        var param = new Parameter("CdeclClosureContext:handler", "context");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Contains("handlerHandle.IsAllocated", result);
+        Assert.Contains("GCHandle.ToIntPtr(handlerHandle)", result);
+        Assert.Contains("IntPtr.Zero", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_AsyncThrowingContext_ReturnsContextPtr()
+    {
+        var param = new Parameter("AsyncThrowingContext:callback", "ctx");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Equal("callbackContextPtr", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_AsyncThrowingStartFunc_ReturnsStartFunc()
+    {
+        var param = new Parameter("AsyncThrowingStartFunc:onStart", "startFunc");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Equal("s_onStart_Start", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_ObjCBridged_ReturnsHandle()
+    {
+        var param = new Parameter("ObjCBridged:UIImage", "image");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Equal("imageHandle", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_NativeRemappedSafeHandle_ReturnsSwiftPayload()
+    {
+        var param = new Parameter("NativeRemappedSafeHandle", "url");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Equal("urlSwift.Payload", result);
+    }
+
+    [Fact]
+    public void GetCallArgumentString_NativeRemapped_ReturnsSwiftSuffix()
+    {
+        var param = new Parameter("NativeRemapped:URL", "url");
+        var result = Signature.GetCallArgumentString(param);
+        Assert.Equal("urlSwift", result);
+    }
 }
