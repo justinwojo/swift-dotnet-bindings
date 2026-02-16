@@ -444,6 +444,69 @@ public class TypeConversionHandler
         return null;
     }
 
+    #region Disposal Helpers
+
+    /// <summary>
+    /// Determines whether a property getter's return value needs disposal via <c>using</c>.
+    /// True when the getter returns an IDisposable wrapper that is converted to a value type
+    /// (e.g., SwiftString→string copies the data, so the SwiftString can be disposed).
+    /// False for SwiftArray (the returned IReadOnlyList IS the array — disposing invalidates it)
+    /// and Data (struct, not IDisposable).
+    /// </summary>
+    public bool RequiresGetterDisposal(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        // SwiftString: .ToString() copies data, original is disposable
+        if (IsSwiftString(namedTypeSpec))
+            return true;
+
+        // SwiftOptional: wrapper needs disposal after cast/unwrap
+        if (IsSwiftOptional(namedTypeSpec))
+            return true;
+
+        // URL: .ToNSUrl() copies, original URL is IDisposable
+        if (IsFoundationURL(namedTypeSpec))
+            return true;
+
+        // SwiftArray: returned IReadOnlyList IS the array — do NOT dispose
+        // Data: struct, not IDisposable
+        return false;
+    }
+
+    /// <summary>
+    /// Determines whether a property setter's converted value needs disposal via <c>using</c>.
+    /// True when the setter creates an IDisposable wrapper from the idiomatic value
+    /// (e.g., <c>new SwiftString(value)</c>). False for Data (struct, not IDisposable).
+    /// </summary>
+    public bool RequiresSetterDisposal(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedTypeSpec)
+            return false;
+
+        // SwiftString: new SwiftString(value) creates disposable
+        if (IsSwiftString(namedTypeSpec))
+            return true;
+
+        // SwiftArray: FromEnumerable() creates disposable
+        if (IsSwiftArray(namedTypeSpec))
+            return true;
+
+        // SwiftOptional: NewSome()/NewNone() creates disposable
+        if (IsSwiftOptional(namedTypeSpec))
+            return true;
+
+        // URL: conversion creates disposable URL
+        if (IsFoundationURL(namedTypeSpec))
+            return true;
+
+        // Data: struct, not IDisposable
+        return false;
+    }
+
+    #endregion
+
     #region Native Type Remapping (URL → NSUrl, Data → NSData)
 
     /// <summary>

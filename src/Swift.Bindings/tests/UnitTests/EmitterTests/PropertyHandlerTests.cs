@@ -369,10 +369,111 @@ public class PropertyHandlerTests
 
         // Property type should be idiomatic string
         Assert.Contains("public string Name", csOutput);
-        // Getter should bridge via .ToString()
-        Assert.Contains("get => Name_Get().ToString();", csOutput);
-        // Setter should bridge via new SwiftString(value)
-        Assert.Contains("set => Name_Set(new SwiftString(value));", csOutput);
+        // Getter should use block-bodied with using disposal (SwiftString is IDisposable)
+        Assert.Contains("get { using var __ret = Name_Get(); return __ret.ToString(); }", csOutput);
+        // Setter should use block-bodied with using disposal (new SwiftString creates IDisposable)
+        Assert.Contains("set { using var __val = new SwiftString(value); Name_Set(__val); }", csOutput);
+    }
+
+    [Fact]
+    public void Emit_SwiftArrayProperty_EmitsIReadOnlyListWithCorrectDisposal()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Container", moduleDecl);
+        var arrayType = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "items", arrayType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Property type should be IReadOnlyList<long>
+        Assert.Contains("public IReadOnlyList<long> Items", csOutput);
+        // Getter: SwiftArray IS the returned IReadOnlyList — NO using (disposing would invalidate it)
+        Assert.DoesNotContain("using var __ret", csOutput);
+        Assert.Contains("get => Items_Get();", csOutput);
+        // Setter: FromEnumerable creates a disposable SwiftArray — needs using
+        Assert.Contains("using var __val", csOutput);
+        Assert.Contains("SwiftArray<long>.FromEnumerable(value)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_SwiftOptionalStringProperty_EmitsNullableStringWithDisposal()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Profile", moduleDecl);
+        var optionalStringType = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String"));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "nickname", optionalStringType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Property type should be string?
+        Assert.Contains("public string? Nickname", csOutput);
+        // Getter: SwiftOptional is IDisposable — needs using
+        Assert.Contains("using var __ret", csOutput);
+        // Setter: SwiftOptional.NewSome/NewNone creates IDisposable — needs using
+        Assert.Contains("using var __val", csOutput);
+    }
+
+    [Fact]
+    public void Emit_SwiftOptionalIntProperty_EmitsNullableLongWithDisposal()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Settings", moduleDecl);
+        var optionalIntType = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int"));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "timeout", optionalIntType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Property type should be long?
+        Assert.Contains("public long? Timeout", csOutput);
+        // Getter: SwiftOptional is IDisposable — needs using, cast-based conversion
+        Assert.Contains("using var __ret", csOutput);
+        Assert.Contains("((long?)__ret)", csOutput);
+        // Setter: SwiftOptional.NewSome/NewNone creates IDisposable — needs using
+        Assert.Contains("using var __val", csOutput);
+        Assert.Contains("SwiftOptional<long>.NewSome", csOutput);
+    }
+
+    [Fact]
+    public void Emit_URLProperty_EmitsNSUrlWithDisposal()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFoundationTypes();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("WebClient", moduleDecl);
+        var urlType = new NamedTypeSpec("Foundation.URL");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "baseUrl", urlType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Property type should be Foundation.NSUrl (native remapped)
+        Assert.Contains("Foundation.NSUrl", csOutput);
+        // Getter: URL is IDisposable — needs using
+        Assert.Contains("get { using var __ret = BaseUrl_Get(); return __ret.ToNSUrl(); }", csOutput);
+        // Setter: URL.FromNSUrl creates IDisposable — needs using
+        Assert.Contains("set { using var __val = Swift.URL.FromNSUrl(value); BaseUrl_Set(__val); }", csOutput);
+    }
+
+    [Fact]
+    public void Emit_DataProperty_EmitsNSDataWithoutDisposal()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFoundationTypes();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataStore", moduleDecl);
+        var dataType = new NamedTypeSpec("Foundation.Data");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "payload", dataType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Property type should be Foundation.NSData (native remapped)
+        Assert.Contains("Foundation.NSData", csOutput);
+        // Getter: Data is a struct (NOT IDisposable) — expression-bodied, no using
+        Assert.Contains("get => Payload_Get().ToNSData();", csOutput);
+        Assert.DoesNotContain("using var __ret", csOutput);
+        // Setter: Data is a struct — expression-bodied, no using
+        Assert.Contains("set => Payload_Set(Swift.Data.FromNSData(value));", csOutput);
+        Assert.DoesNotContain("using var __val", csOutput);
     }
 
     #endregion
@@ -623,6 +724,26 @@ public class PropertyHandlerTests
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct
             });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum
+            });
         typeDatabase.AddModuleDatabase(swiftModule);
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         testModule.RegisterType(
@@ -636,6 +757,36 @@ public class PropertyHandlerTests
                 Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithFoundationTypes()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "URL"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+                MetadataAccessor = "$s10Foundation3URLVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl")
+            });
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "Data"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                MetadataAccessor = "$s10Foundation4DataVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData")
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
         return typeDatabase;
     }
 

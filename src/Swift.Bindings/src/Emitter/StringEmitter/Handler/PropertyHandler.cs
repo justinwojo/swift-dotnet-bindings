@@ -474,11 +474,37 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var returnConversion = propertyEnv.TypeConversionHandler.GetReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec, typeTranslator);
         if (returnConversion != null)
         {
-            csWriter.WriteLine($"get => {returnConversion};");
+            // Emit with using disposal if the getter returns an IDisposable wrapper
+            if (propertyEnv.TypeConversionHandler.RequiresGetterDisposal(propertyDecl.SwiftTypeSpec))
+            {
+                var usingReturnConversion = propertyEnv.TypeConversionHandler.GetReturnConversion("__ret", propertyDecl.SwiftTypeSpec, typeTranslator);
+                csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return {usingReturnConversion}; }}");
+            }
+            else
+            {
+                csWriter.WriteLine($"get => {returnConversion};");
+            }
         }
         else
         {
-            csWriter.WriteLine($"get => {methodName}();");
+            // Fallback: check for native type remapping (URL → NSUrl, Data → NSData)
+            var nativeReturnConversion = propertyEnv.TypeConversionHandler.GetNativeReturnConversion($"{methodName}()", propertyDecl.SwiftTypeSpec);
+            if (nativeReturnConversion != null)
+            {
+                if (propertyEnv.TypeConversionHandler.RequiresGetterDisposal(propertyDecl.SwiftTypeSpec))
+                {
+                    var usingNativeConversion = propertyEnv.TypeConversionHandler.GetNativeReturnConversion("__ret", propertyDecl.SwiftTypeSpec);
+                    csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return {usingNativeConversion}; }}");
+                }
+                else
+                {
+                    csWriter.WriteLine($"get => {nativeReturnConversion};");
+                }
+            }
+            else
+            {
+                csWriter.WriteLine($"get => {methodName}();");
+            }
         }
     }
 
@@ -508,11 +534,35 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var paramConversion = propertyEnv.TypeConversionHandler.GetParameterConversion("value", propertyDecl.SwiftTypeSpec, typeTranslator);
         if (paramConversion != null)
         {
-            csWriter.WriteLine($"set => {methodName}({paramConversion});");
+            // Emit with using disposal if the setter creates an IDisposable wrapper
+            if (propertyEnv.TypeConversionHandler.RequiresSetterDisposal(propertyDecl.SwiftTypeSpec))
+            {
+                csWriter.WriteLine($"set {{ using var __val = {paramConversion}; {methodName}(__val); }}");
+            }
+            else
+            {
+                csWriter.WriteLine($"set => {methodName}({paramConversion});");
+            }
         }
         else
         {
-            csWriter.WriteLine($"set => {methodName}(value);");
+            // Fallback: check for native type remapping (NSUrl → URL, NSData → Data)
+            var nativeParamConversion = propertyEnv.TypeConversionHandler.GetNativeParameterConversion("value", propertyDecl.SwiftTypeSpec);
+            if (nativeParamConversion != null)
+            {
+                if (propertyEnv.TypeConversionHandler.RequiresSetterDisposal(propertyDecl.SwiftTypeSpec))
+                {
+                    csWriter.WriteLine($"set {{ using var __val = {nativeParamConversion}; {methodName}(__val); }}");
+                }
+                else
+                {
+                    csWriter.WriteLine($"set => {methodName}({nativeParamConversion});");
+                }
+            }
+            else
+            {
+                csWriter.WriteLine($"set => {methodName}(value);");
+            }
         }
     }
 

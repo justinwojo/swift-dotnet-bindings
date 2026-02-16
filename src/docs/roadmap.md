@@ -52,19 +52,43 @@ Items grouped by shared code paths, shared context, and realistic single-session
 
 ---
 
-### Session 16: Roslyn Analyzer
+### ~~Session 16: Roslyn Analyzer~~ (Deprioritized — not needed)
 
-**Priority**: P3 | **Type**: Implementation | **Risk**: Low
+**Priority**: ~~P3~~ Deprioritized | **Type**: ~~Implementation~~ | **Risk**: Low
 
-Entirely new project — a Roslyn analyzer that warns when `ISwiftObject` types aren't disposed. No overlap with any generator code. Requires Roslyn analyzer development experience but is self-contained.
+**Decision**: After analysis, this work is unnecessary for our target runtime.
+
+The original goal was to warn at compile time when `ISwiftObject` types aren't disposed, preventing memory leaks. However:
+
+1. **NativeAOT (production target for physical devices)**: The finalizer safety net added in Session 15 (`SwiftDispose.FinalizerCleanup`) already handles automatic cleanup. When the GC collects an undisposed Swift object, the finalizer calls `_payload.Dispose()` → VWT Destroy (ARC decrement) + `NativeMemory.Free`. **No leak occurs even without explicit Dispose.**
+
+2. **Mono/JIT (simulator only, local dev)**: The finalizer is intentionally a no-op (avoids `jit-info.c:918` JIT crash), so undisposed objects leak Swift-side memory. But simulators are purely for local development — transient leaks during testing are a non-issue.
+
+3. **SwiftString specifically**: Methods and properties both convert `SwiftString` ↔ `string` at the public API boundary via `TypeConversionHandler`. Consumers never interact with `SwiftString` directly. Property temporaries are properly disposed via `using var` (Session 16b).
+
+The analyzer would only encourage *deterministic* cleanup (free sooner rather than waiting for GC), which is a best practice but not a leak prevention tool. Not worth the implementation cost of a new Roslyn analyzer project.
 
 | Item | Priority | Effort | Description |
 |------|----------|--------|-------------|
-| **Analyzer for undisposed Swift objects** | P3 | Medium | Warn on `ISwiftObject` / `SwiftSafeHandle<T>` locals without `using`, fields without dispose in containing type. Package in `Swift.Runtime` NuGet. |
+| ~~Analyzer for undisposed Swift objects~~ | Deprioritized | Medium | Not needed — NativeAOT finalizer handles automatic cleanup. Mono (simulator-only) leaks are acceptable for local dev. |
 
-**Key files**: New analyzer project, `Swift.Runtime` NuGet packaging
-**Verification**: Analyzer unit tests + manual validation in a test consumer project
 **Design**: `Future/roslyn-analyzer-plan.md`
+
+---
+
+### ~~Session 16b: Property Disposal & Native Remapping~~ (Done)
+
+**Priority**: P2 | **Type**: Done | **Risk**: Low
+
+| Item | Status | Summary |
+|------|--------|---------|
+| **`using` disposal for property temporaries** | Done | Property getters/setters now emit `using var` for IDisposable wrapper temporaries (SwiftString, SwiftOptional, URL). SwiftArray getter keeps expression-bodied (returned IReadOnlyList IS the array). Data (struct) skips disposal. `RequiresGetterDisposal()`/`RequiresSetterDisposal()` helpers on TypeConversionHandler. |
+| **Native type remapping in property bodies** | Done | EmitGetter/EmitSetter now fall back to `GetNativeReturnConversion`/`GetNativeParameterConversion` for URL→NSUrl, Data→NSData when idiomatic conversion doesn't apply. URL uses `using` (IDisposable), Data uses expression-bodied (struct). |
+| **Property disposal unit tests** | Done | Updated existing SwiftString test, added SwiftArray, SwiftOptional<String>, URL, and Data property tests verifying correct disposal patterns. |
+
+**Deferred**: Protocol proxy receiver disposal (separate concern — affects witness dispatch architecture, needs dedicated testing).
+
+**Key files**: `PropertyHandler.cs` (EmitGetter/EmitSetter), `TypeConversionHandler.cs` (disposal helpers), `PropertyHandlerTests.cs`
 
 ---
 
@@ -229,7 +253,8 @@ Workarounds exist for all. Not blocking any library validation.
 |---------|----------|------|--------|-------|
 | ~~14. Consumer API Polish~~ | P1 | Done | Medium | `IDisposable`, `[EditorBrowsable]`, shared helpers, SwiftString in factories, module stutter |
 | ~~15. Type System Quality~~ | P1/P2 | Done | Medium-Hard | `GetHashCode`, enum param naming, String enums as C# enum, finalizer, Info suffix |
-| **16. Roslyn Analyzer** | P3 | Implement | Medium | Undisposed ISwiftObject warnings |
+| ~~16. Roslyn Analyzer~~ | ~~P3~~ | Deprioritized | — | Not needed — NativeAOT finalizer handles cleanup |
+| ~~16b. Property Disposal~~ | P2 | Done | Small | `using var` disposal + URL/Data native remapping in property bodies |
 | **17. API Snapshots** | P3 | Implement | Medium | API surface drift detection |
 | **18. CI Integration** | P3 | Implement | Large | GitHub Actions tiered pipeline |
 | **19. Perf Benchmarks** | P3 | Implement | Medium | Interop overhead measurement |

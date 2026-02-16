@@ -5,8 +5,8 @@ paths:
 
 # Emitter Architecture
 
-## Type Projection Asymmetry
-- **Properties** use `SwiftString` (no type conversion, IsAccessor=true)
+## Type Projection
+- **Properties** use idiomatic types (string, IReadOnlyList, T?) with conversion+disposal in getter/setter bodies. IsAccessor=true keeps accessor methods in raw types.
 - **Methods** use idiomatic `string` (TypeConversionHandler applies conversion)
 - Proxies must use the correct C# type for each context
 
