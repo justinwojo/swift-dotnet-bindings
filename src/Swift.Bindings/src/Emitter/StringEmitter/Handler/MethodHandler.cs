@@ -722,6 +722,13 @@ namespace BindingsGeneration
                     {
                         var idiomaticType = methodEnv.TypeConversionHandler.GetIdiomaticCSharpType(p.SwiftTypeSpec, isParameter: true);
                         if (idiomaticType != null) return idiomaticType;
+                        if (methodEnv.ExistentialHandler.IsExistential(p.SwiftTypeSpec))
+                        {
+                            var protocolList = methodEnv.ExistentialHandler.ToProtocolListTypeSpec(p.SwiftTypeSpec);
+                            return protocolList != null
+                                ? methodEnv.ExistentialHandler.GetPublicExistentialType(protocolList)
+                                : "object";
+                        }
                         if (methodEnv.TypeDatabase.TryGetTypeRecord(p.SwiftTypeSpec, out var record))
                             return record.CSharpTypeName.FullyQualifiedName;
                         return p.SwiftTypeSpec.ToString();
@@ -744,6 +751,18 @@ namespace BindingsGeneration
                  shape == CompletionHandlerDetector.CallbackShape.ResultWithError))
                 return;
 
+            // Guard: verify the callback result type (as seen by the lambda) is compatible with
+            // the TCS result type. The closure handler resolves types to wrapper forms (SwiftOptional<T>,
+            // SwiftArray<T>) while GetResultTypeName uses idiomatic types (T?, IEnumerable<T>).
+            // If they differ and no implicit conversion exists, the lambda can't pass through.
+            if (resultTypeName != null)
+            {
+                var resultArg = closureSpec.GetArgument(0);
+                var closureArgType = methodEnv.ClosureHandler.TranslateTypeSpecToCSharp(resultArg);
+                if (!IsCompletionResultCompatible(closureArgType, resultTypeName))
+                    return;
+            }
+
             var taskType = resultTypeName != null ? $"Task<{resultTypeName}>" : "Task";
             var tcsType = resultTypeName != null ? $"TaskCompletionSource<{resultTypeName}>" : "TaskCompletionSource<bool>";
             var tcsSetResult = resultTypeName != null ? "" : "true";
@@ -758,6 +777,15 @@ namespace BindingsGeneration
                 string paramType;
                 if (idiomaticType != null)
                     paramType = idiomaticType;
+                else if (methodEnv.ExistentialHandler.IsExistential(p.SwiftTypeSpec))
+                {
+                    // Existential parameters (any Protocol, AnyObject) use the public existential type
+                    // to match the main method's signature (e.g., "object" for AnyObject).
+                    var protocolList = methodEnv.ExistentialHandler.ToProtocolListTypeSpec(p.SwiftTypeSpec);
+                    paramType = protocolList != null
+                        ? methodEnv.ExistentialHandler.GetPublicExistentialType(protocolList)
+                        : "object";
+                }
                 else if (methodEnv.TypeDatabase.TryGetTypeRecord(p.SwiftTypeSpec, out var record))
                     paramType = record.CSharpTypeName.FullyQualifiedName;
                 else
@@ -838,6 +866,29 @@ namespace BindingsGeneration
                     }
                 }
                 """);
+        }
+
+        /// <summary>
+        /// Checks if the closure handler's callback argument type is compatible with the TCS result type.
+        /// The lambda parameter type is determined by the closure handler (e.g., SwiftOptional&lt;SwiftString&gt;),
+        /// while the TCS type is the idiomatic C# type (e.g., string?). SwiftArray&lt;T&gt; implements
+        /// IReadOnlyList&lt;T&gt; and IEnumerable&lt;T&gt;, so those conversions are compatible when element types match.
+        /// </summary>
+        private static bool IsCompletionResultCompatible(string closureType, string tcsType)
+        {
+            if (closureType == tcsType)
+                return true;
+
+            // SwiftArray<T> implements IReadOnlyList<T> and IEnumerable<T>, so check element types
+            const string arrayPrefix = "Swift.SwiftArray<";
+            if (closureType.StartsWith(arrayPrefix) && closureType.EndsWith(">"))
+            {
+                var elementType = closureType.Substring(arrayPrefix.Length, closureType.Length - arrayPrefix.Length - 1);
+                if (tcsType == $"IReadOnlyList<{elementType}>" || tcsType == $"IEnumerable<{elementType}>")
+                    return true;
+            }
+
+            return false;
         }
     }
 }

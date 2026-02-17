@@ -2,83 +2,62 @@
 
 Tracks compilation errors found when running real-world Swift libraries through the generator. Used to prioritize bug fixes and measure progress.
 
-Last validated: 2026-02-12 (Validation Pass 4 fixes applied — all C-series bugs fixed).
+Last validated: 2026-02-17 (Validation Pass 5.1 — fixed 2 regressions from Pass 5).
 
 ## Baseline Libraries (0 generator errors)
 
 | Library | Lines | Notes |
 |---------|-------|-------|
-| Nuke | 19,883 | Image loading, async/await, ObjC bridging, heavy protocol use |
-| CryptoSwift | 27,994 | Value types, frozen structs, byte arrays |
-| BlinkID | 50,554 | ObjC-heavy, delegates, callback-driven API |
-| Mappedin | 48,574 | Indoor mapping, largest library tested, clean on first try |
-| SmartCardIO | 3,915 | Smart card reader abstraction, clean build |
-| BRLMPrinterKit | 53 | Mostly ObjC with thin Swift overlay |
-| Lottie | 28,582 | Animation framework, protocol-heavy |
-| Stripe | 449 | Top-level Stripe framework, minimal Swift surface |
-| StripeApplePay | 1,880 | Apple Pay integration |
-| StripeCardScan | 2,390 | Card scanning |
-| StripeIdentity | 1,674 | Identity verification |
-| StripeIssuing | 1,213 | Card issuing |
-| Mixpanel | 6,453 | Analytics, protocol existentials |
-| StripeCore | 31,295 | Core Stripe infrastructure |
-| Alamofire | 34,677 | HTTP networking, closures, protocol composition |
-| MicroblinkPlatform | 4,522 | Document scanning, SwiftUI theme types |
-| StripeConnect | 11,632 | Stripe Connect integration |
-| StripeCryptoOnramp | 5,973 | Crypto onramp, ObjC UIViewController |
-| StripeFinancialConnections | 2,137 | Financial connections |
-| StripePaymentSheet | 45,260 | Payment UI, constructor overloads |
+| Alamofire | 41,050 | HTTP networking, closures, protocol composition |
+| BlinkID | 53,755 | ObjC-heavy, delegates, callback-driven API |
+| BRLMPrinterKit | 43 | Mostly ObjC with thin Swift overlay |
+| CryptoSwift | 30,459 | Value types, frozen structs, byte arrays |
+| Lottie | 30,299 | Animation framework, protocol-heavy |
+| Mappedin | 48,636 | Indoor mapping, existential params, completion handlers |
+| MicroblinkPlatform | 3,522 | Document scanning, SwiftUI theme types |
+| Mixpanel | 6,760 | Analytics, protocol existentials |
+| Nuke | 22,211 | Image loading, AsyncSequence properties, nested types |
+| SkeletonView | 12,094 | UI skeleton loading, previously had 9 environmental errors (now resolved) |
+| SmartCardIO | 4,514 | Smart card reader abstraction, clean build |
+
+| Stripe | 471 | Top-level Stripe framework, minimal Swift surface |
+| StripeApplePay | 2,027 | Apple Pay integration |
+| StripeCameraCore | 3,544 | Camera capture, previously had 12 environmental errors (now resolved) |
+| StripeCardScan | 2,593 | Card scanning |
+| StripeConnect | 11,692 | Stripe Connect integration |
+| StripeCore | 32,695 | Core Stripe infrastructure |
+| StripeCryptoOnramp | 6,720 | Crypto onramp, ObjC UIViewController |
+| StripeFinancialConnections | 2,382 | Financial connections |
+| StripeIdentity | 1,759 | Identity verification |
+| StripeIssuing | 1,362 | Card issuing |
+| StripePayments | 91,961 | Payments core, previously had 9 environmental errors (now resolved) |
+| StripePaymentSheet | 46,859 | Payment UI, constructor overloads |
+| StripePaymentsUI | 13,167 | Payment UI components, previously had 3 environmental errors (now resolved) |
+| StripeUICore | 29,350 | UI components, previously had 2 environmental errors (now resolved) |
+
+## Libraries with Generator Errors
+
+None. All 25 validated libraries compile at 0 generator errors as of Feb 17 (Pass 5.1).
 
 ## Libraries with Environmental Errors Only (0 generator errors)
 
-### StripePayments (9 environmental errors, 88,291 lines)
-
-| Count | CS Code | Category |
-|-------|---------|----------|
-| 5 | CS0023/CS0315 | ObjC enum types in UIKit (environmental) |
-| 4 | CS1729 | Foundation.URL constructor mismatch (environmental) |
-
-All 10 original generator errors (C6: duplicate methods + enum in callback) are fixed. Remaining errors are .NET iOS SDK gaps.
-
-### StripeUICore (2 environmental errors, 28,619 lines)
-
-| Count | CS Code | Category |
-|-------|---------|----------|
-| 2 | CS0234 | `UIKit.NSWritingDirection` not found (environmental) |
-
-All 18 original generator errors (C8: enum `.Buffer` return) are fixed. Down from 22 total.
-
-### SkeletonView (9 environmental errors, 11,718 lines)
-
-| Count | CS Code | Category |
-|-------|---------|----------|
-| 9 | CS0234 | `UIKit.NSTextAlignment` not found (environmental) |
-
-Down from 18 in previous validation — half the NSTextAlignment references no longer generated. All remaining errors are environmental.
-
-### StripePaymentsUI (3 environmental errors, 12,881 lines)
-
-| Count | CS Code | Category |
-|-------|---------|----------|
-| 3 | CS0234 | `UIKit.NSTextAlignment` not found (environmental) |
-
-Down from 6 in previous validation. Same `NSTextAlignment` environmental issue.
-
-### StripeCameraCore (12 environmental errors, 3,288 lines)
-
-| Count | CS Code | Category |
-|-------|---------|----------|
-| 4 | CS0234 | `AVFoundation.AVCaptureDeviceDeviceType` not found (environmental) |
-| 4 | CS0234 | `AVFoundation.AVCaptureDeviceAutoFocusRangeRestriction` not found (environmental) |
-| 4 | CS0234 | `AVFoundation.AVCaptureSessionPreset` not found (environmental) |
-
-All 2 original generator errors (C9: protocol proxy type mismatch) are fixed. Down from 14 total.
+No libraries currently have environmental-only errors. The 5 libraries that previously had environmental errors (SkeletonView, StripePayments, StripeUICore, StripePaymentsUI, StripeCameraCore) are now all at 0 errors as of Feb 17.
 
 ## Non-Binding Failures
 
+### Alamofire (wrapper compilation failure — reduced to 1 error in Pass 5.1)
+
+C# binding generation succeeds (41K lines, 0 compile errors), but Swift wrapper compilation fails due to `Alamofire.WebSocketTask` — an internal (non-public) type referenced in an async wrapper function. Same category as SkeletonView (`SkeletonLayer`) and Mixpanel (`ServerProxyResource`). C# bindings are validated via a standalone Test.csproj.
+
+**Pass 5 → 5.1 fixes** (reduced from multiple swiftc errors to 1):
+1. **Swift keyword escaping**: `protocol` (a Swift reserved word) used unescaped as a parameter name in `_optbuf` wrapper, producing `let protocolVal = protocol.assumingMemoryBound(...)` which is invalid Swift. Fixed by adding `NameProvider.EscapeSwiftKeyword()` — now emits `` `protocol` `` with backticks. Applied in `OptionalPointerWrapperEmitter.cs` and `ClosureEmitter.SwiftWrapper.cs`.
+2. **Raw generic type parameters**: `τ_0_0`, `τ_1_0` etc. (ABI-level names) emitted in extension wrapper blocks. These are never valid Swift identifiers. Fixed by adding `ContainsRawGenericParam` regex (`τ_\d+_\d+`) to `SwiftWrapperPostProcessor` — blocks containing these are now stripped.
+
+**Test coverage**: 29 new tests harden both fixes — 7 post-processor τ-stripping tests (`PostProcessorRawGenericParamTests`), 15 `IsSwiftKeyword`/`EscapeSwiftKeyword` tests in `NameProviderParameterTests`, and 3 keyword-escaped emission tests in `OptionalPointerWrapperTests` (verifying backtick output + dereference line).
+
 ### SkeletonView (wrapper compilation failure)
 
-C# binding generation succeeds (11.7K lines), but Swift wrapper compilation fails because `SkeletonLayer` is an **internal** class referenced in wrapper code. The wrapper generator emits Swift code referencing this type, but `swiftc` compiling against the public interface can't see it.
+C# binding generation succeeds (12K lines, 0 compile errors), but Swift wrapper compilation fails because `SkeletonLayer` is an **internal** class referenced in wrapper code. The wrapper generator emits Swift code referencing this type, but `swiftc` compiling against the public interface can't see it. C# bindings are validated via a standalone Test.csproj.
 
 **Fix approach**: `SwiftWrapperPostProcessor` should filter out wrapper functions that reference internal types.
 
@@ -94,15 +73,19 @@ Pure Objective-C framework — no Swift module found. Correctly rejected with us
 
 Pure Objective-C framework — no Swift module found.
 
-### ACSSmartCardIO (wrapper compilation failure)
+### ACSSmartCardIO (wrapper compilation failure + NuGet dependency)
 
-C# bindings compile clean. Depends on `SmartCardIO` framework — wrapper compilation fails because `swiftc` can't find the dependency module.
+C# bindings generate (2,994 lines) but the emitted `.csproj` references `SmartCardIO.Swift.iOS` NuGet package which doesn't exist, causing NU1101 on build. Wrapper compilation also fails because `swiftc` can't find the dependency module.
 
-**Fix**: Use `--framework-dependency /path/to/SmartCardIO.xcframework` (CLI) or `<SwiftFrameworkDependency Include="../SmartCardIO.xcframework" />` (MSBuild SDK). Both are now implemented.
+**Fix**: Use `--framework-dependency /path/to/SmartCardIO.xcframework` (CLI) or `<SwiftFrameworkDependency Include="../SmartCardIO.xcframework" />` (MSBuild SDK). Both are now implemented. The NuGet dependency error would resolve when a SmartCardIO NuGet package is published.
 
 ### Mixpanel (wrapper compilation failure)
 
 C# bindings compile clean (0 errors). Swift wrapper compilation fails because `ServerProxyResource` is not a public member of `Mixpanel.Mixpanel`. The swiftinterface references this type in a `#if compiler` block.
+
+### Stripe and StripeCardScan (NuGet dependency errors)
+
+C# bindings compile clean (0 CS errors). The generated `.csproj` references inter-module NuGet packages (`StripeCore.Swift.iOS`, `StripeApplePay.Swift.iOS`, etc.) that don't exist, causing NU1101 on build. C# bindings are validated via standalone Test.csproj (with `DisableRuntimeMarshallingAttribute`).
 
 ### Stripe sub-frameworks (wrapper compilation failures)
 
@@ -117,6 +100,51 @@ dotnet run --project $PROJ -- --xcframework StripePaymentSheet.xcframework \
 ```
 
 Affected: Stripe, StripeApplePay, StripeCameraCore, StripeCardScan, StripeConnect, StripeCore, StripeCryptoOnramp, StripeFinancialConnections, StripeIdentity, StripeIssuing, StripePayments, StripePaymentSheet, StripePaymentsUI, StripeUICore.
+
+## Validation Pass 5 (2026-02-17) — re-validation
+
+Re-validated all 25 libraries after Session F (Foundation auto-bridge, UnsafePointer bound-generic fix) and Session B (3 marshaler bug fixes).
+
+**Environmental errors eliminated (35 → 0):**
+- **SkeletonView**: 9 `UIKit.NSTextAlignment` errors → **0 errors**
+- **StripePayments**: 9 environmental errors (ObjC enums + Foundation.URL) → **0 errors**
+- **StripeCameraCore**: 12 `AVFoundation.AVCapture*` errors → **0 errors**
+- **StripePaymentsUI**: 3 `UIKit.NSTextAlignment` errors → **0 errors**
+- **StripeUICore**: 2 `UIKit.NSWritingDirection` errors → **0 errors**
+
+**Regressions (0 → 4 generator errors across 2 libraries):**
+- **Nuke**: 0 → **2 generator errors** (CS0102). AsyncSequence auto-bridge emits `Progress` property that collides with nested `Progress` type.
+- **Mappedin**: 0 → **2 generator errors** (CS0234). `AnyObject` parameter projected as `Swift.AnyObject` which doesn't exist in runtime.
+
+**Line count increases** across most libraries (Foundation auto-bridge emitting more bindings): Alamofire +6,373, StripePayments +3,670, BlinkID +3,201, CryptoSwift +2,465, Nuke +2,328, Lottie +1,717, StripePaymentSheet +1,599, StripeCore +1,400, StripeCryptoOnramp +747, StripeUICore +731, SmartCardIO +599, SkeletonView +376, Mixpanel +307, StripePaymentsUI +286, StripeCameraCore +256, StripeFinancialConnections +245, StripeCardScan +203, StripeApplePay +147, StripeIssuing +149, StripeIdentity +85, Mappedin +62, StripeConnect +60, Stripe +22.
+
+**Line count decreases**: MicroblinkPlatform -1,000 (Foundation auto-bridge likely consolidated some types), BRLMPrinterKit -10.
+
+**Net: 23 of 25 libraries at 0 generator errors. 2 regressions to fix. All 35 environmental errors resolved.**
+
+## Validation Pass 5.1 (2026-02-17) — regression fixes
+
+Fixed both Pass 5 generator regressions + improved Alamofire wrapper compilation. 29 new unit tests added.
+
+**Generator regression fixes (4 errors → 0, plus 15 unmasked pre-existing errors):**
+- **Nuke** (CS0102, 2 errors): AsyncSequence auto-bridge `Progress` property collided with nested `Progress` type in `ImageTask`. Root cause: `ComputeAndApplyNestedTypeRenames` excluded AsyncStream properties from the collision set because `HasUnsupportedPropertyType` treats `_Concurrency.AsyncStream` as unsupported module. Fix: added AsyncStream property names to collision set in `NameProvider.cs` so `Progress` property triggers rename of nested type to `ProgressInfo`.
+- **Mappedin** (CS0234, 2 errors → fixed, then 15 unmasked CS1503 → fixed): `AnyObject` parameter projected as `Swift.AnyObject`. Three-part fix:
+  1. **TypeDatabaseExtensions.cs**: Added `Swift.Any`/`Swift.AnyObject` → AnyType mapping in `TryGetTypeRecord` and `GetTypeRecordOrThrow`. These protocol types are module-qualified so they don't match `IsExistentialTypeName` and aren't in the type database.
+  2. **MethodHandler.cs** (async overload params): Completion handler overload `TryEmitCompletionHandlerOverload` re-resolves types from SwiftTypeSpec. AnyObject params use `ProtocolListTypeSpec` (not `NamedTypeSpec`), so the TypeDB fix didn't apply. Added existential handling via `ExistentialHandler.GetPublicExistentialType` → `object`.
+  3. **MethodHandler.cs** (completion result type guard): Fixing CS0234 unmasked 15 pre-existing CS1503 errors — completion handler overloads where the closure handler's callback type (`SwiftOptional<SwiftString>`, `SwiftArray<ExistentialContainer1>`) doesn't match the TCS result type (`string?`, `IEnumerable<AnyType>`). C# doesn't chain implicit conversions, so `SwiftOptional<SwiftString>` → `string?` fails. Added `IsCompletionResultCompatible` guard that compares closure handler type with TCS type; incompatible overloads are now skipped.
+- **Unit test fix**: `CompletionHandler_ResultWithError_EmitsErrorBranch` changed from `Optional<String>` to `Optional<Int>` (primitive type where closure handler produces `nint?` matching TCS type).
+
+**Wrapper compilation improvements — Alamofire** (multiple swiftc errors → 1):
+1. **Swift keyword escaping** — `protocol` used as parameter name without backtick escaping in `_optbuf` wrappers. Added `NameProvider.EscapeSwiftKeyword()` (`NameProvider.cs`) and applied in `OptionalPointerWrapperEmitter.cs` + `ClosureEmitter.SwiftWrapper.cs`. Consolidated duplicate `_swiftKeywords` from `EveryProtocolEmitter.cs` into `NameProvider`.
+2. **Raw generic type parameters** — `τ_0_0` ABI names in extension wrappers. Added `ContainsRawGenericParam` regex to `SwiftWrapperPostProcessor.cs` (checks `IsSilgenNameBroken`, `IsExtensionBroken`, `IsStandaloneFuncBroken`).
+3. **Remaining**: `Alamofire.WebSocketTask` internal type reference (same category as SkeletonView/Mixpanel).
+
+**Test coverage (29 new tests):**
+- `PostProcessorRawGenericParamTests` — 7 tests: τ stripping across all 3 block patterns (silgen_name, extension, standalone func) + mixed/clean preservation
+- `NameProviderParameterTests` — 15 tests: `IsSwiftKeyword` (10 keywords), `EscapeSwiftKeyword` (backtick addition + passthrough for 5 non-keywords), empty string edge case
+- `OptionalPointerWrapperTests` — 3 tests: keyword param emits backticks in Swift wrapper, non-keyword has none, dereference line uses escaped name on RHS + safe suffixed name on LHS
+
+**Net: 25 of 25 libraries at 0 generator errors. Alamofire wrapper failure reduced to single internal-type reference. Unit tests: 3171 (up from 3142).**
 
 ## Fixed Bug Patterns
 
@@ -176,12 +204,7 @@ Affected: Stripe, StripeApplePay, StripeCameraCore, StripeCardScan, StripeConnec
 
 ## Remaining Environmental (out of scope)
 
-- `UIKit.NSTextAlignment` missing from .NET iOS SDK (12 errors across SkeletonView + StripePaymentsUI)
-- `UIKit.NSWritingDirection` missing from .NET iOS SDK (2 StripeUICore errors)
-- `AVFoundation.AVCaptureDeviceDeviceType` / `AVCaptureDeviceAutoFocusRangeRestriction` / `AVCaptureSessionPreset` missing from .NET iOS SDK (12 StripeCameraCore errors)
-- ObjC enum types / Foundation.URL constructor in .NET iOS SDK (9 StripePayments errors)
-
-**Total: 35 environmental errors across 5 libraries** — all are .NET iOS SDK type gaps, not generator bugs.
+**All 35 environmental errors from Feb 12 are now resolved.** The 5 libraries that previously had environmental errors (SkeletonView, StripePayments, StripeUICore, StripePaymentsUI, StripeCameraCore) now compile clean. Generator changes eliminated the references to missing .NET iOS SDK types (`UIKit.NSTextAlignment`, `UIKit.NSWritingDirection`, `AVFoundation.AVCapture*`, ObjC enum types).
 
 ---
 

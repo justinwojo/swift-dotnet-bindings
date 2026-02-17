@@ -43,10 +43,84 @@ Established baseline AnyType counts and validated golden scenario libraries comp
 
 ### Remaining AnyType Work
 
-These were investigated but reverted. They remain open for future sessions:
+#### QuartzCore Auto-Bridging — Ready to implement
 
-- **QuartzCore auto-bridging** — QuartzCore types (CALayer, etc.) don't have a standalone C# namespace in .NET iOS (re-exported through UIKit). Lottie's `animationLayer` (`Optional<QuartzCore.CALayer>`) remains at AnyTypeFallback because of this. Potential fix: map QuartzCore types to their UIKit re-export namespaces.
-- **Context-aware `Any` translation** — Bare `Any` → `object` causes CS0311 in generics with `ISwiftObject` constraint (e.g., `Keyframe<object>`, `SwiftArray<object>`). Only `SwiftOptional<T>` has no constraint. Fix requires the marshaler to check the target generic's constraints before choosing `object` vs `AnyType`.
+**Status**: Fully researched, approach validated by Claude, Gemini, Grok, and Codex. Ready for implementation.
+
+**Problem**: Lottie's `animationLayer` (`Optional<QuartzCore.CALayer>`) remains at AnyTypeFallback. QuartzCore is not in `AppleObjCFrameworkModules`, so its types fall through to AnyType.
+
+**Key finding** (correcting original doc): QuartzCore types are NOT re-exported through UIKit. They live in the `CoreAnimation` C# namespace in .NET iOS (`Microsoft.iOS.dll`). The Swift module name `QuartzCore` does not match the C# namespace `CoreAnimation` — this is the only confirmed Apple framework with such a mismatch.
+
+**Verified .NET iOS types** (from `Microsoft.iOS.dll` string analysis):
+- **Classes**: CALayer, CAAnimation, CABasicAnimation, CAKeyframeAnimation, CAPropertyAnimation, CASpringAnimation, CAAnimationGroup, CATransition, CAEmitterLayer, CAGradientLayer, CAMetalLayer, CAReplicatorLayer, CAScrollLayer, CAShapeLayer, CATextLayer, CATiledLayer, CATransformLayer, CARenderer, CADisplayLink, CAMetalDisplayLink, CATransaction, CAValueFunction, CAEmitterCell, CAMediaTimingFunction, CAEdrMetadata
+- **Structs/Enums**: CATransform3D, CACornerMask, CAEdgeAntialiasingMask, CAContentsFormat, CACornerCurve, CADynamicRange, CAFillMode, CAGradientLayerType, CAToneMapMode, CATextLayerAlignmentMode, CATextLayerTruncationMode, CAScroll
+- **Not in .NET iOS** (string-backed constants): CALayerContentsGravity — used in Lottie ABI, must be excluded
+
+**Implementation plan** (in `TypeDatabaseExtensions.cs`):
+
+1. Add `"QuartzCore"` to `AppleObjCFrameworkModules`
+
+2. Add a namespace resolver method (consolidating the existing `ObjectiveC`→`Foundation` special case):
+   ```csharp
+   private static string ResolveObjCBridgedNamespace(string swiftModule)
+   {
+       if (swiftModule == ObjCModuleName || swiftModule == "Foundation")
+           return "Foundation";
+       if (ModuleToCSharpNamespaceOverrides.TryGetValue(swiftModule, out var ns))
+           return ns;
+       return swiftModule;
+   }
+
+   private static readonly Dictionary<string, string> ModuleToCSharpNamespaceOverrides = new(StringComparer.Ordinal)
+   {
+       { "QuartzCore", "CoreAnimation" },
+   };
+   ```
+
+3. Add QuartzCore non-class types to `AppleFrameworkValueTypes`:
+   ```
+   QuartzCore.CATransform3D, QuartzCore.CACornerMask, QuartzCore.CAEdgeAntialiasingMask,
+   QuartzCore.CAContentsFormat, QuartzCore.CACornerCurve, QuartzCore.CADynamicRange,
+   QuartzCore.CAFillMode, QuartzCore.CAGradientLayerType, QuartzCore.CAToneMapMode,
+   QuartzCore.CATextLayerAlignmentMode, QuartzCore.CATextLayerTruncationMode,
+   QuartzCore.CAScroll, QuartzCore.CALayerContentsGravity
+   ```
+   Note: Types not present in `Microsoft.iOS.dll` (like `CALayerContentsGravity`) must also be excluded — they would generate references to nonexistent C# types.
+
+4. Use `ResolveObjCBridgedNamespace()` in `CreateObjCBridgedTypeRecord` instead of inline ternary
+
+**Test plan**:
+- Unit test: `QuartzCore.CALayer` → `CoreAnimation.CALayer` (ObjCBridged class record)
+- Unit test: `QuartzCore.CATransform3D` → excluded (value type, not auto-bridged)
+- Unit test: `QuartzCore.CALayerContentsGravity` → excluded (not in .NET iOS)
+- Integration: Regenerate Lottie bindings → verify 0 AnyType (was 1)
+- Integration: Compile Lottie bindings → verify no regressions
+- Full audit: Run golden scenario libraries to confirm no new compile errors
+
+**Risk**: Low. The "KNOWN GAP" pattern (misclassifying a struct as class) produces compile-time errors, not silent runtime bugs. Any missing exclusions surface immediately.
+
+#### Context-Aware `Any` Translation — Shelved
+
+**Status**: Investigated thoroughly, **blocked by runtime limitation**. Shelved until runtime metadata enhancement.
+
+**Research summary** (Claude + Gemini + Grok + Codex review):
+- Bare `Any` (existential with 0 protocols) → `object` via `ExistentialHandler.GetPublicExistentialType()`
+- `object` causes CS0311 when used as generic arg where `ISwiftObject` constraint exists
+- Only `SwiftOptional<T>` has no `ISwiftObject` constraint, so `SwiftOptional<object>` would compile
+- **P0 blocker** (Codex): `SwiftOptional<object>` is not runtime-safe — `TypeMetadata.GetTypeMetadataOrThrow<object>()` throws because there is no Swift type metadata registration for C# `object`. The failure moves from compile-time to runtime, which is worse.
+- **P1 blocker** (Codex): Even if `HasNonSwiftObjectGenericArg` is relaxed, additional gates in `MemberEmissionValidator` and `MethodHandler` also reject when public type resolves to `"object"` — multiple code paths would need changes
+- The current AnyType fallback for bare `Any` in generic positions is the correct behavior given runtime constraints
+
+**What would unblock this** (future work):
+- Register Swift `Any` metadata in the runtime so `TypeMetadata.GetTypeMetadataOrThrow<object>()` succeeds
+- Or introduce a `SwiftAny` wrapper type that implements `ISwiftObject` and wraps an existential container
+- Either approach requires runtime library changes (`Swift.Runtime`), not just generator changes
+
+**Other interop precedents** (Gemini/Grok research):
+- Swift/Java: uses type erasure, `Any` → `Object`, constraint violations are runtime failures (worse than our compile-time skip)
+- Kotlin/Native: `Any` → `Any?` (nullable), dynamic checks at runtime
+- PythonNet: `Any` → `object`, no generics (dynamic typing)
+- Our static AnyType fallback is strictly better than all of these — compile-time skip vs runtime crash
 
 ---
 
@@ -55,6 +129,7 @@ These were investigated but reverted. They remain open for future sessions:
 | Metric | Gate | Status | Unblocked By |
 |--------|------|--------|--------------|
 | ~~Public `ExistentialContainer*` for `any Error`~~ | ~~0~~ | **Done** (mapped to `AnyError`) | ~~Session A~~ |
-| Golden scenarios AnyType reduction | 3/4 | **Partial** (BlinkID 0, Nuke 0, Lottie 1 — QuartzCore can't auto-bridge, Alamofire 32→13) | Session E + F |
+| Golden scenarios AnyType reduction | 3/4 | **Partial** (BlinkID 0, Nuke 0, Lottie 1 — QuartzCore fix ready, Alamofire 32→13) | Session F + QuartzCore fix |
+| Context-aware `Any` in generics | N/A | **Shelved** — blocked by runtime metadata (`TypeMetadata` can't resolve `object`) | Runtime `SwiftAny` type |
 | ~~Typed Swift error exceptions~~ | ~~Yes~~ | **Done** | ~~Session B~~ |
 | ~~Async cancellation support~~ | ~~Yes~~ | **Done** | ~~Session C~~ |

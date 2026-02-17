@@ -275,11 +275,14 @@ public class CompletionHandlerDetectorTests
     [Fact]
     public void CompletionHandler_ResultWithError_EmitsErrorBranch()
     {
-        var optionalString = new NamedTypeSpec("Swift.Optional");
-        optionalString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        // Use Optional<Int> (primitive) — the closure handler produces nint? which matches
+        // the TCS result type. Optional<String> produces SwiftOptional<SwiftString> in closures,
+        // which can't implicitly convert to the TCS's string? (CS1503), so the overload is skipped.
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
         var optionalError = new NamedTypeSpec("Swift.Optional");
         optionalError.GenericParameters.Add(new NamedTypeSpec("Swift.Error"));
-        var args = new TupleTypeSpec(new TypeSpec[] { optionalString, optionalError });
+        var args = new TupleTypeSpec(new TypeSpec[] { optionalInt, optionalError });
         var csOutput = GenerateMethodWithCompletionHandler(
             new ClosureTypeSpec(args, TupleTypeSpec.Empty));
 

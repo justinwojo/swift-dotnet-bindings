@@ -395,6 +395,8 @@ public static partial class ClosureEmitter
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             var csName = NameProvider.GetCSharpParameterName(arg);
+            // Escape Swift keywords with backticks for use in generated Swift code
+            var swiftName = NameProvider.EscapeSwiftKeyword(csName);
             var closureTypeSpec = closureHandler.GetClosureTypeSpec(arg);
 
             if (closureTypeSpec != null &&
@@ -403,6 +405,7 @@ public static partial class ClosureEmitter
                 !closureHandler.IsAsyncThrowingClosure(closureTypeSpec))
             {
                 // Replace closure param with (funcPtr, context) pair
+                // Closure-derived names (FuncPtr, Context, _adapted_) use csName suffix which is safe
                 swiftParams.Add($"_ {csName}FuncPtr: UnsafeMutableRawPointer?");
                 swiftParams.Add($"_ {csName}Context: UnsafeMutableRawPointer?");
 
@@ -421,9 +424,9 @@ public static partial class ClosureEmitter
             {
                 // Non-closure param: pass through with original Swift type
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
-                swiftParams.Add($"_ {csName}: {swiftType}");
+                swiftParams.Add($"_ {swiftName}: {swiftType}");
                 var label = GetSwiftArgLabel(arg);
-                callArgs.Add($"{label}{csName}");
+                callArgs.Add($"{label}{swiftName}");
             }
         }
 

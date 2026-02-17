@@ -35,14 +35,16 @@ public static class OptionalPointerWrapperEmitter
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             var csName = NameProvider.GetCSharpParameterName(arg);
+            // Escape Swift keywords with backticks for use in generated Swift code
+            var swiftName = NameProvider.EscapeSwiftKeyword(csName);
 
             if (env.BoundGenericsHandler.IsLargeOptionalParam(arg.SwiftTypeSpec))
             {
                 // Large Optional: accept UnsafeRawPointer, dereference in body
-                swiftParams.Add($"_ {csName}: UnsafeRawPointer");
+                swiftParams.Add($"_ {swiftName}: UnsafeRawPointer");
 
                 var swiftType = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(arg.SwiftTypeSpec);
-                derefCode.Add($"let {csName}Val = {csName}.assumingMemoryBound(to: {swiftType}.self).pointee");
+                derefCode.Add($"let {csName}Val = {swiftName}.assumingMemoryBound(to: {swiftType}.self).pointee");
 
                 var label = GetSwiftArgLabel(arg);
                 callArgs.Add($"{label}{csName}Val");
@@ -52,10 +54,10 @@ public static class OptionalPointerWrapperEmitter
             {
                 // Non-large param: pass through with original Swift type
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
-                swiftParams.Add($"_ {csName}: {swiftType}");
+                swiftParams.Add($"_ {swiftName}: {swiftType}");
                 var label = GetSwiftArgLabel(arg);
-                callArgs.Add($"{label}{csName}");
-                valueArgs.Add(csName);
+                callArgs.Add($"{label}{swiftName}");
+                valueArgs.Add(swiftName);
             }
         }
 

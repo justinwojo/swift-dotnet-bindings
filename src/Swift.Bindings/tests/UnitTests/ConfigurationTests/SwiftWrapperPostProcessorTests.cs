@@ -492,7 +492,110 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    #region G. Internal Type Stripping (WU2)
+    #region G. Raw Generic Type Parameter Stripping (τ_0_0)
+
+    public class PostProcessorRawGenericParamTests
+    {
+        [Fact]
+        public void Process_SilgenNameWithTau_Stripped()
+        {
+            var input = """
+                @_silgen_name("generic_wrapper")
+                public func generic_wrapper(_self: UnsafeMutableRawPointer) -> τ_0_0 {
+                    let result = _self.load(as: τ_0_0.self)
+                    return result
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("τ_0_0", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_ExtensionWithTau_Stripped()
+        {
+            var input = """
+                extension SomeType {
+                    func wrapper() -> τ_1_0 {
+                        return self.getValue() as! τ_1_0
+                    }
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("τ_1_0", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_StandaloneFuncWithTau_Stripped()
+        {
+            var input = """
+                public func SBW_generic(_ arg: τ_0_1) {
+                    print(arg)
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("τ_0_1", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_MultipleTauVariants_AllStripped()
+        {
+            var input = """
+                @_silgen_name("multi_generic")
+                public func multi_generic(_self: UnsafeMutableRawPointer, _ a: τ_0_0, _ b: τ_1_0) -> τ_0_1 {
+                    return a
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+        }
+
+        [Fact]
+        public void Process_NoTau_Kept()
+        {
+            var input = """
+                @_silgen_name("concrete_wrapper")
+                public func concrete_wrapper(_self: UnsafeMutableRawPointer) -> Swift.String {
+                    return self.getValue()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("concrete_wrapper", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_MixedTauAndClean_OnlyTauStripped()
+        {
+            var input = """
+                @_silgen_name("good_func")
+                public func good_func(_self: UnsafeMutableRawPointer) {
+                    let x = self.getValue()
+                }
+
+                @_silgen_name("bad_generic")
+                public func bad_generic(_self: UnsafeMutableRawPointer) -> τ_0_0 {
+                    return _self.load(as: τ_0_0.self)
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("good_func", result.CleanedContent);
+            Assert.DoesNotContain("bad_generic", result.CleanedContent);
+        }
+    }
+
+    #endregion
+
+    #region H. Internal Type Stripping (WU2)
 
     public class PostProcessorInternalTypeTests
     {

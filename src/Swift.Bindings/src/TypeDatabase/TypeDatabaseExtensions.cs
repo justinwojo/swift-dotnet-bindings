@@ -183,6 +183,15 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
+        // Swift.Any and Swift.AnyObject are special protocol types with no concrete C# equivalent.
+        // They are module-qualified so they don't match IsExistentialTypeName, and they aren't in
+        // the type database. Map them to AnyType so members using them are gracefully skipped.
+        if (typeSpec.Name is "Swift.Any" or "Swift.AnyObject")
+        {
+            record = AnyType;
+            return true;
+        }
+
         // Pointer types are always mapped to IntPtr
         if (IsPointerType(typeSpec))
         {
@@ -220,6 +229,12 @@ public static class TypeDatabaseExtensions
 
         // Existential types (any X) return AnyType
         if (IsExistentialTypeName(typeSpec))
+        {
+            return AnyType;
+        }
+
+        // Swift.Any and Swift.AnyObject are special protocol types with no concrete C# equivalent
+        if (typeSpec.Name is "Swift.Any" or "Swift.AnyObject")
         {
             return AnyType;
         }

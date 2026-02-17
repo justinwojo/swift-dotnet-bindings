@@ -835,6 +835,84 @@ public class OptionalPointerWrapperTests
 
     #endregion
 
+    #region Swift Keyword Escaping Tests
+
+    [Fact]
+    public void Emit_SwiftWrapper_KeywordParam_EscapedWithBackticks()
+    {
+        // Regression: Alamofire has a parameter named "protocol" which is a Swift keyword.
+        // The emitted Swift wrapper must backtick-escape it.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("configure", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.String"), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        // Use "protocol" as parameter name — a Swift keyword
+        method.CSSignature.Add(CreateArgument("protocol", optStringType, moduleDecl));
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // The Swift wrapper should use backtick-escaped `protocol` for the parameter
+        Assert.Contains("`protocol`", swiftOutput);
+        // Should NOT contain bare "protocol" as a parameter name (without backticks)
+        // The word "protocol" appears in the backtick-escaped form only
+        Assert.DoesNotContain("_ protocol:", swiftOutput);
+        Assert.Contains("_ `protocol`:", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_SwiftWrapper_NonKeywordParam_NoBackticks()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("describe", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.String"), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("value", optStringType, moduleDecl));
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Non-keyword params should NOT have backticks
+        Assert.DoesNotContain("`value`", swiftOutput);
+        Assert.Contains("_ value:", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_SwiftWrapper_KeywordParam_DerefUsesEscapedName()
+    {
+        // The dereference code should also use backtick-escaped name on RHS
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("configure", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.String"), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("protocol", optStringType, moduleDecl));
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Dereference line: `protocol`.assumingMemoryBound(to: ...)
+        Assert.Contains("`protocol`.assumingMemoryBound", swiftOutput);
+        // LHS of let uses suffixed name (protocolVal) — no backticks needed
+        Assert.Contains("let protocolVal = ", swiftOutput);
+    }
+
+    #endregion
+
     #region Regression Tests
 
     [Fact]

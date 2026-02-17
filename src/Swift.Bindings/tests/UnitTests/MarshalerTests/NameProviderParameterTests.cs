@@ -300,6 +300,53 @@ public class NameProviderParameterTests
 
     #endregion
 
+    #region Swift Keyword Escaping
+
+    [Theory]
+    [InlineData("protocol")]
+    [InlineData("class")]
+    [InlineData("func")]
+    [InlineData("import")]
+    [InlineData("let")]
+    [InlineData("var")]
+    [InlineData("self")]
+    [InlineData("return")]
+    [InlineData("in")]
+    [InlineData("where")]
+    public void IsSwiftKeyword_ReservedWord_ReturnsTrue(string keyword)
+    {
+        Assert.True(NameProvider.IsSwiftKeyword(keyword));
+    }
+
+    [Theory]
+    [InlineData("protocol")]
+    [InlineData("class")]
+    [InlineData("self")]
+    [InlineData("in")]
+    public void EscapeSwiftKeyword_ReservedWord_AddBackticks(string keyword)
+    {
+        Assert.Equal($"`{keyword}`", NameProvider.EscapeSwiftKeyword(keyword));
+    }
+
+    [Theory]
+    [InlineData("value")]
+    [InlineData("name")]
+    [InlineData("count")]
+    [InlineData("Protocol")]  // PascalCase is NOT a keyword
+    [InlineData("classes")]
+    public void EscapeSwiftKeyword_NonKeyword_PassesThrough(string name)
+    {
+        Assert.Equal(name, NameProvider.EscapeSwiftKeyword(name));
+    }
+
+    [Fact]
+    public void IsSwiftKeyword_Empty_ReturnsFalse()
+    {
+        Assert.False(NameProvider.IsSwiftKeyword(""));
+    }
+
+    #endregion
+
     #region ToPascalCase — SCREAMING_CASE conversion (WU3)
 
     [Theory]

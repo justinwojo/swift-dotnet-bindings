@@ -23,6 +23,11 @@ namespace BindingsGeneration
         private static readonly Regex ClosureParamPattern = new(
             @",\s*\w+:\s*\([^)]*\)\s*->", RegexOptions.Compiled);
 
+        // Matches raw Swift generic type parameters: τ_0_0, τ_1_0, τ_0_1, etc.
+        // These are ABI-level names that should never appear in emitted Swift source.
+        private static readonly Regex RawGenericParamPattern = new(
+            @"τ_\d+_\d+", RegexOptions.Compiled);
+
         /// <summary>
         /// Post-processes Swift source content, stripping known-broken wrapper patterns.
         /// </summary>
@@ -199,6 +204,10 @@ namespace BindingsGeneration
                 }
             }
 
+            // (f) Raw generic type parameters (τ_0_0, τ_1_0, etc.) — never valid in emitted Swift
+            if (ContainsRawGenericParam(body))
+                return true;
+
             return false;
         }
 
@@ -211,6 +220,10 @@ namespace BindingsGeneration
                 return true;
 
             if (body.Contains("__self.init("))
+                return true;
+
+            // Raw generic type parameters (τ_0_0, τ_1_0, etc.) — never valid in emitted Swift
+            if (ContainsRawGenericParam(body))
                 return true;
 
             // Non-escaping closure in Task
@@ -239,8 +252,19 @@ namespace BindingsGeneration
                 body.Contains(".load(as: (any "))
                 return true;
 
+            // Raw generic type parameters (τ_0_0, τ_1_0, etc.) — never valid in emitted Swift
+            if (ContainsRawGenericParam(body))
+                return true;
+
             return false;
         }
+
+        /// <summary>
+        /// Checks if a block body contains raw ABI generic type parameters (e.g., τ_0_0).
+        /// These appear when the wrapper emitter fails to resolve generic types and emits
+        /// the raw Swift ABI parameter names, which are not valid Swift identifiers.
+        /// </summary>
+        private static bool ContainsRawGenericParam(string body) => RawGenericParamPattern.IsMatch(body);
 
         /// <summary>
         /// Checks if a block body references any internal (non-public) type names.
