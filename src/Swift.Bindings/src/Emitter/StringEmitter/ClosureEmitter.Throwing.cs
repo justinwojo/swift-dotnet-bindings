@@ -107,6 +107,10 @@ public static partial class ClosureEmitter
             {
                 csWriter.WriteLine("        return (byte)(swiftResult.Success ? 1 : 0);");
             }
+            else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out _))
+            {
+                csWriter.WriteLine("        return swiftResult.Success.GetExistentialContainer();");
+            }
             else
             {
                 csWriter.WriteLine("        return swiftResult.Success;");
@@ -175,7 +179,7 @@ public static partial class ClosureEmitter
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var argExpr = GetSwiftInvokeArgExpression(arg, argIndex);
+            var argExpr = GetSwiftInvokeArgExpression(arg, argIndex, closureHandler);
             invokeArgs.Add(argExpr);
             argIndex++;
         }
@@ -220,6 +224,10 @@ public static partial class ClosureEmitter
             if (returnIsBool)
             {
                 csWriter.WriteLine($"                return {resultType}.FromSuccess(_rawResult != 0);");
+            }
+            else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapThrowingReturn))
+            {
+                csWriter.WriteLine($"                return {resultType}.FromSuccess(new {wrapThrowingReturn}(_rawResult));");
             }
             else
             {

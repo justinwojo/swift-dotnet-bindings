@@ -212,6 +212,12 @@ public static class SwiftMarshal
             return MarshalTupleFromSwift<T>(swiftSource);
         }
 
+        // Handle existential container types (blittable structs with fixed layout)
+        if (typeof(IExistentialContainer).IsAssignableFrom(type))
+        {
+            unsafe { return Unsafe.Read<T>((void*)swiftSource); }
+        }
+
         // Handle delegate types (closures) - Phase 3 support
         if (typeof(Delegate).IsAssignableFrom(typeof(T)))
         {

@@ -93,7 +93,11 @@ public static class GenericTypeEmitter
                     if (typeDatabase != null
                         && conformance.ConformanceTarget.Module != (typeDecl.ModuleDecl?.Name ?? ""))
                     {
-                        if (!typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out _))
+                        if (!typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var constraintRecord))
+                            continue;
+                        // Skip well-known stdlib protocols that map to runtime types (not interfaces).
+                        // e.g., Swift.Error → AnyError (no IError interface is emitted)
+                        if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(constraintRecord))
                             continue;
                     }
 

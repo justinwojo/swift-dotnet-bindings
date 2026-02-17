@@ -255,8 +255,34 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// Checks whether a protocol composition maps to a well-known runtime type
+    /// (e.g., 'any Swift.Error' → Swift.AnyError). Extensible for future stdlib protocols.
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification.</param>
+    /// <param name="csharpType">The fully-qualified C# type name if this is a well-known protocol.</param>
+    /// <returns><c>true</c> if this is a well-known protocol with a direct runtime type mapping.</returns>
+    public bool TryGetWellKnownProtocolType(ProtocolListTypeSpec protocolList, out string csharpType)
+    {
+        csharpType = "";
+        if (protocolList.Protocols.Count != 1)
+            return false;
+
+        var protocol = protocolList.Protocols.Keys.First();
+        var swiftName = protocol.Name; // e.g., "Swift.Error"
+
+        if (swiftName == "Swift.Error")
+        {
+            csharpType = "Swift.AnyError";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Returns the protocol interface name for public API (e.g., "IDescribable").
     /// For multi-protocol compositions, returns a combined interface name.
+    /// Well-known stdlib protocols (e.g., Swift.Error) return their direct runtime types.
     /// </summary>
     /// <param name="protocolList">The protocol list type specification.</param>
     /// <returns>The public-facing interface type name.</returns>
@@ -265,6 +291,10 @@ public class ExistentialHandler
         if (protocolList.Protocols.Count == 0)
             return "object"; // 'any' with no protocols → object
 
+        // Well-known stdlib protocols → direct runtime type (no proxy needed)
+        if (TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
+            return wellKnownType;
+
         if (protocolList.Protocols.Count == 1)
         {
             var firstProtocol = protocolList.Protocols.Keys.First();
@@ -272,7 +302,6 @@ public class ExistentialHandler
             // Validate that the protocol has a TypeRecord in the database with Kind=Protocol.
             // This handles multiple cases:
             //   - Metatype expressions (e.g., "Any.Type") misclassified as protocols → no TypeRecord → object
-            //   - Stdlib protocols (e.g., Swift.Error) without emitted interfaces → no TypeRecord → object
             //   - Real protocols with emitted interfaces → TypeRecord with Kind=Protocol → I{Name}
             try
             {

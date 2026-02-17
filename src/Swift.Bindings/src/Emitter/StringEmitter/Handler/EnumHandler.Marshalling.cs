@@ -135,7 +135,13 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
+                    if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktOffset))
+                    {
+                        // Well-known protocol: marshal container, then wrap in runtime type (e.g., AnyError)
+                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                        csWriter.WriteLine($"{varName} = new {wktOffset}(_{varName}_raw);");
+                    }
+                    else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
                         // Known proxy: marshal to temp container, then wrap in proxy
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
@@ -169,7 +175,13 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
+                    if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktMarshal))
+                    {
+                        // Well-known protocol: marshal container, then wrap in runtime type (e.g., AnyError)
+                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        csWriter.WriteLine($"{varName} = new {wktMarshal}(_{varName}_raw);");
+                    }
+                    else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
                         // Known proxy: marshal to temp container, then wrap in proxy
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
@@ -208,7 +220,13 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
+                    if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktDecl))
+                    {
+                        // Well-known protocol: marshal container, then wrap in runtime type (e.g., AnyError)
+                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        csWriter.WriteLine($"var {varName} = new {wktDecl}(_{varName}_raw);");
+                    }
+                    else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
                         // Known proxy: marshal to temp container, then wrap in proxy
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);

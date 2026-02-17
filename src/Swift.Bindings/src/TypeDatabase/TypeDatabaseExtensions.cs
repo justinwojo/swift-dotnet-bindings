@@ -392,6 +392,30 @@ public static class TypeDatabaseExtensions
     };
 
     /// <summary>
+    /// Gets the type record for Swift.Error, mapped to Swift.AnyError.
+    /// This enables 'any Swift.Error' existentials to resolve through the type database
+    /// instead of falling back to raw ExistentialContainer1.
+    /// </summary>
+    public static TypeRecord SwiftErrorType { get; } = new TypeRecord
+    {
+        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "AnyError"),
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+        MetadataAccessor = string.Empty,
+        Flags = TypeRecordFlags.Frozen,
+        Kind = TypeRecordKind.Protocol,
+    };
+
+    /// <summary>
+    /// Determines whether a TypeRecord represents a well-known stdlib protocol that maps
+    /// to a direct runtime type (e.g., Swift.Error → AnyError) rather than a generated interface.
+    /// Such protocols should not produce "I{Name}" constraints in generic where clauses.
+    /// </summary>
+    public static bool IsWellKnownRuntimeProtocol(TypeRecord record)
+    {
+        return record == SwiftErrorType;
+    }
+
+    /// <summary>
     /// Gets the type record for an existential type (protocol or protocol composition).
     /// </summary>
     /// <param name="protocolList">The protocol list type specification.</param>

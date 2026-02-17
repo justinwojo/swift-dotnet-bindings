@@ -42,9 +42,14 @@ public partial class ProtocolProxyEmitter
         if (existentialHandler.IsExistential(typeSpec))
         {
             var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
-            if (protocolList != null && existentialHandler.IsSupportedExistential(protocolList))
+            if (protocolList != null)
             {
-                return existentialHandler.GetCSharpExistentialType(protocolList);
+                // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
+                if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
+                    return wellKnownType;
+
+                if (existentialHandler.IsSupportedExistential(protocolList))
+                    return existentialHandler.GetCSharpExistentialType(protocolList);
             }
             // Keep fallback behavior consistent with ProtocolHandler interface emission.
             // Unsupported existentials flow through to type database fallback (typically Swift.AnyType).
@@ -65,11 +70,20 @@ public partial class ProtocolProxyEmitter
                 return idiomaticType;
         }
 
-        // Note: Optional-wrapped existentials (e.g., (any ImageDecoding)?) are NOT handled here.
-        // This method is used by receivers for ABI marshalling where the pre-existing
-        // BoundGenericsHandler fallback (SwiftOptional<AnyType>) must be preserved.
-        // Optional existential resolution to public types (IImageDecoding?) is only done
-        // in ProtocolHandler.GetCSharpTypeName() and InterfaceImpl.EmitMethodImplementation().
+        // Handle Optional<existential> for well-known protocol types (e.g., Optional<any Error> → AnyError?)
+        // This ensures proxy closure signatures (Action<AnyError?>) match interface signatures.
+        // Non-well-known optional existentials still fall through to BoundGenericsHandler.
+        if (!forAbiMarshalling && typeSpec is NamedTypeSpec optionalExistentialType &&
+            optionalExistentialType.Name == "Swift.Optional" && optionalExistentialType.GenericParameters.Count == 1)
+        {
+            var innerTypeSpec = optionalExistentialType.GenericParameters[0];
+            if (existentialHandler.IsExistential(innerTypeSpec))
+            {
+                var innerProtocolList = existentialHandler.ToProtocolListTypeSpec(innerTypeSpec);
+                if (innerProtocolList != null && existentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkt))
+                    return $"{wkt}?";
+            }
+        }
 
         try
         {

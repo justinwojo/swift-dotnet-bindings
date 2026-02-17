@@ -792,6 +792,10 @@ public class ClosureHandler
             var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
             if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
             {
+                // Well-known stdlib protocols → direct runtime type (no proxy needed)
+                if (_existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
+                    return wellKnownType;
+
                 // Use public interface (e.g., IImageProcessing) when all protocols have TypeRecords
                 // AND a proxy class exists (TryGetFilteredProxyClassName filters ObjC protocols).
                 // Without a proxy class, the callback can't convert ExistentialContainer → interface.
@@ -827,25 +831,36 @@ public class ClosureHandler
                 namedType.GenericParameters.Count == 1)
             {
                 var innerTypeSpec = namedType.GenericParameters[0];
-                // For Optional<any Protocol>, use container type (not interface) because
+                // For Optional<any Protocol>, use well-known type or container type.
+                // Well-known protocols (Swift.Error) → SwiftOptional<AnyError>.
+                // Other existentials use container type (not interface) because
                 // Optional existentials use void* in P/Invoke → MarshalFromSwift<IProtocol?>
                 // would throw NotSupportedException at runtime.
                 string innerType;
+                bool isWellKnownProtocol = false;
                 if (_existentialHandler.IsExistential(innerTypeSpec))
                 {
                     var innerProtocolList = _existentialHandler.ToProtocolListTypeSpec(innerTypeSpec);
-                    innerType = innerProtocolList != null && _existentialHandler.IsSupportedExistential(innerProtocolList)
-                        ? _existentialHandler.GetCSharpExistentialType(innerProtocolList)
-                        : TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                    if (innerProtocolList != null && _existentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkt))
+                    {
+                        innerType = wkt;
+                        isWellKnownProtocol = true; // AnyError is a blittable struct → use nullable syntax
+                    }
+                    else if (innerProtocolList != null && _existentialHandler.IsSupportedExistential(innerProtocolList))
+                        innerType = _existentialHandler.GetCSharpExistentialType(innerProtocolList);
+                    else
+                        innerType = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
                 }
                 else
                 {
                     innerType = TranslateTypeSpecToCSharp(innerTypeSpec);
                 }
 
-                // Use nullable syntax only for primitive/simple types
-                // Keep SwiftOptional for complex types that need special marshalling
-                if (IsPrimitiveType(innerTypeSpec) ||
+                // Use nullable syntax for primitive/simple types and well-known protocol types.
+                // Well-known types like AnyError are blittable structs, so T? (Nullable<T>) works.
+                // Keep SwiftOptional for complex types that need special marshalling.
+                if (isWellKnownProtocol ||
+                    IsPrimitiveType(innerTypeSpec) ||
                     innerTypeSpec.IsEmptyTuple ||
                     IsPointerType(innerTypeSpec as NamedTypeSpec))
                 {
@@ -1222,6 +1237,23 @@ public class ClosureHandler
     /// <param name="typeSpec">The type specification of the closure parameter.</param>
     /// <param name="proxyClassName">The proxy class name to use for wrapping, if applicable.</param>
     /// <returns>True if the parameter needs proxy construction; false otherwise.</returns>
+    /// <summary>
+    /// Determines whether a type spec is a well-known protocol existential that needs
+    /// wrapping/unwrapping between the runtime type (e.g., AnyError) and the raw
+    /// ExistentialContainer in callback/invoker code.
+    /// </summary>
+    /// <param name="typeSpec">The type specification.</param>
+    /// <param name="wrapType">The well-known C# type name (e.g., "Swift.AnyError") if applicable.</param>
+    /// <returns>True if the type needs well-known protocol wrapping.</returns>
+    public bool NeedsWellKnownProtocolWrapping(TypeSpec typeSpec, out string wrapType)
+    {
+        wrapType = "";
+        if (!_existentialHandler.IsExistential(typeSpec)) return false;
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList == null) return false;
+        return _existentialHandler.TryGetWellKnownProtocolType(protocolList, out wrapType);
+    }
+
     public bool NeedsProxyWrapping(TypeSpec typeSpec, out string proxyClassName)
     {
         proxyClassName = "";

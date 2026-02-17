@@ -414,6 +414,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// </summary>
     /// <param name="type">The existential container type.</param>
     /// <returns>The number of protocols (0-8).</returns>
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "IExistentialContainer types are value types with default constructors")]
     private static int GetProtocolCountFromExistentialType(Type type)
     {
         // ExistentialContainer0 -> 0, ExistentialContainer1 -> 1, etc.
@@ -422,6 +424,14 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         if (name.StartsWith(prefix) &&
             int.TryParse(name.AsSpan(prefix.Length), out var count))
             return count;
+
+        // Wrapper types (AnyError, etc.): read Count from default instance
+        if (type.IsValueType && typeof(IExistentialContainer).IsAssignableFrom(type))
+        {
+            var instance = (IExistentialContainer)Activator.CreateInstance(type)!;
+            return instance.Count;
+        }
+
         return 0;
     }
 

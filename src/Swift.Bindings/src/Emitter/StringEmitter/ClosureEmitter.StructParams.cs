@@ -79,6 +79,11 @@ public static partial class ClosureEmitter
                 // Bool conversion
                 invokeArgs.Add($"(byte)(_arg{i} ? 1 : 0)");
             }
+            else if (closureHandler.NeedsWellKnownProtocolWrapping(arg, out _))
+            {
+                // Well-known protocol types: unwrap to ExistentialContainer for function pointer
+                invokeArgs.Add($"_arg{i}.GetExistentialContainer()");
+            }
             else
             {
                 // Direct pass
@@ -90,6 +95,7 @@ public static partial class ClosureEmitter
         var invokeArgsString = string.Join(", ", invokeArgs);
 
         // Generate the invoke and return
+        // For well-known protocol returns, wrap ExistentialContainer1 → AnyError
         string invokeExpr = $"_fp({invokeArgsString})";
         if (!hasReturn)
         {
@@ -98,6 +104,10 @@ public static partial class ClosureEmitter
         else if (returnIsBool)
         {
             csWriter.WriteLine($"return {invokeExpr} != 0;");
+        }
+        else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapFrozenReturn))
+        {
+            csWriter.WriteLine($"return new {wrapFrozenReturn}({invokeExpr});");
         }
         else
         {
@@ -205,6 +215,11 @@ public static partial class ClosureEmitter
                 // Bool conversion
                 invokeArgs.Add($"(byte)(_arg{i} ? 1 : 0)");
             }
+            else if (closureHandler.NeedsWellKnownProtocolWrapping(arg, out _))
+            {
+                // Well-known protocol types: unwrap to ExistentialContainer for function pointer
+                invokeArgs.Add($"_arg{i}.GetExistentialContainer()");
+            }
             else
             {
                 // Direct pass
@@ -224,6 +239,7 @@ public static partial class ClosureEmitter
         }
 
         // Generate the invoke and return
+        // For well-known protocol returns, wrap ExistentialContainer1 → AnyError
         string invokeExpr = $"_fp({invokeArgsString})";
         if (!hasReturn)
         {
@@ -232,6 +248,10 @@ public static partial class ClosureEmitter
         else if (returnIsBool)
         {
             csWriter.WriteLine($"return {invokeExpr} != 0;");
+        }
+        else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapNonFrozenReturn))
+        {
+            csWriter.WriteLine($"return new {wrapNonFrozenReturn}({invokeExpr});");
         }
         else
         {

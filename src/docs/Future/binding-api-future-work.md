@@ -2,53 +2,56 @@
 
 **Created**: February 2026
 **Source**: Consolidated from `binding-review.md` (R6) and `binding-api-improvements.md` (N5, cross-cutting)
-**Completed work**: See `Completed/binding-api-review-and-improvements.md` and `Completed/binding-api-completed-items.md`
+**Completed work**: See `Completed/binding-api-sessions-a-d.md`, `Completed/binding-api-review-and-improvements.md`, and `Completed/binding-api-completed-items.md`
 
 ---
 
-## Open Items
+## Session Plan
 
-### R6 (Partial): ExistentialContainer in Public API
-
-**Priority**: P2 | **Difficulty**: Hard
-
-Enum associated values now use typed interfaces for known protocols, but `ExistentialContainer` still appears in:
-- Closure parameters (e.g., `Action<ExistentialContainer1>`)
-- Some protocol proxy constructors
-
-Requires mapping existential containers to their corresponding protocol interfaces in these contexts. Gated on `AllProtocolsHaveTypeRecords()` — unregistered protocols (e.g., `Swift.Error`) can't be projected.
-
-### N5: Async Method Naming Edge Cases
-
-**Priority**: P3 | **Difficulty**: Medium
-
-Edge cases in async naming not covered by WU1:
-- **Callback-based methods**: Methods accepting a completion callback could offer a `Task`-based overload (requires generating `TaskCompletionSource` wrappers)
-- **Library task types**: Methods returning library-specific task-like types (e.g., Nuke's `ImageTask`) correctly don't get `Async` suffix — no change needed
+| Session | Work Item | Status | Depends On |
+|---------|-----------|--------|------------|
+| ~~A~~ | ~~ExistentialContainer in Public API~~ | **Done** | — |
+| ~~B~~ | ~~Exception Mapping for Swift `throws`~~ | **Done** | — |
+| ~~C~~ | ~~CancellationToken on Async Methods~~ | **Done** | — |
+| ~~D~~ | ~~Async Callback → Task Wrappers~~ | **Done** | — |
+| E | Golden Scenario Validation | **Partial** (P2, Medium) | A |
+| F | AnyType in Golden Scenarios | **Open** (P2, Medium) | E |
 
 ---
 
-## Cross-Cutting Concerns (Not Started)
+## Open Sessions
 
-These were identified in the original review as future improvements. None block current usage.
+### Session E: Golden Scenario Validation — PARTIAL
 
-### Exception Mapping for Swift `throws`
+**Priority**: P2 | **Difficulty**: Medium | **Blocked by**: Session A (done)
 
-All Swift errors currently wrap in generic `SwiftRuntimeException`. Target: `SwiftException<TError>` with access to the error enum's case and associated values.
+The original review defined 3 end-to-end acceptance scenarios that should compile without interop types:
+1. **Nuke** — `any Swift.Error` → `AnyError` (**Done**). Remaining: `AnyType` in 1 `UnsafePointer<T>` gap; pre-existing `Progress` duplicate (CS0102)
+2. **Lottie** — `any Swift.Error` → `AnyError` (**Done**). Remaining: `AnyType` in ~27 `UnsafePointer<T>` refs
+3. **BlinkID** — `any Swift.Error` → `AnyError` (**Done**). Remaining: minor `AnyType` refs
 
-### CancellationToken on Async Methods
+**Status**: ExistentialContainer path improved (Session A done). `UnsafePointer<T>` → `AnyType` projection gap is the remaining blocker → Session F.
 
-Async methods currently have no cancellation support. Target: optional `CancellationToken` parameter on all `Task`-returning methods, wired to Swift's `Task.cancel()`.
+---
 
-### Golden Scenarios
+### Session F: AnyType in Golden Scenarios
 
-The original review defined 3 end-to-end acceptance scenarios (Nuke image loading, Lottie animation, BlinkID scanning) that should compile without interop types. Status: 0/3 — blocked by remaining ExistentialContainer and AnyType gaps.
+**Priority**: P2 | **Difficulty**: Medium | **Blocked by**: Session E
+
+`UnsafePointer<T>` currently projects to `AnyType` because there's no concrete C# projection for Swift pointer types. Lottie has ~27 references.
+
+**Work required:**
+- Evaluate `UnsafeRawPointer`/`UnsafeMutableRawPointer` runtime types as projections
+- Map `UnsafePointer<T>` to typed pointer projections where T is known
+- Validate golden scenarios compile without `AnyType` in call paths
 
 ---
 
 ## Quality Scorecard — Remaining Gates
 
-| Metric | Gate | Status |
-|--------|------|--------|
-| Public `ExistentialContainer*` | 0 | Partial (closures/proxy ctors remain) |
-| Golden scenarios compile without interop types | 3/3 | 0/3 |
+| Metric | Gate | Status | Unblocked By |
+|--------|------|--------|--------------|
+| ~~Public `ExistentialContainer*` for `any Error`~~ | ~~0~~ | **Done** (mapped to `AnyError`) | ~~Session A~~ |
+| Golden scenarios compile without interop types | 3/3 | Partial (`AnyType` remains for `UnsafePointer<T>`) | Session E + F |
+| ~~Typed Swift error exceptions~~ | ~~Yes~~ | **Done** | ~~Session B~~ |
+| ~~Async cancellation support~~ | ~~Yes~~ | **Done** | ~~Session C~~ |

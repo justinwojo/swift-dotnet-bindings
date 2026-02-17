@@ -221,6 +221,13 @@ namespace BindingsGeneration
             if (_outOfModuleTypes.TryGetValue(swiftTypeName, out record))
                 return true;
 
+            // Well-known stdlib protocols (Swift.Error → AnyError)
+            if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
+            {
+                record = TypeDatabaseExtensions.SwiftErrorType;
+                return true;
+            }
+
             return false;
         }
 

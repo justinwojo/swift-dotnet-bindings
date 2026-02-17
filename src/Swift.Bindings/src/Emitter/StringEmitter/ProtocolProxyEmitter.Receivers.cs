@@ -353,7 +353,7 @@ public partial class ProtocolProxyEmitter
             /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
             /// </remarks>
             /// <param name="container">The Swift existential container.</param>
-            public {{proxyClassName}}(ExistentialContainer1 container)
+            internal {{proxyClassName}}(ExistentialContainer1 container)
             {
                 _swiftContainer = container;
                 _csharpImpl = null;

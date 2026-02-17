@@ -65,6 +65,7 @@ public static partial class ClosureEmitter
         var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
 
         // For bool returns, we need to convert: (byte)(result ? 1 : 0)
+        // For well-known protocol returns (AnyError), unwrap to ExistentialContainer for P/Invoke
         string returnStatement;
         if (!hasReturn)
         {
@@ -73,6 +74,10 @@ public static partial class ClosureEmitter
         else if (returnIsBool)
         {
             returnStatement = $"return (byte)(del({invokeArgsString}) ? 1 : 0);";
+        }
+        else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out _))
+        {
+            returnStatement = $"return del({invokeArgsString}).GetExistentialContainer();";
         }
         else
         {
@@ -191,12 +196,12 @@ public static partial class ClosureEmitter
         var parameterListWithParens = parameters.Count == 1 ? parametersString : $"({parametersString})";
 
         // Build argument list for invoking the Swift function
-        // Need to convert C# types to Swift types (e.g., bool -> byte)
+        // Need to convert C# types to Swift types (e.g., bool -> byte, AnyError -> EC1)
         var invokeArgs = new List<string>();
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var argExpr = GetSwiftInvokeArgExpression(arg, argIndex);
+            var argExpr = GetSwiftInvokeArgExpression(arg, argIndex, closureHandler);
             invokeArgs.Add(argExpr);
             argIndex++;
         }
@@ -208,6 +213,7 @@ public static partial class ClosureEmitter
         var returnIsBool = hasReturn && IsBoolType(closureTypeSpec.ReturnType);
 
         // Generate the closure body
+        // For well-known protocol returns (ExistentialContainer1 from P/Invoke → AnyError for delegate)
         string invokeExpr = $"_fp({invokeArgsString})";
         string returnExpr;
         if (!hasReturn)
@@ -217,6 +223,10 @@ public static partial class ClosureEmitter
         else if (returnIsBool)
         {
             returnExpr = $"return {invokeExpr} != 0;";
+        }
+        else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapReturnType))
+        {
+            returnExpr = $"return new {wrapReturnType}({invokeExpr});";
         }
         else
         {
@@ -298,6 +308,10 @@ public static partial class ClosureEmitter
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
             return $"SwiftMarshal.MarshalFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
         }
+
+        // Well-known protocol wrapping (e.g., any Swift.Error → AnyError)
+        if (closureHandler.NeedsWellKnownProtocolWrapping(typeSpec, out var wrapType))
+            return $"new {wrapType}(arg{argIndex})";
 
         // Direct existential params: P/Invoke type is ExistentialContainer (blittable),
         // but delegate type is now the protocol interface. Wrap with proxy constructor.
@@ -426,11 +440,15 @@ public static partial class ClosureEmitter
     /// <summary>
     /// Generates the expression to convert a C# argument to Swift-compatible form when invoking a Swift closure.
     /// </summary>
-    private static string GetSwiftInvokeArgExpression(TypeSpec typeSpec, int argIndex)
+    private static string GetSwiftInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler? closureHandler = null)
     {
         // Bool requires bool -> byte conversion
         if (IsBoolType(typeSpec))
             return $"(byte)(_arg{argIndex} ? 1 : 0)";
+
+        // Well-known protocol types: unwrap to ExistentialContainer for function pointer
+        if (closureHandler != null && closureHandler.NeedsWellKnownProtocolWrapping(typeSpec, out _))
+            return $"_arg{argIndex}.GetExistentialContainer()";
 
         return $"_arg{argIndex}";
     }

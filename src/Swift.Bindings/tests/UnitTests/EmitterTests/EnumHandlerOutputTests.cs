@@ -888,9 +888,9 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_ExistentialWithoutProxy_KeepsExistentialContainer()
+    public void Emit_ExistentialWithoutProxy_UsesAnyError()
     {
-        // Swift.Error has no TypeRecord → should stay as ExistentialContainer1
+        // Swift.Error is a well-known protocol → maps to Swift.AnyError (not ExistentialContainer1)
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("LoadError", moduleDecl, isFrozen: true);
@@ -902,11 +902,10 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Should keep ExistentialContainer1 (no proxy)
-        Assert.Contains("ExistentialContainer1", csOutput);
-        // Should NOT contain interface type
+        // Should use AnyError (well-known runtime type, no proxy)
+        Assert.Contains("Swift.AnyError", csOutput);
+        // Should NOT contain raw ExistentialContainer or interface type
         Assert.DoesNotContain("IError", csOutput);
-        Assert.DoesNotContain("ISwiftExistentialConvertible", csOutput);
     }
 
     [Fact]
@@ -932,15 +931,15 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_TupleTryGetWithMixedExistentials_MixesInterfaceAndContainer()
+    public void Emit_TupleTryGetWithMixedExistentials_MixesInterfaceAndAnyError()
     {
-        // One known protocol, one unknown protocol in a tuple
+        // One known protocol, one well-known stdlib protocol in a tuple
         var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "ImageProcessing");
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("PipelineError", moduleDecl, isFrozen: true);
 
         var failedCase = CreateCase("failed");
-        // Tuple: (known protocol, unknown protocol)
+        // Tuple: (known protocol, Swift.Error)
         failedCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
         {
             new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.ImageProcessing") }),
@@ -953,8 +952,8 @@ public class EnumHandlerOutputTests
 
         // Known protocol → interface type in out param
         Assert.Contains("out IImageProcessing value0", csOutput);
-        // Unknown protocol → ExistentialContainer1 in out param
-        Assert.Contains("out Swift.Runtime.ExistentialContainer1 value1", csOutput);
+        // Swift.Error → AnyError in out param (well-known runtime type)
+        Assert.Contains("out Swift.AnyError value1", csOutput);
         // Proxy wrapping for known protocol
         Assert.Contains("new ImageProcessingProxy(", csOutput);
     }

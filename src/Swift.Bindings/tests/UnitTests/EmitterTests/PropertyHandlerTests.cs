@@ -1335,17 +1335,16 @@ public class PropertyHandlerTests
     }
 
     [Fact]
-    public void ExistentialHandler_GetPublicExistentialType_StdlibProtocolWithoutTypeRecord_ReturnsObject()
+    public void ExistentialHandler_GetPublicExistentialType_StdlibError_ReturnsAnyError()
     {
-        // Stdlib protocols (e.g., Swift.Error) without emitted interfaces
-        // also return "object" from GetPublicExistentialType.
+        // Swift.Error is a well-known protocol that maps to Swift.AnyError
         var typeDatabase = new MockPropertyTypeDatabase();
         var handler = new ExistentialHandler(typeDatabase);
 
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") });
         var result = handler.GetPublicExistentialType(protocolList);
 
-        Assert.Equal("object", result);
+        Assert.Equal("Swift.AnyError", result);
     }
 
     [Fact]

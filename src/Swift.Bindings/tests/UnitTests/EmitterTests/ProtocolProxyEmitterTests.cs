@@ -275,7 +275,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public TestProtocolProxy(ExistentialContainer1 container)", output);
+        Assert.Contains("internal TestProtocolProxy(ExistentialContainer1 container)", output);
     }
 
     [Fact]
