@@ -707,7 +707,7 @@ public static class MemberEmissionValidator
     /// Returns true if the TypeSpec references a type from an unsupported module (SwiftUI, Combine).
     /// Recursively checks generic parameters, tuple elements, and closure args/return.
     /// </summary>
-    private static bool ReferencesUnsupportedModule(TypeSpec? typeSpec)
+    internal static bool ReferencesUnsupportedModule(TypeSpec? typeSpec)
     {
         if (typeSpec == null)
             return false;

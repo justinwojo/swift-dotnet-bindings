@@ -586,6 +586,7 @@ namespace BindingsGeneration
 
             var args = $"swiftc -emit-library -target {targetTriple} " +
                        $"-sdk \"{sdkPath}\" " +
+                       $"-strict-concurrency=minimal " +   // Temporary: see roadmap for actor-aware emission
                        $"-F \"{frameworkSearchPath}\"{additionalFFlags} " +
                        $"-module-name {wrapperModuleName} " +
                        $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +

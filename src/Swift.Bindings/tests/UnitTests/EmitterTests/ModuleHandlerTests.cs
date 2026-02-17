@@ -257,6 +257,212 @@ public class ModuleHandlerTests
 
     #endregion
 
+    #region Dependency Module Import Tests
+
+    [Fact]
+    public void EmitSwiftImports_ImportsDependencyModuleNames()
+    {
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.DependencyModuleNames = new List<string> { "BlinkID" };
+            });
+
+        Assert.Contains("import BlinkID", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftImports_DependencyModulesDoNotDuplicateSelf()
+    {
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.DependencyModuleNames = new List<string> { "TestModule" };
+            });
+
+        // "import TestModule" should appear exactly once (from the standard module import, not the dependency)
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(swiftOutput, "import TestModule"));
+    }
+
+    [Fact]
+    public void EmitSwiftImports_DependencyModulesDoNotDuplicateAppleFramework()
+    {
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string> { "UIKit" },
+            moduleDecl =>
+            {
+                moduleDecl.DependencyModuleNames = new List<string> { "UIKit" };
+            });
+
+        // UIKit is already imported via the Apple frameworks path — should appear only once
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(swiftOutput, "import UIKit"));
+    }
+
+    #endregion
+
+    #region EveryProtocol Unsupported Module Tests
+
+    [Fact]
+    public void EmitEveryProtocol_SkipsProtocolWithSwiftUIPropertyTypes()
+    {
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl =>
+            {
+                var protocol = new ProtocolDecl
+                {
+                    Name = "ThemeProtocol",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ThemeProtocol"),
+                    MangledName = "$s10TestModule13ThemeProtocolP",
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    GenericSignature = null,
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    IsClassBound = false,
+                    HasSelfRequirement = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("primaryColor", "SwiftUI.Color", moduleDecl)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                };
+                moduleDecl.Protocols.Add(protocol);
+            });
+
+        // Should NOT contain vtable struct or extension for ThemeProtocol
+        Assert.DoesNotContain("ThemeProtocol_vtable", swiftOutput);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.ThemeProtocol", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitEveryProtocol_EmitsProtocolWithSupportedTypes()
+    {
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl =>
+            {
+                var protocol = new ProtocolDecl
+                {
+                    Name = "CounterProtocol",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.CounterProtocol"),
+                    MangledName = "$s10TestModule15CounterProtocolP",
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    GenericSignature = null,
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    IsClassBound = false,
+                    HasSelfRequirement = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("count", "Swift.Int", moduleDecl)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                };
+                moduleDecl.Protocols.Add(protocol);
+            });
+
+        // Should contain extension conformance for CounterProtocol
+        Assert.Contains("extension EveryProtocol: TestModule.CounterProtocol", swiftOutput);
+    }
+
+    #endregion
+
+    #region Protocol Proxy Emission Coupling Tests
+
+    [Fact]
+    public void Emit_SkipsProxyForProtocolWithSwiftUIMembers()
+    {
+        // Adds protocol to both Types (for C# emission via HandleBaseDecl) and Protocols (for Swift EveryProtocol).
+        // Verifies that the C# interface IS emitted but the proxy class is NOT.
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl =>
+            {
+                var protocol = new ProtocolDecl
+                {
+                    Name = "ThemeProtocol",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ThemeProtocol"),
+                    MangledName = "$s10TestModule13ThemeProtocolP",
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    GenericSignature = null,
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    IsClassBound = false,
+                    HasSelfRequirement = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("primaryColor", "SwiftUI.Color", moduleDecl)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                };
+                moduleDecl.Protocols.Add(protocol);
+                moduleDecl.Types.Add(protocol);
+            });
+
+        // C# interface should be emitted
+        Assert.Contains("public interface IThemeProtocol", csOutput);
+
+        // C# proxy class should NOT be emitted (would reference non-existent Swift symbols)
+        Assert.DoesNotContain("ThemeProtocolProxy", csOutput);
+
+        // Swift EveryProtocol conformance should NOT be emitted
+        Assert.DoesNotContain("ThemeProtocol_vtable", swiftOutput);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.ThemeProtocol", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_EmitsProxyForProtocolWithSupportedTypes()
+    {
+        // Adds protocol to both Types (for C# emission) and Protocols (for Swift EveryProtocol).
+        // Verifies that both interface AND proxy class are emitted.
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl =>
+            {
+                var protocol = new ProtocolDecl
+                {
+                    Name = "CounterProtocol",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.CounterProtocol"),
+                    MangledName = "$s10TestModule15CounterProtocolP",
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    GenericSignature = null,
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    IsClassBound = false,
+                    HasSelfRequirement = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("count", "Swift.Int", moduleDecl)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                };
+                moduleDecl.Protocols.Add(protocol);
+                moduleDecl.Types.Add(protocol);
+            });
+
+        // C# interface should be emitted
+        Assert.Contains("public interface ICounterProtocol", csOutput);
+
+        // C# proxy class should be emitted
+        Assert.Contains("CounterProtocolProxy", csOutput);
+
+        // Swift EveryProtocol conformance should be emitted
+        Assert.Contains("extension EveryProtocol: TestModule.CounterProtocol", swiftOutput);
+    }
+
+    #endregion
+
     #region Namespace Emission Tests
 
     [Fact]
@@ -451,6 +657,51 @@ public class ModuleHandlerTests
         handler.Emit(csWriter, swiftWriter, env, conductor);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
+    }
+
+    private static PropertyDecl CreateProtocolProperty(string name, string typeName, ModuleDecl moduleDecl)
+    {
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec(typeName),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = $"{name}_Get",
+                        MangledName = $"$s{name}g",
+                        MethodType = MethodType.Instance,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl>
+                        {
+                            new()
+                            {
+                                SwiftTypeSpec = new NamedTypeSpec(typeName),
+                                Name = string.Empty,
+                                PrivateName = string.Empty,
+                                IsInOut = false,
+                                IsGeneric = false,
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl
+                            }
+                        },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = null,
+                        ModuleDecl = moduleDecl,
+                        Throws = false,
+                        IsAsync = false,
+                        Visibility = Visibility.Public
+                    }
+                }
+            },
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
     }
 
     #endregion

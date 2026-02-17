@@ -379,7 +379,11 @@ namespace BindingsGeneration
                 // Auto-extract symbol graph for doc comments (xcframework mode only)
                 symbolGraph = ResolveSymbolGraphPath(symbolGraph, noDocs, resolution, outputDirectory, logger);
 
-                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames);
+                var depModuleNames = resolvedDependencies?
+                    .Where(d => !d.IsObjCOnly)
+                    .Select(d => d.ModuleName)
+                    .ToList();
+                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, dependencyModuleNames: depModuleNames);
 
                 // Validate --wrapper-architectures
                 var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
@@ -572,10 +576,10 @@ namespace BindingsGeneration
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
         public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
         {
-            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _);
+            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, dependencyModuleNames: null);
         }
 
-        private static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames)
+        private static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, List<string>? dependencyModuleNames = null)
         {
             internalTypeNames = null;
             var typeDatabase = new TypeDatabase();
@@ -637,6 +641,8 @@ namespace BindingsGeneration
                 // Parse the Swift ABI file and generate declarations
                 var (decl, moduleTypes) = swiftParser.ParseModule();
                 decl.ExportedSymbols = demangledTbdFile.AllSymbols;
+                if (dependencyModuleNames != null)
+                    decl.DependencyModuleNames = dependencyModuleNames;
                 internalTypeNames = CollectInternalTypeNames(decl);
                 ReportCollector.Start(decl);
 

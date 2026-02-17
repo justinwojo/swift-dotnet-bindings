@@ -479,6 +479,23 @@ namespace BindingsGeneration.Tests
             var (_, args) = runner.Invocations[0];
             Assert.Contains("-F \"/path with spaces/dep\"", args);
         }
+
+        [Fact]
+        public void InvokeSwiftCompiler_IncludesStrictConcurrencyMinimal()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                runner, NullLogger.Instance);
+
+            Assert.Single(runner.Invocations);
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-strict-concurrency=minimal", args);
+        }
     }
 
     #endregion

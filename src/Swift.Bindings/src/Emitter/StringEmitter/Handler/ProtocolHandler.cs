@@ -292,8 +292,22 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-            // Emit the proxy class that enables C# implementations of this protocol
-            EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices);
+            // Skip proxy class if protocol has members with unsupported module types (SwiftUI, Combine).
+            // The Swift EveryProtocol conformance is also skipped (in ModuleHandler), so emitting the
+            // C# proxy would produce calls to non-existent Swift symbols (SetVtable, WitnessTableGetter).
+            if (!ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl))
+            {
+                EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices);
+            }
+            else
+            {
+                // Use RecordMemberSkipped (not RecordTypeSkipped) because RecordTypeEmitted was
+                // already called for the interface at line 70. RecordTypeSkipped silently drops
+                // entries for already-emitted types. The proxy is a sub-artifact of the type.
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Type, $"{protocolDecl.Name}Proxy",
+                    protocolDecl, SkipReason.SwiftUIConstraint,
+                    "Protocol proxy skipped: required members reference unsupported module types.");
+            }
         }
 
         /// <summary>

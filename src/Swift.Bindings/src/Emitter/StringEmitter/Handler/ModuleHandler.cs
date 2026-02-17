@@ -277,6 +277,15 @@ namespace BindingsGeneration
                 swiftWriter.WriteLine($"import {import}");
             }
 
+            // Import dependency modules (from --framework-dependency)
+            foreach (var depModule in moduleDecl.DependencyModuleNames.OrderBy(s => s))
+            {
+                if (depModule != moduleDecl.Name && !neededImports.Contains(depModule))
+                {
+                    swiftWriter.WriteLine($"import {depModule}");
+                }
+            }
+
             swiftWriter.WriteLine();
 
             // Emit SBW_Utf8Slice and SBW_Free at module level (before any functions)
@@ -451,6 +460,7 @@ namespace BindingsGeneration
                 // $s{length}{moduleName}... (e.g., $s11CryptoSwift...), while stdlib protocols
                 // use abbreviated forms ($sSl, $sSB, $ss17...).
                 .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name))
+                .Where(p => !HasMembersReferencingUnsupportedModule(p))
                 .ToList();
 
             if (!suitableProtocols.Any())
@@ -527,6 +537,42 @@ namespace BindingsGeneration
             // The expected mangled prefix is "$s" + length + moduleName
             var expectedPrefix = $"$s{moduleName.Length}{moduleName}";
             return mangledName.StartsWith(expectedPrefix, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Returns true if the protocol has any non-static member whose type references an
+        /// unsupported module (SwiftUI, Combine). Used to skip EveryProtocol conformance and
+        /// C# proxy emission for protocols whose requirements can't be satisfied.
+        /// </summary>
+        internal static bool HasMembersReferencingUnsupportedModule(ProtocolDecl protocolDecl)
+        {
+            foreach (var property in protocolDecl.Properties)
+            {
+                if (property.IsStatic) continue;
+                if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec))
+                    return true;
+            }
+            foreach (var method in protocolDecl.Methods)
+            {
+                if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
+                foreach (var arg in method.CSSignature)
+                {
+                    if (MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec))
+                        return true;
+                }
+            }
+            foreach (var subscript in protocolDecl.Subscripts)
+            {
+                if (subscript.IsStatic) continue;
+                if (MemberEmissionValidator.ReferencesUnsupportedModule(subscript.ReturnTypeSpec))
+                    return true;
+                foreach (var param in subscript.IndexParameters)
+                {
+                    if (MemberEmissionValidator.ReferencesUnsupportedModule(param.SwiftTypeSpec))
+                        return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>

@@ -94,6 +94,27 @@ Extends the SwiftUI bridge with coverage tracking across a real library corpus. 
 
 ---
 
+### 5. Actor-Aware Wrapper Emission
+
+**Priority**: P2 | **Effort**: Medium | **Risk**: Low
+
+Swift 6 enforces actor isolation as hard type-system errors. Generated `@_silgen_name` wrapper functions access @MainActor and actor-isolated properties from nonisolated context, which is rejected regardless of `-strict-concurrency=minimal`, `-swift-version 5`, or `@preconcurrency import`. The `-strict-concurrency=minimal` flag only affects Sendable checking, not actor isolation.
+
+The fix is to parse `@MainActor` annotations from `.swiftinterface` files (which have explicit `@_Concurrency.MainActor` annotations) and emit matching actor isolation on generated wrapper functions. For custom actors, the wrapper functions need the property access wrapped in the actor's execution context.
+
+| Item | Description |
+|------|-------------|
+| **Parse @MainActor from swiftinterface** | `SwiftInterfaceAccessParser` already extracts other annotations. Add extraction of `@MainActor` / `@_Concurrency.MainActor` per-member and per-type. |
+| **Emit actor isolation on wrapper functions** | When a protocol/class is `@MainActor`, emit `@MainActor` on generated witness dispatch and async stream wrapper functions. |
+| **Handle custom actors** | Types like `BlinkIDEventStream` (custom actor) need their wrapper functions to use `await` or the actor's execution context. |
+| **Remove -strict-concurrency=minimal** | Once actor-aware emission covers known cases, remove the temporary flag from `SwiftWrapperCompiler.cs`. |
+
+**Key files**: `SwiftInterfaceAccessParser.cs`, `EveryProtocolEmitter.cs`, `WitnessDispatchEmitter.cs`, `PInvokeHelperEmitter.cs`, `SwiftWrapperCompiler.cs`
+**Verification**: BlinkIDUX wrapper compiles with 0 errors
+**Affected**: BlinkIDUX (6 actor isolation errors: 4 on CameraModel @MainActor protocol, 1 on BlinkIDEventStream custom actor, 1 on Camera @MainActor class)
+
+---
+
 ## Multi-Session Efforts (P4)
 
 Too large for single sessions. Each needs a **planning session first** to scope implementation.

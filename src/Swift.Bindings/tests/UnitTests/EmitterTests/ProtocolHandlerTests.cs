@@ -385,6 +385,99 @@ public class ProtocolHandlerTests
 
     #endregion
 
+    #region Unsupported Module Skip Tests
+
+    [Fact]
+    public void HasMembersReferencingUnsupportedModule_SwiftUIProperty_ReturnsTrue()
+    {
+        var protocolDecl = CreateProtocolDecl("ThemeProtocol");
+        protocolDecl.Properties.Add(CreatePropertyDecl("primaryColor", "SwiftUI.Color"));
+
+        Assert.True(ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl));
+    }
+
+    [Fact]
+    public void HasMembersReferencingUnsupportedModule_SupportedProperty_ReturnsFalse()
+    {
+        var protocolDecl = CreateProtocolDecl("CounterProtocol");
+        protocolDecl.Properties.Add(CreatePropertyDecl("count", "Swift.Int"));
+
+        Assert.False(ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl));
+    }
+
+    [Fact]
+    public void HasMembersReferencingUnsupportedModule_StaticSwiftUIProperty_ReturnsFalse()
+    {
+        // Static properties are skipped in the check (not part of EveryProtocol conformance)
+        var protocolDecl = CreateProtocolDecl("ThemeProtocol");
+        protocolDecl.Properties.Add(CreatePropertyDecl("defaultColor", "SwiftUI.Color", isStatic: true));
+
+        Assert.False(ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl));
+    }
+
+    [Fact]
+    public void HasMembersReferencingUnsupportedModule_CombineProperty_ReturnsTrue()
+    {
+        var protocolDecl = CreateProtocolDecl("StreamProtocol");
+        protocolDecl.Properties.Add(CreatePropertyDecl("publisher", "Combine.AnyPublisher"));
+
+        Assert.True(ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl));
+    }
+
+    [Fact]
+    public void HasMembersReferencingUnsupportedModule_MethodWithSwiftUIArg_ReturnsTrue()
+    {
+        var protocolDecl = CreateProtocolDecl("Renderer");
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "render",
+            MangledName = "$srender",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Color"),
+                    Name = "color",
+                    PrivateName = "color",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        Assert.True(ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl));
+    }
+
+    [Fact]
+    public void HasMembersReferencingUnsupportedModule_EmptyProtocol_ReturnsFalse()
+    {
+        var protocolDecl = CreateProtocolDecl("EmptyProtocol");
+
+        Assert.False(ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static ProtocolDecl CreateProtocolDecl(string name, string moduleName = "TestModule")

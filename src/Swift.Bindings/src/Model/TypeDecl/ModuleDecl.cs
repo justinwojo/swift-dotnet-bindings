@@ -40,5 +40,11 @@ namespace BindingsGeneration
         // The module's protocols.
         // </summary>
         public required List<ProtocolDecl> Protocols { get; set; }
+
+        /// <summary>
+        /// Module names from --framework-dependency that need `import` in the Swift wrapper.
+        /// Distinct from <see cref="Dependencies"/> which is ABI-derived and filtered through AppleFrameworks.
+        /// </summary>
+        public List<string> DependencyModuleNames { get; set; } = new();
     }
 }
