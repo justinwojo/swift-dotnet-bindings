@@ -205,6 +205,25 @@ public static class ReportCollector
         }
     }
 
+    public static void RecordThemeBridged(string className, string propertyName, string propertyType)
+    {
+        if (!SessionActive.Value || _report == null)
+            return;
+
+        lock (Sync)
+        {
+            if (_report == null)
+                return;
+
+            _report.ThemeBridgedProperties.Add(new ThemeBridgedItem
+            {
+                ClassName = className,
+                PropertyName = propertyName,
+                PropertyType = propertyType,
+            });
+        }
+    }
+
     public static void RecordMemberSynthesized(BindingItemKind kind, string name, BaseDecl? containingDecl)
     {
         if (!SessionActive.Value || _report == null)

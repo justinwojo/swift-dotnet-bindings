@@ -23,6 +23,7 @@ public sealed class BindingReport
     public List<SkippedItem> SkippedItems { get; } = new();
     public List<WrappedItem> WrappedItems { get; } = new();
     public List<BridgedViewItem> BridgedViews { get; } = new();
+    public List<ThemeBridgedItem> ThemeBridgedProperties { get; } = new();
 }
 
 /// <summary>
@@ -84,6 +85,16 @@ public sealed class BridgedViewItem
     public required string ModuleName { get; init; }
     public required string InitClassification { get; init; }
     public required string BridgeStatus { get; init; }
+}
+
+/// <summary>
+/// A theme-bridged property (Color/Font setter and optional getter generated via @_cdecl).
+/// </summary>
+public sealed class ThemeBridgedItem
+{
+    public required string ClassName { get; init; }
+    public required string PropertyName { get; init; }
+    public required string PropertyType { get; init; }
 }
 
 /// <summary>

@@ -1,7 +1,7 @@
 # Swift Bindings - Current Status
 
-**Last Updated**: February 2026 (DX Steps 1-5 + Validation Passes 1-4 + Framework Dependencies + DX Improvements + Emitter Test Audit)
-**Unit Tests**: 2,916 passed
+**Last Updated**: February 2026 (DX Steps 1-5 + Validation Passes 1-4 + Framework Dependencies + DX Improvements + Emitter Test Audit + Theme Bridge Sessions 1-2)
+**Unit Tests**: 3,248 passed
 **Runtime Tests**: 188 passing on iOS Simulator at Tier 2 safe-only (28 pre-existing failures)
 **Runtime Library Tests**: 156 passing
 **Integration Tests**: 699 passing (11 skipped, pre-existing)
@@ -110,7 +110,7 @@ Tier promotion pass added runtime tests across string/enum/class/closure/composi
 
 ### Framework Limitations
 - **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants, ABI-driven async inference, data-driven emission, cross-module type resolution with null-pointer safety, and bridge hints (`bridge-hints.json`) for user overrides (skip, forceTemplate, preferredInit, asyncPattern, extraSwiftImports). 13 SwiftUI bridge features tracked in TestFramework coverage matrix (enum/class/closure/optional/async Views). Runtime tests at Tier 2. BridgeTest (`BindingTesting/BridgeTest/`) retained as shadow validation.
-- **SwiftUI Theme Bridge** — `SwiftColor`/`SwiftFont` C# runtime types with `@_cdecl` setter wrappers for singleton theme classes. Detects classes with static singleton + settable `SwiftUI.Color`/`SwiftUI.Font` properties. Emits Swift setter wrappers (RGBA doubles, font name/size/weight/design) and C# `partial class` blocks that merge with existing generated types. BlinkIDUX validated (21 properties). UIKit types planned for Session 2. See `swiftui-theming.md`.
+- **SwiftUI Theme Bridge** — `SwiftColor`/`SwiftFont` C# runtime types with `@_cdecl` setter/getter wrappers for singleton theme classes. Detects classes with static singleton + settable `SwiftUI.Color`/`Font`/`UIKit.UIColor`/`UIFont` properties. Emits Swift setter wrappers (RGBA doubles, font name/size/weight/design), color getter wrappers (RGBA out-pointers via `UIColor.getRed`), and C# `partial class` blocks that merge with existing generated types. BlinkIDUX (21 properties), MicroblinkPlatform (46 methods, mixed UIKit/SwiftUI) validated. Report integration tracks theme-bridged properties. See `swiftui-theming.md`.
 - **Combine** — `@Published` properties and reactive streams not bridged
 
 ### Edge Cases
@@ -179,6 +179,8 @@ Tier promotion pass added runtime tests across string/enum/class/closure/composi
 | Validation 4 | 166+ binding errors fixed — 12 bug patterns (C1-C12) across 9 libraries |
 | DX Improve | C# keyword type aliases, Codable member pruning, enum SCREAMING_CASE→PascalCase |
 | Framework Deps | `--framework-dependency` CLI + `<SwiftFrameworkDependency>` MSBuild item |
+| Theme S1 | SwiftColor/SwiftFont runtime types, @_cdecl setter emission, BlinkIDUX validation (21 properties, 40 tests) |
+| Theme S2 | UIKit.UIColor/UIFont support, color getters, report integration, MicroblinkPlatform validation (46 methods, 63 tests) |
 
 SwiftUI Bridge v2 phases ran in parallel with core generator improvements:
 

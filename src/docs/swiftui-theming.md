@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-17
 **Priority**: P2 | **Effort**: Medium (2 sessions) | **Risk**: Low
-**Status**: Session 1 Complete
+**Status**: Complete (Sessions 1-2)
 
 ---
 
@@ -309,8 +309,10 @@ The emitter detects theme-bridgeable types from ABI metadata:
 1. **Concrete class** (not protocol, not struct)
 2. **Has a static singleton property** — name is `shared`, `default`, `current`, `sharedInstance`, or `instance`; type is `Self`; has getter
 3. **Has settable properties with bridgeable UI types** — at least one property whose type is:
-   - `SwiftUI.Color` or `SwiftUI.Font` (Phase 1)
-   - `UIKit.UIColor` or `UIKit.UIFont` (Phase 2)
+   - `SwiftUI.Color` or `SwiftUICore.Color`
+   - `SwiftUI.Font` or `SwiftUICore.Font`
+   - `UIKit.UIColor`
+   - `UIKit.UIFont`
 4. **Properties are not static** — instance properties accessed through the singleton
 
 Properties with non-bridgeable types (like `UIKit.UIImage`) on the same class are silently skipped. Primitive properties (`Double`, `Bool`, `Int`, `String`) that already have working bindings through the normal generator are excluded from theme bridge emission to avoid duplication.
@@ -367,7 +369,7 @@ PresentViewController(viewController);
 
 No changes to the bridge session system are needed. The theme setters mutate the singleton synchronously, and the SwiftUI views read from it when they render.
 
-## UIKit Type Support (Phase 2)
+## UIKit Type Support
 
 MicroblinkPlatformTheme mixes `UIKit.UIColor`/`UIKit.UIFont` and `SwiftUI.Color`/`SwiftUI.Font` on the same class. The ABI crossing is nearly identical:
 
@@ -376,32 +378,79 @@ MicroblinkPlatformTheme mixes `UIKit.UIColor`/`UIKit.UIFont` and `SwiftUI.Color`
 | Color / UIColor | `(Double, Double, Double, Double)` | `Color(red:green:blue:opacity:)` | `UIColor(red:green:blue:alpha:)` |
 | Font / UIFont | `(UnsafePointer<UInt8>?, Int, Double, Int32, Int32, Int32)` | `.system(size:weight:design:)` / `.custom(_:size:)` | `.systemFont(ofSize:weight:)` / `UIFont(name:size:)` |
 
-The C# types (`SwiftColor`, `SwiftFont`) work for both — only the Swift construction code differs. The emitter checks the property's module (`SwiftUI` vs `UIKit`) and emits the appropriate constructor.
+The C# types (`SwiftColor`, `SwiftFont`) work for both — only the Swift construction code differs. The emitter checks the property's module (`SwiftUI` vs `UIKit`) and emits the appropriate constructor. Note: `UIFont` has no `design` parameter — the `design` argument from C# is ignored for UIKit fonts. `UIFont.Weight` uses `SBW_uiFontWeight` (a separate helper from `SBW_fontWeight` for `Font.Weight`).
+
+## Color Getter Support
+
+Color properties also emit `@_cdecl` getters that read the singleton's current RGBA values back to C#. Font getters are not emitted because `SwiftUI.Font` is opaque (no public API to extract name/size/weight).
+
+### Swift side
+
+For `SwiftUI.Color`, the getter converts to `UIColor` first (UIColor provides `getRed` but SwiftUI.Color does not):
+
+```swift
+@_cdecl("SBW_BlinkIDTheme_get_alertTitleColor")
+func SBW_BlinkIDTheme_get_alertTitleColor(
+    _ rOut: UnsafeMutablePointer<Double>,
+    _ gOut: UnsafeMutablePointer<Double>,
+    _ bOut: UnsafeMutablePointer<Double>,
+    _ aOut: UnsafeMutablePointer<Double>
+) {
+    SBW_onMainThread {
+        let uiColor = UIColor(BlinkIDTheme.shared.alertTitleColor)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        uiColor.getRed(&r, &g, &b, &a)
+        rOut.pointee = Double(r)
+        gOut.pointee = Double(g)
+        bOut.pointee = Double(b)
+        aOut.pointee = Double(a)
+    }
+}
+```
+
+For `UIKit.UIColor`, `getRed` is called directly (no conversion needed).
+
+### C# side
+
+```csharp
+public static unsafe SwiftColor GetAlertTitleColor()
+{
+    double r, g, b, a;
+    ThemeBridgeNativeMethods.SBW_BlinkIDTheme_get_alertTitleColor(&r, &g, &b, &a);
+    return new SwiftColor(r, g, b, a);
+}
+```
+
+P/Invoke uses `double*` out-pointers, consistent with the `unsafe` pattern used for font setters.
+
+## Pair-Level File Safety
+
+Bridge files are a matched pair (`.swift` + `.cs`). If either existing file is user-maintained (lacks the auto-generated marker), **both** sides are skipped. This prevents emitting C# P/Invoke declarations for `@_cdecl` symbols that were never written to the Swift side (or vice versa), which would cause runtime linker failures.
 
 ## File Changes
 
-### New files
+### New files (Session 1)
 - `src/Swift.Runtime/src/Swift/SwiftColor.cs` — `SwiftColor` value type
 - `src/Swift.Runtime/src/Swift/SwiftFont.cs` — `SwiftFont`, `SwiftFontWeight`, `SwiftFontDesign`
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ThemeBridgeEmitter.cs` — Detection, Swift/C# emission
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ThemeBridgeEmitterTests.cs` — 66 unit tests
 
 ### Modified files
-- `src/Swift.Bindings/src/Emitter/StringEmitter/SwiftUIBridgeEmitter.cs` — or new `ThemeBridgeEmitter.cs`
-  - Detect theme-bridgeable types during emission
-  - Emit Swift setter wrappers into the bridge `.swift` file
-  - Emit C# theme `partial class` block into the bridge `.cs` file
-- `src/Swift.Bindings/src/Emitter/StringEmitter/SwiftUIBridgeEmitter.InitAnalyzer.cs` — Add `SwiftUI.Color`/`Font` to `MapSwiftTypeToAbi` as bridgeable (optional, for init-chain support)
-- Report integration — `RecordThemeBridged` or equivalent
+- `src/Swift.Bindings/src/Emitter/StringEmitter/ModuleEmitter.cs` — Integration: detects theme types, calls ThemeBridgeEmitter
+- `src/Swift.Bindings/src/Reporting/ReportCollector.cs` — `RecordThemeBridged(className, propertyName, propertyType)`
+- `src/Swift.Bindings/src/Reporting/BindingReport.cs` — `ThemeBridgedItem` class, `ThemeBridgedProperties` list
 
-### Test files
+### Runtime test files (Session 1)
 - `src/Swift.Runtime/tests/SwiftColorTests.cs` — construction, hex, named colors, out-of-range pass-through
 - `src/Swift.Runtime/tests/SwiftFontTests.cs` — custom, system, semantic presets, empty name handling
-- Unit tests for detection logic and emission
-- BlinkIDUX validation: theme bridge compiles, all 21 properties accessible
-- MicroblinkPlatform validation: mixed UIKit/SwiftUI theme bridge
+
+### Validation
+- BlinkIDUX: 21 properties, all setters emit correctly
+- MicroblinkPlatform: 46 methods (setters + color getters), mixed UIKit/SwiftUI
 
 ## Open Questions
 
-1. **Getter support**: Should the theme bridge also emit getters (read current values back to C#)? This requires marshalling `SwiftUI.Color` -> RGBA on the Swift side, which is possible via `UIColor(color).getRed(&r, &g, &b, &a)`. Adds complexity. Probably Phase 2.
+1. ~~**Getter support**~~: **Resolved (Session 2)** — Color getters implemented via `UIColor.getRed(&r, &g, &b, &a)`. SwiftUI.Color converts to UIColor first; UIKit.UIColor reads directly. Font getters deferred — `SwiftUI.Font` is opaque with no public extraction API.
 
 2. **Non-singleton themes**: Some libraries might use `init(theme:)` injection instead of singletons. The bridge session's async constructor chain could flatten theme properties into the `Create` function parameters. This is a natural extension but significantly more complex. Track separately.
 
@@ -409,7 +458,7 @@ The C# types (`SwiftColor`, `SwiftFont`) work for both — only the Swift constr
 
 ## Session Plan
 
-### Session 1: Runtime types + SwiftUI Color/Font bridge
+### Session 1: Runtime types + SwiftUI Color/Font bridge (complete)
 - `SwiftColor` in `Swift.Runtime` with tests
 - `SwiftFont`, `SwiftFontWeight`, `SwiftFontDesign` in `Swift.Runtime` with tests
 - Theme detection logic (singleton + bridgeable properties)
@@ -420,9 +469,12 @@ The C# types (`SwiftColor`, `SwiftFont`) work for both — only the Swift constr
 - Unit tests for detection and emission
 - BlinkIDUX validation: 21 properties accessible from C#
 
-### Session 2: UIKit types + getters + polish
-- UIKit.UIColor/UIFont support (parallel construction paths)
-- MicroblinkPlatform validation (mixed UIKit/SwiftUI)
-- Getter support (optional, if straightforward)
-- Report integration
-- Documentation update
+### Session 2: UIKit types + getters + polish (complete)
+- UIKit.UIColor/UIFont support (parallel construction paths) ✓
+- `SBW_uiFontWeight` helper for `UIFont.Weight` ✓
+- MicroblinkPlatform validation: 46 methods (setters + color getters), mixed UIKit/SwiftUI ✓
+- Color getter support: `@_cdecl` getters via `UIColor.getRed` (SwiftUI.Color converts via UIColor) ✓
+- Font getters deferred: SwiftUI.Font is opaque (no public extraction API)
+- Report integration: `RecordThemeBridged` records each property in `BindingReport` ✓
+- Pair-level file safety: if either bridge file is user-maintained, both sides skipped ✓
+- 66 unit tests (26 new: UIKit classification, emission, getters, mixed, report, pair-level safety) ✓
