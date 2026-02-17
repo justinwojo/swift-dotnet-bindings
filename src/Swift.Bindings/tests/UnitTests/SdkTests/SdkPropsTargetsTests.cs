@@ -122,9 +122,15 @@ namespace BindingsGeneration.Tests
         private static string FindRepoRoot()
         {
             var dir = AppDomain.CurrentDomain.BaseDirectory;
-            while (dir != null && !Directory.Exists(Path.Combine(dir, ".git")))
+            while (dir != null)
+            {
+                var gitPath = Path.Combine(dir, ".git");
+                // .git is a directory in normal repos, a file in worktrees
+                if (Directory.Exists(gitPath) || File.Exists(gitPath))
+                    return dir;
                 dir = Path.GetDirectoryName(dir);
-            return dir ?? throw new InvalidOperationException("Cannot find repo root.");
+            }
+            throw new InvalidOperationException("Cannot find repo root.");
         }
     }
 
@@ -387,9 +393,15 @@ namespace BindingsGeneration.Tests
         private static string FindRepoRoot()
         {
             var dir = AppDomain.CurrentDomain.BaseDirectory;
-            while (dir != null && !Directory.Exists(Path.Combine(dir, ".git")))
+            while (dir != null)
+            {
+                var gitPath = Path.Combine(dir, ".git");
+                // .git is a directory in normal repos, a file in worktrees
+                if (Directory.Exists(gitPath) || File.Exists(gitPath))
+                    return dir;
                 dir = Path.GetDirectoryName(dir);
-            return dir ?? throw new InvalidOperationException("Cannot find repo root.");
+            }
+            throw new InvalidOperationException("Cannot find repo root.");
         }
     }
 }

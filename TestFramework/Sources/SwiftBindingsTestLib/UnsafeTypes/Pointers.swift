@@ -3,12 +3,16 @@
 
 import Foundation
 
-// MARK: - Pointer Read (via Mutable)
-// Note: UnsafePointer<T> (immutable) maps to AnyType instead of IntPtr — known generator bug.
-// Using UnsafeMutablePointer<T> which correctly maps to IntPtr.
+// MARK: - Pointer Read (Mutable and Immutable)
+// Both UnsafePointer<T> and UnsafeMutablePointer<T> map to IntPtr in generated bindings.
 
-/// Reads the Int32 value at the given pointer.
+/// Reads the Int32 value at the given mutable pointer.
 public func readPointerValue(_ ptr: UnsafeMutablePointer<Int32>) -> Int32 {
+    return ptr.pointee
+}
+
+/// Reads the Int32 value at the given immutable pointer.
+public func readPointerValueImmutable(_ ptr: UnsafePointer<Int32>) -> Int32 {
     return ptr.pointee
 }
 
@@ -29,7 +33,6 @@ private let staticBufferPtr: UnsafeMutablePointer<Int32> = {
 }()
 
 /// Returns a pointer to a statically allocated Int32 buffer.
-/// Note: Returns UnsafeMutablePointer because UnsafePointer maps to AnyType (generator bug).
 public func getStaticBuffer() -> UnsafeMutablePointer<Int32> {
     return staticBufferPtr
 }
@@ -59,7 +62,6 @@ public struct PointerWorker {
     }
 
     /// Reads the value at the pointer and returns a description.
-    /// Note: Uses UnsafeMutablePointer because UnsafePointer maps to AnyType (generator bug).
     public func describeValue(_ ptr: UnsafeMutablePointer<Int32>) -> String {
         return "\(label): \(ptr.pointee)"
     }

@@ -459,6 +459,7 @@ public static class TypeDatabaseExtensions
     /// </summary>
     private static readonly HashSet<string> AppleObjCFrameworkModules = new(StringComparer.Ordinal)
     {
+        "Foundation",
         "UIKit", "AppKit", "CoreImage", "CoreData",
         "WebKit", "SceneKit", "SpriteKit", "ARKit", "RealityKit",
         "AVFoundation", "Photos", "PhotosUI", "Contacts", "ContactsUI",
@@ -503,6 +504,16 @@ public static class TypeDatabaseExtensions
         "MapKit.MKMapRect", "MapKit.MKMapPoint", "MapKit.MKMapSize",
         // ARKit structs
         "ARKit.ARRaycastQuery",
+        // Foundation value types (Swift structs/enums bridged from ObjC — NOT NSObject subclasses)
+        "Foundation.Data", "Foundation.URL", "Foundation.UUID", "Foundation.IndexPath",
+        "Foundation.URLError", "Foundation.URLError.Code",
+        "Foundation.URLComponents", "Foundation.URLQueryItem", "Foundation.URLRequest",
+        "Foundation.DateInterval", "Foundation.Calendar", "Foundation.Locale",
+        "Foundation.TimeZone", "Foundation.Notification", "Foundation.Notification.Name",
+        "Foundation.Measurement", "Foundation.PersonNameComponents",
+        "Foundation.CharacterSet", "Foundation.Decimal", "Foundation.NSRange",
+        "Foundation.Date", "Foundation.DateComponents",
+        "Foundation.Selector", "Foundation.ComparisonResult",
     };
 
     /// <summary>

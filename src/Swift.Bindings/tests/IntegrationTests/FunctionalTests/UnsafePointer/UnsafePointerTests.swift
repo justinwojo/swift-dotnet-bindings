@@ -4,6 +4,12 @@
 import CryptoKit
 import Foundation
 
+/// Reads the Int32 value at the given immutable pointer.
+/// Verifies that UnsafePointer<T> (immutable) maps to IntPtr, not AnyType.
+public func readImmutablePointerValue(_ ptr: UnsafePointer<Int32>) -> Int32 {
+    return ptr.pointee
+}
+
 public func AppleCryptoNative_ChaCha20Poly1305Encrypt(
     keyPtr: UnsafeMutableRawPointer,
     keyLength: Int32,

@@ -351,19 +351,78 @@ public class TypeDatabaseExtensionsTests
         Assert.Null(fallbackInfo);
     }
 
-    // --- Foundation non-root-class types are NOT auto-bridged ---
+    // --- Foundation class types are auto-bridged as ObjC ---
 
-    [Fact]
-    public void GetTypeRecordOrAnyType_FoundationType_ReturnsAnyType()
+    [Theory]
+    [InlineData("Foundation.URLResponse", "Foundation", "URLResponse")]
+    [InlineData("Foundation.HTTPURLResponse", "Foundation", "HTTPURLResponse")]
+    [InlineData("Foundation.URLSession", "Foundation", "URLSession")]
+    [InlineData("Foundation.URLSessionTask", "Foundation", "URLSessionTask")]
+    [InlineData("Foundation.URLSessionTaskMetrics", "Foundation", "URLSessionTaskMetrics")]
+    [InlineData("Foundation.URLCredential", "Foundation", "URLCredential")]
+    [InlineData("Foundation.NSData", "Foundation", "NSData")]
+    public void GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = new TypeDatabase();
 
-        // Foundation.NSData is not a root class (NSObject/NSProxy), so it's not auto-bridged
-        // from the ObjectiveC/Foundation module path. Foundation types other than root classes
-        // must be registered in type database XML.
-        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.NSData"));
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.Equal($"{expectedNamespace}.{expectedName}", record.CSharpTypeName.FullyQualifiedName);
+        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+        Assert.True((record.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+    }
+
+    // --- Foundation value types are NOT auto-bridged ---
+
+    [Theory]
+    [InlineData("Foundation.Data")]
+    [InlineData("Foundation.URL")]
+    [InlineData("Foundation.UUID")]
+    [InlineData("Foundation.URLError")]
+    [InlineData("Foundation.URLError.Code")]
+    [InlineData("Foundation.URLRequest")]
+    [InlineData("Foundation.Date")]
+    [InlineData("Foundation.Calendar")]
+    [InlineData("Foundation.Locale")]
+    public void GetTypeRecordOrAnyType_FoundationValueType_ReturnsAnyType(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Known Foundation value types must NOT be auto-bridged as ObjC classes
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
 
         Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Theory]
+    [InlineData("Foundation.URLResponse")]
+    [InlineData("Foundation.HTTPURLResponse")]
+    [InlineData("Foundation.URLSession")]
+    public void TryGetTypeRecord_FoundationClass_ReturnsObjCBridgedRecord(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found);
+        Assert.NotNull(record);
+        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+    }
+
+    [Theory]
+    [InlineData("Foundation.URLResponse")]
+    [InlineData("Foundation.HTTPURLResponse")]
+    [InlineData("Foundation.URLSession")]
+    public void TryGetAnyTypeFallbackInfo_FoundationClass_ReturnsFalse(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Foundation class types are handled via synthetic records, not a fallback
+        var found = typeDatabase.TryGetAnyTypeFallbackInfo(new NamedTypeSpec(swiftType), out var fallbackInfo);
+
+        Assert.False(found);
+        Assert.Null(fallbackInfo);
     }
 
     // --- Explicit DB registration overrides synthetic records ---

@@ -57,18 +57,21 @@ public class BoundGenericsHandler
     /// Determines whether the specified property declaration represents a bound generic type.
     /// Optional closures (Optional&lt;Closure&gt;) are NOT considered bound generics - they should
     /// be handled by ClosureHandler instead.
+    /// Pointer types (UnsafePointer&lt;T&gt;, etc.) are NOT bound generics — they map to IntPtr.
     /// </summary>
     /// <param name="propertyDecl">The property declaration.</param>
     /// <returns><c>true</c> if the property's Swift type contains generic parameters; otherwise, <c>false</c>.</returns>
     public bool IsBoundGeneric(PropertyDecl propertyDecl) =>
         propertyDecl.SwiftTypeSpec is NamedTypeSpec namedTypeSpec &&
         namedTypeSpec.ContainsGenericParameters &&
-        !_closureHandler.IsOptionalClosure(propertyDecl.SwiftTypeSpec); // TODO: Should also check that return type is not the type's own generic parameter (e.g., T in class Foo<T>)
+        !_closureHandler.IsOptionalClosure(propertyDecl.SwiftTypeSpec) &&
+        !IsPointerType(namedTypeSpec); // TODO: Should also check that return type is not the type's own generic parameter (e.g., T in class Foo<T>)
 
     /// <summary>
     /// Determines whether the specified argument declaration represents a bound generic type.
     /// Optional closures (Optional&lt;Closure&gt;) are NOT considered bound generics - they should
     /// be handled by ClosureHandler instead.
+    /// Pointer types (UnsafePointer&lt;T&gt;, etc.) are NOT bound generics — they map to IntPtr.
     /// </summary>
     /// <param name="argumentDecl">The argument declaration.</param>
     /// <returns><c>true</c> if the argument's Swift type contains generic parameters; otherwise, <c>false</c>.</returns>
@@ -76,7 +79,17 @@ public class BoundGenericsHandler
         !argumentDecl.IsGeneric &&
         argumentDecl.SwiftTypeSpec is NamedTypeSpec namedTypeSpec &&
         namedTypeSpec.ContainsGenericParameters &&
-        !_closureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec);
+        !_closureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec) &&
+        !IsPointerType(namedTypeSpec);
+
+    /// <summary>
+    /// Checks whether a NamedTypeSpec is a Swift pointer type (UnsafePointer, UnsafeMutablePointer, etc.).
+    /// Pointer types map to IntPtr and must NOT be treated as bound generics.
+    /// </summary>
+    private static bool IsPointerType(NamedTypeSpec typeSpec) =>
+        typeSpec.Name is "Swift.OpaquePointer" or "Swift.UnsafePointer"
+            or "Swift.UnsafeMutablePointer" or "Swift.UnsafeRawPointer"
+            or "Swift.UnsafeMutableRawPointer" or "Builtin.RawPointer";
 
     /// <summary>
     /// Determines whether the bound generic type requires special marshalling.

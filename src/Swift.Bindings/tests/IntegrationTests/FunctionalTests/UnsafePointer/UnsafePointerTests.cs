@@ -112,6 +112,29 @@ namespace BindingsGeneration.FunctionalTests
             }
         }
 
+        /// <summary>
+        /// Verifies that UnsafePointer&lt;T&gt; (immutable) generates IntPtr, not AnyType.
+        /// This was a suspected generator bug — this test ensures it stays correct.
+        /// </summary>
+        [Fact]
+        public static void TestImmutableUnsafePointerGeneratesIntPtr()
+        {
+            // The generated binding for readImmutablePointerValue should accept nint (IntPtr),
+            // not be skipped as AnyType. If this compiles, the type is correct.
+            // We verify the method exists and has the expected signature via reflection.
+            var method = typeof(Swift.UnsafePointerTests.Functions)
+                .GetMethod("ReadImmutablePointerValue");
+            Assert.NotNull(method);
+
+            // Verify parameter type is nint (IntPtr), not AnyType
+            var parameters = method!.GetParameters();
+            Assert.Single(parameters);
+            Assert.Equal(typeof(nint), parameters[0].ParameterType);
+
+            // Verify return type is Int32
+            Assert.Equal(typeof(int), method.ReturnType);
+        }
+
         [Fact]
         public static void TestUnsafePointerCryptoKit()
         {

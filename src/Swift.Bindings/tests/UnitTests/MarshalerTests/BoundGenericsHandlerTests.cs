@@ -23,7 +23,7 @@ public class BoundGenericsHandlerTests
     #region Existential Type Arguments Tests
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_DictionaryWithAny_ResolvesToExistentialContainer()
+    public void TranslateBoundGenericTypeToCSharp_DictionaryWithAny_ResolvesToAnyType()
     {
         // Swift: Dictionary<String, Any>
         // The 'Any' type is represented as a ProtocolListTypeSpec with 0 protocols
@@ -41,7 +41,7 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_ArrayWithAny_ResolvesToExistentialContainer()
+    public void TranslateBoundGenericTypeToCSharp_ArrayWithAny_ResolvesToAnyType()
     {
         // Swift: Array<Any>
         var anyTypeSpec = new ProtocolListTypeSpec();
@@ -56,7 +56,7 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_OptionalWithAny_ResolvesToExistentialContainer()
+    public void TranslateBoundGenericTypeToCSharp_OptionalWithAny_ResolvesToAnyType()
     {
         // Swift: Optional<Any>
         var anyTypeSpec = new ProtocolListTypeSpec();
@@ -109,7 +109,7 @@ public class BoundGenericsHandlerTests
     #region Nested Generic with Existential Tests
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_NestedArrayOfDictionaryWithAny_ResolvesToExistentialContainer()
+    public void TranslateBoundGenericTypeToCSharp_NestedArrayOfDictionaryWithAny_ResolvesToAnyType()
     {
         // Swift: Array<Dictionary<String, Any>>
         var anyTypeSpec = new ProtocolListTypeSpec();
@@ -356,7 +356,7 @@ public class BoundGenericsHandlerTests
     #region Property Bound Generic Tests
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_Property_WithAny_ResolvesToExistentialContainer()
+    public void TranslateBoundGenericTypeToCSharp_Property_WithAny_ResolvesToAnyType()
     {
         // Swift property: var items: Array<Any>
         var anyTypeSpec = new ProtocolListTypeSpec();
