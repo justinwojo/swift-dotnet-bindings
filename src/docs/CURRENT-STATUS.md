@@ -110,6 +110,7 @@ Tier promotion pass added runtime tests across string/enum/class/closure/composi
 
 ### Framework Limitations
 - **SwiftUI Views** — Skipped by generator; auto-generated interop bridge via UIHostingController validated for simple and async views. v2 supports primitives, String, Bool, closures, BoundEnum, BoundType, Optional variants, ABI-driven async inference, data-driven emission, cross-module type resolution with null-pointer safety, and bridge hints (`bridge-hints.json`) for user overrides (skip, forceTemplate, preferredInit, asyncPattern, extraSwiftImports). 13 SwiftUI bridge features tracked in TestFramework coverage matrix (enum/class/closure/optional/async Views). Runtime tests at Tier 2. BridgeTest (`BindingTesting/BridgeTest/`) retained as shadow validation.
+- **SwiftUI Theme Bridge** — `SwiftColor`/`SwiftFont` C# runtime types with `@_cdecl` setter wrappers for singleton theme classes. Detects classes with static singleton + settable `SwiftUI.Color`/`SwiftUI.Font` properties. Emits Swift setter wrappers (RGBA doubles, font name/size/weight/design) and C# `partial class` blocks that merge with existing generated types. BlinkIDUX validated (21 properties). UIKit types planned for Session 2. See `swiftui-theming.md`.
 - **Combine** — `@Published` properties and reactive streams not bridged
 
 ### Edge Cases
