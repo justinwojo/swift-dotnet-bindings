@@ -11,7 +11,7 @@
     <NoWarn>$(NoWarn);CS0169;CA1420;SB0001;SB0002</NoWarn>
 
     <!-- SDK internal paths -->
-    <_SwiftBindingSdkVersion>0.1.0-preview.5</_SwiftBindingSdkVersion>
+    <_SwiftBindingSdkVersion>0.1.0-preview.6</_SwiftBindingSdkVersion>
     <_SwiftBindingGeneratorDir>$(MSBuildThisFileDirectory)../tools/net10.0/any/</_SwiftBindingGeneratorDir>
 
     <!-- User-configurable -->
@@ -21,7 +21,7 @@
     <!-- Fast-iteration users can override to 'simulator' for quicker dev builds -->
     <SwiftWrapperArchitectures Condition="'$(SwiftWrapperArchitectures)' == ''">all</SwiftWrapperArchitectures>
     <!-- Property-driven version floor — users can override to use newer runtime -->
-    <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.1.0-preview.5</SwiftRuntimeVersion>
+    <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.1.0-preview.6</SwiftRuntimeVersion>
     <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->
     <SwiftGenerateDocComments Condition="'$(SwiftGenerateDocComments)' == ''">true</SwiftGenerateDocComments>
     <!-- Auto-detect framework dependencies from binary linkage (set to false to disable) -->

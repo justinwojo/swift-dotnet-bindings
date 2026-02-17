@@ -134,6 +134,16 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Skip properties referencing unsupported modules (SwiftUI, Combine) — these types
+                // have no C# representation and would produce CS0246 in the emitted interface.
+                if (MemberEmissionValidator.ReferencesUnsupportedModule(propertyDecl.SwiftTypeSpec))
+                {
+                    skippedPropertyNames.Add(propertyDecl.Name);
+                    _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - type references unsupported module.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.SwiftUIConstraint, "Property type references unsupported module (SwiftUI/Combine).");
+                    continue;
+                }
+
                 EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase, protocolDecl);
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
             }
@@ -179,6 +189,17 @@ namespace BindingsGeneration
                     skippedSubscriptIndices.Add(subscriptIndex);
                     _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - signature contains AnyType as generic type argument.");
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.AnyTypeFallback, "Subscript type contains AnyType as a generic type argument, which violates generic constraints.");
+                    subscriptIndex++;
+                    continue;
+                }
+
+                // Skip subscripts referencing unsupported modules (SwiftUI, Combine)
+                if (MemberEmissionValidator.ReferencesUnsupportedModule(subscriptDecl.ReturnTypeSpec) ||
+                    subscriptDecl.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec)))
+                {
+                    skippedSubscriptIndices.Add(subscriptIndex);
+                    _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - signature references unsupported module.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.SwiftUIConstraint, "Subscript signature references unsupported module (SwiftUI/Combine).");
                     subscriptIndex++;
                     continue;
                 }
@@ -266,6 +287,17 @@ namespace BindingsGeneration
                     skippedMethodKeys.Add(methodKey);
                     _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - resolved type contains AnyType as generic argument.");
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.AnyTypeFallback, "Method return type or parameter contains AnyType as a generic type argument.");
+                    continue;
+                }
+
+                // Skip methods referencing unsupported modules (SwiftUI, Combine)
+                bool hasUnsupportedModuleRef = methodDecl.CSSignature.Any(arg =>
+                    MemberEmissionValidator.ReferencesUnsupportedModule(arg.SwiftTypeSpec));
+                if (hasUnsupportedModuleRef)
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - signature references unsupported module.");
+                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.SwiftUIConstraint, "Method signature references unsupported module (SwiftUI/Combine).");
                     continue;
                 }
 

@@ -107,16 +107,32 @@ public class AsyncStreamHandler
     }
 
     /// <summary>
-    /// Translates the element type to its C# equivalent.
+    /// Translates the element type to its C# equivalent, preserving generic parameters.
     /// </summary>
     private string TranslateElementTypeToCSharp(TypeSpec typeSpec)
     {
         if (typeSpec is NamedTypeSpec namedType)
         {
-            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            // Use the TypeSpec overload which handles pointer types, existentials, etc.
+            if (_typeDatabase.TryGetTypeRecord(namedType, out var typeRecord))
             {
-                return typeRecord.CSharpTypeName.FullyQualifiedName;
+                var baseName = typeRecord.CSharpTypeName.FullyQualifiedName;
+
+                // Pointer types (UnsafeMutablePointer<T> etc.) map to non-generic IntPtr —
+                // don't append generic parameters to a non-generic C# type.
+                if (typeRecord == TypeDatabaseExtensions.IntPtrType)
+                    return baseName;
+
+                // Preserve generic parameters (e.g., Swift.Array<Element> → SwiftArray<Element>)
+                if (namedType.GenericParameters.Count > 0)
+                {
+                    var translatedParams = namedType.GenericParameters
+                        .Select(p => TranslateElementTypeToCSharp(p))
+                        .ToList();
+                    return $"{baseName}<{string.Join(", ", translatedParams)}>";
+                }
+
+                return baseName;
             }
         }
 
