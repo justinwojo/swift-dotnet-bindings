@@ -1655,6 +1655,99 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region Generic Type Preservation in Closure Params
+
+    [Fact]
+    public void EmitProxyClass_ClosureParam_OptionalDictionary_PreservesGenericArgs()
+    {
+        // Bug fix: Optional<Dictionary<AnyHashable, Any>> in closure params must emit
+        // SwiftDictionary<AnyType, AnyType>? (with generic args), not bare SwiftDictionary?
+        // which causes CS0305. The fix passes a typeTranslator to GetIdiomaticCSharpType
+        // so GetElementType can recursively resolve generic type arguments.
+        RegisterSwiftOptional();
+        RegisterSwiftDictionary();
+
+        var protocolDecl = CreateSimpleProtocol("CompletionProtocol");
+
+        // Method with closure param: (Optional<Dictionary<AnyHashable, Any>>, Optional<Error>) -> Void
+        var closureParams = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Dictionary",
+                new NamedTypeSpec("Swift.AnyHashable"),
+                new NamedTypeSpec("Swift.Int"))),
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Bool"))
+        });
+        var closureType = new ClosureTypeSpec(closureParams, TupleTypeSpec.Empty);
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "fetchData",
+            MangledName = "$sfetchData",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                },
+                new()
+                {
+                    Name = "completion", PrivateName = "completion",
+                    SwiftTypeSpec = closureType,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // The Dictionary in the closure param must have generic type arguments
+        Assert.Contains("SwiftDictionary<", output);
+        // Must NOT emit bare SwiftDictionary without generic args
+        Assert.DoesNotContain("SwiftDictionary?", output.Replace("SwiftDictionary<", ""));
+    }
+
+    private void RegisterSwiftOptional()
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.Optional"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    private void RegisterSwiftDictionary()
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftDictionary"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitProxyClass(ProtocolDecl protocolDecl)

@@ -65,7 +65,10 @@ public partial class ProtocolProxyEmitter
         if (!forAbiMarshalling && typeSpec is NamedTypeSpec namedTypeForIdiom)
         {
             var typeConversionHandler = new TypeConversionHandler(_typeDatabase);
-            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true);
+            // Pass typeTranslator so GetElementType can recursively resolve generic type args
+            // (e.g., Optional<Dictionary<K,V>> → SwiftDictionary<K_resolved, V_resolved>?)
+            var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true,
+                ts => GetCSharpTypeName(ts));
             if (idiomaticType != null)
                 return idiomaticType;
         }

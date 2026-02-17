@@ -460,7 +460,12 @@ public class ClosureHandler
 
                 // Non-generic named types must be in the type database
                 var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-                if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out _))
+                if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var closureTypeRecord))
+                    return false;
+
+                // Reject bare generic types (e.g., Dictionary without <K,V>) — they resolve
+                // to SwiftDictionary but produce CS0305 without type arguments
+                if (TypeDatabaseExtensions.IsBareGenericTypeName(closureTypeRecord.CSharpTypeName.FullyQualifiedName))
                     return false;
             }
         }
@@ -931,6 +936,14 @@ public class ClosureHandler
                 }
             }
             translatedParams.Add(TranslateTypeSpecToCSharp(genericParam));
+        }
+
+        // Safety net: if no generic params were translated but the base type requires them,
+        // return AnyType to prevent bare generic type names like "SwiftDictionary" (CS0305)
+        if (translatedParams.Count == 0 &&
+            TypeDatabaseExtensions.IsBareGenericTypeName(typeRecord.CSharpTypeName.FullyQualifiedName))
+        {
+            return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 
         // Build full type name with generics

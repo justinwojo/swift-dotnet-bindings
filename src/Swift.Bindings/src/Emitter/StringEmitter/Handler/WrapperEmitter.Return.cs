@@ -154,6 +154,13 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
+                if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownReturnType))
+                {
+                    csWriter.WriteLine($"return new {wellKnownReturnType}(result);");
+                    return;
+                }
+
                 var proxyClassName = _env.ExistentialHandler.GetProxyClassName(protocolList);
                 csWriter.WriteLine($"return new {proxyClassName}(result);");
                 return;
@@ -163,11 +170,19 @@ namespace BindingsGeneration
             if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
             {
                 var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                var proxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
                 var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
                 // Optional existential: check for default (zero) container
                 csWriter.WriteLine($"if (result.Equals(default({containerType}))) return null;");
-                csWriter.WriteLine($"return new {proxyClassName}(result);");
+                // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
+                if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownOptType))
+                {
+                    csWriter.WriteLine($"return new {wellKnownOptType}(result);");
+                }
+                else
+                {
+                    var optProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                    csWriter.WriteLine($"return new {optProxyClassName}(result);");
+                }
                 return;
             }
 
@@ -364,14 +379,26 @@ namespace BindingsGeneration
                 if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
                 {
                     var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                    var proxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
                     var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
                     var marshalType = $"Swift.SwiftOptional<{containerType}>";
-                    csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
-                        if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                        return new {{proxyClassName}}(swiftResult.Some);
-                        """);
+                    // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
+                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownConvType))
+                    {
+                        csWriter.WriteLines($$"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
+                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {{wellKnownConvType}}(swiftResult.Some);
+                            """);
+                    }
+                    else
+                    {
+                        var convProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                        csWriter.WriteLines($$"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
+                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {{convProxyClassName}}(swiftResult.Some);
+                            """);
+                    }
                 }
                 else
                 {
@@ -424,14 +451,26 @@ namespace BindingsGeneration
                 if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
                 {
                     var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
-                    var proxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
                     var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
                     var marshalType = $"Swift.SwiftOptional<{containerType}>";
-                    csWriter.WriteLines($"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
-                        if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                        return new {proxyClassName}(swiftResult.Some);
-                        """);
+                    // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
+                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownIndirectType))
+                    {
+                        csWriter.WriteLines($"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
+                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {wellKnownIndirectType}(swiftResult.Some);
+                            """);
+                    }
+                    else
+                    {
+                        var indirectProxyClassName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                        csWriter.WriteLines($"""
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{marshalType}>(new IntPtr(swiftIndirectResult.Value));
+                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {indirectProxyClassName}(swiftResult.Some);
+                            """);
+                    }
                 }
                 else
                 {

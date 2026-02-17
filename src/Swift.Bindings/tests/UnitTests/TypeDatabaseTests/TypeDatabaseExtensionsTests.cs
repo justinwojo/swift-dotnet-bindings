@@ -653,4 +653,98 @@ public class TypeDatabaseExtensionsTests
         Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
         Assert.Equal("int", record.CSharpTypeName.FullyQualifiedName);
     }
+
+    // --- Apple framework value type remapping tests ---
+
+    [Theory]
+    [InlineData("Foundation._NSRange", "Foundation", "NSRange")]
+    [InlineData("Foundation.JSONSerialization.ReadingOptions", "Foundation", "NSJsonReadingOptions")]
+    [InlineData("Foundation.JSONSerialization.WritingOptions", "Foundation", "NSJsonWritingOptions")]
+    public void GetTypeRecordOrAnyType_RemappedValueType_ReturnsCorrectDotNetType(string swiftType, string expectedNamespace, string expectedName)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal($"{expectedNamespace}.{expectedName}", record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        // Must NOT have ObjCBridged flag (these are value types, not classes)
+        Assert.False((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+    }
+
+    [Theory]
+    [InlineData("Foundation._NSRange", "Foundation", "NSRange")]
+    [InlineData("Foundation.JSONSerialization.ReadingOptions", "Foundation", "NSJsonReadingOptions")]
+    [InlineData("Foundation.JSONSerialization.WritingOptions", "Foundation", "NSJsonWritingOptions")]
+    public void TryGetTypeRecord_RemappedValueType_ReturnsCorrectDotNetType(string swiftType, string expectedNamespace, string expectedName)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found);
+        Assert.NotNull(record);
+        Assert.Equal($"{expectedNamespace}.{expectedName}", record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+    }
+
+    [Theory]
+    [InlineData("Foundation._NSRange")]
+    [InlineData("Foundation.JSONSerialization.ReadingOptions")]
+    [InlineData("Foundation.JSONSerialization.WritingOptions")]
+    public void GetTypeRecordOrThrow_RemappedValueType_ReturnsCorrectDotNetType(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Should NOT throw — these types have remapped records
+        var record = typeDatabase.GetTypeRecordOrThrow(new NamedTypeSpec(swiftType));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+    }
+
+    [Theory]
+    [InlineData("Foundation._NSRange")]
+    [InlineData("Foundation.JSONSerialization.ReadingOptions")]
+    [InlineData("Foundation.JSONSerialization.WritingOptions")]
+    public void IsTypeProcessed_RemappedValueType_ReturnsTrue(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var result = typeDatabase.IsTypeProcessed(new NamedTypeSpec(swiftType));
+
+        Assert.True(result);
+    }
+
+    [Theory]
+    [InlineData("Foundation._NSRange")]
+    [InlineData("Foundation.JSONSerialization.ReadingOptions")]
+    [InlineData("Foundation.JSONSerialization.WritingOptions")]
+    public void TryGetAnyTypeFallbackInfo_RemappedValueType_ReturnsFalse(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Remapped types should not report as missing
+        var found = typeDatabase.TryGetAnyTypeFallbackInfo(new NamedTypeSpec(swiftType), out var fallbackInfo);
+
+        Assert.False(found);
+        Assert.Null(fallbackInfo);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_NSRange_ReturnsRemappedNotObjCBridged()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // Foundation.NSRange (without underscore) is in AppleFrameworkValueTypes → AnyType
+        // Foundation._NSRange (with underscore) should remap to Foundation.NSRange
+        var rangeRecord = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.NSRange"));
+        var underscoreRangeRecord = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation._NSRange"));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, rangeRecord); // NSRange without underscore → AnyType (no DB entry)
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, underscoreRangeRecord); // _NSRange → remapped
+        Assert.Equal("Foundation.NSRange", underscoreRangeRecord.CSharpTypeName.FullyQualifiedName);
+    }
 }

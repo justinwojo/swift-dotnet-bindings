@@ -68,6 +68,10 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.IsTypeProcessed(typeName))
             return true;
 
+        // Apple framework value types with non-standard .NET names (e.g., _NSRange → NSRange)
+        if (IsRemappedAppleValueType(typeSpec))
+            return true;
+
         // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
         return IsObjCModuleType(typeSpec);
     }
@@ -203,6 +207,14 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.TryGetTypeRecord(typeName, out record))
             return true;
 
+        // Apple framework value types with non-standard .NET names (e.g., _NSRange → NSRange)
+        var remapped = TryCreateRemappedValueTypeRecord(typeName);
+        if (remapped != null)
+        {
+            record = remapped;
+            return true;
+        }
+
         // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
         if (IsObjCModuleType(typeSpec))
         {
@@ -261,6 +273,11 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
             return record;
 
+        // Apple framework value types with non-standard .NET names (e.g., _NSRange → NSRange)
+        var remapped = TryCreateRemappedValueTypeRecord(swiftTypeName);
+        if (remapped != null)
+            return remapped;
+
         // ObjC class types not in the database get synthetic ObjCBridged records.
         // Covers ObjectiveC/Foundation root classes and Apple framework module types.
         if (IsObjCClassSwiftType(swiftTypeName))
@@ -279,6 +296,11 @@ public static class TypeDatabaseExtensions
     {
         if (typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
             return record;
+
+        // Apple framework value types with non-standard .NET names (e.g., _NSRange → NSRange)
+        var remapped = TryCreateRemappedValueTypeRecord(swiftTypeName);
+        if (remapped != null)
+            return remapped;
 
         // ObjC class types not in the database get synthetic ObjCBridged records.
         // Covers ObjectiveC/Foundation root classes and Apple framework module types.
@@ -333,6 +355,13 @@ public static class TypeDatabaseExtensions
 
         // ObjC framework types are handled via synthetic ObjCBridged records, not a fallback
         if (IsObjCModuleType(typeSpec))
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
+        // Apple framework value types with remapped .NET names are handled, not a fallback
+        if (IsRemappedAppleValueType(typeSpec))
         {
             fallbackInfo = null;
             return false;
@@ -529,7 +558,70 @@ public static class TypeDatabaseExtensions
         "Foundation.CharacterSet", "Foundation.Decimal", "Foundation.NSRange",
         "Foundation.Date", "Foundation.DateComponents",
         "Foundation.Selector", "Foundation.ComparisonResult",
+        // Foundation types with underscore prefix in Swift ABI (C struct names)
+        "Foundation._NSRange",
+        // Foundation nested ObjC enums (NS_OPTIONS) — value types, not NSObject subclasses
+        "Foundation.JSONSerialization.ReadingOptions",
+        "Foundation.JSONSerialization.WritingOptions",
     };
+
+    /// <summary>
+    /// Remapping table for Apple framework value types whose .NET type names
+    /// differ from the flattened Swift name pattern. These types are in
+    /// <see cref="AppleFrameworkValueTypes"/> (excluded from ObjC class bridging)
+    /// and need explicit name remapping to their .NET iOS SDK equivalents.
+    /// Key is the Swift module-qualified name, value is (C# namespace, C# type name).
+    /// </summary>
+    private static readonly Dictionary<string, (string Namespace, string Name)> AppleFrameworkTypeRemappings =
+        new(StringComparer.Ordinal)
+    {
+        // C struct types: underscore prefix removed in .NET iOS SDK
+        ["Foundation._NSRange"] = ("Foundation", "NSRange"),
+        // ObjC NS_OPTIONS enums: Swift nested form → .NET flattened NS-prefix form
+        ["Foundation.JSONSerialization.ReadingOptions"] = ("Foundation", "NSJsonReadingOptions"),
+        ["Foundation.JSONSerialization.WritingOptions"] = ("Foundation", "NSJsonWritingOptions"),
+    };
+
+    /// <summary>
+    /// Creates a synthetic TypeRecord for an Apple framework value type whose .NET name
+    /// differs from the flattened Swift name pattern (e.g., Foundation._NSRange → Foundation.NSRange,
+    /// Foundation.JSONSerialization.ReadingOptions → Foundation.NSJsonReadingOptions).
+    /// Returns null if the type is not in the remapping table.
+    /// </summary>
+    private static TypeRecord? TryCreateRemappedValueTypeRecord(SwiftTypeName swiftTypeName)
+    {
+        if (!AppleFrameworkTypeRemappings.TryGetValue(swiftTypeName.ModuleQualifiedName, out var remap))
+            return null;
+
+        return new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(remap.Namespace, remap.Name),
+            SwiftTypeName = swiftTypeName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+        };
+    }
+
+    /// <summary>
+    /// Determines whether the specified type is an Apple framework value type with
+    /// a non-standard .NET name that needs remapping.
+    /// </summary>
+    private static bool IsRemappedAppleValueType(SwiftTypeName swiftTypeName)
+    {
+        return AppleFrameworkTypeRemappings.ContainsKey(swiftTypeName.ModuleQualifiedName);
+    }
+
+    /// <summary>
+    /// Determines whether the specified NamedTypeSpec is an Apple framework value type
+    /// with a non-standard .NET name that needs remapping.
+    /// </summary>
+    private static bool IsRemappedAppleValueType(NamedTypeSpec typeSpec)
+    {
+        if (!typeSpec.HasModule())
+            return false;
+        return AppleFrameworkTypeRemappings.ContainsKey(typeSpec.Name);
+    }
 
     /// <summary>
     /// Creates a synthetic ObjCBridged TypeRecord for an ObjC class type.

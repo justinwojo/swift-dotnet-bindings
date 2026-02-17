@@ -1720,6 +1720,137 @@ public class ProtocolHandlerOutputTests
 
     #endregion
 
+    #region Dictionary Generic Arg Preservation (typeTranslator fix)
+
+    [Fact]
+    public void Emit_InterfaceMethodWithOptionalDictionaryClosure_PreservesGenericArgs()
+    {
+        // Bug fix: Protocol interface method with Optional<Dictionary<K,V>> in closure param
+        // must emit SwiftDictionary<K,V>? (with generic args), not bare SwiftDictionary?
+        // This tests the typeTranslator fix in ProtocolHandler.GetCSharpTypeName (line 755).
+        var typeDatabase = CreateTypeDatabaseWithDictionary();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Closure: (Optional<Dictionary<AnyHashable, Int>>, Optional<Bool>) -> Void
+        var closureParams = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Dictionary",
+                new NamedTypeSpec("Swift.AnyHashable"),
+                new NamedTypeSpec("Swift.Int"))),
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Bool"))
+        });
+        var closureType = new ClosureTypeSpec(closureParams, TupleTypeSpec.Empty);
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "DataFetcher",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataFetcher"),
+            MangledName = "$s10TestModule11DataFetcherP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "fetchData",
+                    MangledName = "$s10TestModule11DataFetcherP9fetchDatayyF",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("completion", closureType, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface must emit SwiftDictionary with generic args, not bare SwiftDictionary
+        Assert.Contains("SwiftDictionary<", csOutput);
+        // Must NOT have bare SwiftDictionary? without generic args
+        Assert.DoesNotContain("SwiftDictionary?", csOutput.Replace("SwiftDictionary<", ""));
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithDictionary()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftDictionary"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.AnyHashable"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftAnyHashable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.AnyHashable"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    #endregion
+
     private static MethodDecl CreateMethodDeclWithParam(string name, string paramTypeName, ModuleDecl moduleDecl)
     {
         return new MethodDecl

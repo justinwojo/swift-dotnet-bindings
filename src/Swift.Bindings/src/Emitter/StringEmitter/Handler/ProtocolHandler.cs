@@ -750,7 +750,10 @@ namespace BindingsGeneration
             if (typeSpec is NamedTypeSpec namedTypeSpec)
             {
                 var typeConversionHandler = new TypeConversionHandler(typeDatabase);
-                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true);
+                // Pass typeTranslator so GetElementType can recursively resolve generic type args
+                // (e.g., Optional<Dictionary<K,V>> → SwiftDictionary<K_resolved, V_resolved>?)
+                var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpec, isParameter: true,
+                    ts => GetCSharpTypeName(ts, typeDatabase, boundGenericsHandler, protocolContext));
                 if (idiomaticType != null)
                     return idiomaticType;
 

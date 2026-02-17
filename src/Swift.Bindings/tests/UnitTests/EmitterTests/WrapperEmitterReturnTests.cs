@@ -267,6 +267,77 @@ public class WrapperEmitterReturnTests
         Assert.Contains("new DrawableProxy(result)", csOutput);
     }
 
+    [Fact]
+    public void Return_WellKnownExistential_EmitsAnyError()
+    {
+        // Bug fix: `any Swift.Error` must emit `new Swift.AnyError(result)`,
+        // not `new ErrorProxy(result)` (ErrorProxy doesn't exist)
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var protocolList = new ProtocolListTypeSpec(
+            new[] { new NamedTypeSpec("Swift.Error") });
+
+        var method = CreateMethodDecl(
+            name: "getError",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: protocolList,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("new Swift.AnyError(result)", csOutput);
+        Assert.DoesNotContain("ErrorProxy", csOutput);
+    }
+
+    [Fact]
+    public void OptionalExistential_WellKnownProtocol_UnwrapsToAnyError()
+    {
+        // Bug fix: Optional<any Swift.Error> return must use TryGetWellKnownProtocolType
+        // to emit `new Swift.AnyError(result)` instead of `new ErrorProxy(result)`.
+        // This tests the ExistentialHandler logic used by WrapperEmitter.Return lines 170 and 451.
+        var typeDatabase = CreateTypeDatabaseWithErrorProtocol();
+        var existentialHandler = new ExistentialHandler(typeDatabase);
+
+        var optionalExistential = new NamedTypeSpec("Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }));
+
+        // Verify Optional existential detection works
+        Assert.True(existentialHandler.IsOptionalExistential(optionalExistential));
+
+        // Verify unwrap + well-known protocol detection
+        var innerProtocolList = existentialHandler.UnwrapOptionalExistential(optionalExistential);
+        Assert.NotNull(innerProtocolList);
+        Assert.True(existentialHandler.TryGetWellKnownProtocolType(innerProtocolList!, out var wellKnownType));
+        Assert.Equal("Swift.AnyError", wellKnownType);
+
+        // Verify GetProxyClassName would give the wrong answer (ErrorProxy)
+        var proxyName = existentialHandler.GetProxyClassName(innerProtocolList!);
+        Assert.Equal("ErrorProxy", proxyName);
+    }
+
+    [Fact]
+    public void OptionalExistential_NonWellKnownProtocol_UsesProxyClassName()
+    {
+        // Complementary test: non-well-known protocol (e.g., TestModule.Drawable)
+        // should NOT match TryGetWellKnownProtocolType and should use GetProxyClassName.
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var existentialHandler = new ExistentialHandler(typeDatabase);
+
+        var optionalExistential = new NamedTypeSpec("Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Drawable") }));
+
+        Assert.True(existentialHandler.IsOptionalExistential(optionalExistential));
+        var innerProtocolList = existentialHandler.UnwrapOptionalExistential(optionalExistential);
+        Assert.NotNull(innerProtocolList);
+        Assert.False(existentialHandler.TryGetWellKnownProtocolType(innerProtocolList!, out _));
+        Assert.Equal("DrawableProxy", existentialHandler.GetProxyClassName(innerProtocolList!));
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithProtocol()
     {
         var typeDatabase = new TypeDatabase();
@@ -314,6 +385,73 @@ public class WrapperEmitterReturnTests
                 MetadataAccessor = string.Empty,
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
+    }
+
+    /// <summary>
+    /// Like CreateTypeDatabaseWithProtocol but also registers Swift.Error as a protocol,
+    /// needed for Optional existential tests where CanEmitMethod checks AllProtocolsHaveTypeRecords.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithErrorProtocol()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "Error"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+                MetadataAccessor = "$s10TestModule9ContainerCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
             });
         typeDatabase.AddModuleDatabase(module);
 

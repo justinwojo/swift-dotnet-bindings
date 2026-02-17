@@ -150,8 +150,10 @@ internal static class ProtocolSignatureHelper
         if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
         {
             // Try idiomatic conversion first (SwiftString→string, SwiftArray→IEnumerable/IReadOnlyList, etc.)
+            // Pass typeTranslator so GetElementType can recursively resolve generic type args
             var typeConversion = new TypeConversionHandler(typeDatabase);
-            var idiomaticType = typeConversion.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter);
+            var idiomaticType = typeConversion.GetIdiomaticCSharpType(typeSpec, isParameter: isParameter,
+                ts => ProjectTypeToCSharp(ts, typeDatabase, protocolContext, isParameter));
             if (idiomaticType != null)
                 return idiomaticType;
 

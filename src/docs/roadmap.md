@@ -2,8 +2,10 @@
 
 **Updated**: February 2026
 **Status**: Active
+**Target**: Raise binding quality from 6.5/10 to 8.5+/10 for .NET developer experience
 
 For completed work, see `Completed/`.
+External review: `/Users/wojo/Dev/swift-dotnet-packages/binding-analysis-v2.md` (not in this repo).
 
 ---
 
@@ -11,107 +13,340 @@ For completed work, see `Completed/`.
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 2,916 passing |
-| Integration tests | 699 passing (11 skipped, pre-existing) |
-| Runtime library tests | 156 passing |
+| Unit tests | 3,278 passing |
+| Integration tests | 700 passing (11 skipped, pre-existing) |
+| Runtime library tests | 181 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
 | Libraries validated | 25 clean (0 generator errors) + 5 environmental-only |
+| External review score | 6.5/10 (up from 5.5) |
 
 ---
 
 ## Priority Key
 
-- **P0**: Blocks production use — silent crashes, data loss, unusable core APIs
-- **P1**: Major DX friction — consumers hit these immediately and may abandon
+- **P0**: Blocks adoption — APIs are unusable or methods are silently missing
+- **P1**: Major DX friction — consumers hit these within first hour of use
 - **P2**: Quality gaps — noticeable but workable, erodes confidence over time
 - **P3**: Polish — professional quality, long-term sustainability
 - **P4**: Future vision — architectural improvements, new capabilities
 
 ---
 
-## Tasks
+## Acceptance KPIs
 
-### 1. Library Validation Expansion
+Hard, measurable gates per priority tier. Grep/compile checks, not subjective scores.
 
-**Priority**: P2 | **Effort**: Medium per library | **Risk**: Low
+| KPI | Current | After P0 | After P1 |
+|-----|---------|----------|----------|
+| `ExistentialContainer` in public signatures | ~60+ | 0 | 0 |
+| Stripe 11-module cross-compile (non-AnyType members) | ~70% | 95%+ | 98%+ |
+| `SwiftDictionary` in public signatures | 144 | 144 | 0 |
+| `SwiftOptional<` in public signatures | ~20 | ~20 | 0 |
+| Empty protocol interfaces (0 members) | 11 | <5 | 0 |
+| Enums emitted as native C# `enum` | ~5% | ~5% | ~40% |
+| Sync throw messages with actual error text | 0% | 0% | 100% |
+| Runtime type leakage (SwiftArray/SwiftOptional/ExistentialContainer in public API) | ~230 | ~170 | <10 |
 
-Runtime test apps for additional libraries beyond the current 6 (Nuke, BlinkID, Lottie, CryptoSwift, BridgeTest, Alamofire). Each library is self-contained.
+---
 
-| Target | Notes |
-|--------|-------|
-| Stripe end-to-end | Multi-module with `--framework-dependency` chain |
-| Additional 2-3 | Based on ecosystem demand |
+## P0 — Adoption Blockers
+
+### 1. Cross-Module Type Resolution
+
+**Priority**: P0 | **Effort**: Large (3-4 sessions) | **Risk**: Medium
+
+When generating bindings for StripePaymentSheet, types from StripePayments (e.g., `STPPaymentMethod`) resolve to `AnyType` and members are skipped. This blocks all real-world Stripe payment flows that span modules. The external review called this "the single biggest blocker for real-world adoption."
+
+**Architecture today**: Generator processes ONE module at a time. TypeDatabase only contains the current module + built-in databases (Foundation, UIKit, Swift, CoreGraphics, Dispatch). Cross-module types → `GetTypeRecordOrAnyType()` → `AnyType` → member skipped.
+
+**Architecture needed**: Load dependent module type databases before emitting the current module.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **1a. Generate module database XML** | After processing a module, emit a `{Module}Database.xml` alongside the binding. Contains all TypeRecord entries needed by dependents (type name, C# name, kind, flags, metadata accessor). | Medium | New `ModuleDatabaseEmitter.cs`, `TypeDatabase.cs` |
+| **1b. Accept `--module-database` CLI option** | Repeatable option that loads dependent module XML files into TypeDatabase before emission. Works with `--framework-dependency` (which already carries the module name). | Low | `Program.cs`, `TypeDatabase.cs` |
+| **1c. SDK integration** | `<SwiftFrameworkDependency>` auto-discovers and passes `--module-database` for each dependency. Build order: leaf modules first (topological sort). | Medium | `Sdk.targets`, `Sdk.props` |
+| **1d. Expand cross-module protocol conformance** | Remove the `CrossModuleSupportedProtocols` whitelist (currently only `Equatable`/`Hashable`). With full type databases loaded, all cross-module conformances can be emitted. | Low | `TypeHandlerHelpers.cs:465-469` |
+
+**Key insight**: We don't need to re-parse dependent ABI JSON. We just need the TypeRecord metadata (C# type name, mangled name, kind, flags). A small XML file per module (~10KB for StripePayments) is sufficient.
+
+**Acceptance gate**: Generate all 11 Stripe modules with dependency chain. `STPPaymentMethod` appears as proper type in StripePaymentSheet bindings (not `AnyType`). AnyType fallback count in Stripe drops >80%.
+
+---
+
+### 2. Eliminate ExistentialContainer from Public API
+
+**Priority**: P0 | **Effort**: Medium (2 sessions) | **Risk**: Low-Medium
+
+`ExistentialContainer1` appears in ~60+ closure parameters and `SwiftResult` error types across all libraries. A .NET developer cannot construct, inspect, or use this type. Any API containing it is effectively unusable.
+
+**Root cause**: When the generator encounters `any Protocol` where the protocol is unknown (not in TypeDatabase) or in a closure return position, it falls back to the raw container type instead of projecting to an interface.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **2a. Project unknown protocols to `object`** | When `GetPublicExistentialType()` can't find a protocol interface, emit `object` (not `ExistentialContainer1`) in public signatures. Keep container in P/Invoke. Add marshal bridge at call site. | Low | `ExistentialHandler.cs:306-319` |
+| **2b. Project closure return existentials** | Closure return types currently always use container. For known protocols, use the interface type and add receiver-side unwrapping in the callback. | Medium | `ClosureHandler.cs:799-815`, `ClosureEmitter.cs` |
+| **2c. Project SwiftResult error type** | `SwiftResult<T, ExistentialContainer1>` should become `SwiftResult<T, AnyError>` when the error protocol is `Swift.Error`. Extend the well-known mapping. | Low | `ExistentialHandler.cs:289-326` |
+| **2d. Array/collection of existentials** | `SwiftArray<ExistentialContainer1>` → `IReadOnlyList<object>` in public signatures. | Medium | `ClosureHandler.cs:858-863`, `BoundGenericsHandler` |
+
+**Acceptance gate**: `grep -c 'ExistentialContainer' Swift.*.cs` on all 25 library outputs returns 0 matches in public signatures. (Infrastructure members with `[EditorBrowsable(Never)]` are acceptable.)
+
+---
+
+## P1 — Major DX Friction
+
+### 3. Native C# Enums for Simple Swift Enums
+
+**Priority**: P1 | **Effort**: Medium (2-3 sessions) | **Risk**: Low
+
+Swift enums are modeled as heap-allocated classes with `CaseTag`, `Dispose()`, and native memory allocation per access. This is jarring for .NET developers — enums should be value types with zero allocation.
+
+The generator already emits native `enum` for frozen, non-generic enums with integral raw values (`IsSimpleEnum` path in `EnumHandler.SimpleEnum.cs`). The gap is in expanding coverage.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **3a. String-raw-value enums with methods** | Gate at `EnumDecl.IsStringRawValueSimpleEnum` rejects enums with methods. Relax to emit C# enum + extension methods (infrastructure already exists in `SimpleEnum.cs`). | Low (~2h) | `EnumDecl.cs:105-112`, `EnumHandler.SimpleEnum.cs` |
+| **3b. Non-frozen simple enums** | Emit C# enum for non-frozen enums that have no associated values, are non-generic, and have integral/no raw value. Emit a `_Unknown` sentinel case for forward compatibility. | Medium | `EnumDecl.cs:75-79`, `EnumHandler.SimpleEnum.cs` |
+| **3c. Enum case caching for class-based enums** | For enums that must remain classes (associated values, generic), add singleton/flyweight caching for no-payload case accessors. `Country.Albania` should return the same object every access. | Medium | `EnumHandler.RawRepresentable.cs`, `EnumHandler.CaseConstruction.cs` |
+
+**Acceptance gate**: Count of native `enum` declarations in generated output increases from ~5% to ~40% of total enum types. Class-based enum case accessors with no payload return cached instances (verify via object reference equality in tests).
+
+---
+
+### 4. Optional<T> P/Invoke Truncation (Correctness)
+
+**Priority**: P1 | **Effort**: Medium (1-2 sessions) | **Risk**: Medium
+
+`Optional<T>` for `T.Size > 8` silently truncates data through P/Invoke. The `_optbuf` wrapper fixes standalone methods, frozen struct constructors, property setters, and mutating methods. **Still broken for**: async methods, wrapper-owned methods, and Optional return values.
+
+This is a data corruption bug, not a cosmetic issue. Elevated from "tracked bugs" because silent truncation is worse than a crash.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **4a. Audit remaining truncation paths** | Enumerate every P/Invoke signature emitting `PayloadBuffer<IntPtr>` for Optional types where inner size > 8. Categorize by fix strategy. | Low | `PInvokeEmitter.cs`, `WrapperEmitter.cs` |
+| **4b. Extend _optbuf to wrapper-owned methods** | Apply the same buffer-widening pattern used in standalone methods. | Medium | `PInvokeEmitter.cs`, `WrapperEmitter.Marshalling.cs` |
+| **4c. Fix Optional return values** | Optional returns via `SwiftIndirectResult` may also truncate. Verify and fix. | Medium | `WrapperEmitter.Return.cs` |
+
+**Acceptance gate**: Zero `PayloadBuffer<IntPtr>` emissions where inner type size exceeds 8 bytes. Add unit tests for each path with `Optional<String>` (16 bytes) and `Optional<LargeStruct>`.
+
+---
+
+### 5. SwiftDictionary Projection
+
+**Priority**: P1 | **Effort**: Medium (2 sessions) | **Risk**: Low
+
+144 occurrences of `SwiftDictionary<SwiftString, SwiftString>` across 5 libraries. Arrays are properly projected (`IReadOnlyList<T>`) but dictionaries are not.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **5a. Runtime: Add IReadOnlyDictionary interface** | `SwiftDictionary<TKey, TValue>` implements `IReadOnlyDictionary<TKey, TValue>`. Add `Keys`, `Values`, `ContainsKey`, `TryGetValue`, `GetEnumerator`. Add `AsProjected()` and `FromDictionary()`. | Medium | `SwiftDictionary.cs` |
+| **5b. Generator: Add dictionary type conversion** | Add `IsSwiftDictionary()` check to `TypeConversionHandler`. Returns use `IReadOnlyDictionary<K,V>`, parameters use `IDictionary<K,V>`. Element types converted independently (SwiftString→string). | Medium | `TypeConversionHandler.cs` |
+
+**Pattern to follow**: Mirrors `SwiftArray` → `IReadOnlyList<T>`. `AsProjected(keySelector, valueSelector)` for lazy element-type conversion.
+
+**Acceptance gate**: `grep -c 'SwiftDictionary' Swift.*.cs` on public signatures returns 0. `GetPropertyNamesToFormFieldNamesMapping()` returns `IReadOnlyDictionary<string, string>`.
+
+---
+
+### 6. Public API Projection Completeness
+
+**Priority**: P1 | **Effort**: Medium (1-2 sessions) | **Risk**: Low
+
+Unified item covering all remaining runtime type leakage in public signatures. Individual items (dictionary, optional) handle the biggest categories; this covers the long tail.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **6a. Consistent SwiftOptional projection** | Apply `GetIdiomaticCSharpType()` to async return types (`WrapperEmitter.Async.cs:133-175`) and tuple elements (`WrapperEmitter.Return.cs:593-595`). Currently only properties and regular methods project `SwiftOptional<T>` to `T?`. | Low | `WrapperEmitter.Async.cs`, `WrapperEmitter.Return.cs`, `MethodSignature.cs` |
+| **6b. AsyncStream inner type projection** | `IAsyncEnumerable<SwiftArray<UIEvent>>` should be `IAsyncEnumerable<IReadOnlyList<UIEvent>>`. Apply array projection inside async stream generic parameter. | Low | `TypeConversionHandler.cs`, async emitter |
+| **6c. Remaining AnyType cleanup** | After cross-module resolution (Task 1), audit remaining `AnyType` occurrences. For types still unresolvable, emit `[UnsupportedSwiftType]` with the original Swift type name instead of silently using `object`. | Medium | `TypeDatabaseExtensions.cs`, `MemberEmissionValidator.cs` |
+| **6d. SwiftArray in non-projected contexts** | `SwiftArray<T>` appears unprojected in ~24 locations (async stream elements, enum factory params). Apply projection consistently. | Low | `TypeConversionHandler.cs` |
+
+**Acceptance gate**: Combined grep for `SwiftOptional<|SwiftArray<|SwiftDictionary<|ExistentialContainer` in public signatures across all 25 libraries < 10 total occurrences (down from ~230).
+
+---
+
+### 7. Empty Protocol Interface Completeness
+
+**Priority**: P1 | **Effort**: Medium (1-2 sessions) | **Risk**: Low
+
+11 protocol interfaces across StripeConnect (7 delegate protocols) and StripeIssuing (3 key provider protocols) are generated with zero members, making them unimplementable. Some empties may resolve after cross-module resolution (Task 1) — members could be skipped due to AnyType fallback on cross-module parameter types.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **7a. Post-cross-module audit** | After Task 1, regenerate Stripe modules and count remaining empty interfaces. Identify root cause per interface (AnyType fallback vs genuinely memberless protocol). | Low | Generated output analysis |
+| **7b. Emit diagnostic on empty interfaces** | For protocols that genuinely have members in ABI JSON but all were skipped, emit `[Obsolete("...", DiagnosticId = "SB0004")]` with the skip reasons. For protocols with zero ABI members, consider suppression. | Low | `ProtocolHandler.cs`, `ProtocolProxyEmitter.cs` |
+| **7c. Reduce member skip rate** | For members skipped due to non-blittable existential params or unsupported signatures, evaluate whether projection improvements (Task 2, 6) resolve the skip. | Medium | `MemberEmissionValidator.cs` |
+
+**Acceptance gate**: Empty protocol interfaces with skipped-member root cause drop to 0. Genuinely empty protocols (no ABI members) get explicit diagnostic.
+
+---
+
+### 8. Remove `Info` Suffix on Nested Types
+
+**Priority**: P1 | **Effort**: Medium (1-2 sessions) | **Risk**: Medium
+
+50+ types across libraries have `Info` appended: `PaymentSheet.ConfigurationInfo` instead of `PaymentSheet.Configuration`. The suffix avoids CS0542 (property/type name collision) by renaming the nested type.
+
+**Proposed change**: Rename the colliding *property* instead, keeping the type name clean. Types appear in `new`, `typeof`, variable declarations, generic constraints, and documentation. Properties appear only at call sites.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **8a. Reverse the rename priority** | In `NameProvider.ComputeNestedTypeRenames()`, instead of renaming the type, rename the property. Property gets a suffix (`Value`, `Instance`, or context-derived). | Medium | `NameProvider.cs:552-649` |
+| **8b. Verify descendant propagation** | Property renames need TypeDatabase propagation like type renames currently do. | Medium | `NameProvider.cs`, `PropertyHandler.cs` |
+
+**Acceptance gate**: Grep for `Info` suffix on nested types in generated output — only types that genuinely end in "Info" in Swift should have the suffix. Count should drop from ~50+ to <5.
+
+---
+
+### 9. Synchronous Error Detail Extraction
+
+**Priority**: P1 | **Effort**: Medium (1-2 sessions) | **Risk**: Low
+
+Synchronous throwing methods throw `SwiftRuntimeException("Call to Swift method {name} failed.")` — losing all error detail. Async methods already extract the actual error message and typed error value via callback parameters.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **9a. Extract error message in sync path** | After checking `error.Value != null`, marshal the error existential to extract `localizedDescription` via a Swift wrapper function (`SBW_Error_GetDescription`). | Medium | `WrapperEmitter.cs:546-589`, new Swift wrapper |
+| **9b. Extract typed error in sync path** | For typed throws, use `SwiftMarshal.MarshalFromSwift<TError>()` on the error existential (same pattern as async at `WrapperEmitter.Async.cs:1490`). | Medium | `WrapperEmitter.cs:550-589` |
+
+**Acceptance gate**: All sync `throw new SwiftRuntimeException(...)` include actual Swift error message. Update expectations in `ThrowingMethodTests.cs`.
+
+---
+
+## P2 — Quality Gaps
+
+### 10. Mark NotSupportedException Proxy Members
+
+**Priority**: P2 | **Effort**: Low (1 session) | **Risk**: Low
+
+~320 protocol proxy members throw `NotSupportedException` when called on Swift-backed existential containers, with no compile-time indication.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **10a. Add `[Obsolete]` with SB0003 diagnostic** | Emit on proxy members that throw. Message explains the limitation and reason (non-blittable type, async, throwing, subscript). | Low | `ProtocolProxyEmitter.InterfaceImpl.cs` |
+
+**Acceptance gate**: `SB0003` count matches `NotSupportedException` count in all generated proxy classes.
+
+---
+
+### 11. Suppress Internal/Telemetry Types
+
+**Priority**: P2 | **Effort**: Low-Medium (1 session) | **Risk**: Low
+
+Types like `CameraHardwareInfoPinglet` appear in public API when they should be internal.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **11a. swiftinterface-based access filtering** | Types not present in `.swiftinterface` are internal (even if in ABI JSON). Mark with `[EditorBrowsable(Never)]` or suppress entirely. This is the source of truth. | Medium | `SwiftInterfaceAccessParser.cs`, `MemberEmissionValidator.cs` |
+| **11b. Heuristic fallback** | Only when swiftinterface is unavailable: types matching patterns (`*Pinglet*`, `*Telemetry*`, `_*`) get `[EditorBrowsable(Never)]`. | Low | `ClassHandler.cs` or new filter |
+
+**Acceptance gate**: Public type count in generated output decreases for BlinkID, StripePayments. Swiftinterface-based filtering covers >95% of cases.
+
+---
+
+### 12. Normalize Async Method Names
+
+**Priority**: P2 | **Effort**: Low (1 session) | **Risk**: Low
+
+Swift async methods get `Get` prefix from the Swift wrapper: `GetPresentAsync`, `GetConfirmAsync`. .NET convention: `PresentAsync`, `ConfirmAsync`.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **12a. Strip `Get` prefix from async wrappers** | When an async method name starts with `Get` and the original Swift method doesn't, strip it. Expand the partial implementation from WU phase. | Low | `WrapperEmitter.Async.cs`, `MethodHandler.cs` |
+
+**Acceptance gate**: `GetPresentAsync`, `GetConfirmAsync` no longer appear in generated output.
+
+---
+
+### 13. Improve Parameter Naming
+
+**Priority**: P2 | **Effort**: Low-Medium (1 session) | **Risk**: Low
+
+Swift unnamed parameters become `_` and `_2`. Factory method parameters become `value0`. Generic type parameters become `T0`.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **13a. Use Swift argument labels** | ABI JSON contains both parameter names and argument labels. Use argument label when parameter name is `_`. | Low | `MethodSignature.cs`, parser |
+| **13b. Rename generic type params** | `T0` → `T` (single param), `T0`/`T1` → `TKey`/`TValue` or `TInput`/`TOutput` based on constraint names or position heuristics. | Low | Emitter generic handling |
+
+**Acceptance gate**: `_2`, `value0`, `T0` counts in generated output drop >80%.
+
+---
+
+### 14. Lightweight Regression Gate
+
+**Priority**: P2 | **Effort**: Low (1 session) | **Risk**: Low
+
+Protect upcoming refactors with a minimal smoke test before full CI. Not a replacement for CI — a fast local pre-push check.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **14a. `check-regressions.sh` script** | Runs: unit tests, regenerates Stripe multi-module bindings, compiles all 25 library outputs, diffs public API surface against baseline. Fails on new AnyType fallbacks or compile errors. Target: <5 min. | Medium | New `check-regressions.sh` |
+| **14b. API surface baseline** | Generate `api-baseline.txt` (public type/member signatures) from current output. Diff against baseline on each run to catch unintended API changes. | Low | New `generate-api-baseline.sh` |
+
+**Acceptance gate**: Script runs in <5 min and catches regressions introduced by P0/P1 work.
+
+---
+
+### 15. Actor-Aware Wrapper Emission
+
+**Priority**: P2 | **Effort**: Medium | **Risk**: Low
+
+(Carried forward from previous roadmap.)
+
+Swift 6 enforces actor isolation as hard type-system errors. Parse `@MainActor` annotations from `.swiftinterface` files and emit matching actor isolation on generated wrapper functions.
+
+| Step | Description | Effort | Files |
+|------|-------------|--------|-------|
+| **Parse @MainActor from swiftinterface** | `SwiftInterfaceAccessParser` already extracts other annotations. Add `@MainActor` / `@_Concurrency.MainActor`. | Low | `SwiftInterfaceAccessParser.cs` |
+| **Emit actor isolation on wrappers** | When a protocol/class is `@MainActor`, emit `@MainActor` on generated wrapper functions. | Medium | `EveryProtocolEmitter.cs`, `WitnessDispatchEmitter.cs` |
+| **Handle custom actors** | Types like `BlinkIDEventStream` need actor execution context. | Medium | Same |
+| **Remove -strict-concurrency=minimal** | Once actor-aware emission covers known cases. | Low | `SwiftWrapperCompiler.cs` |
+
+**Acceptance gate**: BlinkIDUX wrapper compiles with 0 actor isolation errors.
+
+---
+
+## P3 — Polish & Infrastructure
+
+### 16. CI Integration
+
+**Priority**: P3 | **Effort**: Large | **Risk**: Medium
+
+GitHub Actions workflow. macOS runner. Tier 1 on every PR, Tier 2 before merge, Tier 3 nightly. Real-world library validation on merge. Builds on the lightweight regression gate (Task 14).
+
+**Key files**: New `.github/workflows/`, existing test scripts
+
+---
+
+### 17. Library Validation Expansion
+
+**Priority**: P3 | **Effort**: Medium per library | **Risk**: Low
+
+Runtime test apps for additional libraries. Stripe end-to-end (multi-module with dependency chain) is the key target after cross-module resolution (Task 1) ships.
 
 **Verification**: Per-library `build-all.sh` + `validate-sim.sh`
 
 ---
 
-### 2. CI Integration
-
-**Priority**: P3 | **Effort**: Large | **Risk**: Medium
-
-GitHub Actions workflow. The tiered test system was designed for CI but not yet wired up.
-
-| Item | Description |
-|------|-------------|
-| **GitHub Actions CI** | macOS runner. Tier 1 on every PR, Tier 2 before merge, Tier 3 nightly. Real-world library validation on merge. |
-
-**Key files**: New `.github/workflows/`, existing test scripts
-**Verification**: PR opens, CI runs, tests pass
-
----
-
-### 3. Performance Benchmarks
+### 18. Performance Benchmarks
 
 **Priority**: P3 | **Effort**: Medium | **Risk**: Low
 
-New standalone project. No overlap with generator or runtime code. Measures interop overhead.
+BenchmarkDotNet harness measuring interop overhead. 5 CI perf smoke scenarios.
 
-| Item | Description |
-|------|-------------|
-| **Interop performance benchmarks** | 5 CI perf smoke scenarios (<60s, ratio-based thresholds). Standalone BenchmarkDotNet harness for deep investigation. Baseline variance. |
-
-**Key files**: New `perf/` directory, Swift test functions in TestFramework
-**Verification**: Benchmark suite runs, produces ratio metrics
 **Design**: `Future/interop-performance-validation-plan.md`
 
 ---
 
-### 4. SwiftUI Bridge Corpus
+### 19. SwiftUI Bridge Corpus
 
 **Priority**: P3 | **Effort**: Medium | **Risk**: Low
 
-Extends the SwiftUI bridge with coverage tracking across a real library corpus. Standalone — builds on existing bridge infrastructure.
+Track bridge coverage across 10+ libraries with 3-tier metrics (generated / typechecked / runtime-validated).
 
-| Item | Description |
-|------|-------------|
-| **Bridge corpus + 3-tier metrics** | Track bridge coverage (generated / typechecked / runtime-validated) across 10+ libraries. Reproducible corpus with pinned versions + hashes. Regression detection. |
-
-**Key files**: `BindingReport.cs`, `ReportCollector.cs`, new `bridge-corpus/` directory
-**Verification**: `generate-bridge-coverage.sh` produces per-library and aggregate metrics
 **Design**: `Future/swiftui-bridge-v2-plan.md` (Phase 4)
-
----
-
-### 5. Actor-Aware Wrapper Emission
-
-**Priority**: P2 | **Effort**: Medium | **Risk**: Low
-
-Swift 6 enforces actor isolation as hard type-system errors. Generated `@_silgen_name` wrapper functions access @MainActor and actor-isolated properties from nonisolated context, which is rejected regardless of `-strict-concurrency=minimal`, `-swift-version 5`, or `@preconcurrency import`. The `-strict-concurrency=minimal` flag only affects Sendable checking, not actor isolation.
-
-The fix is to parse `@MainActor` annotations from `.swiftinterface` files (which have explicit `@_Concurrency.MainActor` annotations) and emit matching actor isolation on generated wrapper functions. For custom actors, the wrapper functions need the property access wrapped in the actor's execution context.
-
-| Item | Description |
-|------|-------------|
-| **Parse @MainActor from swiftinterface** | `SwiftInterfaceAccessParser` already extracts other annotations. Add extraction of `@MainActor` / `@_Concurrency.MainActor` per-member and per-type. |
-| **Emit actor isolation on wrapper functions** | When a protocol/class is `@MainActor`, emit `@MainActor` on generated witness dispatch and async stream wrapper functions. |
-| **Handle custom actors** | Types like `BlinkIDEventStream` (custom actor) need their wrapper functions to use `await` or the actor's execution context. |
-| **Remove -strict-concurrency=minimal** | Once actor-aware emission covers known cases, remove the temporary flag from `SwiftWrapperCompiler.cs`. |
-
-**Key files**: `SwiftInterfaceAccessParser.cs`, `EveryProtocolEmitter.cs`, `WitnessDispatchEmitter.cs`, `PInvokeHelperEmitter.cs`, `SwiftWrapperCompiler.cs`
-**Verification**: BlinkIDUX wrapper compiles with 0 errors
-**Affected**: BlinkIDUX (6 actor isolation errors: 4 on CameraModel @MainActor protocol, 1 on BlinkIDEventStream custom actor, 1 on Camera @MainActor class)
 
 ---
 
@@ -131,19 +366,14 @@ Emit C# class hierarchies mirroring Swift type graph. Requires: cross-module inh
 **Effort**: Large (3-5 sessions)
 **Design**: `Future/objc-binding-integration.md`
 
-Replace Objective Sharpie. Uses `clang -ast-dump=json`. Same CLI/SDK for Swift and ObjC. ~1,500-2,000 lines new code. Session breakdown:
-1. Detection + routing
-2. Clang AST parser
-3. ApiDefinition emitter
-4. Binding project emission + SDK integration
-5. Validation against known ObjC frameworks
+Replace Objective Sharpie. Uses `clang -ast-dump=json`. Same CLI/SDK for Swift and ObjC. ~1,500-2,000 lines new code.
 
 ### Emitter Architecture Redesign
 
 **Effort**: Very Large (5+ sessions)
 **Design**: `Future/emitter-redesign-proposal.md`
 
-Three-phase architecture: type pre-processing (graph traversal + label assignment), type processing (handler-based member population), emission from representations. High risk — touches everything.
+Three-phase architecture: type pre-processing, type processing, emission from representations.
 
 ### Multi-Platform Support
 
@@ -182,4 +412,3 @@ Workarounds exist for all. Not blocking any library validation.
 | Throwing closure thunks | `SwiftString` return emitted as `void*` | Exclude throwing closures |
 | `async throws(ErrorType)` free functions | Emit `_payload`/`this` in static context | Guarded — no runtime impact |
 | ExistentialContainer0 in tuple element | Lottie edge case | Not reached by current guards |
-| `Optional<T>` P/Invoke truncation for T.Size > 8 | `PayloadBuffer<IntPtr>` passes 8 bytes; `Optional<String>` is 16 bytes | **Partially fixed** — `_optbuf` covers standalone methods, frozen struct constructors, property setters, and mutating methods for String/Int/UInt/Int64/UInt64/Double. Still truncated for: async, wrapper-owned, and Optional return values. |

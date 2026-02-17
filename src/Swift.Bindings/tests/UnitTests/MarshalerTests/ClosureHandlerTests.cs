@@ -1904,6 +1904,86 @@ public class ClosureHandlerTests
 
     #endregion
 
+    #region Bare Generic Closure Parameter Tests (Bug 3)
+
+    [Fact]
+    public void IsSupportedClosure_BareDictionaryParameter_ReturnsFalse()
+    {
+        // Bug 3: Dictionary without generic type args (e.g., from ObjC NSDictionary bridge)
+        // should be rejected — emitting SwiftDictionary without <K,V> causes CS0305.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Dictionary) -> Void — Dictionary has NO generic parameters
+        var bareDictionary = new NamedTypeSpec("Swift.Dictionary");
+        var closure = new ClosureTypeSpec(bareDictionary, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_OptionalBareDictionaryParameter_ReturnsFalse()
+    {
+        // Bug 3 variant: Optional<Dictionary> where Dictionary has no generic args.
+        // The Optional wrapping should not hide the bare generic inner type.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Optional<Dictionary>) -> Void — bare Dictionary inside Optional
+        var bareDictionary = new NamedTypeSpec("Swift.Dictionary");
+        var optionalDict = new NamedTypeSpec("Swift.Optional", bareDictionary);
+        var closure = new ClosureTypeSpec(optionalDict, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_DictionaryWithGenericArgs_ReturnsTrue()
+    {
+        // Positive counter-case: Dictionary WITH generic args should be supported.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Dictionary<String, Int>) -> Void
+        var typedDict = new NamedTypeSpec("Swift.Dictionary",
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int"));
+        var closure = new ClosureTypeSpec(typedDict, TupleTypeSpec.Empty);
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_BareDictionary_ReturnsAnyType()
+    {
+        // When bare Dictionary reaches translation, it must NOT produce "Swift.SwiftDictionary"
+        // (which would be a bare generic type name). It should return AnyType.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var bareDictionary = new NamedTypeSpec("Swift.Dictionary");
+        var result = handler.TranslateTypeSpecToCSharp(bareDictionary);
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, result);
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_DictionaryWithGenericArgs_ReturnsFullType()
+    {
+        // Positive counter-case: Dictionary<String, Int> should produce full generic type.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var typedDict = new NamedTypeSpec("Swift.Dictionary",
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int"));
+        var result = handler.TranslateTypeSpecToCSharp(typedDict);
+
+        Assert.Equal("Swift.SwiftDictionary<Swift.SwiftString, long>", result);
+    }
+
+    #endregion
+
     #region Mock Type Database
 
     private class MockTypeDatabase : ITypeDatabase
@@ -2023,6 +2103,15 @@ public class ClosureHandlerTests
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Class
+                },
+                // Dictionary type — generic, requires <K,V> type args
+                ["Swift.Dictionary"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftDictionary"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
                 },
                 // Pointer type — must return the exact TypeDatabaseExtensions.IntPtrType instance
                 // so TranslateBoundGenericToCSharp recognizes it as a pointer (reference equality check)
