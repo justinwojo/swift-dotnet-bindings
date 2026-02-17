@@ -1,0 +1,399 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+#nullable enable
+
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using Xunit;
+
+namespace BindingsGeneration.Tests;
+
+/// <summary>
+/// Tests for BaseHandler dedup key generation methods (GetProjectedCSharpMethodKey, GetMethodSignatureKey).
+/// Verifies that:
+/// 1. Known types produce correct resolved C# names in keys
+/// 2. Unknown types fall back to AnyType via GetTypeRecordOrAnyType's default path
+/// 3. Non-empty tuples resolve to AnyType via the `_ => AnyType` default (not the catch block)
+/// 4. The catch blocks handle edge cases where ITypeDatabase.TryGetTypeRecord itself throws (H1+H1b fix),
+///    using a ThrowingTypeDatabase to trigger the exception path
+/// </summary>
+public class BaseHandlerDedupTests
+{
+    #region GetProjectedCSharpMethodKey Tests
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_KnownType_UsesIdiomaticType()
+    {
+        // Swift.Int is converted to "long" via idiomatic type conversion
+        var typeDatabase = new BasicTypeDatabase();
+        var method = CreateMethod("doSomething", new NamedTypeSpec("Swift.Int"));
+
+        var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
+
+        Assert.NotNull(result);
+        Assert.Contains("long", result);
+    }
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_UnknownType_FallsBackToAnyType()
+    {
+        // Unknown types go through GetTypeRecordOrAnyType which returns AnyType (Swift.AnyType)
+        var typeDatabase = new BasicTypeDatabase();
+        var method = CreateMethod("doSomething", new NamedTypeSpec("Unknown.Module.SomeType"));
+
+        var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
+
+        // Should not throw; unknown types resolve to AnyType
+        Assert.NotNull(result);
+        Assert.Contains("Swift.AnyType", result);
+    }
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_NonEmptyTuple_ResolvesToAnyType()
+    {
+        // Non-empty tuples hit the `_ => AnyType` default in GetTypeRecordOrAnyType(TypeSpec),
+        // so they resolve without throwing. This tests the normal AnyType fallback, not the catch block.
+        var typeDatabase = new BasicTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+
+        var tupleParam = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+        var method = new MethodDecl
+        {
+            Name = "mixedMethod",
+            MangledName = "$sTest",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type (void)
+                CreateArgDecl(tupleParam),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
+
+        Assert.NotNull(result);
+        Assert.Contains("Swift.AnyType", result);
+    }
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_ThrowingTypeDatabase_CatchBlockFallsBackToString()
+    {
+        // H1 catch-path test: When TryGetTypeRecord throws, the catch block in
+        // GetProjectedCSharpMethodKey should swallow the exception and use the
+        // type's ToString() as a fallback string in the dedup key.
+        var typeDatabase = new ThrowingTypeDatabase();
+        var method = CreateMethod("doSomething", new NamedTypeSpec("Crashing.Module.BadType"));
+
+        var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
+
+        // Catch block should produce a string fallback containing the type name
+        Assert.NotNull(result);
+        Assert.Contains("Crashing.Module.BadType", result);
+    }
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_AsyncMethod_IncludesCancellationToken()
+    {
+        var typeDatabase = new BasicTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var method = new MethodDecl
+        {
+            Name = "fetchData",
+            MangledName = "$sTest",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        var result = InvokeGetProjectedCSharpMethodKey(method, typeDatabase);
+
+        Assert.Contains("System.Threading.CancellationToken", result);
+    }
+
+    #endregion
+
+    #region GetMethodSignatureKey Tests
+
+    [Fact]
+    public void GetMethodSignatureKey_KnownType_UsesResolvedCSharpName()
+    {
+        // Swift.Int resolves to CSharpTypeName "long" (keyword alias)
+        var typeDatabase = new BasicTypeDatabase();
+        var method = CreateMethod("doSomething", new NamedTypeSpec("Swift.Int"));
+
+        var result = InvokeGetMethodSignatureKey(method, typeDatabase);
+
+        Assert.NotNull(result);
+        Assert.Contains("long", result);
+        Assert.StartsWith("method:", result);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_UnknownType_FallsBackToAnyType()
+    {
+        var typeDatabase = new BasicTypeDatabase();
+        var method = CreateMethod("doSomething", new NamedTypeSpec("Unknown.Module.SomeType"));
+
+        var result = InvokeGetMethodSignatureKey(method, typeDatabase);
+
+        // Unknown types resolve to AnyType
+        Assert.NotNull(result);
+        Assert.Contains("Swift.AnyType", result);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_Constructor_PrefixesWithCtor()
+    {
+        var typeDatabase = new BasicTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$sTest",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type
+                CreateArgDecl(new NamedTypeSpec("Swift.Int")),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = InvokeGetMethodSignatureKey(method, typeDatabase);
+
+        Assert.StartsWith("ctor:", result);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_NonEmptyTuple_ResolvesToAnyType()
+    {
+        // Non-empty tuples hit the `_ => AnyType` default in GetTypeRecordOrAnyType(TypeSpec),
+        // so they resolve without throwing. This tests the normal AnyType fallback, not the catch block.
+        var typeDatabase = new BasicTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var tupleParam = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool")
+        });
+        var method = new MethodDecl
+        {
+            Name = "process",
+            MangledName = "$sTest",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type
+                CreateArgDecl(tupleParam),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = InvokeGetMethodSignatureKey(method, typeDatabase);
+
+        Assert.NotNull(result);
+        Assert.Contains("Swift.AnyType", result);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_ThrowingTypeDatabase_CatchBlockFallsBackToString()
+    {
+        // H1b catch-path test: When TryGetTypeRecord throws, the catch block in
+        // GetMethodSignatureKey should swallow the exception and use the
+        // type's ToString() as a fallback string in the dedup key.
+        var typeDatabase = new ThrowingTypeDatabase();
+        var method = CreateMethod("process", new NamedTypeSpec("Crashing.Module.BadType"));
+
+        var result = InvokeGetMethodSignatureKey(method, typeDatabase);
+
+        // Catch block should produce a string fallback containing the type name
+        Assert.NotNull(result);
+        Assert.StartsWith("method:", result);
+        Assert.Contains("Crashing.Module.BadType", result);
+    }
+
+    #endregion
+
+    #region Helpers
+
+    private static MethodDecl CreateMethod(string name, TypeSpec paramType)
+    {
+        var moduleDecl = CreateModuleDecl();
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = "$sTest",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type (void)
+                CreateArgDecl(paramType), // parameter
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static ArgumentDecl CreateArgDecl(TypeSpec typeSpec)
+    {
+        return new ArgumentDecl
+        {
+            SwiftTypeSpec = typeSpec,
+            Name = "arg",
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static ModuleDecl CreateModuleDecl()
+    {
+        return new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static string InvokeGetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+    {
+        var method = typeof(BaseHandler).GetMethod(
+            "GetProjectedCSharpMethodKey",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        return (string)method!.Invoke(null, new object?[] { methodDecl, typeDatabase, null })!;
+    }
+
+    private static string InvokeGetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+    {
+        var method = typeof(BaseHandler).GetMethod(
+            "GetMethodSignatureKey",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        return (string)method!.Invoke(null, new object?[] { methodDecl, typeDatabase, null })!;
+    }
+
+    #endregion
+
+    #region Test Type Database
+
+    /// <summary>
+    /// A type database with basic Swift types for testing dedup key generation.
+    /// </summary>
+    private class BasicTypeDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types = new()
+        {
+            ["Swift.Int"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["Swift.Bool"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["Swift.String"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+
+        public string? AsyncLibraryName => null;
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(true)] out TypeRecord? record)
+        {
+            return _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record);
+        }
+
+        public string GetLibraryPath(string moduleName) => "";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
+
+    #region Throwing Type Database
+
+    /// <summary>
+    /// A type database that throws from TryGetTypeRecord for any type not in its
+    /// internal set. Used to exercise the catch blocks in GetProjectedCSharpMethodKey
+    /// and GetMethodSignatureKey (H1+H1b).
+    /// </summary>
+    private class ThrowingTypeDatabase : ITypeDatabase
+    {
+        public string? AsyncLibraryName => null;
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) => false;
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(true)] out TypeRecord? record)
+        {
+            throw new InvalidOperationException(
+                $"Simulated database error for type '{swiftTypeName.ModuleQualifiedName}'");
+        }
+
+        public string GetLibraryPath(string moduleName) => "";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
+}

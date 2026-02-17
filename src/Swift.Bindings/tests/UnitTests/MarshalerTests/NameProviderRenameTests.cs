@@ -37,6 +37,47 @@ public class NameProviderRenameTests
         Assert.Empty(renames);
     }
 
+    [Fact]
+    public void ComputeNestedTypeRenames_InfoSuffixAlreadyExists_UsesIncrementingSuffix()
+    {
+        // Type "Cache" collides with property "Cache", but "CacheInfo" already exists as a nested type.
+        // The rename should fall back to "CacheInfo2" to avoid a duplicate.
+        var propertyNames = new[] { "Cache" };
+        var nestedTypeNames = new[] { "Cache", "CacheInfo" };
+
+        var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+
+        Assert.Single(renames);
+        Assert.Equal("CacheInfo2", renames["Cache"]);
+    }
+
+    [Fact]
+    public void ComputeNestedTypeRenames_MultipleInfoSuffixCollisions_IncrementsCorrectly()
+    {
+        // Both "CacheInfo" and "CacheInfo2" exist as nested types.
+        var propertyNames = new[] { "Cache" };
+        var nestedTypeNames = new[] { "Cache", "CacheInfo", "CacheInfo2" };
+
+        var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+
+        Assert.Single(renames);
+        Assert.Equal("CacheInfo3", renames["Cache"]);
+    }
+
+    [Fact]
+    public void ComputeNestedTypeRenames_TwoCollisionsOneInfoExists_HandlesCorrectly()
+    {
+        // Two types collide with properties, and the "Info" suffix of the first already exists.
+        var propertyNames = new[] { "Cache", "Name" };
+        var nestedTypeNames = new[] { "Cache", "CacheInfo", "Name" };
+
+        var renames = NameProvider.ComputeNestedTypeRenames(propertyNames, nestedTypeNames);
+
+        Assert.Equal(2, renames.Count);
+        Assert.Equal("CacheInfo2", renames["Cache"]);
+        Assert.Equal("NameInfo", renames["Name"]);
+    }
+
     #endregion
 
     #region Descendant Rename Propagation Tests

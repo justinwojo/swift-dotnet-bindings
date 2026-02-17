@@ -535,12 +535,21 @@ public static class NameProvider
         IEnumerable<string> propertyNames, IEnumerable<string> nestedTypeNames)
     {
         var propSet = new HashSet<string>(propertyNames);
+        var typeNameSet = new HashSet<string>(nestedTypeNames);
         var renames = new Dictionary<string, string>();
         foreach (var typeName in nestedTypeNames)
         {
             if (propSet.Contains(typeName))
             {
-                renames[typeName] = $"{typeName}Info";
+                var candidate = $"{typeName}Info";
+                // Avoid collision with an existing nested type name
+                var suffix = 2;
+                while (typeNameSet.Contains(candidate) || renames.ContainsValue(candidate))
+                {
+                    candidate = $"{typeName}Info{suffix}";
+                    suffix++;
+                }
+                renames[typeName] = candidate;
             }
         }
         return renames;
@@ -772,7 +781,7 @@ public static class NameProvider
         "Increment", "Decrement", "Negate", "Invert", "Reverse", "Rotate",
         "Compress", "Decompress", "Encrypt", "Decrypt", "Sign",
         "Queue", "Schedule", "Postpone", "Defer", "Delay",
-        "Broadcast", "Multicast", "Relay", "Forward", "Relay",
+        "Broadcast", "Multicast", "Relay", "Forward",
         "Put", "Patch", "Post",
         "Accept", "Accepts", "Pass", "Passes", "Sum", "Sums",
     };

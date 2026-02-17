@@ -1,9 +1,11 @@
 # Marshaler Component — Test & Code Review
 
 **Date**: 2026-02-16
+**Completed**: 2026-02-16
 **Scope**: `src/Swift.Bindings/src/Marshaler/` (13 files, 5,880 LOC)
 **Tests**: `src/Swift.Bindings/tests/UnitTests/MarshalerTests/` (15 files, 8,714 LOC)
 **Test Ratio**: 1.48x (tests exceed source LOC — good baseline)
+**Branch**: `marshaler-tests`
 
 ---
 
@@ -393,3 +395,38 @@ The initial review was cross-reviewed by Codex. Corrections applied:
 - ~~H4~~ Removed: `GetMethodSignatureKey` does not call `GetIdiomaticCSharpType` — finding was miswired to wrong method
 - ~~TC4~~ Optional\<Array> return conversion: `TypeConversionHandlerTests.cs:292`, `:307`
 - ~~CL5~~ Complex closure return types: `ClosureHandlerTests.cs:315`, `:380`
+
+---
+
+## Completion Notes
+
+**All work items completed.** 3 bug fixes, 1 cleanup, 43 new tests across 7 test files + 1 new test file.
+
+### Bug Fixes
+
+| Item | Change |
+|------|--------|
+| **N1** | `NameProvider.cs:543` — `ComputeNestedTypeRenames()` now checks if `{TypeName}Info` already exists before renaming. Uses incrementing suffix (`Info2`, `Info3`, etc.) on collision. |
+| **H1+H1b** | `IHandler.cs` — Added `ILogger? logger = null` parameter to both `GetProjectedCSharpMethodKey` and `GetMethodSignatureKey` (kept `private static`). Changed bare `catch` to `catch (Exception ex)` with `logger?.LogWarning(...)`. Updated 4 existing test files that use reflection to pass `null` logger. |
+| **N7** | `NameProvider.cs` — Removed duplicate `"Relay"` in `_verbPrefixes`. |
+
+### Tests Added
+
+| Item | File | Tests Added | Description |
+|------|------|-------------|-------------|
+| **N1** | `NameProviderRenameTests.cs` | 3 | Collision scenarios: `InfoSuffixAlreadyExists`, `MultipleInfoSuffixCollisions`, `TwoCollisionsOneInfoExists` |
+| **H1+H1b** | `BaseHandlerDedupTests.cs` (**new**) | 10 | Dedup key generation: known types use idiomatic names, unknown types fall back to AnyType, non-empty tuples resolve to AnyType, async includes CancellationToken, constructor prefixed with "ctor:". **ThrowingTypeDatabase** tests exercise actual catch blocks (Codex review fix). |
+| **M1** | `MarshallingHelpersTests.cs` | 12 | `MethodRequiresIndirectResult()` — all 8+ branches: async, failable constructors, frozen/non-frozen structs, closures, existentials, tuples, bound generics, generic returns, classes |
+| **CL1+CL3+CL4** | `ClosureHandlerTests.cs` | 4 | B7 (memory-mgmt generic in closure return), B16 (enum in callback param), CL4 (existential generic in Optional closure return) |
+| **BG4+BG6** | `BoundGenericsHandlerTests.cs` | 5 | Optional tuple with existential element (B5 skip gate), nested generic owner qualification |
+| **T1** | `TupleHandlerTests.cs` | 2 | Bound generic tuple element support check |
+| **TC1** | `TypeConversionHandlerTests.cs` | 4 | Optional\<Closure>/Optional\<Existential> null guard paths |
+
+### Codex Review Feedback (applied)
+
+Initial H1/H1b catch-path tests used non-empty tuples, which hit the `_ => AnyType` default in `GetTypeRecordOrAnyType(TypeSpec)` without throwing — the catch blocks were never exercised. Fixed by adding a `ThrowingTypeDatabase` that throws `InvalidOperationException` from `TryGetTypeRecord`, properly triggering the catch-block string fallback path. Existing tuple tests renamed to accurately document the `_ => AnyType` path they actually test.
+
+### Test Results
+
+- **2914 passed**, 0 new failures
+- 41 pre-existing failures in `SdkTargetsContentTests`/`SdkPropsContentTests`/`BuildScriptTests` (repo-root detection — unrelated to this work)

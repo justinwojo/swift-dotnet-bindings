@@ -172,7 +172,7 @@ namespace BindingsGeneration
                 else if (baseDecl is MethodDecl methodDecl)
                 {
                     // Create unique signature key to detect duplicates
-                    var signatureKey = GetMethodSignatureKey(methodDecl, typeDatabase);
+                    var signatureKey = GetMethodSignatureKey(methodDecl, typeDatabase, _logger);
                     if (emittedMethodSignatures.Contains(signatureKey))
                     {
                         _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' with signature: {signatureKey}");
@@ -187,7 +187,7 @@ namespace BindingsGeneration
                     // B15: Secondary dedup based on projected C# public method signature.
                     // Different Swift overloads (e.g., secret: vs clientSecret:) can produce
                     // identical C# method names after async normalization and parameter projection.
-                    var projectedKey = GetProjectedCSharpMethodKey(methodDecl, typeDatabase);
+                    var projectedKey = GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger);
                     if (!emittedProjectedSignatures.Add(projectedKey))
                     {
                         _logger.LogDebug($"Skipping method '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
@@ -249,7 +249,7 @@ namespace BindingsGeneration
         /// Uses the public method name and projected C# parameter types,
         /// so different Swift overloads that produce identical C# signatures are deduplicated.
         /// </summary>
-        private static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+        private static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
         {
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
@@ -285,8 +285,9 @@ namespace BindingsGeneration
                         var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey);
                         paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        logger?.LogWarning($"GetProjectedCSharpMethodKey: Failed to resolve type '{typeSpecForKey}' for method '{methodDecl.Name}', using string fallback: {ex.Message}");
                         paramTypes.Add(typeSpecForKey?.ToString() ?? "unknown");
                     }
                 }
@@ -304,7 +305,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Creates a unique signature key for a method based on name, constructor status, and parameter types.
         /// </summary>
-        private static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+        private static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
         {
             var paramTypes = new List<string>();
             // Skip first element (return type) in CSSignature
@@ -316,10 +317,11 @@ namespace BindingsGeneration
                     var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
                     paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
                 }
-                catch
+                catch (Exception ex)
                 {
                     // For generic type parameters or other unsupported types,
                     // use the string representation of the type spec
+                    logger?.LogWarning($"GetMethodSignatureKey: Failed to resolve type '{arg.SwiftTypeSpec}' for method '{methodDecl.Name}', using string fallback: {ex.Message}");
                     paramTypes.Add(arg.SwiftTypeSpec?.ToString() ?? "unknown");
                 }
             }

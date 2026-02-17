@@ -1831,6 +1831,79 @@ public class ClosureHandlerTests
 
     #endregion
 
+    #region Closure Constraint Tests (B7, B16, CL4)
+
+    [Fact]
+    public void IsSupportedClosure_B7_GenericReturnWithMemoryManagementParam_ReturnsFalse()
+    {
+        // B7: Optional<String> as closure return type is unsupported because
+        // String requires memory management. The P/Invoke uses void* but the
+        // C# delegate expects the actual struct.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalReturn);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_B7_GenericReturnWithFrozenParam_ReturnsTrue()
+    {
+        // Counter-case: Optional<Int> IS supported because Int is frozen
+        // and does not require memory management.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalReturn);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_B16_EnumInCallbackParameter_ReturnsFalse()
+    {
+        // B16: C# enums are non-blittable and cannot be used in [UnmanagedCallersOnly] callbacks.
+        // Swift.Result is registered as TypeRecordKind.Enum in MockTypeDatabase.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Result"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_CL4_ExistentialGenericParamInOptionalReturn_ReturnsFalse()
+    {
+        // CL4: Optional<any Protocol> as closure return type is unsupported
+        // because the emitter can't marshal void* back to the bound generic type.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var existentialParam = new ProtocolListTypeSpec(); // Any
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(existentialParam);
+
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalReturn);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    #endregion
+
     #region Mock Type Database
 
     private class MockTypeDatabase : ITypeDatabase

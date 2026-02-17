@@ -935,7 +935,7 @@ public class ThirdPartyValidationFixTestsV4
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         if (methodInfo == null)
             throw new InvalidOperationException("Could not find GetProjectedCSharpMethodKey method");
-        return (string)methodInfo.Invoke(null, new object[] { method, typeDatabase })!;
+        return (string)methodInfo.Invoke(null, new object?[] { method, typeDatabase, null })!;
     }
 
     private static string GetOverloadProjectedKeyViaReflection(MethodDecl method, ITypeDatabase typeDatabase)

@@ -660,6 +660,60 @@ public class TypeConversionHandlerTests
 
     #endregion
 
+    #region Optional<Closure> and Optional<Existential> Null Guard Paths (TC1)
+
+    [Fact]
+    public void GetIdiomaticCSharpType_OptionalClosure_ReturnsNull()
+    {
+        // Optional<() -> Void> should return null — ClosureHandler handles this, not TypeConversionHandler.
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(closure);
+
+        var result = _handler.GetIdiomaticCSharpType(optional, isParameter: true);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetIdiomaticCSharpType_OptionalClosureWithArgs_ReturnsNull()
+    {
+        // Optional<(Int) -> Bool> should also return null.
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(closure);
+
+        var result = _handler.GetIdiomaticCSharpType(optional, isParameter: true);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetIdiomaticCSharpType_OptionalExistential_ReturnsNull()
+    {
+        // Optional<any Protocol> should return null — ExistentialHandler handles this.
+        var existential = new ProtocolListTypeSpec();
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(existential);
+
+        var result = _handler.GetIdiomaticCSharpType(optional, isParameter: true);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetIdiomaticCSharpType_OptionalInt_ReturnsNullableInt()
+    {
+        // Optional<Int> should be handled by TypeConversionHandler and return "long?"
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var result = _handler.GetIdiomaticCSharpType(optional, isParameter: true);
+        Assert.NotNull(result);
+        Assert.Equal("long?", result);
+    }
+
+    #endregion
+
     #region MockTypeDatabase
 
     private class MockTypeDatabase : ITypeDatabase

@@ -467,6 +467,43 @@ public class TupleHandlerTests
 
     #endregion
 
+    #region Bound Generic Tuple Element Support (T1)
+
+    [Fact]
+    public void IsSupportedTuple_WithBoundGenericElement_ReturnsTrue()
+    {
+        // Tuple (Optional<Int>, Bool) — Optional<Int> is a bound generic element
+        // where Optional is in the database and Int is a supported element type.
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            optionalInt,
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        Assert.True(_tupleHandler.IsSupportedTuple(tuple));
+    }
+
+    [Fact]
+    public void IsSupportedTuple_WithBoundGenericElementBaseNotInDb_ReturnsFalse()
+    {
+        // Tuple (Unknown<Int>, Bool) — Unknown is not in the database
+        var unknownGeneric = new NamedTypeSpec("SomeModule.Unknown");
+        unknownGeneric.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            unknownGeneric,
+            new NamedTypeSpec("Swift.Bool")
+        });
+
+        Assert.False(_tupleHandler.IsSupportedTuple(tuple));
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static ArgumentDecl CreateArgumentDecl(string name, TypeSpec typeSpec)

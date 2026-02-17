@@ -535,6 +535,110 @@ public class BoundGenericsHandlerTests
 
     #endregion
 
+    #region BG4 — Optional Tuple with Existential Element
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_OptionalTupleWithAny_ReturnsTrue()
+    {
+        // B5 skip gate: Optional<(Int, Any)> — the existential 'Any' inside a tuple
+        // inside Optional should be detected as a non-SwiftObject generic arg.
+        // Any maps to "object" which can't satisfy ISwiftObject.
+        var tuple = new TupleTypeSpec();
+        tuple.Elements.Add(new NamedTypeSpec("Swift.Int"));
+        tuple.Elements.Add(new ProtocolListTypeSpec()); // Any
+
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(tuple);
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_OptionalTupleWithSupportedProtocol_ReturnsTrue()
+    {
+        // Optional<(Int, any Equatable)> — protocol existentials that map to "object"
+        // inside tuples inside Optional should still be flagged.
+        var equatable = new ProtocolListTypeSpec();
+        equatable.Protocols.Add(new NamedTypeSpec("Swift.Equatable"), true);
+
+        var tuple = new TupleTypeSpec();
+        tuple.Elements.Add(new NamedTypeSpec("Swift.Int"));
+        tuple.Elements.Add(equatable);
+
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(tuple);
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_OptionalTupleWithoutExistential_ReturnsFalse()
+    {
+        // Optional<(Int, Bool)> — no existential elements, should be fine.
+        var tuple = new TupleTypeSpec();
+        tuple.Elements.Add(new NamedTypeSpec("Swift.Int"));
+        tuple.Elements.Add(new NamedTypeSpec("Swift.Bool"));
+
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(tuple);
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    #endregion
+
+    #region BG6 — Nested Generic Owner Qualification
+
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_SingleLevelNesting_NoOwnerQualification()
+    {
+        // Non-nested generic type — no owner qualification needed
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateGenericStructDecl("Box", moduleDecl, "T", "Swift.Equatable");
+
+        var typeSpec = new NamedTypeSpec("TestModule.Box");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var argDecl = CreateArgumentDecl(typeSpec);
+        var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
+
+        // Should be the translated type without owner qualification
+        Assert.Contains("Box", result);
+    }
+
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_NestedInNonGenericOwner_NoQualification()
+    {
+        // Nested generic inside a non-generic owner — owner doesn't need qualification
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateStructDecl("Container", moduleDecl);
+        var innerDecl = CreateNestedGenericStructDecl("Item", moduleDecl, outerDecl, "T");
+
+        var typeSpec = new NamedTypeSpec("TestModule.Container.Item");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "item",
+            SwiftTypeSpec = typeSpec,
+            ParentDecl = outerDecl,
+            ModuleDecl = moduleDecl,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>()
+        };
+
+        var result = _handler.TranslateBoundGenericTypeToCSharp(
+            propertyDecl,
+            GenericContext.Empty);
+
+        // Non-generic owner shouldn't get qualified
+        Assert.Contains("Container.Item", result);
+        Assert.DoesNotContain("Container<", result);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static ArgumentDecl CreateArgumentDecl(TypeSpec typeSpec)
@@ -752,6 +856,22 @@ public class BoundGenericsHandlerTests
                 {
                     CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Outer.Inner.Leaf"),
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Inner.Leaf"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["TestModule.Container.Item"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Container.Item"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container.Item"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["TestModule.Box"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", "Box"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen,
                     Kind = TypeRecordKind.Struct

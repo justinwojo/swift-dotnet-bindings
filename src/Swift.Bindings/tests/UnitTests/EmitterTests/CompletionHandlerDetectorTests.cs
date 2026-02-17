@@ -528,7 +528,7 @@ public class CompletionHandlerDetectorTests
         var method = typeof(BaseHandler).GetMethod(
             "GetProjectedCSharpMethodKey",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        return (string)method!.Invoke(null, new object[] { methodDecl, typeDatabase })!;
+        return (string)method!.Invoke(null, new object[] { methodDecl, typeDatabase, null! })!;
     }
 
     private static ModuleDecl CreateModuleDecl() => new ModuleDecl
