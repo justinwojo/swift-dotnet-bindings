@@ -1,9 +1,9 @@
 # Demangler Component — Test & Code Review
 
 **Date**: 2026-02-16
-**Scope**: `src/Swift.Bindings/src/Demangler/` (19 files, 6,788 LOC)
-**Tests**: BasicDemanglingTests (270 LOC) + TbdParserTests (457 LOC) = 727 LOC total
-**Test Ratio**: 0.11x — **critically undertested**
+**Scope**: `src/Swift.Bindings/src/Demangler/` (19 files, 6,713 LOC — after Session 1 dead code removal)
+**Tests**: BasicDemanglingTests (270 LOC) + StringSliceTests (394 LOC) + PunyCodeTests (166 LOC) + Swift5ReducerTests (754 LOC) + TbdParserTests (457 LOC) = 2,041 LOC total
+**Test Ratio**: 0.30x (up from 0.11x after Session 1)
 
 ---
 
@@ -13,13 +13,13 @@ The Demangler is a 6,788 LOC subsystem with only 727 LOC of tests (0.11x ratio).
 
 The review found **5 confirmed bugs**, **5 dead code instances**, and **massive test coverage gaps**. The TBD parser sub-component is in better shape (457 LOC tests for 926 LOC source), but still has gaps.
 
-| Severity | Count | Description |
-|----------|-------|-------------|
-| Confirmed Bug | 5 | StringSlice.ToString(), Node.IsContext() unsafe access (×2 — also in Swift5Demangler:193), PunyCode.Decode() missing validation + pos overflow, StringSlice.StartsWith/AdvanceIf EOF crash |
-| Dead Code | 6 | 5 unused static methods in Swift5Demangler, 1 unused method in PunyCode |
-| Missing Coverage (Critical) | 4 | Entire sub-components with zero tests |
-| Missing Coverage (High) | 8 | Major functionality paths without tests |
-| Design Issue | 3 | Thread safety, nullable disable, recursion depth |
+| Severity | Count | Status | Description |
+|----------|-------|--------|-------------|
+| Confirmed Bug | 5 | **Fixed (Session 1)** | StringSlice.ToString(), Node.IsContext() unsafe access (×2 — also in Swift5Demangler:193), PunyCode.Decode() missing validation + pos overflow, StringSlice.StartsWith/AdvanceIf EOF crash |
+| Dead Code | 6 | **Removed (Session 1)** | 5 unused static methods in Swift5Demangler, 1 unused method in PunyCode |
+| Missing Coverage (Critical) | 4 | **3 resolved (Session 1)** | PunyCode (16 tests), StringSlice (31 tests), Swift5Reducer (37 direct tests). Remaining: MatchRule (zero direct tests). |
+| Missing Coverage (High) | 8 | Open | Major functionality paths without tests |
+| Design Issue | 3 | Open | Thread safety, nullable disable, recursion depth |
 
 ---
 
@@ -494,21 +494,24 @@ Recursive demangling methods have no depth limit. Crafted malicious mangled name
 
 **2 sessions.** Phase 1+2 fit together naturally; Phase 3+4 are a separate research-heavy effort.
 
-### Session 1 — Bug fixes, dead code, utility tests, reducer tests (Phase 1 + Phase 2)
+### Session 1 — Bug fixes, dead code, utility tests, reducer tests (Phase 1 + Phase 2) — COMPLETE
 
-**Items**: Steps 1–6 above.
+**Items**: Steps 1–6 above. **All completed.**
 
-| Work Item | Scope | Est. Effort |
-|-----------|-------|-------------|
-| Bug fixes (SS1, SS5, PC1, PC1b, ND1, D5b) | 5 bugs across 4 files, all surgical single-line or few-line fixes with exact locations documented | Light |
-| Dead code removal (D3, PC2) | 6 methods total — delete and verify no references | Trivial |
-| StringSlice unit tests (SS2) | 227 LOC source, self-contained parsing primitive. Test: construction, advance, rewind, StartsWith, AdvanceIf, ToString, edge cases (empty, single char, EOF) | Light |
-| PunyCode unit tests (PC3) | 119 LOC source, self-contained algorithm. Test: valid decoding, invalid chars, empty input, delimiter-only, truncated tails | Light |
-| Swift5Reducer direct tests (R1, R4) | 1,018 LOC source. Build `Node` trees manually, call `Convert()`, verify all reduction paths (nominals, functions, dispatch thunks, witness tables, conformance descriptors, metadata accessors) | Medium |
+| Work Item | Result |
+|-----------|--------|
+| Bug fixes (SS1, SS5, PC1, PC1b, ND1, D5b) | **6 bugs fixed** across 4 files. SS5 fully fixed: `StartsWith(char)`, `AdvanceIfEquals`, and `AdvanceIf` all return `false` at EOF. |
+| Dead code removal (D3, PC2) | **6 methods removed**. `IsProtocolNode` kept (used at lines 1354, 2008). Source LOC: 6,788 → 6,713 (−75). |
+| StringSlice unit tests (SS2) | **31 tests** (394 LOC). Covers construction, Current, indexer, Advance (1+N), Rewind, StartsWith (char/string), AdvanceIfEquals, AdvanceIf, ToString (incl. SS1 regression), ConsumeRemaining, IsNameNext, ExtractSwiftString, Substring, edge cases (empty, single char, EOF). |
+| PunyCode unit tests (PC3) | **16 tests** (166 LOC). Covers valid decoding, invalid chars (PC1 regression), truncated input (PC1b regression), empty string, delimiter handling, alphabet boundary tests (a-z valid, A-J valid, K+ throws). |
+| Swift5Reducer direct tests (R1, R4) | **37 tests** (754 LOC). Hand-built `Node` trees testing all reduction paths: nominals (class/struct/enum/protocol/nested), module, tuples (empty/single/multi/named/variadic), function types (basic/noEscape/throws/async/asyncThrows), functions (with/without labels, instance methods), allocator, dispatch thunk (function/allocator), metadata accessor, protocol witness table, protocol conformance descriptor, bound generics (struct/class/enum/multi-param), dependent generic params, dependent member types, dependent generic types, static passthrough, error cases. |
 
-**Why these fit in one session**: The bug fixes and dead code are warmup that builds familiarity with the files. StringSlice/PunyCode are small isolated units. The reducer tests reuse knowledge gained during the bug fixes — all files are in the same `Demangler/` directory and share the same `Node`/`NodeKind` types.
+**Verification**: `./run-tests.sh` — 2,971 passed, 41 failed (all pre-existing SDK path failures), 0 regressions. Demangler-specific: 112 tests, all passing (up from 31 baseline).
 
-**Verification**: Run `./run-tests.sh | tail -20` at the end. Expect baseline + new tests passing, zero regressions.
+**Post-session Codex review corrections**:
+1. SS5 was initially only half-fixed (`StartsWith` guarded but `AdvanceIf`/`AdvanceIfEquals` still threw at EOF). Fixed both to return `false`.
+2. Removed redundant `[assembly: InternalsVisibleTo]` from `StringSlice.cs` (already present in Parser files).
+3. Renamed `AdvanceIfEquals_AtEnd_ReturnsFalse` test and fixed assertion to match corrected behavior.
 
 ### Session 2 — Demangler symbol coverage + edge cases (Phase 3 + Phase 4)
 

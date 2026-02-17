@@ -159,6 +159,8 @@ public class Node
     {
         var type = typeof(NodeKind);
         var memberInfo = type.GetMember(kind.ToString());
+        if (memberInfo.Length == 0)
+            return false;
         var attrs = memberInfo[0].GetCustomAttributes(typeof(ContextAttribute), false);
         return attrs != null && attrs.Length == 1;
     }

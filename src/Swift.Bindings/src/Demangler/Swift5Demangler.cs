@@ -190,6 +190,8 @@ namespace BindingsGeneration.Demangling
         {
             var type = typeof(NodeKind);
             var memInfo = type.GetMember(node.ToString());
+            if (memInfo.Length == 0)
+                return false;
             return memInfo[0].GetCustomAttributes(typeof(ContextAttribute), false).Length > 0;
         }
 
@@ -295,62 +297,6 @@ namespace BindingsGeneration.Demangling
             return mangledName.Substring(GetManglingPrefixLength(mangledName));
         }
 
-        static bool IsAliasNode(Node node)
-        {
-            switch (node.Kind)
-            {
-                case NodeKind.Type:
-                    return IsAliasNode(node.Children[0]);
-                case NodeKind.TypeAlias:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        static bool IsAlias(string mangledName)
-        {
-            return IsAliasNode(new Swift5Demangler().DemangleType(mangledName));
-        }
-
-        static bool IsClassNode(Node node)
-        {
-            switch (node.Kind)
-            {
-                case NodeKind.Type:
-                    return IsClassNode(node.Children[0]);
-                case NodeKind.Class:
-                case NodeKind.BoundGenericClass:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        static bool IsClass(string mangledName)
-        {
-            return IsClassNode(new Swift5Demangler().DemangleType(mangledName));
-        }
-
-        static bool IsEnumNode(Node node)
-        {
-            switch (node.Kind)
-            {
-                case NodeKind.Type:
-                    return IsEnumNode(node.Children[0]);
-                case NodeKind.Enum:
-                case NodeKind.BoundGenericEnum:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        static bool IsEnum(string mangledName)
-        {
-            return IsEnumNode(new Swift5Demangler().DemangleType(mangledName));
-        }
-
         static bool IsProtocolNode(Node node)
         {
             switch (node.Kind)
@@ -364,31 +310,6 @@ namespace BindingsGeneration.Demangling
                     return false;
             }
         }
-
-        static bool IsProtocol(string mangledName)
-        {
-            return IsProtocolNode(new Swift5Demangler().DemangleType(mangledName));
-        }
-
-        static bool IsStructNode(Node node)
-        {
-            switch (node.Kind)
-            {
-                case NodeKind.Type:
-                    return IsStructNode(node.Children[0]);
-                case NodeKind.Structure:
-                case NodeKind.BoundGenericStructure:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        static bool IsStruct(string mangledName)
-        {
-            return IsStructNode(new Swift5Demangler().DemangleType(mangledName));
-        }
-
 
 
 

@@ -85,7 +85,11 @@ namespace BindingsGeneration.Demangling
                 int w = 1;
                 for (int k = kBase; ; k += kBase)
                 {
-                    int digit = decodeTable[input[pos++]];
+                    if (pos >= inputLength)
+                        throw new ArgumentException($"Malformed punycode: unexpected end of input at position {pos}.", nameof(input));
+                    char c = input[pos++];
+                    if (!decodeTable.TryGetValue(c, out int digit))
+                        throw new ArgumentException($"Malformed punycode: invalid character '{c}' at position {pos - 1}.", nameof(input));
                     i = i + (digit * w);
                     int t = Math.Max(Math.Min(k - bias, tMax), tMin);
                     if (digit < t)
@@ -106,14 +110,6 @@ namespace BindingsGeneration.Demangling
             return output.ToString();
         }
 
-        static int digit_index(char value)
-        {
-            if (value >= 'a' && value <= 'z')
-                return value - 'a';
-            if (value >= 'A' && value <= 'J')
-                return value - 'A' + 26;
-            return -1;
-        }
     }
 }
 

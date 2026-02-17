@@ -29,6 +29,8 @@ namespace BindingsGeneration.Demangling
         /// </Summary>
         public bool StartsWith(char c)
         {
+            if (IsAtEnd)
+                return false;
             return Current == c;
         }
 
@@ -92,7 +94,7 @@ namespace BindingsGeneration.Demangling
         {
             if (IsAtEnd)
                 return "";
-            return Position == 0 ? slice : slice.Substring(Current);
+            return Position == 0 ? slice : slice.Substring(Position);
         }
 
         /// <Summary>
@@ -114,6 +116,8 @@ namespace BindingsGeneration.Demangling
         /// </Summary>
         public bool AdvanceIfEquals(char c)
         {
+            if (IsAtEnd)
+                return false;
             return AdvanceIf(sl => sl.Current == c);
         }
 
@@ -122,6 +126,8 @@ namespace BindingsGeneration.Demangling
         /// </Summary>
         public bool AdvanceIf(Predicate<StringSlice> pred)
         {
+            if (IsAtEnd)
+                return false;
             var eq = pred(this);
             if (eq)
                 Advance();
@@ -143,7 +149,7 @@ namespace BindingsGeneration.Demangling
         }
 
         /// <Summary>
-        /// Rewind the slice to the beginning
+        /// Rewind the slice by one character
         /// </Summary>
         public void Rewind()
         {
