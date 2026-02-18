@@ -69,5 +69,12 @@ namespace BindingsGeneration
 
             return false;
         }
+
+        /// <summary>
+        /// Enumerates all type records in this module database.
+        /// Used by ModuleDatabaseEmitter to serialize records for cross-module resolution.
+        /// </summary>
+        public IEnumerable<KeyValuePair<SwiftTypeName, TypeRecord>> GetAllTypeRecords()
+            => _typeRecords;
     }
 }

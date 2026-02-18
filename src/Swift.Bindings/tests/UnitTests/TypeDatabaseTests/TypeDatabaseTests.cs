@@ -455,5 +455,162 @@ public class TypeDatabaseTests
             Assert.NotNull(refRecord);
             Assert.Equal("IntPtr", refRecord!.CSharpTypeName.Name);
         }
+
+        [Fact]
+        public void IsModuleLoaded_ReturnsTrueForLoadedModule()
+        {
+            var typeDatabase = new TypeDatabase();
+            var module = new ModuleTypeDatabase("Foundation", "/fake/path");
+            typeDatabase.AddModuleDatabase(module);
+
+            Assert.True(typeDatabase.IsModuleLoaded("Foundation"));
+        }
+
+        [Fact]
+        public void IsModuleLoaded_ReturnsFalseForUnknownModule()
+        {
+            var typeDatabase = new TypeDatabase();
+
+            Assert.False(typeDatabase.IsModuleLoaded("Nonexistent"));
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabaseFromFile_KindProtocol_MapsToTypeRecordKindProtocol()
+        {
+            var xml = """
+                <swifttypedatabase version="1.0" moduleName="MyLib" modulePath="/fake/MyLib.dylib">
+                  <entities>
+                    <entity managedNameSpace="Swift.MyLib" managedTypeName="IConfigurable">
+                      <typedeclaration kind="protocol" name="Configurable" module="MyLib" mangledName="$s5MyLib12ConfigurableP" frozen="false" requiresMemoryManagement="false" hasAssociatedTypes="true" />
+                    </entity>
+                  </entities>
+                </swifttypedatabase>
+                """;
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, xml);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(filePath);
+
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("MyLib.Configurable");
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+                Assert.Equal(TypeRecordKind.Protocol, record!.Kind);
+                Assert.True((record.Flags & TypeRecordFlags.HasAssociatedTypes) != 0);
+            }
+            finally { File.Delete(filePath); }
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabaseFromFile_KindExistential_MapsToTypeRecordKindExistential()
+        {
+            var xml = """
+                <swifttypedatabase version="1.0" moduleName="MyLib" modulePath="/fake/MyLib.dylib">
+                  <entities>
+                    <entity managedNameSpace="Swift.MyLib" managedTypeName="AnyHashable">
+                      <typedeclaration kind="existential" name="AnyHashable" module="MyLib" mangledName="" frozen="true" requiresMemoryManagement="false" />
+                    </entity>
+                  </entities>
+                </swifttypedatabase>
+                """;
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, xml);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(filePath);
+
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("MyLib.AnyHashable");
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+                Assert.Equal(TypeRecordKind.Existential, record!.Kind);
+            }
+            finally { File.Delete(filePath); }
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabaseFromFile_SimpleEnumFlag_ParsesCorrectly()
+        {
+            var xml = """
+                <swifttypedatabase version="1.0" moduleName="MyLib" modulePath="/fake/MyLib.dylib">
+                  <entities>
+                    <entity managedNameSpace="Swift.MyLib" managedTypeName="Color">
+                      <typedeclaration kind="enum" name="Color" module="MyLib" mangledName="" frozen="true" requiresMemoryManagement="false" simpleEnum="true" rawValueType="Int" />
+                    </entity>
+                  </entities>
+                </swifttypedatabase>
+                """;
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, xml);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(filePath);
+
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("MyLib.Color");
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+                Assert.Equal(TypeRecordKind.Enum, record!.Kind);
+                Assert.True((record.Flags & TypeRecordFlags.SimpleEnum) != 0);
+                Assert.Equal("Int", record.RawValueTypeName);
+            }
+            finally { File.Delete(filePath); }
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabaseFromFile_MissingOptionalFlags_DefaultsCorrectly()
+        {
+            // Existing databases don't have hasAssociatedTypes/simpleEnum/rawValueType — should default gracefully
+            var filePath = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, ValidXmlDatabase);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(filePath);
+
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Widget");
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+                Assert.False((record!.Flags & TypeRecordFlags.HasAssociatedTypes) != 0);
+                Assert.False((record.Flags & TypeRecordFlags.SimpleEnum) != 0);
+                Assert.Null(record.RawValueTypeName);
+            }
+            finally { File.Delete(filePath); }
+        }
+
+        [Fact]
+        public void GetAllTypeRecords_ReturnsRegisteredRecords()
+        {
+            var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+            var swiftName1 = SwiftTypeName.FromModuleQualifiedName("TestModule.Widget");
+            var swiftName2 = SwiftTypeName.FromModuleQualifiedName("TestModule.Gadget");
+            module.RegisterType(swiftName1, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "Widget"),
+                SwiftTypeName = swiftName1,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+            module.RegisterType(swiftName2, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "Gadget"),
+                SwiftTypeName = swiftName2,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+
+            var records = module.GetAllTypeRecords().ToList();
+
+            Assert.Equal(2, records.Count);
+            Assert.Contains(records, r => r.Value.CSharpTypeName.Name == "Widget");
+            Assert.Contains(records, r => r.Value.CSharpTypeName.Name == "Gadget");
+        }
+
+        [Fact]
+        public void GetAllTypeRecords_EmptyModule_ReturnsEmpty()
+        {
+            var module = new ModuleTypeDatabase("Empty", "/fake/path");
+            var records = module.GetAllTypeRecords().ToList();
+            Assert.Empty(records);
+        }
     }
 }

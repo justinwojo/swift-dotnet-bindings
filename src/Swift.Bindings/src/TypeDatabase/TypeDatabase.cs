@@ -65,6 +65,14 @@ namespace BindingsGeneration
 
 
         /// <summary>
+        /// Checks whether a module with the given name has been loaded into the type database.
+        /// Used to skip dependency databases that duplicate built-in databases (e.g., Foundation).
+        /// </summary>
+        /// <param name="moduleName">The module name to check.</param>
+        /// <returns><c>true</c> if the module has been loaded; otherwise, <c>false</c>.</returns>
+        public bool IsModuleLoaded(string moduleName) => _modules.ContainsKey(moduleName);
+
+        /// <summary>
         /// Adds a module database to the type database.
         /// </summary>
         /// <param name="moduleDatabase">The module database to add.</param>
@@ -160,6 +168,9 @@ namespace BindingsGeneration
                 string objcBridged = typeDeclarationNode?.Attributes?["objcBridged"]?.Value ?? "false";
                 string kindStr = typeDeclarationNode?.Attributes?["kind"]?.Value ?? "struct";
                 string? nativeType = typeDeclarationNode?.Attributes?["nativeType"]?.Value;
+                string hasAssociatedTypes = typeDeclarationNode?.Attributes?["hasAssociatedTypes"]?.Value ?? "false";
+                string simpleEnum = typeDeclarationNode?.Attributes?["simpleEnum"]?.Value ?? "false";
+                string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
@@ -189,14 +200,19 @@ namespace BindingsGeneration
                     MetadataAccessor = swiftMangledName,
                     Flags = (frozen.ToLower() == "true" ? TypeRecordFlags.Frozen : TypeRecordFlags.None) |
                             (requiresMemoryManagement.ToLower() == "true" ? TypeRecordFlags.RequiresMemoryManagement : TypeRecordFlags.None) |
-                            (objcBridged.ToLower() == "true" ? TypeRecordFlags.ObjCBridged : TypeRecordFlags.None),
+                            (objcBridged.ToLower() == "true" ? TypeRecordFlags.ObjCBridged : TypeRecordFlags.None) |
+                            (hasAssociatedTypes.ToLower() == "true" ? TypeRecordFlags.HasAssociatedTypes : TypeRecordFlags.None) |
+                            (simpleEnum.ToLower() == "true" ? TypeRecordFlags.SimpleEnum : TypeRecordFlags.None),
                     Kind = kindStr.ToLower() switch
                     {
                         "class" => TypeRecordKind.Class,
                         "enum" => TypeRecordKind.Enum,
+                        "protocol" => TypeRecordKind.Protocol,
+                        "existential" => TypeRecordKind.Existential,
                         _ => TypeRecordKind.Struct,
                     },
                     NativeTypeName = nativeTypeName,
+                    RawValueTypeName = rawValueType,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);

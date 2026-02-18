@@ -79,6 +79,11 @@ namespace BindingsGeneration
                 description: "Path to a dependency xcframework. Repeatable. Adds -F search paths for wrapper compilation " +
                              "and PackageReference entries in the emitted .csproj. Requires --xcframework.")
             { AllowMultipleArgumentsPerToken = false };
+            Option<string[]> moduleDatabaseOption = new(
+                aliases: new[] { "--module-database" },
+                description: "Path to a dependency module database XML file. Repeatable. " +
+                             "Loads type records from previously generated modules for cross-module resolution.")
+            { AllowMultipleArgumentsPerToken = false };
             Option<bool> noAutoDetectOption = new(
                 aliases: new[] { "--no-auto-detect" },
                 description: "Disable automatic dependency detection from binary linkage.",
@@ -108,6 +113,7 @@ namespace BindingsGeneration
                 packageIdOption,
                 wrapperArchitecturesOption,
                 frameworkDependencyOption,
+                moduleDatabaseOption,
                 noAutoDetectOption,
                 configOption,
                 verboseOption,
@@ -133,6 +139,7 @@ namespace BindingsGeneration
                 var packageId = parseResult.GetValueForOption(packageIdOption);
                 var wrapperArchitectures = parseResult.GetValueForOption(wrapperArchitecturesOption);
                 var frameworkDependencies = parseResult.GetValueForOption(frameworkDependencyOption);
+                var moduleDatabases = parseResult.GetValueForOption(moduleDatabaseOption);
                 var noAutoDetect = parseResult.GetValueForOption(noAutoDetectOption);
                 var configPath = parseResult.GetValueForOption(configOption);
                 var verbose = parseResult.GetValueForOption(verboseOption);
@@ -158,6 +165,7 @@ namespace BindingsGeneration
                     Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.iOS'.");
                     Console.WriteLine("  --wrapper-architectures  Optional. Wrapper compilation scope: 'simulator' (default), 'device', or 'all'.");
                     Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");
+                    Console.WriteLine("  --module-database    Optional. Repeatable. Path to dependency module database XML for cross-module type resolution.");
                     Console.WriteLine("  --no-auto-detect     Optional. Disable automatic dependency detection from binary linkage.");
                     Console.WriteLine($"  --config             Optional. Path to config file. Default: {DefaultConfigFileName}");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
@@ -372,6 +380,20 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // Validate --module-database paths upfront (fail-fast for missing/invalid files)
+                if (moduleDatabases?.Length > 0)
+                {
+                    foreach (var dbPath in moduleDatabases)
+                    {
+                        if (!File.Exists(dbPath))
+                        {
+                            logger.LogError("SWIFTBIND070: Module database not found: '{Path}'.", dbPath);
+                            context.ExitCode = 1;
+                            return;
+                        }
+                    }
+                }
+
                 // Use the provided library name, or fall back to the dylib path
                 var runtimeLibraryName = string.IsNullOrWhiteSpace(libraryName) ? dylibPath : libraryName;
                 var effectiveNamespacePattern = ResolveNamespacePattern(namespacePattern, configPath, logger);
@@ -383,7 +405,12 @@ namespace BindingsGeneration
                     .Where(d => !d.IsObjCOnly)
                     .Select(d => d.ModuleName)
                     .ToList();
-                GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, dependencyModuleNames: depModuleNames);
+                var success = GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases);
+                if (!success)
+                {
+                    context.ExitCode = 1;
+                    return;
+                }
 
                 // Validate --wrapper-architectures
                 var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
@@ -576,18 +603,67 @@ namespace BindingsGeneration
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
         public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
         {
-            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, dependencyModuleNames: null);
+            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        private static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, List<string>? dependencyModuleNames = null)
+        private static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null)
         {
             internalTypeNames = null;
             var typeDatabase = new TypeDatabase();
             typeDatabase.AsyncLibraryName = asyncLibraryName;
-            string[] moduleDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "AppKitDatabase.xml", "CoreImageDatabase.xml", "UIKitDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml" };
-            foreach (var database in moduleDatabases)
+            string[] builtInDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "AppKitDatabase.xml", "CoreImageDatabase.xml", "UIKitDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml" };
+            foreach (var database in builtInDatabases)
             {
                 typeDatabase.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", database)).Wait();
+            }
+
+            // Load dependency module databases for cross-module type resolution
+            if (moduleDatabasePaths != null)
+            {
+                // Peek at current module name to prevent self-reference
+                string? currentModuleName = null;
+                try
+                {
+                    currentModuleName = PeekModuleNameFromAbiJson(swiftAbiPath);
+                }
+                catch
+                {
+                    // Non-fatal: self-reference check will be skipped
+                }
+
+                foreach (var dbPath in moduleDatabasePaths)
+                {
+                    var dbModuleName = PeekModuleNameFromXml(dbPath);
+                    if (dbModuleName == null)
+                    {
+                        logger.LogError("SWIFTBIND072: Invalid module database XML: '{Path}'.", dbPath);
+                        return false;
+                    }
+
+                    if (currentModuleName != null && dbModuleName == currentModuleName)
+                    {
+                        logger.LogError("SWIFTBIND071: Module database '{Path}' targets current module '{Module}'. " +
+                            "Do not pass the current module's own database as a dependency.", dbPath, dbModuleName);
+                        return false;
+                    }
+
+                    if (typeDatabase.IsModuleLoaded(dbModuleName))
+                    {
+                        logger.LogInformation("Module '{Module}' already loaded (built-in), skipping.", dbModuleName);
+                        continue;
+                    }
+
+                    try
+                    {
+                        typeDatabase.LoadModuleDatabaseFromFile(dbPath).Wait();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError("SWIFTBIND072: Failed to load module database '{Path}': {Message}", dbPath, ex.InnerException?.Message ?? ex.Message);
+                        return false;
+                    }
+                    logger.LogInformation("Loaded dependency module database: {Path} (module: {Module})", dbPath, dbModuleName);
+                }
             }
 
             logger.LogInformation("Starting bindings generation for {SwiftAbiPath}...", swiftAbiPath);
@@ -664,12 +740,18 @@ namespace BindingsGeneration
                 }
                 ReportCollector.Reset();
 
+                // Emit module database XML for cross-module resolution by downstream modules
+                // This must happen AFTER EmitModule() because NameProvider.PrecomputeAllNestedTypeRenames()
+                // updates TypeDatabase records with renamed C# type names during emission.
+                ModuleDatabaseEmitter.Emit(moduleDatabase, outputDirectory, logger);
+
                 logger.LogInformation("Bindings generation completed for {SwiftAbiPath}.", swiftAbiPath);
 
             }
             else
                 logger.LogWarning("Bindings generation already completed for {SwiftAbiPath}.", swiftAbiPath);
 
+            return true;
         }
 
         /// <summary>
@@ -1158,6 +1240,54 @@ namespace BindingsGeneration
 
             var fileName = Path.GetFileNameWithoutExtension(dylibPath);
             return string.IsNullOrWhiteSpace(fileName) ? moduleName : fileName;
+        }
+
+        /// <summary>
+        /// Lightweight peek at the moduleName attribute of a module database XML file.
+        /// Returns null if the file is malformed or missing the expected structure.
+        /// </summary>
+        internal static string? PeekModuleNameFromXml(string path)
+        {
+            try
+            {
+                using var reader = System.Xml.XmlReader.Create(path);
+                while (reader.Read())
+                {
+                    if (reader.NodeType == System.Xml.XmlNodeType.Element && reader.Name == "swifttypedatabase")
+                    {
+                        var moduleName = reader.GetAttribute("moduleName");
+                        return string.IsNullOrWhiteSpace(moduleName) ? null : moduleName;
+                    }
+                }
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Lightweight peek at the module name from an ABI JSON file.
+        /// Returns null if the file cannot be parsed.
+        /// </summary>
+        private static string? PeekModuleNameFromAbiJson(string abiPath)
+        {
+            try
+            {
+                var text = File.ReadAllText(abiPath);
+                var json = JObject.Parse(text);
+                var rootNode = json["ABIRoot"];
+                if (rootNode == null) return null;
+                var children = rootNode["children"] as JArray;
+                if (children == null || children.Count == 0) return null;
+                var moduleName = children[0]?.Value<string>("moduleName");
+                return string.IsNullOrEmpty(moduleName) || moduleName == "NO_MODULE" ? null : moduleName;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>

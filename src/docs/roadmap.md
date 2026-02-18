@@ -13,7 +13,7 @@ External review: `/Users/wojo/Dev/swift-dotnet-packages/binding-analysis-v2.md` 
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 3,278 passing |
+| Unit tests | 3,307 passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 181 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
@@ -40,7 +40,7 @@ Hard, measurable gates per priority tier. Grep/compile checks, not subjective sc
 | KPI | Current | After P0 | After P1 |
 |-----|---------|----------|----------|
 | `ExistentialContainer` in public signatures | ~60+ | 0 | 0 |
-| Stripe 11-module cross-compile (non-AnyType members) | ~70% | 95%+ | 98%+ |
+| Stripe 11-module cross-compile (non-AnyType members) | 100% (3-module validated) | 95%+ | 98%+ |
 | `SwiftDictionary` in public signatures | 144 | 144 | 0 |
 | `SwiftOptional<` in public signatures | ~20 | ~20 | 0 |
 | Empty protocol interfaces (0 members) | 11 | <5 | 0 |
@@ -62,14 +62,16 @@ When generating bindings for StripePaymentSheet, types from StripePayments (e.g.
 
 **Architecture needed**: Load dependent module type databases before emitting the current module.
 
-| Step | Description | Effort | Files |
-|------|-------------|--------|-------|
-| **1a. Generate module database XML** | After processing a module, emit a `{Module}Database.xml` alongside the binding. Contains all TypeRecord entries needed by dependents (type name, C# name, kind, flags, metadata accessor). | Medium | New `ModuleDatabaseEmitter.cs`, `TypeDatabase.cs` |
-| **1b. Accept `--module-database` CLI option** | Repeatable option that loads dependent module XML files into TypeDatabase before emission. Works with `--framework-dependency` (which already carries the module name). | Low | `Program.cs`, `TypeDatabase.cs` |
-| **1c. SDK integration** | `<SwiftFrameworkDependency>` auto-discovers and passes `--module-database` for each dependency. Build order: leaf modules first (topological sort). | Medium | `Sdk.targets`, `Sdk.props` |
-| **1d. Expand cross-module protocol conformance** | Remove the `CrossModuleSupportedProtocols` whitelist (currently only `Equatable`/`Hashable`). With full type databases loaded, all cross-module conformances can be emitted. | Low | `TypeHandlerHelpers.cs:465-469` |
+| Step | Description | Effort | Status |
+|------|-------------|--------|--------|
+| **1a. Generate module database XML** | After processing a module, emit a `{Module}Database.xml` alongside the binding. Contains all TypeRecord entries needed by dependents (type name, C# name, kind, flags, metadata accessor). | Medium | **COMPLETE** |
+| **1b. Accept `--module-database` CLI option** | Repeatable option that loads dependent module XML files into TypeDatabase before emission. Validation: SWIFTBIND070 (missing file), SWIFTBIND071 (self-reference), SWIFTBIND072 (invalid XML). | Low | **COMPLETE** |
+| **1c. SDK integration** | `<SwiftFrameworkDependency>` auto-discovers and passes `--module-database` for each dependency. Build order: leaf modules first (topological sort). | Medium | Pending |
+| **1d. Expand cross-module protocol conformance** | Remove the `CrossModuleSupportedProtocols` whitelist (currently only `Equatable`/`Hashable`). With full type databases loaded, all cross-module conformances can be emitted. | Low | Pending |
 
 **Key insight**: We don't need to re-parse dependent ABI JSON. We just need the TypeRecord metadata (C# type name, mangled name, kind, flags). A small XML file per module (~10KB for StripePayments) is sufficient.
+
+**Steps 1a+1b validated**: StripePaymentSheet with both StripeCore + StripePayments dependency databases resolves 46 StripeCore types + 87 StripePayments types (0 AnyType). `STPPaymentMethod` appears as proper type. New files: `ModuleDatabaseEmitter.cs`, `ProgramModuleDatabaseTests.cs`, `ModuleDatabaseEmitterTests.cs`. Extended: `TypeDatabase.cs` (protocol/existential kind, new flags), `ModuleDatabase.cs` (GetAllTypeRecords), `Program.cs` (CLI option + loading).
 
 **Acceptance gate**: Generate all 11 Stripe modules with dependency chain. `STPPaymentMethod` appears as proper type in StripePaymentSheet bindings (not `AnyType`). AnyType fallback count in Stripe drops >80%.
 
