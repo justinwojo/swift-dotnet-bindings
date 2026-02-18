@@ -401,22 +401,26 @@ public static class DefaultParameterOverloadEmitter
                 typeSpecForKey = optionalClosureSpec.GenericParameters[0];
             }
             var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpecForKey, isParameter: true);
+            string paramType;
             if (idiomaticType != null)
             {
-                paramTypes.Add(idiomaticType);
+                paramType = idiomaticType;
             }
             else
             {
                 try
                 {
                     var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey);
-                    paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                    paramType = typeRecord.CSharpTypeName.FullyQualifiedName;
                 }
                 catch
                 {
-                    paramTypes.Add(typeSpecForKey?.ToString() ?? "unknown");
+                    paramType = typeSpecForKey?.ToString() ?? "unknown";
                 }
             }
+            // Normalize nullable reference types: mirrors IHandler.GetProjectedCSharpMethodKey.
+            paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
+            paramTypes.Add(paramType);
         }
         // Mirror IHandler.GetProjectedCSharpMethodKey: async methods get CancellationToken at emission time.
         if (overloadDecl.IsAsync)

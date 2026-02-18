@@ -274,23 +274,28 @@ namespace BindingsGeneration
                     typeSpecForKey = optionalClosureSpec.GenericParameters[0];
                 }
                 var idiomaticType = typeConversionHandler.GetIdiomaticCSharpType(typeSpecForKey, isParameter: true);
+                string paramType;
                 if (idiomaticType != null)
                 {
-                    paramTypes.Add(idiomaticType);
+                    paramType = idiomaticType;
                 }
                 else
                 {
                     try
                     {
                         var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpecForKey);
-                        paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                        paramType = typeRecord.CSharpTypeName.FullyQualifiedName;
                     }
                     catch (Exception ex)
                     {
                         logger?.LogWarning($"GetProjectedCSharpMethodKey: Failed to resolve type '{typeSpecForKey}' for method '{methodDecl.Name}', using string fallback: {ex.Message}");
-                        paramTypes.Add(typeSpecForKey?.ToString() ?? "unknown");
+                        paramType = typeSpecForKey?.ToString() ?? "unknown";
                     }
                 }
+                // Normalize nullable reference types: Optional<Class> and Class produce
+                // the same C# overload (nullable annotations are erased at runtime).
+                paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
+                paramTypes.Add(paramType);
             }
             // All async methods get CancellationToken at emission time — include it in the
             // projected key so native async methods collide with completion handler overloads.

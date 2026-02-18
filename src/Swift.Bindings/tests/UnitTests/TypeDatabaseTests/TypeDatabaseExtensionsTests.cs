@@ -550,22 +550,31 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal("Type is missing from the type database", fallbackInfo.Value.Reason);
     }
 
-    // --- UIKeyboardType is a .NET-available enum, NOT excluded as AnyType ---
-    // Unlike UIBarStyle/UIKeyboardAppearance (which lack correct marshalling support),
-    // UIKeyboardType exists in .NET iOS as UIKit.UIKeyboardType. It goes through the
-    // ObjC auto-bridge path so members using it are emitted rather than silently dropped.
+    // --- UIKeyboardType is a simple enum in UIKitDatabase.xml, NOT an ObjC class ---
+    // UIKeyboardType is a C enum (NS_ENUM) in UIKit, not an NSObject subclass.
+    // Registered in UIKitDatabase.xml with simpleEnum="true" and in AppleFrameworkValueTypes
+    // to prevent ObjC auto-bridging. PInvokeEmitter uses integer cast path.
 
     [Fact]
-    public void GetTypeRecordOrAnyType_UIKeyboardType_ReturnsObjCBridgedNotAnyType()
+    public void GetTypeRecordOrAnyType_UIKeyboardType_ReturnsAnyType()
     {
+        // UIKeyboardType is in AppleFrameworkValueTypes but not in the in-memory TypeDatabase
+        // (it's only in UIKitDatabase.xml loaded at runtime). Without the XML loaded,
+        // it's excluded from ObjC bridging → AnyType.
         var typeDatabase = new TypeDatabase();
 
         var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("UIKit.UIKeyboardType"));
 
-        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
-        Assert.Equal("UIKit.UIKeyboardType", record.CSharpTypeName.FullyQualifiedName);
-        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
-        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void IsObjCModuleType_UIKeyboardType_ReturnsFalse()
+    {
+        // UIKeyboardType is in AppleFrameworkValueTypes → not treated as ObjC class
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("UIKit.UIKeyboardType"));
+
+        Assert.False(result);
     }
 
     // --- Modules NOT in auto-bridge set (removed for safety) ---
@@ -811,7 +820,9 @@ public class TypeDatabaseExtensionsTests
     [InlineData("AVFoundation.AVCaptureSession.Preset")]
     [InlineData("AVFoundation.AVCaptureDevice.AutoFocusRangeRestriction")]
     [InlineData("AVFoundation.AVCaptureDevice.DeviceType")]
+    [InlineData("AVFoundation.AVCaptureVideoOrientation")]
     [InlineData("UIKit.NSWritingDirection")]
+    [InlineData("UIKit.UIKeyboardType")]
     public void GetTypeRecordOrAnyType_NewAppleFrameworkValueType_ReturnsAnyType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();

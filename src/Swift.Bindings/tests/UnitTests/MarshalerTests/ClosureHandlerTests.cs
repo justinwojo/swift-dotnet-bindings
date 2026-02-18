@@ -759,6 +759,83 @@ public class ClosureHandlerTests
     }
 
     [Fact]
+    public void TranslateTypeSpecToCSharp_OptionalFrozenStruct_ReturnsNullable()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Optional<CGPoint> — frozen struct → should use T? (Nullable<T>)
+        var optionalCGPoint = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("CoreGraphics.CGPoint"));
+        var result = handler.TranslateTypeSpecToCSharp(optionalCGPoint);
+
+        Assert.Equal("Swift.CGPoint?", result);
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_OptionalNonFrozenStruct_ReturnsNullable()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Optional<ImageDecodingContext> — non-frozen struct (C# class) → T? (nullable annotation)
+        // Must align with TypeConversionHandler protocol interface path
+        var optionalNonFrozen = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageDecodingContext"));
+        var result = handler.TranslateTypeSpecToCSharp(optionalNonFrozen);
+
+        Assert.Equal("Swift.Nuke.ImageDecodingContext?", result);
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_OptionalClass_ReturnsNullable()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Optional<ImageTask> — class → T? (nullable annotation)
+        // Must align with TypeConversionHandler protocol interface path
+        var optionalClass = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Nuke.ImageTask"));
+        var result = handler.TranslateTypeSpecToCSharp(optionalClass);
+
+        Assert.Equal("Swift.Nuke.ImageTask?", result);
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_OptionalBoundGeneric_ReturnsNullable()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Optional<Array<String>> — bound generic (NamedTypeSpec with generic params)
+        // Must produce T? to align with TypeConversionHandler protocol interface path,
+        // which unconditionally uses T? for Optional.
+        // SwiftArray<T> is a C# reference type → nullable annotation (same runtime type).
+        var arrayString = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String"));
+        var optionalArray = new NamedTypeSpec("Swift.Optional", arrayString);
+        var result = handler.TranslateTypeSpecToCSharp(optionalArray);
+
+        Assert.Equal("Swift.SwiftArray<Swift.SwiftString>?", result);
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_OptionalTuple_ReturnsSwiftOptional()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Optional<(Int, String)> — tuple inner type → SwiftOptional wrapper (not T?)
+        // Tuples are not NamedTypeSpec, so they fall through to SwiftOptional.
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.String")
+        });
+        var optionalTuple = new NamedTypeSpec("Swift.Optional", tupleType);
+        var result = handler.TranslateTypeSpecToCSharp(optionalTuple);
+
+        Assert.Equal("Swift.SwiftOptional<(long, Swift.SwiftString)>", result);
+    }
+
+    [Fact]
     public void TranslateTypeSpecToCSharp_WithNestedBoundGeneric_ReturnsFullTypeName()
     {
         var typeDatabase = new MockTypeDatabase();

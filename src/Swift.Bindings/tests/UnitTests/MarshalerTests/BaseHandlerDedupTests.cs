@@ -319,6 +319,40 @@ public class BaseHandlerDedupTests
 
     #endregion
 
+    #region Nullable Reference Type Dedup Tests
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_OptionalClass_SameKeyAsNonOptionalClass()
+    {
+        // Optional<Class> and bare Class should produce the same projected key
+        // because nullable reference annotations are erased at C# runtime
+        var typeDatabase = new DedupTypeDatabase();
+        var method1 = CreateMethod("request", new NamedTypeSpec("Alamofire.AFError"));
+        var method2 = CreateMethod("request", new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Alamofire.AFError")));
+
+        var key1 = InvokeGetProjectedCSharpMethodKey(method1, typeDatabase);
+        var key2 = InvokeGetProjectedCSharpMethodKey(method2, typeDatabase);
+
+        Assert.Equal(key1, key2);
+    }
+
+    [Fact]
+    public void GetProjectedCSharpMethodKey_OptionalValueType_DifferentKeyFromNonOptional()
+    {
+        // Optional<Int> and bare Int should produce DIFFERENT keys
+        // because Nullable<T> is a distinct type for value types
+        var typeDatabase = new DedupTypeDatabase();
+        var method1 = CreateMethod("process", new NamedTypeSpec("Swift.Int"));
+        var method2 = CreateMethod("process", new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int")));
+
+        var key1 = InvokeGetProjectedCSharpMethodKey(method1, typeDatabase);
+        var key2 = InvokeGetProjectedCSharpMethodKey(method2, typeDatabase);
+
+        Assert.NotEqual(key1, key2);
+    }
+
+    #endregion
+
     #region Test Type Database
 
     /// <summary>
@@ -388,6 +422,58 @@ public class BaseHandlerDedupTests
         {
             throw new InvalidOperationException(
                 $"Simulated database error for type '{swiftTypeName.ModuleQualifiedName}'");
+        }
+
+        public string GetLibraryPath(string moduleName) => "";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
+
+    #region Dedup Type Database (with class types)
+
+    /// <summary>
+    /// A type database with class and value types for testing nullable reference type dedup.
+    /// </summary>
+    private class DedupTypeDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types = new()
+        {
+            ["Swift.Int"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["Swift.Optional"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["Alamofire.AFError"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Alamofire", "AFError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Alamofire.AFError"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            },
+        };
+
+        public string? AsyncLibraryName => null;
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(true)] out TypeRecord? record)
+        {
+            return _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record);
         }
 
         public string GetLibraryPath(string moduleName) => "";

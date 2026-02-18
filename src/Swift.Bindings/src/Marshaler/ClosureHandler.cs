@@ -866,18 +866,23 @@ public class ClosureHandler
                     innerType = TranslateTypeSpecToCSharp(innerTypeSpec);
                 }
 
-                // Use nullable syntax for primitive/simple types and well-known protocol types.
-                // Well-known types like AnyError are blittable structs, so T? (Nullable<T>) works.
-                // Keep SwiftOptional for complex types that need special marshalling.
+                // Use nullable syntax (T?) to align with protocol interface signatures.
+                // TypeConversionHandler.GetIdiomaticCSharpType unconditionally uses T? for Optional,
+                // so closures must match to avoid CS0535 interface implementation mismatches.
+                // - Frozen structs/simple enums: Nullable<T> (distinct value type)
+                // - Non-frozen structs (C# class): nullable annotation (same runtime type)
+                // - Classes: nullable annotation (same runtime type)
+                // Only tuples and other non-named types fall through to SwiftOptional<T>.
                 if (isWellKnownProtocol ||
                     IsPrimitiveType(innerTypeSpec) ||
                     innerTypeSpec.IsEmptyTuple ||
-                    IsPointerType(innerTypeSpec as NamedTypeSpec))
+                    IsPointerType(innerTypeSpec as NamedTypeSpec) ||
+                    innerTypeSpec is NamedTypeSpec)
                 {
                     return $"{innerType}?";
                 }
 
-                // For complex types, use SwiftOptional wrapper
+                // For non-named types (tuples, etc.), use SwiftOptional wrapper
                 return $"Swift.SwiftOptional<{innerType}>";
             }
 

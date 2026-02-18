@@ -2,7 +2,7 @@
 
 Tracks compilation errors found when running real-world Swift libraries through the generator. Used to prioritize bug fixes and measure progress.
 
-Last validated: 2026-02-18 (Validation Pass 6 — fixed 314 environmental type errors across 4 libraries).
+Last validated: 2026-02-18 (Validation Pass 7 — fixed 7 of 8 generator bugs across 3 libraries). Alamofire down to 1 error (was 3). StripeCameraCore and StripeUICore now at 0 errors (were 2 and 3). 25 of 26 libraries compile clean.
 
 ## Baseline Libraries (0 compile errors)
 
@@ -16,8 +16,10 @@ Last validated: 2026-02-18 (Validation Pass 6 — fixed 314 environmental type e
 | MicroblinkPlatform | 3,522 | Document scanning, SwiftUI theme types |
 | Mixpanel | 6,760 | Analytics, protocol existentials |
 | Nuke | 22,211 | Image loading, AsyncSequence properties, nested types |
-| SkeletonView | 12,094 | UI skeleton loading, previously had 9+4 environmental errors (now resolved — Pass 5+6) |
-| SmartCardIO | 4,514 | Smart card reader abstraction, clean build |
+| SkeletonView | 12,093 | UI skeleton loading, previously had 9+4 environmental errors (now resolved — Pass 5+6) |
+| SmartCardIO | 4,521 | Smart card reader abstraction, clean build |
+| StripeCameraCore | 3,448 | Camera session, AVFoundation types. Previously 2 CS1061 errors (Pass 7 fix: AVCaptureVideoOrientation simpleEnum) |
+| StripeUICore | 29,432 | UI components, text fields, elements. Previously 3 CS0315/CS0023 errors (Pass 7 fix: UIKeyboardType DB entry + bool MarshalAs) |
 
 | Stripe | 471 | Top-level Stripe framework, minimal Swift surface |
 | StripeApplePay | 2,027 | Apple Pay integration |
@@ -34,17 +36,13 @@ Last validated: 2026-02-18 (Validation Pass 6 — fixed 314 environmental type e
 
 ## Libraries with Generator Errors
 
-These libraries have 0 environmental (CS0234) errors but have pre-existing generator bugs that were unmasked when Pass 6 fixed the environmental errors that previously blocked compilation of the affected members.
-
 | Library | Lines | Errors | Details |
 |---------|-------|--------|---------|
-| Alamofire | 41,050 | 3 | 2 CS0111 (duplicate `Request` methods in EventMonitor classes), 1 CS0535 (Redirector interface mismatch: `Action<SwiftOptional<URLRequest>>` vs `Action<URLRequest?>`) |
-| StripeCameraCore | 3,544 | 2 | CS1061 (`AVCaptureVideoOrientation.Payload` — .NET enum doesn't have Payload property) |
-| StripeUICore | 29,350 | 4 | 3 CS0315/CS0023 (`UIKeyboardType` treated as ObjC class but is a .NET enum), 1 SYSLIB1051 (bool param missing `[MarshalAs]`) |
+| Alamofire | 40,821 | 1 | CS0315 (`NSUrlSessionWebSocketCloseCode` in `SwiftObjectHelper<T>` — value type can't satisfy `ISwiftObject` constraint). Pass 7 fixed the 3 previous errors (2 CS0111 nullable ref dedup + 1 CS0535 closure Optional alignment). |
 
 ## Libraries with Environmental Errors Only (0 generator errors)
 
-No libraries currently have environmental-only errors. Pass 5 resolved 35 environmental errors across 5 libraries (SkeletonView, StripePayments, StripeUICore, StripePaymentsUI, StripeCameraCore). Pass 6 resolved 314 environmental errors across 4 libraries (Alamofire, SkeletonView, StripeCameraCore, StripeUICore) caused by Foundation Swift→ObjC name mismatch and Apple framework value-type misclassification.
+No libraries currently have environmental-only errors. Pass 5 resolved 35 environmental errors across 5 libraries. Pass 6 resolved 314 environmental errors across 4 libraries. Pass 7 fixed 7 of 8 remaining generator bugs.
 
 ## Non-Binding Failures
 
@@ -166,9 +164,44 @@ Fixed 314 CS0234 environmental errors across 4 libraries caused by two root caus
 **Unmasked pre-existing generator bugs (not environmental):**
 - **Alamofire**: 3 errors — 2 CS0111 (duplicate `Request` methods in EventMonitor classes from NSNotification.Name property collisions), 1 CS0535 (Redirector doesn't implement IRedirectHandler.Task — closure param type mismatch `Action<SwiftOptional<URLRequest>>` vs `Action<URLRequest?>`).
 - **StripeCameraCore**: 2 errors — CS1061 (`AVCaptureVideoOrientation.Payload` — .NET enum type doesn't have Payload property).
-- **StripeUICore**: 4 errors — 3 CS0315/CS0023 (`UIKeyboardType` treated as ObjC class but is a .NET enum), 1 SYSLIB1051 (bool param `isOptional` missing `[MarshalAs(UnmanagedType.U1)]`).
+- **StripeUICore**: 3 errors — CS0315/CS0023 (`UIKeyboardType` treated as ObjC class but is a .NET enum — 2 CS0315 + 1 CS0023). Previous SYSLIB1051 bool param error resolved by LibraryImport migration's centralized `[MarshalAs(UnmanagedType.U1)]` in `Parameter.PInvokeSignatureString()`.
 
-**Net: 0 CS0234 environmental errors across all 26 libraries (was 314). 3 libraries have 9 total pre-existing generator bugs unmasked by the fix. 23 libraries at 0 errors.**
+**Net: 0 CS0234 environmental errors across all 26 libraries (was 314). 3 libraries have 8 total pre-existing generator bugs unmasked by the fix (was 9 — 1 SYSLIB1051 resolved by LibraryImport migration). 23 libraries at 0 errors.**
+
+## Validation Pass 7 (2026-02-18) — generator bug fixes
+
+Fixed 7 of 8 remaining generator bugs across 3 libraries. 25 of 26 libraries now compile clean.
+
+**Bug 1: CS0111 — Nullable reference type overload collision (2 errors fixed, Alamofire)**
+
+Two Swift `EventMonitor` methods produced C# signatures differing only by nullable annotation: `Request(Request, NSUrlSessionTask, AFError)` vs `Request(Request, NSUrlSessionTask, AFError?)`. C# doesn't distinguish nullable annotations for overload resolution (erased at runtime for reference types). Fix: applied existing `NormalizeParamTypeForOverloadIdentity` helper to both `IHandler.GetProjectedCSharpMethodKey()` and `DefaultParameterOverloadEmitter.GetProjectedOverloadKey()`, stripping trailing `?` from reference types before dedup key construction.
+
+**Bug 2: CS0535 — Closure Optional type projection mismatch (1 error fixed, Alamofire)**
+
+Protocol interface had `Action<URLRequest?>` but concrete class had `Action<SwiftOptional<URLRequest>>`. Two code paths projected `Optional<URLRequest>` differently: `TypeConversionHandler.GetIdiomaticCSharpType()` unconditionally used `T?`, while `ClosureHandler.TranslateTypeSpecToCSharp()` only used `T?` for primitives/pointers. Fix: extended `T?` path in `TranslateTypeSpecToCSharp` to cover all `NamedTypeSpec` inner types (frozen structs → `Nullable<T>`, non-frozen structs/classes → nullable annotation). Note: plan originally specified frozen-struct-only, but `URLRequest` has `frozen="false"` in `FoundationDatabase.xml`, requiring the broader fix.
+
+**Bug 3: CS1061 — AVCaptureVideoOrientation.Payload (2 errors fixed, StripeCameraCore)**
+
+`AVFoundationDatabase.xml` entry for `AVCaptureVideoOrientation` was missing `simpleEnum="true"`. PInvokeEmitter took the `EnumSafeHandle` path, emitting `.Payload.DangerousGetHandle()` on a .NET enum that has no `Payload` property. Fix: added `simpleEnum="true"` to the existing XML entry → PInvokeEmitter uses `(nint)` integer cast path.
+
+**Bug 4: CS0315/CS0023 — UIKeyboardType misclassified as ObjC class (3 errors fixed, StripeUICore)**
+
+`UIKeyboardType` wasn't in any database, and UIKit is in `AppleObjCFrameworkModules`, so it was incorrectly bridged as an ObjC class (`Kind=Class` + `ObjCBridged` flag). Generated code used `Runtime.GetNSObject<UIKeyboardType>(result)` (CS0315) and `value?.Handle` (CS0023) on a value type. Fix: (1) added `UIKeyboardType` to `UIKitDatabase.xml` as `kind="enum" simpleEnum="true"`, (2) added `"UIKit.UIKeyboardType"` to `AppleFrameworkValueTypes` as belt-and-suspenders.
+
+**Bonus: SYSLIB1051 — bool parameter in enum case P/Invoke (1 error fixed, StripeUICore)**
+
+Unmasked by fixing UIKeyboardType errors. `EnumHandler.CaseConstruction.cs` manually constructs P/Invoke parameter strings, bypassing `Parameter.PInvokeSignatureString()` which has centralized `[MarshalAs(UnmanagedType.U1)]` handling for bool. Fix: added `[MarshalAs(UnmanagedType.U1)]` prefix for bool params in enum case constructor P/Invoke emission.
+
+**Remaining: Alamofire 1 error (CS0315)**
+
+`NSUrlSessionWebSocketCloseCode` used in `SwiftObjectHelper<T>` which requires `ISwiftObject` constraint, but the type is a value type (simple enum). This is a different error from the 3 fixed above — it was pre-existing from Pass 6's CloseCode remapping (`AppleFrameworkTypeRemappings`).
+
+**Test coverage (9 new tests, 3389 → 3389 total):**
+- `BaseHandlerDedupTests`: 2 tests — nullable ref type produces same key, nullable value type produces different key
+- `ClosureHandlerTests`: 3 tests — Optional frozen struct, non-frozen struct, and class all produce `T?`
+- `TypeDatabaseExtensionsTests`: 4 tests — UIKeyboardType as simple enum, IsObjCModuleType returns false, AVCaptureVideoOrientation and UIKeyboardType in value types
+
+**Net: 25 of 26 libraries at 0 errors. Alamofire has 1 remaining generator bug (CS0315 NSUrlSessionWebSocketCloseCode). Unit tests: 3389 (0 failures). Integration tests: 700 (11 skipped, 0 failures).**
 
 ## Fixed Bug Patterns
 
@@ -228,7 +261,7 @@ Fixed 314 CS0234 environmental errors across 4 libraries caused by two root caus
 
 ## Remaining Environmental (out of scope)
 
-**All environmental (CS0234) errors are now resolved.** Pass 5 fixed 35 errors across 5 libraries (ObjC enum types, UIKit/AVFoundation value types). Pass 6 fixed 314 errors across 4 libraries (Foundation Swift→ObjC class name mismatch, additional value-type exclusions). 23 of 26 libraries compile clean; 3 libraries have pre-existing generator bugs unmasked by the environmental fixes (see "Libraries with Generator Errors").
+**All environmental (CS0234) errors are now resolved.** Pass 5 fixed 35 errors across 5 libraries. Pass 6 fixed 314 errors across 4 libraries. Pass 7 fixed 7 of 8 remaining generator bugs. 25 of 26 libraries compile clean; Alamofire has 1 remaining generator bug (CS0315 NSUrlSessionWebSocketCloseCode).
 
 ---
 

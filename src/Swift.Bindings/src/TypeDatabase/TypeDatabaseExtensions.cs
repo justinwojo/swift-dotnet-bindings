@@ -536,6 +536,7 @@ public static class TypeDatabaseExtensions
         "UIKit.UIBlurEffect.Style", "UIKit.UILayoutPriority",
         "UIKit.NSTextAlignment",
         "UIKit.NSWritingDirection",
+        "UIKit.UIKeyboardType",
         // AVFoundation structs
         "AVFoundation.AVAudioFramePosition", "AVFoundation.AVAudioFrameCount",
         "AVFoundation.AVAudioPacketCount", "AVFoundation.AVAudioChannelCount",

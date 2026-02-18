@@ -2,7 +2,7 @@
 <swifttypedatabase version="1.0" moduleName="AVFoundation" modulePath="/System/Library/Frameworks/AVFoundation.framework/AVFoundation">
     <entities>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureVideoOrientation">
-            <typedeclaration kind="enum" name="AVCaptureVideoOrientation" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />
+            <typedeclaration kind="enum" name="AVCaptureVideoOrientation" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" />
         </entity>
     </entities>
 </swifttypedatabase>
