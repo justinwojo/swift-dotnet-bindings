@@ -91,7 +91,11 @@ namespace BindingsGeneration
 
             // Simple enums (no associated values, frozen, non-generic, integral/String/no raw value)
             // get emitted as C# enum value types instead of unsafe classes.
-            if (enumDecl.IsSimpleEnum || enumDecl.IsStringRawValueSimpleEnum)
+            // For string-raw-value enums with instance methods, only take the simple path
+            // if all instance methods have simple-emitter-compatible signatures. Otherwise
+            // keep class-based emission to avoid silently dropping complex methods.
+            if (enumDecl.IsSimpleEnum ||
+                (enumDecl.IsStringRawValueSimpleEnum && AreAllInstanceMethodsSimpleEmitterCompatible(enumDecl)))
             {
                 EmitSimpleEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor);
                 return;
@@ -137,6 +141,10 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"internal SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
+                csWriter.WriteLine("#pragma warning disable CS0649");
+                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("internal bool _isCachedSingleton;");
+                csWriter.WriteLine("#pragma warning restore CS0649");
                 csWriter.WriteLine();
                 var simpleName = typeNameWithGenerics.Contains('<')
                     ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
@@ -144,13 +152,15 @@ namespace BindingsGeneration
                 var disposeMethods = $$"""
                 public void Dispose()
                 {
+                    if (_isCachedSingleton) return;
                     _payload.Dispose();
                     GC.SuppressFinalize(this);
                 }
 
                 ~{{simpleName}}()
                 {
-                    Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+                    if (!_isCachedSingleton)
+                        Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
                 }
                 """;
                 csWriter.WriteLines(disposeMethods);
@@ -176,20 +186,27 @@ namespace BindingsGeneration
                 }
             }
 
+            // Determine if no-payload case properties can be cached as lazy singletons.
+            // Only cache when the enum is effectively immutable from C# — mutating methods
+            // or writable instance properties would allow a cached singleton to be globally mutated.
+            bool canCacheCases =
+                !enumDecl.Methods.Any(m => !m.IsConstructor && m.IsMutating) &&
+                !enumDecl.Properties.Any(p => !p.IsStatic && p.Accessors.Any(a => a is SetAccessorDecl));
+
             // Handle simple cases via RawRepresentable if available, otherwise via enum-tag construction.
             // Enum element symbols from ABI JSON are often not exported callable functions.
             if (simpleCases.Count > 0)
             {
                 if (enumDecl.IsRawRepresentable)
                 {
-                    EmitRawRepresentableSupport(csWriter, swiftWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext);
+                    EmitRawRepresentableSupport(csWriter, swiftWriter, enumDecl, simpleCases, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, canCacheCases);
                 }
                 else
                 {
                     // No RawRepresentable - construct no-payload cases from enum tag.
                     foreach (var caseDecl in simpleCases)
                     {
-                        EmitSimpleCaseFromTag(csWriter, enumDecl, caseDecl, typeNameWithGenerics);
+                        EmitSimpleCaseFromTag(csWriter, enumDecl, caseDecl, typeNameWithGenerics, canCacheCases);
                     }
                 }
             }
@@ -338,40 +355,73 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a simple enum case (no associated values) by writing the enum tag directly.
         /// This avoids relying on enum element symbols, which are not guaranteed to be exported as callable functions.
+        /// When <paramref name="canCacheCases"/> is true, the case is cached as a lazy singleton to avoid
+        /// repeated native memory allocation on each access.
         /// </summary>
-        private void EmitSimpleCaseFromTag(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, string enumTypeName)
+        private void EmitSimpleCaseFromTag(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, string enumTypeName, bool canCacheCases)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.ToPascalCase(caseName);
+            var fieldName = caseName;
             var caseTag = enumDecl.GetCaseTag(caseDecl);
 
-            // Generate a static property for this case with backing P/Invoke
-            csWriter.WriteLine($"/// <summary>");
-            csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
-            csWriter.WriteLine($"/// </summary>");
-            csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("get");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("unsafe");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine($"var result = new {enumTypeName}();");
-            csWriter.WriteLine($"var metadata = SwiftObjectHelper<{enumTypeName}>.GetTypeMetadata();");
-            csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
-            csWriter.WriteLine($"metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint){caseTag}, metadata);");
-            csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
-            csWriter.WriteLine("return result;");
+            if (canCacheCases)
+            {
+                // Lazy-cached singleton: exactly one native allocation per case, thread-safe.
+                csWriter.WriteLine($"private static readonly Lazy<{enumTypeName}> _lazy_{fieldName} = new(() =>");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("unsafe");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"var result = new {enumTypeName}();");
+                csWriter.WriteLine($"var metadata = SwiftObjectHelper<{enumTypeName}>.GetTypeMetadata();");
+                csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
+                csWriter.WriteLine($"metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint){caseTag}, metadata);");
+                csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
+                csWriter.WriteLine("result._isCachedSingleton = true;");
+                csWriter.WriteLine("return result;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.Indent--;
+                csWriter.WriteLine("});");
 
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine();
+                csWriter.WriteLine($"/// <summary>");
+                csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                csWriter.WriteLine($"/// </summary>");
+                csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
+                csWriter.WriteLine();
+            }
+            else
+            {
+                // Per-access construction: enum has mutating methods or writable properties,
+                // so caching would allow global mutation of a shared instance.
+                csWriter.WriteLine($"/// <summary>");
+                csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                csWriter.WriteLine($"/// </summary>");
+                csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("get");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("unsafe");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"var result = new {enumTypeName}();");
+                csWriter.WriteLine($"var metadata = SwiftObjectHelper<{enumTypeName}>.GetTypeMetadata();");
+                csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
+                csWriter.WriteLine($"metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint){caseTag}, metadata);");
+                csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
+                csWriter.WriteLine("return result;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+            }
         }
     }
 }

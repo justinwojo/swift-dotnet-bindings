@@ -621,5 +621,44 @@ namespace BindingsGeneration
         }
 
         private static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);
+
+        /// <summary>
+        /// Checks whether all instance methods on an enum have signatures compatible with the
+        /// simple-enum extension method emitter. Only methods whose return types and parameter
+        /// types are within the supported primitive/string/bool/void/same-enum set qualify.
+        /// If any instance method has an unsupported signature, the enum should stay class-based
+        /// to avoid silently dropping members that the class path would have emitted.
+        /// </summary>
+        internal static bool AreAllInstanceMethodsSimpleEmitterCompatible(EnumDecl enumDecl)
+        {
+            var instanceMethods = enumDecl.Methods
+                .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static);
+
+            foreach (var method in instanceMethods)
+            {
+                // Check return type
+                var returnTypeSpec = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+                if (returnTypeSpec != null && !IsVoidReturn(returnTypeSpec))
+                {
+                    bool returnsEnum = returnTypeSpec is NamedTypeSpec namedReturn &&
+                        namedReturn.NameWithoutModule == enumDecl.Name;
+                    if (!returnsEnum && GetSimpleReturnType(returnTypeSpec, null!) == null)
+                        return false;
+                }
+
+                // Check parameters (skip index 0 = return type, skip self)
+                var paramDecls = method.CSSignature
+                    .Skip(1)
+                    .Where(a => a.Name != "self");
+
+                foreach (var param in paramDecls)
+                {
+                    if (GetSimpleParamType(param.SwiftTypeSpec, null!) == null)
+                        return false;
+                }
+            }
+
+            return true;
+        }
     }
 }

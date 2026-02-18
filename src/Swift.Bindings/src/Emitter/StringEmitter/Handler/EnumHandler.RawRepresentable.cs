@@ -27,7 +27,7 @@ namespace BindingsGeneration
         /// Emits RawRepresentable support for enums with simple cases.
         /// This includes a FromRawValue method and static properties for each case.
         /// </summary>
-        private void EmitRawRepresentableSupport(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext)
+        private void EmitRawRepresentableSupport(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, bool canCacheCases = false)
         {
             var rawTypeName = enumDecl.RawValueTypeName!;
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
@@ -327,6 +327,7 @@ namespace BindingsGeneration
                 var caseDecl = simpleCases[i];
                 var caseName = caseDecl.Name;
                 var capitalizedName = NameProvider.ToPascalCase(caseName);
+                var fieldName = caseName;
 
                 // Determine the raw value - for Int-based enums, Swift uses sequential values starting at 0
                 // For String-based enums, the raw value is the case name
@@ -340,30 +341,55 @@ namespace BindingsGeneration
                     rawValueLiteral = i.ToString();
                 }
 
-                csWriter.WriteLine("/// <summary>");
-                csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
-                csWriter.WriteLine("/// </summary>");
-                csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                csWriter.WriteLine("get");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                csWriter.WriteLine($"var result = FromRawValue({rawValueLiteral});");
-                csWriter.WriteLine("if (result == null)");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
                 // Escape quotes in rawValueLiteral for the error message string
                 var escapedRawValue = rawValueLiteral.Replace("\"", "\\\"");
-                csWriter.WriteLine($"throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {escapedRawValue}\");");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
-                csWriter.WriteLine("return result;");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
-                csWriter.WriteLine();
+
+                if (canCacheCases)
+                {
+                    // Lazy-cached singleton: exactly one native allocation per case, thread-safe.
+                    csWriter.WriteLine($"private static readonly Lazy<{enumTypeName}> _lazy_{fieldName} = new(() =>");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine($"var result = FromRawValue({rawValueLiteral})");
+                    csWriter.WriteLine($"    ?? throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {escapedRawValue}\");");
+                    csWriter.WriteLine("result._isCachedSingleton = true;");
+                    csWriter.WriteLine("return result;");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("});");
+
+                    csWriter.WriteLine("/// <summary>");
+                    csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                    csWriter.WriteLine("/// </summary>");
+                    csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
+                    csWriter.WriteLine();
+                }
+                else
+                {
+                    // Per-access construction: enum has mutating methods or writable properties,
+                    // so caching would allow global mutation of a shared instance.
+                    csWriter.WriteLine("/// <summary>");
+                    csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                    csWriter.WriteLine("/// </summary>");
+                    csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("get");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine($"var result = FromRawValue({rawValueLiteral});");
+                    csWriter.WriteLine("if (result == null)");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine($"throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {escapedRawValue}\");");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.WriteLine("return result;");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.WriteLine();
+                }
             }
         }
 

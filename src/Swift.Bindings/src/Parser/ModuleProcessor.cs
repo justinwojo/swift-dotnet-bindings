@@ -345,7 +345,7 @@ namespace BindingsGeneration
                 flags |= TypeRecordFlags.RequiresMemoryManagement;
             }
 
-            if (enumDecl.IsSimpleEnum)
+            if (enumDecl.IsSimpleEnum || enumDecl.IsStringRawValueSimpleEnum)
                 flags |= TypeRecordFlags.SimpleEnum;
 
             return flags;

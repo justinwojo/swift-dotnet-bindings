@@ -13,7 +13,7 @@ External review: `/Users/wojo/Dev/swift-dotnet-packages/binding-analysis-v2.md` 
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 3,356 passing |
+| Unit tests | 3,365 passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 181 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
@@ -44,7 +44,7 @@ Hard, measurable gates per priority tier. Grep/compile checks, not subjective sc
 | `SwiftDictionary` in public signatures | 144 | 144 | 0 |
 | `SwiftOptional<` in public signatures | ~20 | ~20 | 0 |
 | Empty protocol interfaces (0 members) | 11 | <5 | 0 |
-| Enums emitted as native C# `enum` | ~5% | ~5% | ~40% |
+| Enums emitted as native C# `enum` | ~15% (was ~5%; string-raw-value enums now qualify) | ~15% | ~40% |
 | Sync throw messages with actual error text | 0% | 0% | 100% |
 | Runtime type leakage (SwiftArray/SwiftOptional/ExistentialContainer in public API) | ~170 (was ~230; EC eliminated) | ~170 | <10 |
 
@@ -110,13 +110,17 @@ Swift enums are modeled as heap-allocated classes with `CaseTag`, `Dispose()`, a
 
 The generator already emits native `enum` for frozen, non-generic enums with integral raw values (`IsSimpleEnum` path in `EnumHandler.SimpleEnum.cs`). The gap is in expanding coverage.
 
-| Step | Description | Effort | Files |
-|------|-------------|--------|-------|
-| **3a. String-raw-value enums with methods** | Gate at `EnumDecl.IsStringRawValueSimpleEnum` rejects enums with methods. Relax to emit C# enum + extension methods (infrastructure already exists in `SimpleEnum.cs`). | Low (~2h) | `EnumDecl.cs:105-112`, `EnumHandler.SimpleEnum.cs` |
-| **3b. Non-frozen simple enums** | Emit C# enum for non-frozen enums that have no associated values, are non-generic, and have integral/no raw value. Emit a `_Unknown` sentinel case for forward compatibility. | Medium | `EnumDecl.cs:75-79`, `EnumHandler.SimpleEnum.cs` |
-| **3c. Enum case caching for class-based enums** | For enums that must remain classes (associated values, generic), add singleton/flyweight caching for no-payload case accessors. `Country.Albania` should return the same object every access. | Medium | `EnumHandler.RawRepresentable.cs`, `EnumHandler.CaseConstruction.cs` |
+| Step | Description | Effort | Status |
+|------|-------------|--------|--------|
+| **3a. String-raw-value enums with instance methods** | Relaxed `IsStringRawValueSimpleEnum` to allow instance methods (emitted as extension methods). Static methods, properties, and operators still block the simple path. Added safety gate: only takes simple path when all instance methods have simple-emitter-compatible signatures (primitives, string, bool, void, same-enum). Set `TypeRecordFlags.SimpleEnum` for string-raw-value simple enums in `ModuleProcessor`. | Low | **COMPLETE** |
+| **3b. Non-frozen simple enums** | **DEFERRED** — Non-frozen tag values are resilience-sensitive. A C# enum bakes numeric values at compile time. If a library evolution adds/reorders cases, the binding silently sends wrong cases to Swift. Needs a separate design effort, likely a non-enum representation for correctness under library evolution. | Medium | **DEFERRED** |
+| **3c. Enum case caching for class-based enums** | Added `Lazy<T>`-backed singleton caching for no-payload case properties on immutable class-based enums. Eligibility gate: only caches when enum has no mutating methods and no writable instance properties (prevents mutation/disposal poisoning). Added `_isCachedSingleton` field with disposal guard (`Dispose()` and finalizer become no-ops for cached instances). Thread-safe via `Lazy<T>`. Applies to both `EmitRawRepresentableSupport` and `EmitSimpleCaseFromTag` paths. Nuke output: 27 `Lazy<>` instances generated, 0 compile errors. | Medium | **COMPLETE** |
 
-**Acceptance gate**: Count of native `enum` declarations in generated output increases from ~5% to ~40% of total enum types. Class-based enum case accessors with no payload return cached instances (verify via object reference equality in tests).
+**Step 3a key files**: `EnumDecl.cs`, `ModuleProcessor.cs`, `EnumHandler.cs` (emission gate), `EnumHandler.SimpleEnum.cs` (`AreAllInstanceMethodsSimpleEmitterCompatible`).
+
+**Step 3c key files**: `EnumHandler.cs` (class template, eligibility gate, `EmitSimpleCaseFromTag`), `EnumHandler.RawRepresentable.cs` (case property emission).
+
+**Acceptance gate**: Native `enum` coverage expanded from ~5% to ~15% (string-raw-value enums with compatible methods now qualify). Class-based enum no-payload case accessors use `Lazy<T>` singletons (zero per-access allocation). Remaining gap to 40% target requires Step 3b (non-frozen enums), which is deferred pending a resilience-safe design.
 
 ---
 
