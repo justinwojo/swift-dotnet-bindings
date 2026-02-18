@@ -22,6 +22,8 @@ The generator accepts these options:
 | `--sdk-mode` | Skip `.csproj` emission (used when the MSBuild SDK is the project system). |
 | `--package-id <id>` | NuGet package ID override. Default: `{Module}.Swift.iOS` |
 | `--wrapper-architectures <scope>` | `simulator` (default), `device`, or `all` (both slices). |
+| `--framework-dependency <path>` | Dependency xcframework path. Repeatable. Adds `-F` search paths for wrapper compilation and `PackageReference` in emitted `.csproj`. Requires `--xcframework`. |
+| `--module-database <path>` | Load a dependency module database XML for cross-module type resolution. Repeatable. Generated alongside bindings as `{Module}Database.xml`. |
 | `-v, --verbose <level>` | `0` = silent, `1` = normal (default), `2` = debug |
 
 ## MSBuild SDK Properties

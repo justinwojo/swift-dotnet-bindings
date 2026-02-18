@@ -154,7 +154,7 @@ done
 
 ## MSBuild SDK (`Swift.Bindings.Sdk`)
 
-The SDK automates the entire workflow into `dotnet build && dotnet pack`. Design doc: `src/docs/dx-msbuild-sdk-design.md`.
+The SDK automates the entire workflow into `dotnet build && dotnet pack`. Design doc: `src/docs/Completed/dx-msbuild-sdk-design.md`.
 
 **Binding author workflow:**
 ```bash
@@ -172,7 +172,7 @@ cd Library.Swift.iOS && dotnet build && dotnet pack
 </Project>
 ```
 
-The SDK auto-discovers `*.xcframework` in the project directory, runs the generator, compiles the Swift wrapper, and arranges NuGet pack layout. See `src/docs/dx-msbuild-sdk-design.md` for full target chain and error codes.
+The SDK auto-discovers `*.xcframework` in the project directory, runs the generator, compiles the Swift wrapper, and arranges NuGet pack layout. See `docs/Troubleshooting.md` for SWIFTBIND error codes.
 
 **Project with framework dependencies:**
 ```xml
@@ -223,9 +223,8 @@ Coverage report shows must-pass features as passing/degraded/missing. Verify no 
 
 ## Key References
 
-- `src/docs/CURRENT-STATUS.md` — Current compilation status and gaps
 - `src/docs/roadmap.md` — Forward-looking prioritized work queue
-- `src/docs/dx-msbuild-sdk-design.md` — MSBuild SDK design (Steps 1-5, all complete)
+- `src/docs/Completed/dx-msbuild-sdk-design.md` — MSBuild SDK design (Steps 1-5, all complete)
 - `src/docs/binding-errors.md` — Third-party library binding error tracking
 - `src/docs/Future/emitter-redesign-proposal.md` — Architecture direction
 - `src/docs/known-issues-workarounds.md` — Runtime workarounds

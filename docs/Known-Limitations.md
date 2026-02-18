@@ -12,6 +12,8 @@
 
 .NET on iOS currently uses the Mono runtime, which has a known JIT compiler defect (`jit-info.c:918`). This causes process-fatal crashes when certain P/Invoke frame types use `CallConvSwift`.
 
+**These issues only affect the Mono JIT (iOS Simulator).** Production device builds using NativeAOT (`dotnet publish -r ios-arm64`) use a completely different codegen (RyuJIT AOT) where `CallConvSwift` works correctly. The workarounds below are necessary for simulator-based development but do not affect shipped App Store apps.
+
 Four workarounds (A through D) are built into the generator and runtime. These are transparent — generated bindings work correctly without any manual intervention. However, they introduce a runtime dependency on `libSwiftBindingsRuntime.dylib`.
 
 ### What's Covered by Workarounds

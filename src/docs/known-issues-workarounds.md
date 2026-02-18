@@ -7,6 +7,19 @@ This document tracks major runtime issues, Mono/Swift interop bugs, and their wo
 
 ---
 
+## Simulator vs Device: When These Issues Apply
+
+All issues documented here are **Mono JIT-specific**. The deployment target determines whether they affect you:
+
+| Target | Runtime | JIT Bugs Apply? | Notes |
+|--------|---------|-----------------|-------|
+| **iOS Simulator** | Mono (JIT) | **Yes** | Developer inner loop. All workarounds (A–D) are necessary. |
+| **iOS Device (NativeAOT)** | RyuJIT (AOT) | **No** | Production App Store builds. NativeAOT uses a completely different codegen — `CallConvSwift` works correctly, no JIT assertion crashes. Workarounds are harmless but unnecessary. |
+
+**Bottom line**: These bugs affect your development experience on the simulator, not your shipped app. Production device builds using NativeAOT (`dotnet publish -r ios-arm64`) bypass the Mono JIT entirely. The workarounds remain in place so that simulator-based development and testing work correctly.
+
+---
+
 ## Table of Contents
 
 1. [Mono JIT Assertion Crash (CallConvSwift)](#mono-jit-assertion-crash-callconvswift)
