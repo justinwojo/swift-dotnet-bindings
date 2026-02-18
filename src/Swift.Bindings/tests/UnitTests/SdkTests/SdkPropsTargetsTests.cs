@@ -156,6 +156,7 @@ namespace BindingsGeneration.Tests
                 "_ValidateSwiftPackageItems",
                 "_DiscoverSwiftFrameworks",
                 "_ComputeSwiftFingerprint",
+                "_CollectSwiftModuleDatabases",
                 "_GenerateSwiftBindings",
                 "_ImportSwiftBindingMetadata",
                 "_IncludeGeneratedSwiftBindings",
@@ -388,6 +389,55 @@ namespace BindingsGeneration.Tests
             var endOfTag = validateTarget.IndexOf('>', StringComparison.Ordinal);
             var targetTag = validateTarget.Substring(0, endOfTag);
             Assert.Contains("BeforeTargets=\"_ConfigureSwiftBindingPack\"", targetTag);
+        }
+
+        [Fact]
+        public void Targets_ContainsCollectModuleDatabasesTarget()
+        {
+            Assert.Contains("Name=\"_CollectSwiftModuleDatabases\"", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_CollectModuleDatabases_BeforeGenerateBindings()
+        {
+            var collectTarget = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_CollectSwiftModuleDatabases\"", StringComparison.Ordinal));
+            var endOfTag = collectTarget.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = collectTarget.Substring(0, endOfTag);
+            Assert.Contains("BeforeTargets=\"_GenerateSwiftBindings\"", targetTag);
+        }
+
+        [Fact]
+        public void Targets_GeneratorAppendsModuleDatabaseArgs()
+        {
+            Assert.Contains("--module-database", TargetsContent);
+            Assert.Contains("_SwiftModuleDatabaseFile", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_PackLayoutIncludesModuleDatabase()
+        {
+            Assert.Contains("Database.xml", TargetsContent);
+            Assert.Contains("buildTransitive/net10.0-ios/", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_FingerprintIncludesModuleDatabases()
+        {
+            Assert.Contains("SwiftModuleDatabase", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind073WarningCode()
+        {
+            Assert.Contains("SWIFTBIND073", TargetsContent);
+            Assert.Contains("Module database not found", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_CollectModuleDatabases_SupportsLocalModuleDatabasePath()
+        {
+            Assert.Contains("%(SwiftFrameworkDependency.ModuleDatabasePath)", TargetsContent);
         }
 
         private static string FindRepoRoot()

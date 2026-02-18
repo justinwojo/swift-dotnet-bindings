@@ -84,6 +84,15 @@ namespace BindingsGeneration
                     </SwiftBindingFramework>
                   </ItemGroup>
 
+                  <!-- Module database for cross-module type resolution -->
+                  <ItemGroup>
+                    <SwiftModuleDatabase Include="$(MSBuildThisFileDirectory){options.ModuleName}Database.xml"
+                                         Condition="Exists('$(MSBuildThisFileDirectory){options.ModuleName}Database.xml')">
+                      <ModuleName>{options.ModuleName}</ModuleName>
+                      <SourcePackage>{options.PackageId}</SourcePackage>
+                    </SwiftModuleDatabase>
+                  </ItemGroup>
+
                   <!-- Platform version warning (SWIFTBIND010) -->
                   <Target Name="_Validate{sanitized}PlatformVersion" BeforeTargets="Build"
                           Condition="'$(SupportedOSPlatformVersion)' != '' AND $([System.Version]::Parse('$(SupportedOSPlatformVersion)').CompareTo($([System.Version]::Parse('{options.EffectiveMinimumOSVersion}')))) &lt; 0">

@@ -415,13 +415,14 @@ cd Nuke.Swift.iOS && dotnet build && dotnet pack
 
 **SDK package (Phase 2):**
 - `src/Swift.Bindings.Sdk/Sdk/Sdk.props` — SDK property defaults: `net10.0-ios`, `AllowUnsafeBlocks`, `IsPackable=true`, `Nullable=enable`, `SwiftWrapperArchitectures=all` (both slices by default), `SwiftPlatformTarget=simulator`, implicit `PackageReference` to `Swift.Runtime` with `$(SwiftRuntimeVersion)` version floor. NO auto-discovery (that's in `.targets`, after project body evaluation)
-- `src/Swift.Bindings.Sdk/Sdk/Sdk.targets` — 9 MSBuild targets:
+- `src/Swift.Bindings.Sdk/Sdk/Sdk.targets` — 10 MSBuild targets:
 
 | # | Target | Fires | Purpose |
 |---|--------|-------|---------|
 | 0 | `_ValidateSwiftPackageItems` | Before `_DiscoverSwiftFrameworks` | Error `SWIFTBIND100` on `<SwiftPackage>` (v2 stub) |
 | 1 | `_DiscoverSwiftFrameworks` | Before `_ComputeSwiftFingerprint` | Auto-discover `*.xcframework`; validate count (`SWIFTBIND001`/`002`/`003`) |
 | 2 | `_ComputeSwiftFingerprint` | Before `_GenerateSwiftBindings` | Hash dylib + Info.plist + swiftinterface + optional inputs + properties → stamp file |
+| 2b | `_CollectSwiftModuleDatabases` | Before `_GenerateSwiftBindings` | Collect dependency module databases for cross-module type resolution (`SWIFTBIND073`) |
 | 3 | `_GenerateSwiftBindings` | Before `CoreCompile` | Invoke generator (skipped if fingerprint unchanged) |
 | 4 | `_ImportSwiftBindingMetadata` | After `_GenerateSwiftBindings` | `XmlPeek` reads `binding-metadata.props` → sets `PackageVersion`, `SupportedOSPlatformVersion` |
 | 5 | `_IncludeGeneratedSwiftBindings` | After `_ImportSwiftBindingMetadata` | Add generated `.cs` to `Compile` |
@@ -540,6 +541,7 @@ Dependency NuGet packages are NOT included in the pack output — they come from
 | `SWIFTBIND031` | `_ValidateSwiftBindingPackSlices` | Wrapper xcframework missing device or simulator slice |
 | `SWIFTBIND040` | `_ValidateSwiftDependencyMetadata` | `SwiftFrameworkDependency` missing `PackageId` or `PackageVersion` when `IsPackable=true` |
 | `SWIFTBIND050` | Generator (SDK mode) | Wrapper compilation failed — C# bindings still valid, wrapper-dependent methods throw `DllNotFoundException` at runtime |
+| `SWIFTBIND073` | `_CollectSwiftModuleDatabases` | `SwiftFrameworkDependency.ModuleDatabasePath` file not found |
 | `SWIFTBIND100` | `_ValidateSwiftPackageItems` | `<SwiftPackage>` used (v2 stub) |
 
 **Also handled by the generator** (non-SWIFTBIND errors surfaced as build output):

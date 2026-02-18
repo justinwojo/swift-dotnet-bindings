@@ -406,6 +406,77 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region E. SwiftModuleDatabase Tests
+
+    public class ConsumerTargetsModuleDatabaseTests
+    {
+        [Fact]
+        public void Emit_SwiftModuleDatabase_ItemPresent()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("<SwiftModuleDatabase Include=", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_SwiftModuleDatabase_HasModuleNameMetadata()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("<ModuleName>Nuke</ModuleName>", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_SwiftModuleDatabase_HasSourcePackageMetadata()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("<SourcePackage>Nuke.Swift.iOS</SourcePackage>", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_SwiftModuleDatabase_HasExistsCondition()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)NukeDatabase.xml')\"", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_SwiftModuleDatabase_DatabaseFilename()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
+                Assert.Contains("NukeDatabase.xml", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
+        private static string EmitAndRead(string dir, string module, string packageId, string minOS, bool hasWrapper)
+            => ConsumerTargetsTestHelper.EmitAndRead(dir, module, packageId, minOS, hasWrapper);
+    }
+
+    #endregion
+
     #region Test Helper
 
     internal static class ConsumerTargetsTestHelper

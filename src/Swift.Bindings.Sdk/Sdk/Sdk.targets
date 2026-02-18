@@ -83,6 +83,12 @@
           find &quot;$$dep&quot; -path &quot;*.framework/*&quot; -not -name &quot;Info.plist&quot; -not -path &quot;*/Modules/*&quot; -not -path &quot;*/_CodeSignature/*&quot; -type f -exec shasum -a 256 {} \; ; \
         fi; \
       done; \
+      echo &quot;@(SwiftModuleDatabase, '%0A')&quot; | while IFS= read -r db; do \
+        if [ -n &quot;$$db&quot; ] &amp;&amp; [ -f &quot;$$db&quot; ]; then shasum -a 256 &quot;$$db&quot;; fi; \
+      done; \
+      echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
+        if [ -n &quot;$$db&quot; ] &amp;&amp; [ -f &quot;$$db&quot; ]; then shasum -a 256 &quot;$$db&quot;; fi; \
+      done; \
       echo &quot;$(_SwiftBindingSdkVersion) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) @(SwiftFrameworkDependency, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
@@ -105,6 +111,42 @@
                       Lines="$(_SwiftNewFingerprint)"
                       Overwrite="true"
                       Condition="'$(_SwiftBindingUpToDate)' != 'true'" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 2b: Collect module databases for cross-module resolution        -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_CollectSwiftModuleDatabases"
+          BeforeTargets="_GenerateSwiftBindings"
+          DependsOnTargets="_ComputeSwiftFingerprint">
+
+    <!-- Source 1: NuGet-provided SwiftModuleDatabase items (from consumed package .targets) -->
+    <ItemGroup Condition="'@(SwiftModuleDatabase)' != ''">
+      <_SwiftModuleDatabaseFile Include="@(SwiftModuleDatabase)"
+                                Condition="Exists('%(Identity)')" />
+    </ItemGroup>
+
+    <!-- Source 2: Local SwiftFrameworkDependency items with explicit ModuleDatabasePath -->
+    <ItemGroup Condition="'@(SwiftFrameworkDependency)' != ''">
+      <_SwiftModuleDatabaseFile Include="%(SwiftFrameworkDependency.ModuleDatabasePath)"
+                                Condition="'%(SwiftFrameworkDependency.ModuleDatabasePath)' != ''
+                                           AND Exists('%(SwiftFrameworkDependency.ModuleDatabasePath)')" />
+    </ItemGroup>
+
+    <!-- Deduplicate: Remove duplicate paths (diamond dependency, same DB from multiple sources) -->
+    <RemoveDuplicates Inputs="@(_SwiftModuleDatabaseFile)">
+      <Output TaskParameter="Filtered" ItemName="_SwiftModuleDatabaseFileDeduped" />
+    </RemoveDuplicates>
+    <ItemGroup>
+      <_SwiftModuleDatabaseFile Remove="@(_SwiftModuleDatabaseFile)" />
+      <_SwiftModuleDatabaseFile Include="@(_SwiftModuleDatabaseFileDeduped)" />
+    </ItemGroup>
+
+    <!-- Warn for explicit ModuleDatabasePath that doesn't exist -->
+    <Warning Condition="'%(SwiftFrameworkDependency.ModuleDatabasePath)' != ''
+                        AND !Exists('%(SwiftFrameworkDependency.ModuleDatabasePath)')"
+             Code="SWIFTBIND073"
+             Text="Module database not found: '%(SwiftFrameworkDependency.ModuleDatabasePath)'. Cross-module type resolution will be incomplete for '%(SwiftFrameworkDependency.Identity)'. Build the dependency project first, or remove the ModuleDatabasePath metadata." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -141,6 +183,8 @@
       <_SwiftGenCmd Condition="!$([System.String]::Equals('$(SwiftAutoDetectDependencies)', 'true', StringComparison.OrdinalIgnoreCase))">$(_SwiftGenCmd) --no-auto-detect</_SwiftGenCmd>
       <!-- Append framework dependency flags for each SwiftFrameworkDependency item -->
       <_SwiftGenCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftGenCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
+      <!-- Pass collected module databases for cross-module type resolution -->
+      <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'"
@@ -294,6 +338,10 @@
             Pack="true"
             PackagePath="runtimes/ios-arm64/native/$(_SwiftBindingWrapperModuleName).xcframework/"
             Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
+      <!-- Module database for cross-module type resolution in downstream binding projects -->
+      <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml"
+            Pack="true" PackagePath="buildTransitive/net10.0-ios/"
+            Condition="Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml')" />
     </ItemGroup>
   </Target>
 </Project>

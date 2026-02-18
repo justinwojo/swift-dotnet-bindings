@@ -5,7 +5,6 @@
 
 using System.Diagnostics;
 using Xunit;
-
 namespace BindingsGeneration.Tests
 {
     /// <summary>
@@ -15,6 +14,68 @@ namespace BindingsGeneration.Tests
     public class SdkTargetsBehaviorTests : IDisposable
     {
         private readonly string _tempDir;
+
+        /// <summary>
+        /// Lazy one-time check: can we invoke <c>dotnet msbuild</c>?
+        /// Tests that require MSBuild use <c>Assert.SkipUnless</c> when this is false,
+        /// but assert non-zero exit as a real failure when MSBuild IS available.
+        /// </summary>
+        private static readonly Lazy<bool> MsbuildAvailable = new(() =>
+        {
+            try
+            {
+                var (exitCode, _, _) = RunProcess("dotnet", "msbuild --version");
+                return exitCode == 0;
+            }
+            catch { return false; }
+        });
+
+        /// <summary>
+        /// Lazy one-time build of a stub Swift.Bindings.dll that writes received args
+        /// to stderr and exits 0. Used by tests that exercise the REAL _GenerateSwiftBindings
+        /// target (which invokes <c>dotnet exec Swift.Bindings.dll</c>).
+        /// </summary>
+        private static readonly Lazy<string?> StubGeneratorDir = new(() =>
+        {
+            if (!MsbuildAvailable.Value) return null;
+
+            try
+            {
+                var stubDir = Path.Combine(Path.GetTempPath(), "swift-bindings-stub-generator");
+                var publishDir = Path.Combine(stubDir, "out");
+
+                // Reuse if already built (persists across test runs)
+                if (File.Exists(Path.Combine(publishDir, "Swift.Bindings.dll")))
+                    return publishDir + "/";
+
+                Directory.CreateDirectory(stubDir);
+
+                File.WriteAllText(Path.Combine(stubDir, "Stub.csproj"), """
+                    <Project Sdk="Microsoft.NET.Sdk">
+                      <PropertyGroup>
+                        <OutputType>Exe</OutputType>
+                        <TargetFramework>net10.0</TargetFramework>
+                        <AssemblyName>Swift.Bindings</AssemblyName>
+                      </PropertyGroup>
+                    </Project>
+                    """);
+                File.WriteAllText(Path.Combine(stubDir, "Program.cs"), """
+                    System.Console.Error.WriteLine("STUB_RECEIVED_ARGS:" + string.Join(" ", args));
+                    """);
+                // Prevent repo-level build files from interfering
+                File.WriteAllText(Path.Combine(stubDir, "Directory.Build.props"), "<Project />");
+                File.WriteAllText(Path.Combine(stubDir, "Directory.Build.targets"), "<Project />");
+
+                var (exitCode, _, _) = RunProcess("dotnet",
+                    $"publish \"{Path.Combine(stubDir, "Stub.csproj")}\" -o \"{publishDir}\" --nologo -v:q");
+
+                if (exitCode != 0 || !File.Exists(Path.Combine(publishDir, "Swift.Bindings.dll")))
+                    return null;
+
+                return publishDir + "/";
+            }
+            catch { return null; }
+        });
 
         public SdkTargetsBehaviorTests()
         {
@@ -120,6 +181,8 @@ namespace BindingsGeneration.Tests
             //
             // _PropsDir is defined in the project body (same timing as .props) → empty prefix.
             // _TargetsDir is defined in Directory.Build.targets (after SDK targets) → has obj/.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
             var projectContent = """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
@@ -143,11 +206,10 @@ namespace BindingsGeneration.Tests
             var propsResult = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -getProperty:_PropsDir -nologo");
             var targetsResult = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -getProperty:_TargetsDir -nologo");
 
-            if (propsResult.ExitCode != 0 || targetsResult.ExitCode != 0)
-            {
-                // Skip if dotnet msbuild -getProperty isn't available
-                return;
-            }
+            Assert.True(propsResult.ExitCode == 0,
+                $"MSBuild -getProperty:_PropsDir failed.\nStdErr: {propsResult.StdErr}");
+            Assert.True(targetsResult.ExitCode == 0,
+                $"MSBuild -getProperty:_TargetsDir failed.\nStdErr: {targetsResult.StdErr}");
 
             var propsDir = propsResult.StdOut.Trim();
             var targetsDir = targetsResult.StdOut.Trim();
@@ -160,7 +222,213 @@ namespace BindingsGeneration.Tests
             Assert.EndsWith("swift-binding/", targetsDir);
         }
 
+        // ── Module database collection behavioral tests ──
+        // These verify _CollectSwiftModuleDatabases actually collects items at MSBuild
+        // execution time (not just that the XML looks correct).
+
+        [Fact]
+        public void CollectModuleDatabases_CollectsFromNuGetSource()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var dbPath = Path.Combine(_tempDir, "DepModuleDatabase.xml");
+            File.WriteAllText(dbPath, "<TypeDatabase />");
+
+            var project = CreateCollectionTestProject(
+                swiftModuleDatabases: $"""
+                    <SwiftModuleDatabase Include="{dbPath}">
+                      <ModuleName>DepModule</ModuleName>
+                      <SourcePackage>DepModule.Swift.iOS</SourcePackage>
+                    </SwiftModuleDatabase>
+                    """);
+            WriteTestProject(project);
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_CollectSwiftModuleDatabases target failed (NuGet source).\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            Assert.Contains("DepModuleDatabase.xml", result.StdOut);
+        }
+
+        [Fact]
+        public void CollectModuleDatabases_CollectsFromLocalModuleDatabasePath()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var dbPath = Path.Combine(_tempDir, "LocalDatabase.xml");
+            File.WriteAllText(dbPath, "<TypeDatabase />");
+
+            var project = CreateCollectionTestProject(
+                swiftFrameworkDependencies: $"""
+                    <SwiftFrameworkDependency Include="/fake.xcframework"
+                                              ModuleDatabasePath="{dbPath}" />
+                    """);
+            WriteTestProject(project);
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_CollectSwiftModuleDatabases target failed (local path).\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            Assert.Contains("LocalDatabase.xml", result.StdOut);
+        }
+
+        [Fact]
+        public void CollectModuleDatabases_EmitsSWIFTBIND073ForMissingPath()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var project = CreateCollectionTestProject(
+                swiftFrameworkDependencies: """
+                    <SwiftFrameworkDependency Include="/fake.xcframework"
+                                              ModuleDatabasePath="/nonexistent/path/Database.xml" />
+                    """);
+            WriteTestProject(project);
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_CollectSwiftModuleDatabases target failed (SWIFTBIND073 test).\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("SWIFTBIND073", output);
+            Assert.Contains("Module database not found", output);
+        }
+
+        [Fact]
+        public void CollectModuleDatabases_FeedsModuleDatabaseArgsToGenerator()
+        {
+            // Exercises the REAL _GenerateSwiftBindings target from Sdk.targets by pointing
+            // _SwiftBindingGeneratorDir at a stub DLL. The stub writes received args to stderr
+            // (which MSBuild surfaces at StandardErrorImportance="high"). This validates:
+            // 1. _CollectSwiftModuleDatabases fires via BeforeTargets="_GenerateSwiftBindings"
+            // 2. The real PropertyGroup conditions (@(SwiftFramework), up-to-date gate) pass
+            // 3. The real @(_SwiftModuleDatabaseFile) item transform produces --module-database args
+            // 4. The Exec actually runs and receives the constructed command
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var stubDir = StubGeneratorDir.Value;
+            SkipUnless(stubDir != null, "Could not build stub generator DLL");
+
+            var dbPath = Path.Combine(_tempDir, "CoreDatabase.xml");
+            File.WriteAllText(dbPath, "<TypeDatabase />");
+
+            // Fake xcframework directory (gates the PropertyGroup in _GenerateSwiftBindings:
+            // Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'")
+            var fakeXcfw = Path.Combine(_tempDir, "Fake.xcframework");
+            Directory.CreateDirectory(fakeXcfw);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // Import real Sdk.targets. Override only targets that require real xcframework
+            // content. The REAL _CollectSwiftModuleDatabases and _GenerateSwiftBindings run.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <_SwiftBindingGeneratorDir>{stubDir}</_SwiftBindingGeneratorDir>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftFramework Include="{fakeXcfw}" />
+                  </ItemGroup>
+                  <ItemGroup>
+                    <SwiftModuleDatabase Include="{dbPath}">
+                      <ModuleName>Core</ModuleName>
+                    </SwiftModuleDatabase>
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_GenerateSwiftBindings -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_GenerateSwiftBindings with stub generator failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            // Stub writes "STUB_RECEIVED_ARGS:..." to stderr; MSBuild surfaces it at
+            // StandardErrorImportance="high" in build output (stdout of dotnet msbuild process)
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("STUB_RECEIVED_ARGS:", output);
+            Assert.Contains("--module-database", output);
+            Assert.Contains("CoreDatabase.xml", output);
+        }
+
+        /// <summary>
+        /// Creates a minimal project that imports the real Sdk.targets and overrides
+        /// targets that would fail without a real xcframework. The TestDump target
+        /// dumps collected _SwiftModuleDatabaseFile items via Message tasks.
+        /// </summary>
+        private string CreateCollectionTestProject(
+            string? swiftModuleDatabases = null,
+            string? swiftFrameworkDependencies = null)
+        {
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var smdItems = swiftModuleDatabases != null
+                ? $"<ItemGroup>{swiftModuleDatabases}</ItemGroup>"
+                : "";
+            var sfdItems = swiftFrameworkDependencies != null
+                ? $"<ItemGroup>{swiftFrameworkDependencies}</ItemGroup>"
+                : "";
+
+            return $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  {smdItems}
+                  {sfdItems}
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="TestDump" DependsOnTargets="_CollectSwiftModuleDatabases">
+                    <Message Importance="High" Text="DB_ITEM:%(_SwiftModuleDatabaseFile.Identity)" />
+                  </Target>
+                </Project>
+                """;
+        }
+
+        private void WriteTestProject(string projectContent)
+        {
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), projectContent);
+            // Prevent repo-level Directory.Build files from interfering
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+        }
+
+        private static string FindRepoRoot()
+        {
+            var dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (dir != null)
+            {
+                var gitPath = Path.Combine(dir, ".git");
+                if (Directory.Exists(gitPath) || File.Exists(gitPath))
+                    return dir;
+                dir = Path.GetDirectoryName(dir);
+            }
+            throw new InvalidOperationException("Cannot find repo root.");
+        }
+
         // ── Helpers ──
+
+        /// <summary>
+        /// Marks the test as skipped (via <see cref="Xunit.Sdk.SkipException"/>) when the
+        /// condition is false. The xUnit runner (2.8+) reports these as "Skipped" rather than "Passed".
+        /// </summary>
+        private static void SkipUnless(bool condition, string reason)
+        {
+            if (!condition)
+                throw Xunit.Sdk.SkipException.ForSkip(reason);
+        }
 
         /// <summary>
         /// Runs the exact same find command used in Sdk.targets _DiscoverSwiftFrameworks.
