@@ -354,13 +354,19 @@ public class TypeDatabaseExtensionsTests
     // --- Foundation class types are auto-bridged as ObjC ---
 
     [Theory]
-    [InlineData("Foundation.URLResponse", "Foundation", "URLResponse")]
-    [InlineData("Foundation.HTTPURLResponse", "Foundation", "HTTPURLResponse")]
-    [InlineData("Foundation.URLSession", "Foundation", "URLSession")]
-    [InlineData("Foundation.URLSessionTask", "Foundation", "URLSessionTask")]
-    [InlineData("Foundation.URLSessionTaskMetrics", "Foundation", "URLSessionTaskMetrics")]
-    [InlineData("Foundation.URLCredential", "Foundation", "URLCredential")]
+    [InlineData("Foundation.URLResponse", "Foundation", "NSUrlResponse")]
+    [InlineData("Foundation.HTTPURLResponse", "Foundation", "NSHttpUrlResponse")]
+    [InlineData("Foundation.URLSession", "Foundation", "NSUrlSession")]
+    [InlineData("Foundation.URLSessionTask", "Foundation", "NSUrlSessionTask")]
+    [InlineData("Foundation.URLSessionTaskMetrics", "Foundation", "NSUrlSessionTaskMetrics")]
+    [InlineData("Foundation.URLCredential", "Foundation", "NSUrlCredential")]
     [InlineData("Foundation.NSData", "Foundation", "NSData")]
+    [InlineData("Foundation.FileManager", "Foundation", "NSFileManager")]
+    [InlineData("Foundation.DateFormatter", "Foundation", "NSDateFormatter")]
+    [InlineData("Foundation.InputStream", "Foundation", "NSInputStream")]
+    [InlineData("Foundation.Progress", "Foundation", "NSProgress")]
+    [InlineData("Foundation.URLSessionWebSocketTask", "Foundation", "NSUrlSessionWebSocketTask")]
+    [InlineData("Foundation.URLSessionWebSocketTask.Message", "Foundation", "NSUrlSessionWebSocketMessage")]
     public void GetTypeRecordOrAnyType_FoundationClass_ReturnsObjCBridgedRecord(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = new TypeDatabase();
@@ -542,6 +548,24 @@ public class TypeDatabaseExtensionsTests
         Assert.True(found);
         Assert.NotNull(fallbackInfo);
         Assert.Equal("Type is missing from the type database", fallbackInfo.Value.Reason);
+    }
+
+    // --- UIKeyboardType is a .NET-available enum, NOT excluded as AnyType ---
+    // Unlike UIBarStyle/UIKeyboardAppearance (which lack correct marshalling support),
+    // UIKeyboardType exists in .NET iOS as UIKit.UIKeyboardType. It goes through the
+    // ObjC auto-bridge path so members using it are emitted rather than silently dropped.
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_UIKeyboardType_ReturnsObjCBridgedNotAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("UIKit.UIKeyboardType"));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal("UIKit.UIKeyboardType", record.CSharpTypeName.FullyQualifiedName);
+        Assert.True((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
     }
 
     // --- Modules NOT in auto-bridge set (removed for safety) ---
@@ -746,5 +770,54 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal(TypeDatabaseExtensions.AnyType, rangeRecord); // NSRange without underscore → AnyType (no DB entry)
         Assert.NotEqual(TypeDatabaseExtensions.AnyType, underscoreRangeRecord); // _NSRange → remapped
         Assert.Equal("Foundation.NSRange", underscoreRangeRecord.CSharpTypeName.FullyQualifiedName);
+    }
+
+    // --- CloseCode value-type remapping test ---
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_FoundationRemappedValueType_ReturnsRemappedRecord()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        // CloseCode is an enum in .NET iOS (NSUrlSessionWebSocketCloseCode), not a class
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.URLSessionWebSocketTask.CloseCode"));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal("Foundation.NSUrlSessionWebSocketCloseCode", record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordFlags.Frozen, record.Flags);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        // Must NOT have ObjCBridged flag (this is a value type, not a class)
+        Assert.False((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+    }
+
+    // --- Foundation types with no .NET equivalent → AnyType ---
+
+    [Theory]
+    [InlineData("Foundation.JSONEncoder")]
+    [InlineData("Foundation.NSNotification.Name")]
+    [InlineData("Foundation.objc_AssociationPolicy")]
+    public void GetTypeRecordOrAnyType_FoundationNonExistentType_ReturnsAnyType(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    // --- AVFoundation/UIKit value-type exclusions → AnyType ---
+
+    [Theory]
+    [InlineData("AVFoundation.AVCaptureSession.Preset")]
+    [InlineData("AVFoundation.AVCaptureDevice.AutoFocusRangeRestriction")]
+    [InlineData("AVFoundation.AVCaptureDevice.DeviceType")]
+    [InlineData("UIKit.NSWritingDirection")]
+    public void GetTypeRecordOrAnyType_NewAppleFrameworkValueType_ReturnsAnyType(string swiftType)
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
     }
 }

@@ -2,13 +2,12 @@
 
 Tracks compilation errors found when running real-world Swift libraries through the generator. Used to prioritize bug fixes and measure progress.
 
-Last validated: 2026-02-17 (Validation Pass 5.1 — fixed 2 regressions from Pass 5).
+Last validated: 2026-02-18 (Validation Pass 6 — fixed 314 environmental type errors across 4 libraries).
 
-## Baseline Libraries (0 generator errors)
+## Baseline Libraries (0 compile errors)
 
 | Library | Lines | Notes |
 |---------|-------|-------|
-| Alamofire | 41,050 | HTTP networking, closures, protocol composition |
 | BlinkID | 53,755 | ObjC-heavy, delegates, callback-driven API |
 | BRLMPrinterKit | 43 | Mostly ObjC with thin Swift overlay |
 | CryptoSwift | 30,459 | Value types, frozen structs, byte arrays |
@@ -17,12 +16,11 @@ Last validated: 2026-02-17 (Validation Pass 5.1 — fixed 2 regressions from Pas
 | MicroblinkPlatform | 3,522 | Document scanning, SwiftUI theme types |
 | Mixpanel | 6,760 | Analytics, protocol existentials |
 | Nuke | 22,211 | Image loading, AsyncSequence properties, nested types |
-| SkeletonView | 12,094 | UI skeleton loading, previously had 9 environmental errors (now resolved) |
+| SkeletonView | 12,094 | UI skeleton loading, previously had 9+4 environmental errors (now resolved — Pass 5+6) |
 | SmartCardIO | 4,514 | Smart card reader abstraction, clean build |
 
 | Stripe | 471 | Top-level Stripe framework, minimal Swift surface |
 | StripeApplePay | 2,027 | Apple Pay integration |
-| StripeCameraCore | 3,544 | Camera capture, previously had 12 environmental errors (now resolved) |
 | StripeCardScan | 2,593 | Card scanning |
 | StripeConnect | 11,692 | Stripe Connect integration |
 | StripeCore | 32,695 | Core Stripe infrastructure |
@@ -33,21 +31,26 @@ Last validated: 2026-02-17 (Validation Pass 5.1 — fixed 2 regressions from Pas
 | StripePayments | 91,961 | Payments core, previously had 9 environmental errors (now resolved) |
 | StripePaymentSheet | 46,859 | Payment UI, constructor overloads |
 | StripePaymentsUI | 13,167 | Payment UI components, previously had 3 environmental errors (now resolved) |
-| StripeUICore | 29,350 | UI components, previously had 2 environmental errors (now resolved) |
 
 ## Libraries with Generator Errors
 
-None. All 25 validated libraries compile at 0 generator errors as of Feb 17 (Pass 5.1).
+These libraries have 0 environmental (CS0234) errors but have pre-existing generator bugs that were unmasked when Pass 6 fixed the environmental errors that previously blocked compilation of the affected members.
+
+| Library | Lines | Errors | Details |
+|---------|-------|--------|---------|
+| Alamofire | 41,050 | 3 | 2 CS0111 (duplicate `Request` methods in EventMonitor classes), 1 CS0535 (Redirector interface mismatch: `Action<SwiftOptional<URLRequest>>` vs `Action<URLRequest?>`) |
+| StripeCameraCore | 3,544 | 2 | CS1061 (`AVCaptureVideoOrientation.Payload` — .NET enum doesn't have Payload property) |
+| StripeUICore | 29,350 | 4 | 3 CS0315/CS0023 (`UIKeyboardType` treated as ObjC class but is a .NET enum), 1 SYSLIB1051 (bool param missing `[MarshalAs]`) |
 
 ## Libraries with Environmental Errors Only (0 generator errors)
 
-No libraries currently have environmental-only errors. The 5 libraries that previously had environmental errors (SkeletonView, StripePayments, StripeUICore, StripePaymentsUI, StripeCameraCore) are now all at 0 errors as of Feb 17.
+No libraries currently have environmental-only errors. Pass 5 resolved 35 environmental errors across 5 libraries (SkeletonView, StripePayments, StripeUICore, StripePaymentsUI, StripeCameraCore). Pass 6 resolved 314 environmental errors across 4 libraries (Alamofire, SkeletonView, StripeCameraCore, StripeUICore) caused by Foundation Swift→ObjC name mismatch and Apple framework value-type misclassification.
 
 ## Non-Binding Failures
 
 ### Alamofire (wrapper compilation failure — reduced to 1 error in Pass 5.1)
 
-C# binding generation succeeds (41K lines, 0 compile errors), but Swift wrapper compilation fails due to `Alamofire.WebSocketTask` — an internal (non-public) type referenced in an async wrapper function. Same category as SkeletonView (`SkeletonLayer`) and Mixpanel (`ServerProxyResource`). C# bindings are validated via a standalone Test.csproj.
+C# binding generation succeeds (41K lines, 3 generator errors — see "Libraries with Generator Errors"), but Swift wrapper compilation fails due to `Alamofire.WebSocketTask` — an internal (non-public) type referenced in an async wrapper function. Same category as SkeletonView (`SkeletonLayer`) and Mixpanel (`ServerProxyResource`). C# bindings are validated via a standalone Test.csproj.
 
 **Pass 5 → 5.1 fixes** (reduced from multiple swiftc errors to 1):
 1. **Swift keyword escaping**: `protocol` (a Swift reserved word) used unescaped as a parameter name in `_optbuf` wrapper, producing `let protocolVal = protocol.assumingMemoryBound(...)` which is invalid Swift. Fixed by adding `NameProvider.EscapeSwiftKeyword()` — now emits `` `protocol` `` with backticks. Applied in `OptionalPointerWrapperEmitter.cs` and `ClosureEmitter.SwiftWrapper.cs`.
@@ -146,6 +149,27 @@ Fixed both Pass 5 generator regressions + improved Alamofire wrapper compilation
 
 **Net: 25 of 25 libraries at 0 generator errors. Alamofire wrapper failure reduced to single internal-type reference. Unit tests: 3171 (up from 3142).**
 
+## Validation Pass 6 (2026-02-18) — environmental type errors
+
+Fixed 314 CS0234 environmental errors across 4 libraries caused by two root causes in the Foundation auto-bridge system (`TypeDatabaseExtensions.cs`).
+
+**Root cause 1: Foundation Swift→ObjC name mismatch (252 errors).** Foundation auto-bridge used Swift names (URLSession, FileManager) but .NET iOS uses ObjC NS-prefixed names (NSUrlSession, NSFileManager). Fix: added `AppleFrameworkClassRemappings` dictionary with 16 Foundation class name remappings, checked at the start of `CreateObjCBridgedTypeRecord`.
+
+**Root cause 2: Value types misclassified as classes (62 errors).** Some AVFoundation/UIKit/Foundation types are value types (structs/enums) but weren't in `AppleFrameworkValueTypes`, so they were incorrectly bridged as ObjC classes. Fix: added 7 types to `AppleFrameworkValueTypes` (3 AVFoundation nested, 1 UIKit, 3 Foundation non-existent) and 1 entry to `AppleFrameworkTypeRemappings` (CloseCode → NSUrlSessionWebSocketCloseCode).
+
+**Per-library breakdown:**
+- **Alamofire**: 294 → 0 errors. 252 from class remapping (URLSession family, FileManager, DateFormatter, etc.), 32 from NSNotificationName, 6 from JSONEncoder, 4 from CloseCode.
+- **SkeletonView**: 4 → 0 errors. All from `objc_AssociationPolicy` (Foundation type with no .NET equivalent).
+- **StripeCameraCore**: 12 → 0 errors. All from AVFoundation value types (AVCaptureSessionPreset, AVCaptureDeviceAutoFocusRangeRestriction, AVCaptureDeviceDeviceType).
+- **StripeUICore**: 4 → 0 errors. All from `UIKit.NSWritingDirection`.
+
+**Unmasked pre-existing generator bugs (not environmental):**
+- **Alamofire**: 3 errors — 2 CS0111 (duplicate `Request` methods in EventMonitor classes from NSNotification.Name property collisions), 1 CS0535 (Redirector doesn't implement IRedirectHandler.Task — closure param type mismatch `Action<SwiftOptional<URLRequest>>` vs `Action<URLRequest?>`).
+- **StripeCameraCore**: 2 errors — CS1061 (`AVCaptureVideoOrientation.Payload` — .NET enum type doesn't have Payload property).
+- **StripeUICore**: 4 errors — 3 CS0315/CS0023 (`UIKeyboardType` treated as ObjC class but is a .NET enum), 1 SYSLIB1051 (bool param `isOptional` missing `[MarshalAs(UnmanagedType.U1)]`).
+
+**Net: 0 CS0234 environmental errors across all 26 libraries (was 314). 3 libraries have 9 total pre-existing generator bugs unmasked by the fix. 23 libraries at 0 errors.**
+
 ## Fixed Bug Patterns
 
 ### Validation Pass 4 (2026-02-12) — 166+ errors fixed
@@ -204,7 +228,7 @@ Fixed both Pass 5 generator regressions + improved Alamofire wrapper compilation
 
 ## Remaining Environmental (out of scope)
 
-**All 35 environmental errors from Feb 12 are now resolved.** The 5 libraries that previously had environmental errors (SkeletonView, StripePayments, StripeUICore, StripePaymentsUI, StripeCameraCore) now compile clean. Generator changes eliminated the references to missing .NET iOS SDK types (`UIKit.NSTextAlignment`, `UIKit.NSWritingDirection`, `AVFoundation.AVCapture*`, ObjC enum types).
+**All environmental (CS0234) errors are now resolved.** Pass 5 fixed 35 errors across 5 libraries (ObjC enum types, UIKit/AVFoundation value types). Pass 6 fixed 314 errors across 4 libraries (Foundation Swift→ObjC class name mismatch, additional value-type exclusions). 23 of 26 libraries compile clean; 3 libraries have pre-existing generator bugs unmasked by the environmental fixes (see "Libraries with Generator Errors").
 
 ---
 

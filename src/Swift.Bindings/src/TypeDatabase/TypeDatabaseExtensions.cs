@@ -535,10 +535,14 @@ public static class TypeDatabaseExtensions
         "UIKit.UIControl.ContentVerticalAlignment", "UIKit.UIActivityIndicatorView.Style",
         "UIKit.UIBlurEffect.Style", "UIKit.UILayoutPriority",
         "UIKit.NSTextAlignment",
+        "UIKit.NSWritingDirection",
         // AVFoundation structs
         "AVFoundation.AVAudioFramePosition", "AVFoundation.AVAudioFrameCount",
         "AVFoundation.AVAudioPacketCount", "AVFoundation.AVAudioChannelCount",
         "AVFoundation.AVCaptureVideoOrientation",
+        "AVFoundation.AVCaptureSession.Preset",
+        "AVFoundation.AVCaptureDevice.AutoFocusRangeRestriction",
+        "AVFoundation.AVCaptureDevice.DeviceType",
         // CoreData structs
         "CoreData.NSFetchRequestResultType",
         // SceneKit structs
@@ -560,6 +564,12 @@ public static class TypeDatabaseExtensions
         "Foundation.Selector", "Foundation.ComparisonResult",
         // Foundation types with underscore prefix in Swift ABI (C struct names)
         "Foundation._NSRange",
+        // Foundation types with no .NET equivalent (excluded from ObjC bridging)
+        "Foundation.JSONEncoder",
+        "Foundation.NSNotification.Name",
+        "Foundation.objc_AssociationPolicy",
+        // Foundation nested enums with remapped .NET names
+        "Foundation.URLSessionWebSocketTask.CloseCode",
         // Foundation nested ObjC enums (NS_OPTIONS) — value types, not NSObject subclasses
         "Foundation.JSONSerialization.ReadingOptions",
         "Foundation.JSONSerialization.WritingOptions",
@@ -580,6 +590,35 @@ public static class TypeDatabaseExtensions
         // ObjC NS_OPTIONS enums: Swift nested form → .NET flattened NS-prefix form
         ["Foundation.JSONSerialization.ReadingOptions"] = ("Foundation", "NSJsonReadingOptions"),
         ["Foundation.JSONSerialization.WritingOptions"] = ("Foundation", "NSJsonWritingOptions"),
+        // Foundation nested enum: Swift nested form → .NET flattened NS-prefix form
+        ["Foundation.URLSessionWebSocketTask.CloseCode"] = ("Foundation", "NSUrlSessionWebSocketCloseCode"),
+    };
+
+    /// <summary>
+    /// Remapping table for Foundation class types whose Swift names differ from their
+    /// .NET iOS SDK ObjC names. Foundation uses Swift-native names (URLSession, FileManager)
+    /// while .NET iOS uses ObjC NS-prefixed names (NSUrlSession, NSFileManager).
+    /// Key is the Swift module-qualified name, value is (C# namespace, C# type name).
+    /// </summary>
+    private static readonly Dictionary<string, (string Namespace, string Name)> AppleFrameworkClassRemappings =
+        new(StringComparer.Ordinal)
+    {
+        ["Foundation.FileManager"] = ("Foundation", "NSFileManager"),
+        ["Foundation.URLSession"] = ("Foundation", "NSUrlSession"),
+        ["Foundation.URLSessionTask"] = ("Foundation", "NSUrlSessionTask"),
+        ["Foundation.URLSessionDataTask"] = ("Foundation", "NSUrlSessionDataTask"),
+        ["Foundation.URLSessionDownloadTask"] = ("Foundation", "NSUrlSessionDownloadTask"),
+        ["Foundation.URLSessionWebSocketTask"] = ("Foundation", "NSUrlSessionWebSocketTask"),
+        ["Foundation.URLSessionTaskMetrics"] = ("Foundation", "NSUrlSessionTaskMetrics"),
+        ["Foundation.URLResponse"] = ("Foundation", "NSUrlResponse"),
+        ["Foundation.HTTPURLResponse"] = ("Foundation", "NSHttpUrlResponse"),
+        ["Foundation.CachedURLResponse"] = ("Foundation", "NSCachedUrlResponse"),
+        ["Foundation.URLAuthenticationChallenge"] = ("Foundation", "NSUrlAuthenticationChallenge"),
+        ["Foundation.URLCredential"] = ("Foundation", "NSUrlCredential"),
+        ["Foundation.DateFormatter"] = ("Foundation", "NSDateFormatter"),
+        ["Foundation.InputStream"] = ("Foundation", "NSInputStream"),
+        ["Foundation.Progress"] = ("Foundation", "NSProgress"),
+        ["Foundation.URLSessionWebSocketTask.Message"] = ("Foundation", "NSUrlSessionWebSocketMessage"),
     };
 
     /// <summary>
@@ -632,6 +671,19 @@ public static class TypeDatabaseExtensions
     /// </summary>
     private static TypeRecord CreateObjCBridgedTypeRecord(SwiftTypeName swiftTypeName)
     {
+        // Check class remapping table first (Foundation Swift names → .NET ObjC names)
+        if (AppleFrameworkClassRemappings.TryGetValue(swiftTypeName.ModuleQualifiedName, out var classRemap))
+        {
+            return new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(classRemap.Namespace, classRemap.Name),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            };
+        }
+
         // ObjectiveC module types (NSObject, NSProxy) map to Foundation.* in C#
         // Apple framework types (UIKit.UIImage, AppKit.NSImage) keep their module as namespace
         var csharpNamespace = (swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
