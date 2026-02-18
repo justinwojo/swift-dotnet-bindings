@@ -34,5 +34,8 @@
         <entity managedNameSpace="Foundation" managedTypeName="NSBundle" objcBridged="true">
             <typedeclaration kind="class" name="Bundle" module="Foundation" mangledName="$sSo8NSBundleC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionWebSocketCloseCode">
+            <typedeclaration kind="enum" name="URLSessionWebSocketTask.CloseCode" module="Foundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
     </entities>
 </swifttypedatabase>

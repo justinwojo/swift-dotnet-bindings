@@ -895,4 +895,52 @@ public class EnumHandlerTests
     }
 
     #endregion
+
+    #region GetSwiftAbiMetadataType Tests
+
+    // Verifies that Int/UInt map to pointer-sized nint/nuint (matching Swift ABI),
+    // NOT to int/uint (which is what GetCSharpEnumUnderlyingType uses for C# enum declarations).
+    // This distinction is critical for tuple metadata construction.
+
+    [Theory]
+    [InlineData("Int", "nint")]       // Swift.Int is pointer-sized
+    [InlineData("UInt", "nuint")]     // Swift.UInt is pointer-sized
+    [InlineData("Int8", "sbyte")]
+    [InlineData("UInt8", "byte")]
+    [InlineData("Int16", "short")]
+    [InlineData("UInt16", "ushort")]
+    [InlineData("Int32", "int")]
+    [InlineData("UInt32", "uint")]
+    [InlineData("Int64", "long")]
+    [InlineData("UInt64", "ulong")]
+    public void GetSwiftAbiMetadataType_FixedSizeTypes_ReturnsCorrectMapping(string rawValueType, string expectedMetadataType)
+    {
+        var result = EnumHandler.GetSwiftAbiMetadataType(rawValueType);
+        Assert.Equal(expectedMetadataType, result);
+    }
+
+    [Theory]
+    [InlineData(null)]   // Apple framework enums without explicit rawValueType
+    [InlineData("")]     // Empty string
+    public void GetSwiftAbiMetadataType_NullOrEmpty_DefaultsToNint(string? rawValueType)
+    {
+        // NS_ENUM convention: NSInteger = pointer-sized
+        var result = EnumHandler.GetSwiftAbiMetadataType(rawValueType);
+        Assert.Equal("nint", result);
+    }
+
+    [Fact]
+    public void GetSwiftAbiMetadataType_Int_DiffersFromGetCSharpEnumUnderlyingType()
+    {
+        // GetCSharpEnumUnderlyingType maps Int → "int" (4-byte, for C# enum declarations)
+        // GetSwiftAbiMetadataType maps Int → "nint" (pointer-sized, for Swift ABI metadata)
+        var enumUnderlying = EnumHandler.GetCSharpEnumUnderlyingType("Int");
+        var abiMetadata = EnumHandler.GetSwiftAbiMetadataType("Int");
+
+        Assert.Equal("int", enumUnderlying);
+        Assert.Equal("nint", abiMetadata);
+        Assert.NotEqual(enumUnderlying, abiMetadata);
+    }
+
+    #endregion
 }

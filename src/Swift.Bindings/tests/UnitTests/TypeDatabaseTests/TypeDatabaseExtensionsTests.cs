@@ -782,6 +782,10 @@ public class TypeDatabaseExtensionsTests
     }
 
     // --- CloseCode value-type remapping test ---
+    // Without XML loaded, CloseCode resolves via AppleFrameworkTypeRemappings (Struct fallback).
+    // At runtime, FoundationDatabase.xml provides the correct kind="enum" simpleEnum="true" record,
+    // which takes priority over the remapping and ensures the emitter uses the integer cast path
+    // instead of SwiftObjectHelper<T> (which requires ISwiftObject — invalid for .NET enums).
 
     [Fact]
     public void GetTypeRecordOrAnyType_FoundationRemappedValueType_ReturnsRemappedRecord()
@@ -797,6 +801,15 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal(TypeRecordKind.Struct, record.Kind);
         // Must NOT have ObjCBridged flag (this is a value type, not a class)
         Assert.False((record.Flags & TypeRecordFlags.ObjCBridged) != 0);
+    }
+
+    [Fact]
+    public void IsObjCModuleType_FoundationCloseCode_ReturnsFalse()
+    {
+        // CloseCode is in AppleFrameworkValueTypes → not treated as ObjC class
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("Foundation.URLSessionWebSocketTask.CloseCode"));
+
+        Assert.False(result);
     }
 
     // --- Foundation types with no .NET equivalent → AnyType ---

@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace BindingsGeneration
 {
     public partial class EnumHandler
@@ -82,6 +84,12 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>();");
             }
+            // Simple enums (NS_ENUM) are integer-backed and don't implement ISwiftObject.
+            // Use the Swift ABI backing type's metadata (e.g., nint for Int, byte for UInt8).
+            else if (TryGetSimpleEnumMetadataType(typeSpec, typeDatabase, out var metadataType))
+            {
+                csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetTypeMetadataOrThrow<{metadataType}>();");
+            }
             else
             {
                 // Assume the type implements ISwiftObject
@@ -113,6 +121,51 @@ namespace BindingsGeneration
                 "System.DateTimeOffset" => true,
                 "System.Guid" => true,
                 _ => false
+            };
+        }
+
+        /// <summary>
+        /// Checks if a TypeSpec corresponds to a simple enum in the type database and returns
+        /// the C# type to use for Swift metadata lookup. Simple enums are integer-backed and
+        /// don't implement ISwiftObject, so they can't use SwiftObjectHelper&lt;T&gt;.GetTypeMetadata().
+        /// The metadata type must match the Swift ABI size (e.g., Swift.Int → nint, not int).
+        /// </summary>
+        private static bool TryGetSimpleEnumMetadataType(TypeSpec typeSpec, ITypeDatabase typeDatabase, [NotNullWhen(true)] out string? metadataType)
+        {
+            metadataType = null;
+            if (typeSpec is not NamedTypeSpec namedSpec)
+                return false;
+            if (!typeDatabase.TryGetTypeRecord(namedSpec, out var record))
+                return false;
+            if (record.Kind != TypeRecordKind.Enum || (record.Flags & TypeRecordFlags.SimpleEnum) == 0)
+                return false;
+            metadataType = GetSwiftAbiMetadataType(record.RawValueTypeName);
+            return true;
+        }
+
+        /// <summary>
+        /// Maps a Swift raw value type name to the C# type whose metadata matches the Swift ABI layout.
+        /// Unlike GetCSharpEnumUnderlyingType (which maps Int→int for C# enum declarations),
+        /// this preserves pointer-sized semantics: Swift.Int → nint, Swift.UInt → nuint.
+        /// This is critical for tuple metadata construction where element sizes must match the Swift ABI.
+        /// </summary>
+        internal static string GetSwiftAbiMetadataType(string? rawValueTypeName)
+        {
+            return rawValueTypeName switch
+            {
+                "Int" => "nint",     // Swift.Int is pointer-sized
+                "UInt" => "nuint",   // Swift.UInt is pointer-sized
+                "Int8" => "sbyte",
+                "UInt8" => "byte",
+                "Int16" => "short",
+                "UInt16" => "ushort",
+                "Int32" => "int",
+                "UInt32" => "uint",
+                "Int64" => "long",
+                "UInt64" => "ulong",
+                // Null/unknown: NS_ENUM convention is NSInteger (pointer-sized)
+                null or "" => "nint",
+                _ => "nint"
             };
         }
 

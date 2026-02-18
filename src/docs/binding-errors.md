@@ -2,7 +2,7 @@
 
 Tracks compilation errors found when running real-world Swift libraries through the generator. Used to prioritize bug fixes and measure progress.
 
-Last validated: 2026-02-18 (Validation Pass 7 — fixed 7 of 8 generator bugs across 3 libraries). Alamofire down to 1 error (was 3). StripeCameraCore and StripeUICore now at 0 errors (were 2 and 3). 25 of 26 libraries compile clean.
+Last validated: 2026-02-18 (Validation Pass 8 — fixed last remaining generator bug). All 26 of 26 libraries compile clean. Pass 8 fixed Alamofire CS0315 (`NSUrlSessionWebSocketCloseCode` in `SwiftObjectHelper<T>`) by adding FoundationDatabase.xml entry and handling simple enums in tuple metadata emission.
 
 ## Baseline Libraries (0 compile errors)
 
@@ -33,16 +33,15 @@ Last validated: 2026-02-18 (Validation Pass 7 — fixed 7 of 8 generator bugs ac
 | StripePayments | 91,961 | Payments core, previously had 9 environmental errors (now resolved) |
 | StripePaymentSheet | 46,859 | Payment UI, constructor overloads |
 | StripePaymentsUI | 13,167 | Payment UI components, previously had 3 environmental errors (now resolved) |
+| Alamofire | 40,821 | Previously had 4 generator errors: 2 CS0111 nullable ref dedup, 1 CS0535 closure Optional alignment (Pass 7), 1 CS0315 NSUrlSessionWebSocketCloseCode (Pass 8). Wrapper compilation still fails (pre-existing, internal `WebSocketTask` type). |
 
 ## Libraries with Generator Errors
 
-| Library | Lines | Errors | Details |
-|---------|-------|--------|---------|
-| Alamofire | 40,821 | 1 | CS0315 (`NSUrlSessionWebSocketCloseCode` in `SwiftObjectHelper<T>` — value type can't satisfy `ISwiftObject` constraint). Pass 7 fixed the 3 previous errors (2 CS0111 nullable ref dedup + 1 CS0535 closure Optional alignment). |
+No libraries currently have generator errors. All 26 of 26 libraries compile clean.
 
 ## Libraries with Environmental Errors Only (0 generator errors)
 
-No libraries currently have environmental-only errors. Pass 5 resolved 35 environmental errors across 5 libraries. Pass 6 resolved 314 environmental errors across 4 libraries. Pass 7 fixed 7 of 8 remaining generator bugs.
+No libraries currently have environmental-only errors. Pass 5 resolved 35 environmental errors across 5 libraries. Pass 6 resolved 314 environmental errors across 4 libraries. Pass 7 fixed 7 of 8 remaining generator bugs. Pass 8 fixed the last one.
 
 ## Non-Binding Failures
 
@@ -192,16 +191,33 @@ Protocol interface had `Action<URLRequest?>` but concrete class had `Action<Swif
 
 Unmasked by fixing UIKeyboardType errors. `EnumHandler.CaseConstruction.cs` manually constructs P/Invoke parameter strings, bypassing `Parameter.PInvokeSignatureString()` which has centralized `[MarshalAs(UnmanagedType.U1)]` handling for bool. Fix: added `[MarshalAs(UnmanagedType.U1)]` prefix for bool params in enum case constructor P/Invoke emission.
 
-**Remaining: Alamofire 1 error (CS0315)**
-
-`NSUrlSessionWebSocketCloseCode` used in `SwiftObjectHelper<T>` which requires `ISwiftObject` constraint, but the type is a value type (simple enum). This is a different error from the 3 fixed above — it was pre-existing from Pass 6's CloseCode remapping (`AppleFrameworkTypeRemappings`).
-
 **Test coverage (9 new tests, 3389 → 3389 total):**
 - `BaseHandlerDedupTests`: 2 tests — nullable ref type produces same key, nullable value type produces different key
 - `ClosureHandlerTests`: 3 tests — Optional frozen struct, non-frozen struct, and class all produce `T?`
 - `TypeDatabaseExtensionsTests`: 4 tests — UIKeyboardType as simple enum, IsObjCModuleType returns false, AVCaptureVideoOrientation and UIKeyboardType in value types
 
-**Net: 25 of 26 libraries at 0 errors. Alamofire has 1 remaining generator bug (CS0315 NSUrlSessionWebSocketCloseCode). Unit tests: 3389 (0 failures). Integration tests: 700 (11 skipped, 0 failures).**
+**Net after Pass 7: 25 of 26 libraries at 0 errors. Alamofire had 1 remaining generator bug (CS0315 NSUrlSessionWebSocketCloseCode).**
+
+### Validation Pass 8 (2026-02-18) — Last generator bug fixed (Alamofire CS0315)
+
+**Bug: NSUrlSessionWebSocketCloseCode in SwiftObjectHelper&lt;T&gt; (CS0315)**
+
+`NSUrlSessionWebSocketCloseCode` is an NS_ENUM (integer-backed .NET enum) used as a tuple element in Alamofire's `WebSocketRequest.Event.Kind.Disconnected` case. The emitter generated `SwiftObjectHelper<NSUrlSessionWebSocketCloseCode>.GetTypeMetadata()` for tuple metadata construction, but `SwiftObjectHelper<T>` requires `T : ISwiftObject` — invalid for .NET enums.
+
+**Root cause**: Two-part issue:
+1. No FoundationDatabase.xml entry for `URLSessionWebSocketTask.CloseCode` — the remapping fallback created a `TypeRecordKind.Struct` record (not `Enum`).
+2. `EnumHandler.Marshalling.cs:EmitGetTypeMetadataForElement` had no handling for simple enums — all non-primitive types fell through to `SwiftObjectHelper<T>`.
+
+**Fix**:
+1. Added `URLSessionWebSocketTask.CloseCode` to `FoundationDatabase.xml` as `kind="enum" simpleEnum="true" frozen="true"`, mapping to `Foundation.NSUrlSessionWebSocketCloseCode`.
+2. Added `TryGetSimpleEnumMetadataType()` + `GetSwiftAbiMetadataType()` in `EmitGetTypeMetadataForElement` — simple enums use `TypeMetadata.GetTypeMetadataOrThrow<{abiType}>()` (deriving the Swift ABI backing type from `RawValueTypeName`: Int→nint, UInt8→byte, etc.) instead of `SwiftObjectHelper<T>`.
+
+**Test coverage (18 new tests, 3389 → 3407):**
+- `TypeDatabaseExtensionsTests`: IsObjCModuleType_FoundationCloseCode_ReturnsFalse
+- `EnumHandlerTests`: 13 tests for `GetSwiftAbiMetadataType` — verifies Int→nint (pointer-sized), Int32→int (fixed-size), null→nint (NS_ENUM default), and explicitly asserts `GetSwiftAbiMetadataType("Int") != GetCSharpEnumUnderlyingType("Int")`
+- `EnumHandlerOutputTests`: 2 emitter-output tests — tuple with simple enum element emits `GetTypeMetadataOrThrow<nint>()` not `SwiftObjectHelper`, and UInt8-backed enum emits `GetTypeMetadataOrThrow<byte>()`
+
+**Net: All 26 of 26 libraries at 0 errors. Unit tests: 3407 (0 failures). Integration tests: 700 (11 skipped, 0 failures).**
 
 ## Fixed Bug Patterns
 
@@ -261,7 +277,7 @@ Unmasked by fixing UIKeyboardType errors. `EnumHandler.CaseConstruction.cs` manu
 
 ## Remaining Environmental (out of scope)
 
-**All environmental (CS0234) errors are now resolved.** Pass 5 fixed 35 errors across 5 libraries. Pass 6 fixed 314 errors across 4 libraries. Pass 7 fixed 7 of 8 remaining generator bugs. 25 of 26 libraries compile clean; Alamofire has 1 remaining generator bug (CS0315 NSUrlSessionWebSocketCloseCode).
+**All environmental (CS0234) errors are now resolved.** Pass 5 fixed 35 errors across 5 libraries. Pass 6 fixed 314 errors across 4 libraries. Pass 7 fixed 7 of 8 remaining generator bugs. Pass 8 fixed the last one. All 26 of 26 libraries compile clean.
 
 ---
 

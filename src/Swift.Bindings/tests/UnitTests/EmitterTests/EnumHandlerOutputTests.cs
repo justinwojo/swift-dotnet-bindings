@@ -1641,6 +1641,86 @@ public class EnumHandlerOutputTests
         return typeDatabase;
     }
 
+    // --- Simple enum in tuple metadata: uses GetTypeMetadataOrThrow, NOT SwiftObjectHelper ---
+
+    [Fact]
+    public void Emit_TupleWithSimpleEnumElement_EmitsGetTypeMetadataOrThrow_NotSwiftObjectHelper()
+    {
+        // Reproduces the Alamofire CS0315 bug: NSUrlSessionWebSocketCloseCode (simple enum)
+        // used in a tuple associated value. The emitter must use GetTypeMetadataOrThrow<nint>()
+        // (matching the Swift ABI backing type), not SwiftObjectHelper<T> (requires ISwiftObject).
+        var typeDatabase = CreateTypeDatabase();
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/System/Library/Frameworks/Foundation.framework/Foundation");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.URLSessionWebSocketTask.CloseCode"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrlSessionWebSocketCloseCode"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URLSessionWebSocketTask.CloseCode"),
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Int"
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("WebSocketEvent", moduleDecl, isFrozen: false);
+        var disconnectedCase = CreateCase("disconnected");
+        // Tuple: (CloseCode, Int) — CloseCode is a simple enum
+        disconnectedCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Foundation.URLSessionWebSocketTask.CloseCode"),
+            new NamedTypeSpec("Swift.Int")
+        }));
+        enumDecl.Cases.Add(disconnectedCase);
+        enumDecl.Cases.Add(CreateCase("connected"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Simple enum element uses GetTypeMetadataOrThrow with the Swift ABI backing type
+        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<nint>()", csOutput);
+        // Must NOT use SwiftObjectHelper (requires ISwiftObject — invalid for .NET enums)
+        Assert.DoesNotContain("SwiftObjectHelper<Foundation.NSUrlSessionWebSocketCloseCode>", csOutput);
+    }
+
+    [Fact]
+    public void Emit_TupleWithUInt8SimpleEnum_EmitsGetTypeMetadataOrThrow_Byte()
+    {
+        // Verifies that a simple enum with UInt8 backing type uses byte metadata, not nint.
+        var typeDatabase = CreateTypeDatabase();
+        var testModule2 = new ModuleTypeDatabase("OtherModule", "/tmp/OtherModule.dylib");
+        testModule2.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("OtherModule.SmallEnum"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OtherModule", "SmallEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.SmallEnum"),
+                MetadataAccessor = "$s11OtherModule9SmallEnumOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "UInt8"
+            });
+        typeDatabase.AddModuleDatabase(testModule2);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Container", moduleDecl, isFrozen: false);
+        var dataCase = CreateCase("data");
+        dataCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("OtherModule.SmallEnum"),
+            new NamedTypeSpec("Swift.Int")
+        }));
+        enumDecl.Cases.Add(dataCase);
+        enumDecl.Cases.Add(CreateCase("empty"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // UInt8-backed simple enum should use byte metadata, not nint
+        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<byte>()", csOutput);
+        Assert.DoesNotContain("SwiftObjectHelper<OtherModule.SmallEnum>", csOutput);
+    }
+
     private static (string csOutput, string swiftOutput) EmitEnum(EnumDecl enumDecl, TypeDatabase typeDatabase)
     {
         var csOutput = new StringWriter();
