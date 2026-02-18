@@ -623,6 +623,38 @@ namespace BindingsGeneration
         private static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);
 
         /// <summary>
+        /// Checks whether an enum can be safely emitted as a C# enum value type
+        /// without losing members that the class-based path would have emitted.
+        /// Returns false if the enum has properties (instance or static), static methods,
+        /// non-equality operators, or incompatible instance method signatures.
+        /// </summary>
+        internal static bool CanSafelyEmitAsSimpleEnum(EnumDecl enumDecl)
+        {
+            // C# enums cannot contain nested types — if the enum has nested types,
+            // they must be emitted inside the parent container (class-based path)
+            if (enumDecl.Types.Any())
+                return false;
+
+            // All properties are skipped on the simple path (instance AND static)
+            if (enumDecl.Properties.Any())
+                return false;
+
+            // Static methods are always skipped on the simple path
+            if (enumDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static))
+                return false;
+
+            // Non-equality operators are always skipped on the simple path
+            if (enumDecl.Operators.Any(o => o.Name != "==" && o.Name != "!="))
+                return false;
+
+            // Instance methods must have simple-emitter-compatible signatures
+            if (!AreAllInstanceMethodsSimpleEmitterCompatible(enumDecl))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
         /// Checks whether all instance methods on an enum have signatures compatible with the
         /// simple-enum extension method emitter. Only methods whose return types and parameter
         /// types are within the supported primitive/string/bool/void/same-enum set qualify.

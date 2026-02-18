@@ -69,12 +69,13 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Whether this enum qualifies for emission as a C# enum value type.
-        /// Requires: no associated values, frozen, non-generic, and either no raw value
-        /// or an integral raw value type.
+        /// Requires: no associated values, non-generic, and either no raw value
+        /// or an integral raw value type. Non-frozen enums are included because
+        /// no-payload enums are always register-sized and tag values are stable
+        /// within a given ABI JSON + compiled wrapper pair.
         /// </summary>
         public bool IsSimpleEnum =>
             !HasAssociatedValueCases &&
-            IsFrozen &&
             !IsGeneric &&
             (!IsRawRepresentable || IsIntegralRawValue());
 

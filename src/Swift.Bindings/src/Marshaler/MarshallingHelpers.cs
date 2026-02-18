@@ -55,6 +55,12 @@ namespace BindingsGeneration
             if (typeRecord.Kind == TypeRecordKind.Class)
                 return false;
 
+            // Simple enums are C# value types returned directly in registers
+            // regardless of frozen status — no-payload enums are always register-sized
+            if (typeRecord.Kind == TypeRecordKind.Enum &&
+                (typeRecord.Flags & TypeRecordFlags.SimpleEnum) != 0)
+                return false;
+
             if (!IsTypeFrozen(typeRecord)) return true;
             return false;
         }

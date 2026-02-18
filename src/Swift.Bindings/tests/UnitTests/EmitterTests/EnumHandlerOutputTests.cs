@@ -77,9 +77,9 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_NonFrozenEnum_EmitsClassNotSimpleEnum()
+    public void Emit_NonFrozenSimpleEnum_EmitsCSharpEnum()
     {
-        // Non-frozen enums must NOT be simple enums (library evolution safety)
+        // Step 3b: non-frozen no-payload enums are now emitted as C# enum value types
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
@@ -88,8 +88,157 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
+        Assert.Contains("public enum Status : int", csOutput);
+        Assert.Contains("Active = 0,", csOutput);
+        Assert.Contains("Inactive = 1,", csOutput);
+        Assert.DoesNotContain("class Status", csOutput);
+        Assert.DoesNotContain("SwiftSafeHandle", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenEnumWithAssociatedValues_EmitsClass()
+    {
+        // Non-frozen enums WITH associated values stay class-based
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Result", moduleDecl, isFrozen: false);
+        var successCase = CreateCase("success");
+        successCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(successCase);
+        enumDecl.Cases.Add(CreateCase("failure"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("class Result", csOutput);
+        Assert.DoesNotContain("public enum Result", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenEnumWithInstanceProperties_FallsToClassPath()
+    {
+        // Non-frozen no-payload enum with instance property → CanSafelyEmitAsSimpleEnum returns false
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+        enumDecl.Properties.Add(CreateInstanceIntProperty("priority", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
         Assert.Contains("class Status", csOutput);
         Assert.DoesNotContain("public enum Status", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenEnumWithStaticMethods_FallsToClassPath()
+    {
+        // Non-frozen no-payload enum with static method → CanSafelyEmitAsSimpleEnum returns false
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+        enumDecl.Methods.Add(CreateStaticMethod("defaultStatus", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("class Status", csOutput);
+        Assert.DoesNotContain("public enum Status", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenEnumWithStaticProperty_FallsToClassPath()
+    {
+        // Non-frozen no-payload enum with static property → CanSafelyEmitAsSimpleEnum returns false
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+        enumDecl.Properties.Add(CreateStaticIntProperty("count", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("class Status", csOutput);
+        Assert.DoesNotContain("public enum Status", csOutput);
+    }
+
+    [Fact]
+    public void CanSafelyEmitAsSimpleEnum_NoMembers_ReturnsTrue()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Direction", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("north"));
+        enumDecl.Cases.Add(CreateCase("south"));
+
+        Assert.True(EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl));
+    }
+
+    [Fact]
+    public void CanSafelyEmitAsSimpleEnum_WithInstanceProperty_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Direction", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("north"));
+        enumDecl.Properties.Add(CreateInstanceIntProperty("degrees", enumDecl, moduleDecl));
+
+        Assert.False(EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl));
+    }
+
+    [Fact]
+    public void CanSafelyEmitAsSimpleEnum_WithStaticProperty_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Direction", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("north"));
+        enumDecl.Properties.Add(CreateStaticIntProperty("count", enumDecl, moduleDecl));
+
+        Assert.False(EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl));
+    }
+
+    [Fact]
+    public void CanSafelyEmitAsSimpleEnum_WithStaticMethod_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Direction", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("north"));
+        enumDecl.Methods.Add(CreateStaticMethod("defaultDirection", enumDecl, moduleDecl));
+
+        Assert.False(EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl));
+    }
+
+    [Fact]
+    public void CanSafelyEmitAsSimpleEnum_WithNonEqualityOperator_ReturnsFalse()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Direction", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("north"));
+        enumDecl.Operators.Add(new OperatorDecl
+        {
+            Name = "<",
+            OperatorSymbol = "<",
+            Kind = OperatorKind.Binary,
+            IsPrefix = false,
+            UnderlyingMethod = new MethodDecl
+            {
+                Name = "<",
+                MangledName = "$s10TestModule9DirectionO1loiySbAC_ACtFZ",
+                MethodType = MethodType.Static,
+                IsConstructor = false,
+                CSSignature = new List<ArgumentDecl>(),
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = enumDecl,
+                ModuleDecl = moduleDecl,
+                Throws = false,
+                IsAsync = false,
+                Visibility = Visibility.Public
+            },
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        Assert.False(EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl));
     }
 
     [Fact]
@@ -148,8 +297,10 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_SimpleEnumWithUnsupportedMethod_SkipsMethodNoEmptyExtensions()
+    public void Emit_SimpleEnumWithUnsupportedMethod_FallsToClassPath()
     {
+        // CanSafelyEmitAsSimpleEnum detects incompatible instance method → class-based emission
+        // to avoid silently dropping the method that the class path would have emitted.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Color", moduleDecl, isFrozen: true);
@@ -196,13 +347,11 @@ public class EnumHandlerOutputTests
         };
         enumDecl.Methods.Add(hashMethod);
 
-        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Should emit C# enum but NOT the empty extensions class
-        Assert.Contains("public enum Color : int", csOutput);
-        Assert.DoesNotContain("ColorExtensions", csOutput);
-        // No Swift wrapper for unsupported method
-        Assert.DoesNotContain("_sbw_Color_hash", swiftOutput);
+        // Should fall to class-based emission (CanSafelyEmitAsSimpleEnum returns false)
+        Assert.Contains("class Color", csOutput);
+        Assert.DoesNotContain("public enum Color", csOutput);
     }
 
     [Fact]
@@ -377,6 +526,81 @@ public class EnumHandlerOutputTests
                     SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
                     Name = "rawValue",
                     PrivateName = "rawValue",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static PropertyDecl CreateInstanceIntProperty(string name, EnumDecl enumDecl, ModuleDecl moduleDecl)
+    {
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = $"{name}_Get",
+                        MangledName = $"$s10TestModule{enumDecl.Name.Length}{enumDecl.Name}O{name}Sivg",
+                        MethodType = MethodType.Instance,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl>
+                        {
+                            new()
+                            {
+                                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                                Name = string.Empty,
+                                PrivateName = string.Empty,
+                                IsInOut = false,
+                                IsGeneric = false,
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl
+                            }
+                        },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = enumDecl,
+                        ModuleDecl = moduleDecl,
+                        Throws = false,
+                        IsAsync = false,
+                        Visibility = Visibility.Public
+                    }
+                }
+            },
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static MethodDecl CreateStaticMethod(string name, EnumDecl enumDecl, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{enumDecl.Name.Length}{enumDecl.Name}O{name}yACyFZ",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{enumDecl.Name}"),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
                     IsInOut = false,
                     IsGeneric = false,
                     ParentDecl = null,
@@ -1401,16 +1625,20 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_ImmutableTagBasedEnum_EmitsLazyCachedCaseProperties()
     {
-        // Step 3c: immutable non-RawRepresentable class-based enums should also cache
+        // Step 3c: immutable non-RawRepresentable class-based enums should also cache.
+        // Uses a payload case to keep it class-based (step 3b makes bare no-payload enums C# enums).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        var dataCase = CreateCase("data");
+        dataCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(dataCase);
         enumDecl.Cases.Add(CreateCase("active"));
         enumDecl.Cases.Add(CreateCase("inactive"));
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Should emit Lazy<T> backing field for each case
+        // Should emit Lazy<T> backing field for each no-payload case
         Assert.Contains("private static readonly Lazy<Status> _lazy_active", csOutput);
         Assert.Contains("private static readonly Lazy<Status> _lazy_inactive", csOutput);
         // Should set _isCachedSingleton
@@ -1422,10 +1650,14 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_EnumWithMutatingMethod_DoesNotCacheCases()
     {
-        // Step 3c: enums with mutating methods must NOT cache (mutation poisoning)
+        // Step 3c: enums with mutating methods must NOT cache (mutation poisoning).
+        // Uses a payload case to keep it class-based (step 3b makes bare no-payload enums C# enums).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        var dataCase = CreateCase("data");
+        dataCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(dataCase);
         enumDecl.Cases.Add(CreateCase("active"));
         enumDecl.Cases.Add(CreateCase("inactive"));
 
@@ -1572,10 +1804,14 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_ClassBasedEnum_EmitsDisposalGuard()
     {
-        // Step 3c: all class-based enums should emit _isCachedSingleton field and disposal guard
+        // Step 3c: all class-based enums should emit _isCachedSingleton field and disposal guard.
+        // Uses a payload case to keep it class-based (step 3b makes bare no-payload enums C# enums).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        var dataCase = CreateCase("data");
+        dataCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(dataCase);
         enumDecl.Cases.Add(CreateCase("active"));
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);

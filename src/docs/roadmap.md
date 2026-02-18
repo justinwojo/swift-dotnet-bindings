@@ -13,7 +13,7 @@ External review: `/Users/wojo/Dev/swift-dotnet-packages/binding-analysis-v2.md` 
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 3,365 passing |
+| Unit tests | 3,416 passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 181 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
@@ -113,14 +113,16 @@ The generator already emits native `enum` for frozen, non-generic enums with int
 | Step | Description | Effort | Status |
 |------|-------------|--------|--------|
 | **3a. String-raw-value enums with instance methods** | Relaxed `IsStringRawValueSimpleEnum` to allow instance methods (emitted as extension methods). Static methods, properties, and operators still block the simple path. Added safety gate: only takes simple path when all instance methods have simple-emitter-compatible signatures (primitives, string, bool, void, same-enum). Set `TypeRecordFlags.SimpleEnum` for string-raw-value simple enums in `ModuleProcessor`. | Low | **COMPLETE** |
-| **3b. Non-frozen simple enums** | **DEFERRED** — Non-frozen tag values are resilience-sensitive. A C# enum bakes numeric values at compile time. If a library evolution adds/reorders cases, the binding silently sends wrong cases to Swift. Needs a separate design effort, likely a non-enum representation for correctness under library evolution. | Medium | **DEFERRED** |
+| **3b. Non-frozen simple enums** | Removed `IsFrozen` gate from `IsSimpleEnum` (kept on `IsStringRawValueSimpleEnum` to preserve correct raw value behavior). Added `CanSafelyEmitAsSimpleEnum` safety gate preventing silent member loss — checks nested types, properties, static methods, non-equality operators, and instance method signature compatibility. Fixed `MarshallingHelpers.MethodRequiresIndirectResult` and `WrapperEmitter.Async.cs` nonFrozenParams filter to bypass SimpleEnum types. `ModuleProcessor` also calls `CanSafelyEmitAsSimpleEnum` for consistent `TypeRecordFlags.SimpleEnum` classification. Async simple-enum returns are a pre-existing limitation (from 3a, latent — 0 real-world impact). | Medium | **COMPLETE** |
 | **3c. Enum case caching for class-based enums** | Added `Lazy<T>`-backed singleton caching for no-payload case properties on immutable class-based enums. Eligibility gate: only caches when enum has no mutating methods and no writable instance properties (prevents mutation/disposal poisoning). Added `_isCachedSingleton` field with disposal guard (`Dispose()` and finalizer become no-ops for cached instances). Thread-safe via `Lazy<T>`. Applies to both `EmitRawRepresentableSupport` and `EmitSimpleCaseFromTag` paths. Nuke output: 27 `Lazy<>` instances generated, 0 compile errors. | Medium | **COMPLETE** |
 
 **Step 3a key files**: `EnumDecl.cs`, `ModuleProcessor.cs`, `EnumHandler.cs` (emission gate), `EnumHandler.SimpleEnum.cs` (`AreAllInstanceMethodsSimpleEmitterCompatible`).
 
+**Step 3b key files**: `EnumDecl.cs` (`IsSimpleEnum`), `EnumHandler.SimpleEnum.cs` (`CanSafelyEmitAsSimpleEnum`), `EnumHandler.cs` (emission gate), `MarshallingHelpers.cs` (indirect result bypass), `WrapperEmitter.Async.cs` (async param filter bypass), `ModuleProcessor.cs` (flag classification).
+
 **Step 3c key files**: `EnumHandler.cs` (class template, eligibility gate, `EmitSimpleCaseFromTag`), `EnumHandler.RawRepresentable.cs` (case property emission).
 
-**Acceptance gate**: Native `enum` coverage expanded from ~5% to ~15% (string-raw-value enums with compatible methods now qualify). Class-based enum no-payload case accessors use `Lazy<T>` singletons (zero per-access allocation). Remaining gap to 40% target requires Step 3b (non-frozen enums), which is deferred pending a resilience-safe design.
+**Acceptance gate**: All 25 libraries compile with 0 errors. 9 new unit tests covering non-frozen simple enum emission, safety gate behavior (nested types, properties, static methods, operators), and class-path fallback. Non-frozen no-payload/integral-raw-value enums without incompatible members now emit as C# enums. Enums with nested types, properties, static methods, non-equality operators, or incompatible instance methods correctly fall to class-based emission.
 
 ---
 

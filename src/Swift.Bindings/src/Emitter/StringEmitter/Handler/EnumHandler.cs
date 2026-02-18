@@ -89,13 +89,13 @@ namespace BindingsGeneration
 
             ReportCollector.RecordTypeEmitted(enumDecl);
 
-            // Simple enums (no associated values, frozen, non-generic, integral/String/no raw value)
+            // Simple enums (no associated values, non-generic, integral/no raw value)
             // get emitted as C# enum value types instead of unsafe classes.
-            // For string-raw-value enums with instance methods, only take the simple path
-            // if all instance methods have simple-emitter-compatible signatures. Otherwise
-            // keep class-based emission to avoid silently dropping complex methods.
-            if (enumDecl.IsSimpleEnum ||
-                (enumDecl.IsStringRawValueSimpleEnum && AreAllInstanceMethodsSimpleEmitterCompatible(enumDecl)))
+            // CanSafelyEmitAsSimpleEnum prevents silent member loss — enums with
+            // properties, static methods, non-equality operators, or complex instance
+            // method signatures fall through to the class-based path.
+            if ((enumDecl.IsSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)) ||
+                (enumDecl.IsStringRawValueSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)))
             {
                 EmitSimpleEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor);
                 return;

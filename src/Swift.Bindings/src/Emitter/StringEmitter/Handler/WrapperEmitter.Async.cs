@@ -46,6 +46,10 @@ namespace BindingsGeneration
                     // SwiftObjectHelper<T> for them causes CS0311/CS1061.
                     if (MarshallingHelpers.IsObjCBridged(typeRecord))
                         return false;
+                    // Simple enums are C# value types — they don't need copy-buffer treatment
+                    if (typeRecord.Kind == TypeRecordKind.Enum &&
+                        (typeRecord.Flags & TypeRecordFlags.SimpleEnum) != 0)
+                        return false;
                     return !MarshallingHelpers.IsTypeFrozen(typeRecord) || typeRecord.Kind == TypeRecordKind.Enum;
                 })
                 .ToList();
