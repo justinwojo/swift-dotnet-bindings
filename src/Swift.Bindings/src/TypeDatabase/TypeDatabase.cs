@@ -171,6 +171,8 @@ namespace BindingsGeneration
                 string hasAssociatedTypes = typeDeclarationNode?.Attributes?["hasAssociatedTypes"]?.Value ?? "false";
                 string simpleEnum = typeDeclarationNode?.Attributes?["simpleEnum"]?.Value ?? "false";
                 string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
+                string? emittedMemberCountStr = typeDeclarationNode?.Attributes?["emittedMemberCount"]?.Value;
+                int? emittedMemberCount = emittedMemberCountStr != null ? int.Parse(emittedMemberCountStr) : null;
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
@@ -213,6 +215,7 @@ namespace BindingsGeneration
                     },
                     NativeTypeName = nativeTypeName,
                     RawValueTypeName = rawValueType,
+                    EmittedMemberCount = emittedMemberCount,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);

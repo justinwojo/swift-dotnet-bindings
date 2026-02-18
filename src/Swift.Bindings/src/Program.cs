@@ -740,6 +740,10 @@ namespace BindingsGeneration
                 }
                 ReportCollector.Reset();
 
+                // Fixup protocol EmittedMemberCount to include inherited requirements.
+                // Must run after EmitModule (all direct counts set) and before database serialization.
+                ProtocolHandler.FixupProtocolInheritedRequirements(decl, typeDatabase);
+
                 // Emit module database XML for cross-module resolution by downstream modules
                 // This must happen AFTER EmitModule() because NameProvider.PrecomputeAllNestedTypeRenames()
                 // updates TypeDatabase records with renamed C# type names during emission.

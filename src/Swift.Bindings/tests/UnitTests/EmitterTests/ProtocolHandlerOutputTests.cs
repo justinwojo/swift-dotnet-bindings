@@ -1851,6 +1851,554 @@ public class ProtocolHandlerOutputTests
 
     #endregion
 
+    #region FixupProtocolInheritedRequirements Tests
+
+    [Fact]
+    public void Fixup_ChildBeforeParent_EmptyParent_ChildRemainsZero()
+    {
+        // Scenario: child protocol (Taggable) emitted before parent (BaseMarker).
+        // Both have 0 direct members. After fixup, child should have EmittedMemberCount=0.
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.BaseMarker", "IBaseMarker"),
+            ("TestModule.Taggable", "ITaggable"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "BaseMarker",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BaseMarker"),
+            MangledName = "$s10TestModule10BaseMarkerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var childProtocol = new ProtocolDecl
+        {
+            Name = "Taggable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Taggable"),
+            MangledName = "$s10TestModule8TaggableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.BaseMarker") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Emit child FIRST, then parent — the order-dependent scenario
+        EmitProtocol(childProtocol, typeDatabase);
+        EmitProtocol(parentProtocol, typeDatabase);
+
+        // Put both in moduleDecl.Types for the fixup
+        moduleDecl.Types.Add(childProtocol);
+        moduleDecl.Types.Add(parentProtocol);
+
+        // Run fixup
+        ProtocolHandler.FixupProtocolInheritedRequirements(moduleDecl, typeDatabase);
+
+        // Verify: child should have EmittedMemberCount=0 (empty parent, 0 direct)
+        Assert.True(typeDatabase.TryGetTypeRecord(childProtocol.SwiftTypeName, out var childRecord));
+        Assert.Equal(0, childRecord.EmittedMemberCount);
+
+        // Parent should also be 0
+        Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
+        Assert.Equal(0, parentRecord.EmittedMemberCount);
+    }
+
+    [Fact]
+    public void Fixup_ChildBeforeParent_NonEmptyParent_ChildGetsInherited()
+    {
+        // Scenario: child protocol (StrictTaggable) emitted before parent (Describable).
+        // Parent has 1 direct member. After fixup, child should have EmittedMemberCount=1.
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.Describable", "IDescribable"),
+            ("TestModule.StrictTaggable", "IStrictTaggable"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "Describable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+            MangledName = "$s10TestModule11DescribableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "description",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    HasStorage = false,
+                    IsStatic = false,
+                    Accessors = new AccessorDecl[]
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "get_description",
+                                MangledName = "$s10TestModule11DescribableP11descriptionSSvg",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument(string.Empty, new NamedTypeSpec("Swift.String"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                Visibility = Visibility.Public
+                            }
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var childProtocol = new ProtocolDecl
+        {
+            Name = "StrictTaggable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StrictTaggable"),
+            MangledName = "$s10TestModule14StrictTaggableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.Describable") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Emit child FIRST, then parent
+        EmitProtocol(childProtocol, typeDatabase);
+        EmitProtocol(parentProtocol, typeDatabase);
+
+        moduleDecl.Types.Add(childProtocol);
+        moduleDecl.Types.Add(parentProtocol);
+
+        // Run fixup
+        ProtocolHandler.FixupProtocolInheritedRequirements(moduleDecl, typeDatabase);
+
+        // Parent has 1 direct member (description property)
+        Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
+        Assert.Equal(1, parentRecord.EmittedMemberCount);
+
+        // Child: 0 direct + 1 inherited with members → total > 0
+        Assert.True(typeDatabase.TryGetTypeRecord(childProtocol.SwiftTypeName, out var childRecord));
+        Assert.True(childRecord.EmittedMemberCount > 0);
+    }
+
+    [Fact]
+    public void Fixup_TransitiveInheritance_ChildBeforeParentBeforeGrandparent_Propagates()
+    {
+        // Scenario: Child → Parent → Grandparent (non-empty).
+        // Emitted in order: Child, Parent, Grandparent.
+        // After fixup, Parent.EmittedMemberCount > 0 (inherits Grandparent's member),
+        // and Child.EmittedMemberCount > 0 (transitively inherits via Parent).
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.Grandparent", "IGrandparent"),
+            ("TestModule.Parent", "IParent"),
+            ("TestModule.Child", "IChild"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var grandparentProtocol = new ProtocolDecl
+        {
+            Name = "Grandparent",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Grandparent"),
+            MangledName = "$s10TestModule11GrandparentP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "id",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    HasStorage = false,
+                    IsStatic = false,
+                    Accessors = new AccessorDecl[]
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "get_id",
+                                MangledName = "$s10TestModule11GrandparentP2idSivg",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                Visibility = Visibility.Public
+                            }
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "Parent",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Parent"),
+            MangledName = "$s10TestModule6ParentP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.Grandparent") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var childProtocol = new ProtocolDecl
+        {
+            Name = "Child",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Child"),
+            MangledName = "$s10TestModule5ChildP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.Parent") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Emit in worst-case order: child, then parent, then grandparent
+        EmitProtocol(childProtocol, typeDatabase);
+        EmitProtocol(parentProtocol, typeDatabase);
+        EmitProtocol(grandparentProtocol, typeDatabase);
+
+        moduleDecl.Types.Add(childProtocol);
+        moduleDecl.Types.Add(parentProtocol);
+        moduleDecl.Types.Add(grandparentProtocol);
+
+        // Run fixup — must iterate to fixed point for transitive propagation
+        ProtocolHandler.FixupProtocolInheritedRequirements(moduleDecl, typeDatabase);
+
+        // Grandparent: 1 direct member
+        Assert.True(typeDatabase.TryGetTypeRecord(grandparentProtocol.SwiftTypeName, out var gpRecord));
+        Assert.Equal(1, gpRecord.EmittedMemberCount);
+
+        // Parent: 0 direct + 1 inherited (Grandparent has members) → > 0
+        Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
+        Assert.True(parentRecord.EmittedMemberCount > 0);
+
+        // Child: 0 direct + 1 inherited (Parent now has members after fixup) → > 0
+        Assert.True(typeDatabase.TryGetTypeRecord(childProtocol.SwiftTypeName, out var childRecord));
+        Assert.True(childRecord.EmittedMemberCount > 0);
+    }
+
+    [Fact]
+    public void Fixup_NestedProtocol_InheritsNonEmptyProtocol_GetsInherited()
+    {
+        // Scenario: protocol nested inside a struct inherits a non-empty top-level protocol.
+        // The fixup must recurse into nested types to find it.
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.Identifiable", "IIdentifiable"),
+            ("TestModule.Outer.ChildProtocol", "IChildProtocol"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "Identifiable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Identifiable"),
+            MangledName = "$s10TestModule12IdentifiableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "id",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    HasStorage = false,
+                    IsStatic = false,
+                    Accessors = new AccessorDecl[]
+                    {
+                        new GetAccessorDecl
+                        {
+                            Method = new MethodDecl
+                            {
+                                Name = "get_id",
+                                MangledName = "$s10TestModule12IdentifiableP2idSivg",
+                                MethodType = MethodType.Instance,
+                                IsConstructor = false,
+                                CSSignature = new List<ArgumentDecl>
+                                {
+                                    CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                                },
+                                GenericParameters = new List<GenericArgumentDecl>(),
+                                ParentDecl = null,
+                                ModuleDecl = moduleDecl,
+                                Throws = false,
+                                IsAsync = false,
+                                Visibility = Visibility.Public
+                            }
+                        }
+                    },
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var nestedProtocol = new ProtocolDecl
+        {
+            Name = "ChildProtocol",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.ChildProtocol"),
+            MangledName = "$s10TestModule5OuterV13ChildProtocolP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.Identifiable") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Emit nested child before parent
+        EmitProtocol(nestedProtocol, typeDatabase);
+        EmitProtocol(parentProtocol, typeDatabase);
+
+        // Nest ChildProtocol inside a struct — NOT in moduleDecl.Types directly
+        var outerStruct = new StructDecl
+        {
+            Name = "Outer",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer"),
+            MangledName = "$s10TestModule5OuterVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { nestedProtocol },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule5OuterVMa"
+        };
+        moduleDecl.Types.Add(outerStruct);
+        moduleDecl.Types.Add(parentProtocol);
+
+        ProtocolHandler.FixupProtocolInheritedRequirements(moduleDecl, typeDatabase);
+
+        // Parent: 1 direct member
+        Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
+        Assert.Equal(1, parentRecord.EmittedMemberCount);
+
+        // Nested child: 0 direct + 1 inherited (Identifiable has members) → > 0
+        Assert.True(typeDatabase.TryGetTypeRecord(nestedProtocol.SwiftTypeName, out var childRecord));
+        Assert.True(childRecord.EmittedMemberCount > 0);
+    }
+
+    [Fact]
+    public void Fixup_NestedProtocol_InheritsEmptyMarker_RemainsZero()
+    {
+        // Nested protocol inherits empty marker protocol → EmittedMemberCount stays 0.
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.Marker", "IMarker"),
+            ("TestModule.Container.Inner", "IInner"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var markerProtocol = new ProtocolDecl
+        {
+            Name = "Marker",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Marker"),
+            MangledName = "$s10TestModule6MarkerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var nestedProtocol = new ProtocolDecl
+        {
+            Name = "Inner",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container.Inner"),
+            MangledName = "$s10TestModule9ContainerV5InnerP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.Marker") },
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        EmitProtocol(nestedProtocol, typeDatabase);
+        EmitProtocol(markerProtocol, typeDatabase);
+
+        var containerStruct = new StructDecl
+        {
+            Name = "Container",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            MangledName = "$s10TestModule9ContainerVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { nestedProtocol },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule9ContainerVMa"
+        };
+        moduleDecl.Types.Add(containerStruct);
+        moduleDecl.Types.Add(markerProtocol);
+
+        ProtocolHandler.FixupProtocolInheritedRequirements(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(markerProtocol.SwiftTypeName, out var markerRecord));
+        Assert.Equal(0, markerRecord.EmittedMemberCount);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(nestedProtocol.SwiftTypeName, out var nestedRecord));
+        Assert.Equal(0, nestedRecord.EmittedMemberCount);
+    }
+
+    /// <summary>
+    /// Creates a TypeDatabase with protocol TypeRecords registered in the TestModule.
+    /// Each tuple is (moduleQualifiedName, csharpInterfaceName).
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithProtocolRecords(params (string swiftName, string csharpName)[] protocols)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        foreach (var (swiftName, csharpName) in protocols)
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftName);
+            testModule.RegisterType(
+                swiftTypeName,
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.TestModule", csharpName),
+                    SwiftTypeName = swiftTypeName,
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Protocol
+                });
+        }
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    #endregion
+
     private static MethodDecl CreateMethodDeclWithParam(string name, string paramTypeName, ModuleDecl moduleDecl)
     {
         return new MethodDecl

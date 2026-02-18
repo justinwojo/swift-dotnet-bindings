@@ -112,6 +112,10 @@ namespace BindingsGeneration
             if (!string.IsNullOrEmpty(record.RawValueTypeName))
                 writer.WriteAttributeString("rawValueType", record.RawValueTypeName);
 
+            // Emitted interface member count (protocols only)
+            if (record.Kind == TypeRecordKind.Protocol && record.EmittedMemberCount.HasValue)
+                writer.WriteAttributeString("emittedMemberCount", record.EmittedMemberCount.Value.ToString());
+
             // Native type name (e.g., Foundation.NSUrl for URL)
             if (record.NativeTypeName != null)
             {

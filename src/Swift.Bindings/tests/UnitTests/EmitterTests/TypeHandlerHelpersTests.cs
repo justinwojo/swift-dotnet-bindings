@@ -98,6 +98,61 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
+    public void GetImplementedInterfaces_CrossModuleProtocol_WithMembers_Excluded()
+    {
+        // Protocol with 3 emitted members — cross-module conformance would cause CS0535
+        var typeDatabase = CreateTypeDatabaseWithProtocol("OtherModule", "Drawable", emittedMemberCount: 3);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Canvas", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Canvas"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.Drawable"),
+                "$sMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Canvas", "TestModule", typeDatabase);
+
+        Assert.DoesNotContain(interfaces, i => i.Contains("Drawable"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_CrossModuleProtocol_OldDatabase_NullMemberCount_Excluded()
+    {
+        // Old database without EmittedMemberCount — conservatively skip
+        var typeDatabase = CreateTypeDatabaseWithProtocolNullMemberCount("OtherModule", "Legacy");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Adapter", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Adapter"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.Legacy"),
+                "$sMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Adapter", "TestModule", typeDatabase);
+
+        Assert.DoesNotContain(interfaces, i => i.Contains("Legacy"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_SameModuleProtocol_WithMembers_NotAffectedByGate()
+    {
+        // Same-module protocols are NOT gated by EmittedMemberCount (validated by CanFullyImplementProtocol)
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "Describable", emittedMemberCount: 5);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Point", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+                "$sMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Point", "TestModule", typeDatabase);
+
+        // Same-module: EmittedMemberCount gate does NOT apply
+        Assert.Contains(interfaces, i => i.Contains("Describable"));
+    }
+
+    [Fact]
     public void GetImplementedInterfaces_CrossModuleProtocol_WithAssociatedTypes_Excluded()
     {
         var typeDatabase = CreateTypeDatabaseWithPATInModule("OtherModule", "AsyncSequence");
@@ -148,6 +203,44 @@ public class TypeHandlerHelpersTests
 
         // Swift.Error maps to AnyError (a runtime type), not an IError interface
         Assert.DoesNotContain(interfaces, i => i.Contains("IError"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_CrossModuleProtocol_InheritingEmptyProtocol_Included()
+    {
+        // Protocol with 0 direct members inheriting an empty marker protocol (EmittedMemberCount=0).
+        // Total requirements = 0 direct + 0 inherited = 0 → should be emitted.
+        var typeDatabase = CreateTypeDatabaseWithInheritingProtocol("OtherModule", "Taggable", parentEmittedMemberCount: 0);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Item", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Item"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.Taggable"),
+                "$sMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Item", "TestModule", typeDatabase);
+
+        Assert.Contains(interfaces, i => i.Contains("Taggable"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_CrossModuleProtocol_InheritingNonEmptyProtocol_Excluded()
+    {
+        // Protocol with 0 direct members inheriting a non-empty protocol (EmittedMemberCount=3).
+        // Total requirements = 0 direct + 1 inherited with members = 1 → should be excluded.
+        var typeDatabase = CreateTypeDatabaseWithInheritingProtocol("OtherModule", "StrictTaggable", parentEmittedMemberCount: 3);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Item", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Item"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.StrictTaggable"),
+                "$sMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Item", "TestModule", typeDatabase);
+
+        Assert.DoesNotContain(interfaces, i => i.Contains("StrictTaggable"));
     }
 
     [Fact]
@@ -222,6 +315,74 @@ public class TypeHandlerHelpersTests
 
         // Swift.Error maps to AnyError (a runtime type), not an IError interface
         Assert.DoesNotContain("IError", result);
+    }
+
+    [Fact]
+    public void ConformanceDescriptor_CrossModuleProtocol_WithMembers_Excluded()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("OtherModule", "Drawable", emittedMemberCount: 3);
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Canvas"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.Drawable"),
+                "$sMc")
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "Canvas", typeDatabase);
+
+        Assert.DoesNotContain("Drawable", result);
+    }
+
+    [Fact]
+    public void ConformanceDescriptor_CrossModuleProtocol_OldDatabase_NullMemberCount_Excluded()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocolNullMemberCount("OtherModule", "Legacy");
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Adapter"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.Legacy"),
+                "$sMc")
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "Adapter", typeDatabase);
+
+        Assert.DoesNotContain("Legacy", result);
+    }
+
+    [Fact]
+    public void ConformanceDescriptor_CrossModuleProtocol_InheritingEmptyProtocol_Included()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInheritingProtocol("OtherModule", "Taggable", parentEmittedMemberCount: 0);
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Item"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.Taggable"),
+                "$sMc")
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "Item", typeDatabase);
+
+        Assert.Contains("typeof(ITaggable)", result);
+    }
+
+    [Fact]
+    public void ConformanceDescriptor_CrossModuleProtocol_InheritingNonEmptyProtocol_Excluded()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInheritingProtocol("OtherModule", "StrictTaggable", parentEmittedMemberCount: 3);
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Item"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.StrictTaggable"),
+                "$sMc")
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "Item", typeDatabase);
+
+        Assert.DoesNotContain("StrictTaggable", result);
     }
 
     [Fact]
@@ -428,7 +589,7 @@ public class TypeHandlerHelpersTests
         return typeDatabase;
     }
 
-    private static TypeDatabase CreateTypeDatabaseWithProtocol(string module, string name)
+    private static TypeDatabase CreateTypeDatabaseWithProtocol(string module, string name, int emittedMemberCount = 0)
     {
         var typeDatabase = new TypeDatabase();
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
@@ -452,9 +613,41 @@ public class TypeHandlerHelpersTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
-                Kind = TypeRecordKind.Protocol
+                Kind = TypeRecordKind.Protocol,
+                EmittedMemberCount = emittedMemberCount
             });
         typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithProtocolNullMemberCount(string module, string name)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var targetModule = new ModuleTypeDatabase(module, $"/tmp/{module}.dylib");
+        targetModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", $"I{name}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol,
+                // EmittedMemberCount intentionally null — simulates old database
+            });
+        typeDatabase.AddModuleDatabase(targetModule);
         return typeDatabase;
     }
 
@@ -506,6 +699,59 @@ public class TypeHandlerHelpersTests
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl
         };
+    }
+
+    /// <summary>
+    /// Creates a TypeDatabase with a protocol that inherits from a parent protocol.
+    /// When parentEmittedMemberCount is 0, the produced EmittedMemberCount should be 0
+    /// (inheriting from an empty marker protocol doesn't add requirements).
+    /// When parentEmittedMemberCount > 0, the produced EmittedMemberCount should be > 0.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithInheritingProtocol(string module, string name, int parentEmittedMemberCount)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var targetModule = new ModuleTypeDatabase(module, $"/tmp/{module}.dylib");
+        // Register the parent protocol with the given member count
+        targetModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{module}.BaseMarker"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", "IBaseMarker"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.BaseMarker"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol,
+                EmittedMemberCount = parentEmittedMemberCount
+            });
+        // Register the child protocol with EmittedMemberCount reflecting inherited requirements.
+        // This simulates what ProtocolHandler.Emit would compute after the fix:
+        // 0 direct members + (parentEmittedMemberCount > 0 ? 1 : 0) inherited with requirements.
+        int childEmittedMemberCount = parentEmittedMemberCount > 0 ? 1 : 0;
+        targetModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", $"I{name}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol,
+                EmittedMemberCount = childEmittedMemberCount
+            });
+        typeDatabase.AddModuleDatabase(targetModule);
+        return typeDatabase;
     }
 
     private static ModuleDecl CreateModuleDecl(string name)

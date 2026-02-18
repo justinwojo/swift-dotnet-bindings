@@ -600,6 +600,18 @@ internal static class ProtocolConformanceHelper
         if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record))
             return false;
 
+        // Cross-module protocols with interface members cannot be safely emitted as
+        // conformances because the generator cannot produce stubs for cross-module
+        // protocol requirements, causing CS0535 at compile time.
+        // Same-module protocols are validated by CanFullyImplementProtocol in the caller.
+        if (conformance.Protocol.Module != moduleName)
+        {
+            // EmittedMemberCount == null means an older database without this field.
+            // Conservatively skip to avoid potential CS0535.
+            if (record.EmittedMemberCount == null || record.EmittedMemberCount > 0)
+                return false;
+        }
+
         return true;
     }
 }

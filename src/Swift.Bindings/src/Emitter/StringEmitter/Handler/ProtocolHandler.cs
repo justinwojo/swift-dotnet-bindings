@@ -86,6 +86,7 @@ namespace BindingsGeneration
             csWriter.Indent++;
 
             // Track emitted members to avoid duplicates
+            int emittedInterfaceMemberCount = 0;
             var emittedProperties = new HashSet<string>();
             var emittedMethods = new HashSet<string>();
             var emittedCSharpKeys = new HashSet<string>();
@@ -145,6 +146,7 @@ namespace BindingsGeneration
                 }
 
                 EmitInterfaceProperty(csWriter, propertyDecl, env.TypeDatabase, protocolDecl);
+                emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
             }
 
@@ -205,6 +207,7 @@ namespace BindingsGeneration
                 }
 
                 EmitInterfaceSubscript(csWriter, subscriptDecl, env.TypeDatabase, protocolDecl);
+                emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Subscript, "subscript", protocolDecl);
                 subscriptIndex++;
             }
@@ -311,6 +314,7 @@ namespace BindingsGeneration
                 }
 
                 EmitInterfaceMethod(csWriter, methodDecl, env.TypeDatabase, protocolDecl);
+                emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
             }
 
@@ -323,6 +327,17 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+
+            // Record the direct emitted member count on the protocol's TypeRecord.
+            // This is only the count of members declared directly on this interface.
+            // Inherited requirements are added in a post-emission fixup pass
+            // (FixupProtocolInheritedRequirements) to avoid order-dependent miscounting
+            // when a child protocol is emitted before its parent in the same module.
+            if (env.TypeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var protoRecord))
+            {
+                env.TypeDatabase.UpdateTypeRecord(protocolDecl.SwiftTypeName,
+                    protoRecord with { EmittedMemberCount = emittedInterfaceMemberCount });
+            }
 
             // Skip proxy class if protocol has members with unsupported module types (SwiftUI, Combine).
             // The Swift EveryProtocol conformance is also skipped (in ModuleHandler), so emitting the
@@ -1089,6 +1104,89 @@ namespace BindingsGeneration
         }
 
         private static bool IsIdentifierChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+        /// <summary>
+        /// Post-emission fixup: recomputes EmittedMemberCount for all protocol TypeRecords
+        /// to include inherited protocol requirements. Must be called after all protocols in
+        /// the module have been emitted (so all direct member counts are set), but before
+        /// the module database is serialized.
+        /// </summary>
+        /// <remarks>
+        /// During emission, ProtocolHandler.Emit stores only the direct member count to avoid
+        /// order-dependent miscounting (a child protocol emitted before its parent would see
+        /// null for the parent's count). This fixup iterates to a fixed point so that
+        /// transitive inheritance chains (Child → Parent → Grandparent) propagate correctly
+        /// regardless of declaration order.
+        /// </remarks>
+        public static void FixupProtocolInheritedRequirements(ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            // Recursively collect ALL protocol decls (including nested types) and
+            // snapshot their direct member counts before any fixup.
+            var protocolDecls = new List<(ProtocolDecl decl, int directCount)>();
+            CollectProtocolDecls(moduleDecl.Types, protocolDecls, typeDatabase);
+
+            // Iterate to a fixed point: each pass recomputes total = directCount + inherited.
+            // A parent updated in one pass may cause its child to update in the next.
+            // Worst case is O(depth) passes for a linear chain; typical modules converge in 1-2.
+            bool changed = true;
+            while (changed)
+            {
+                changed = false;
+                foreach (var (protocolDecl, directCount) in protocolDecls)
+                {
+                    int inheritedRequirementCount = 0;
+                    foreach (var inherited in protocolDecl.InheritedProtocols)
+                    {
+                        if (inherited.Name == "AnyObject" || inherited.Name == "Swift.AnyObject")
+                            continue;
+                        var inheritedSwiftName = SwiftTypeName.FromModuleQualifiedName(inherited.Name);
+                        if (typeDatabase.TryGetTypeRecord(inheritedSwiftName, out var inheritedRecord)
+                            && inheritedRecord.EmittedMemberCount is null or > 0)
+                        {
+                            inheritedRequirementCount++;
+                        }
+                    }
+
+                    int totalRequirements = directCount + inheritedRequirementCount;
+                    if (typeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var currentRecord)
+                        && currentRecord.EmittedMemberCount != totalRequirements)
+                    {
+                        typeDatabase.UpdateTypeRecord(protocolDecl.SwiftTypeName,
+                            currentRecord with { EmittedMemberCount = totalRequirements });
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Recursively collects all ProtocolDecl instances from a type hierarchy,
+        /// including protocols nested inside structs, classes, and enums.
+        /// </summary>
+        private static void CollectProtocolDecls(
+            IEnumerable<TypeDecl> types,
+            List<(ProtocolDecl decl, int directCount)> result,
+            ITypeDatabase typeDatabase)
+        {
+            foreach (var typeDecl in types)
+            {
+                if (typeDecl is ProtocolDecl protocolDecl)
+                {
+                    if (typeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var record)
+                        && record.Kind == TypeRecordKind.Protocol
+                        && record.EmittedMemberCount != null)
+                    {
+                        result.Add((protocolDecl, record.EmittedMemberCount.Value));
+                    }
+                }
+
+                // Recurse into nested types (structs, classes, enums can all contain protocols)
+                if (typeDecl.Types.Count > 0)
+                {
+                    CollectProtocolDecls(typeDecl.Types, result, typeDatabase);
+                }
+            }
+        }
 
     }
 }

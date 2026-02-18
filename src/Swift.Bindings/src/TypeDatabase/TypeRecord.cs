@@ -99,4 +99,14 @@ public record TypeRecord
     /// Null if the type is not an enum or does not conform to RawRepresentable.
     /// </summary>
     public string? RawValueTypeName { get; init; }
+
+    /// <summary>
+    /// The number of members emitted in the C# interface for this protocol.
+    /// Only meaningful for Protocol kind records. Null means unknown (e.g., loaded from
+    /// an older module database that predates this field). 0 means empty/marker interface.
+    /// Used by cross-module conformance emission to avoid CS0535 errors: a type declaring
+    /// conformance to a cross-module protocol with members would fail compilation since the
+    /// generator cannot produce stubs for cross-module protocol requirements.
+    /// </summary>
+    public int? EmittedMemberCount { get; init; }
 }
