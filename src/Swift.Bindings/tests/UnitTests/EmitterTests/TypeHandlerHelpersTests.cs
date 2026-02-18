@@ -63,7 +63,7 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
-    public void GetImplementedInterfaces_CrossModuleProtocol_NotInSupportedList_Excluded()
+    public void GetImplementedInterfaces_CrossModuleProtocol_NoTypeRecord_Excluded()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -76,8 +76,42 @@ public class TypeHandlerHelpersTests
         var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
             structDecl, "Point", "TestModule", typeDatabase);
 
-        // Cross-module protocol not in supported list should be excluded
+        // Cross-module protocol without a TypeRecord in the database should be excluded
         Assert.DoesNotContain(interfaces, i => i.Contains("SomeProtocol"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_CrossModuleProtocol_WithTypeRecord_Included()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("OtherModule", "Renderable");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Widget", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.Renderable"),
+                "$s10TestModule6WidgetVOtherModuleRenderableMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Widget", "TestModule", typeDatabase);
+
+        Assert.Contains(interfaces, i => i.Contains("Renderable"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_CrossModuleProtocol_WithAssociatedTypes_Excluded()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPATInModule("OtherModule", "AsyncSequence");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Stream", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Stream"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.AsyncSequence"),
+                "$s10TestModule6StreamVOtherModuleAsyncSequenceMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Stream", "TestModule", typeDatabase);
+
+        Assert.DoesNotContain(interfaces, i => i.Contains("AsyncSequence"));
     }
 
     [Fact]
@@ -99,6 +133,24 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
+    public void GetImplementedInterfaces_SwiftErrorConformance_Excluded()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftError();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDeclWithConformances("ParseError", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.ParseError"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+                "$s10TestModule10ParseErrorOs0E0AAMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            classDecl, "ParseError", "TestModule", typeDatabase);
+
+        // Swift.Error maps to AnyError (a runtime type), not an IError interface
+        Assert.DoesNotContain(interfaces, i => i.Contains("IError"));
+    }
+
+    [Fact]
     public void GetImplementedInterfaces_SameModuleProtocol_Included()
     {
         var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "Describable");
@@ -113,6 +165,80 @@ public class TypeHandlerHelpersTests
             structDecl, "Point", "TestModule", typeDatabase);
 
         Assert.Contains(interfaces, i => i.Contains("Describable"));
+    }
+
+    #endregion
+
+    #region ConformanceDescriptor Tests
+
+    [Fact]
+    public void ConformanceDescriptor_CrossModuleProtocol_WithTypeRecord_Included()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("OtherModule", "Renderable");
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.Renderable"),
+                "$s10TestModule6WidgetVOtherModuleRenderableMc")
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "Widget", typeDatabase);
+
+        Assert.Contains("typeof(IRenderable)", result);
+        Assert.Contains("\"$s10TestModule6WidgetVOtherModuleRenderableMc\"", result);
+    }
+
+    [Fact]
+    public void ConformanceDescriptor_CrossModuleProtocol_NoTypeRecord_Excluded()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.Unknown"),
+                "$sMc")
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "Widget", typeDatabase);
+
+        Assert.DoesNotContain("Unknown", result);
+    }
+
+    [Fact]
+    public void ConformanceDescriptor_SwiftErrorConformance_Excluded()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftError();
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.ParseError"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+                "$s10TestModule10ParseErrorOs0E0AAMc")
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "ParseError", typeDatabase);
+
+        // Swift.Error maps to AnyError (a runtime type), not an IError interface
+        Assert.DoesNotContain("IError", result);
+    }
+
+    [Fact]
+    public void ConformanceDescriptor_CrossModuleProtocol_WithAssociatedTypes_Excluded()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPATInModule("OtherModule", "AsyncSequence");
+        var conformances = new[] {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Stream"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.AsyncSequence"),
+                "$sMc")
+        };
+
+        var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "Stream", typeDatabase);
+
+        Assert.DoesNotContain("AsyncSequence", result);
     }
 
     #endregion
@@ -272,6 +398,36 @@ public class TypeHandlerHelpersTests
         return typeDatabase;
     }
 
+    private static TypeDatabase CreateTypeDatabaseWithPATInModule(string module, string name)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var targetModule = new ModuleTypeDatabase(module, $"/tmp/{module}.dylib");
+        targetModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", $"I{name}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.HasAssociatedTypes,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(targetModule);
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithProtocol(string module, string name)
     {
         var typeDatabase = new TypeDatabase();
@@ -300,6 +456,56 @@ public class TypeHandlerHelpersTests
             });
         typeDatabase.AddModuleDatabase(testModule);
         return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithSwiftError()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        // Register Swift.Error as a distinct TypeRecord instance (not the singleton)
+        // to verify logical identity check, not reference equality.
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "AnyError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        return typeDatabase;
+    }
+
+    private static ClassDecl CreateClassDeclWithConformances(string name, ModuleDecl moduleDecl, params TypeConformance[] conformances)
+    {
+        return new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(conformances),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
     }
 
     private static ModuleDecl CreateModuleDecl(string name)

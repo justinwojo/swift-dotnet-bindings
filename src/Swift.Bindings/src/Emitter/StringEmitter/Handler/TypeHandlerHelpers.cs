@@ -458,15 +458,6 @@ namespace BindingsGeneration
     /// </summary>
 internal static class ProtocolConformanceHelper
 {
-        /// <summary>
-        /// Protocols from other modules that we support for cross-module conformance.
-        /// This will be removed once we process multiple modules properly.
-        /// </summary>
-    private static readonly HashSet<string> CrossModuleSupportedProtocols = new()
-    {
-        "Swift.Equatable",
-        "Swift.Hashable"
-    };
 
     /// <summary>
     /// Builds the C# interface list for a concrete Swift type declaration.
@@ -524,7 +515,7 @@ internal static class ProtocolConformanceHelper
             }
             else
             {
-                // All other protocol conformances: emit if the protocol is a supported same-module protocol
+                // All other protocol conformances: emit if the protocol has a valid TypeRecord
                 if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
                     continue;
 
@@ -586,12 +577,6 @@ internal static class ProtocolConformanceHelper
 
     private static bool ShouldEmitConformance(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)
     {
-        if (conformance.Protocol.Module != moduleName &&
-            !CrossModuleSupportedProtocols.Contains(conformance.Protocol.ModuleQualifiedName))
-        {
-            return false;
-        }
-
         // Preserve existing behavior for Equatable/Hashable even when protocol records are unavailable.
         if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")
             return true;
@@ -599,6 +584,8 @@ internal static class ProtocolConformanceHelper
             return true;
 
         // Skip unknown protocols and protocols with associated types (PATs).
+        // Cross-module protocols require a loaded module database (--module-database)
+        // to have a TypeRecord; without one they are silently skipped.
         if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record))
             return false;
 
@@ -606,6 +593,11 @@ internal static class ProtocolConformanceHelper
             return false;
 
         if (record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+            return false;
+
+        // Well-known runtime protocols (e.g., Swift.Error → AnyError) map to direct
+        // runtime types, not generated interfaces. Skip them.
+        if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record))
             return false;
 
         return true;

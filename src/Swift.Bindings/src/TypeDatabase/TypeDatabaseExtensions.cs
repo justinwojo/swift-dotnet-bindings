@@ -456,7 +456,7 @@ public static class TypeDatabaseExtensions
     /// </summary>
     public static bool IsWellKnownRuntimeProtocol(TypeRecord record)
     {
-        return record == SwiftErrorType;
+        return record.SwiftTypeName.ModuleQualifiedName == "Swift.Error";
     }
 
     /// <summary>
