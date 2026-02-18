@@ -320,13 +320,14 @@ public class TupleHandler
         foreach (var element in tupleTypeSpec.Elements)
         {
             var pinvokeType = TranslateElementTypeToPInvoke(element);
-            if (pinvokeType == "IntPtr")
-            {
-                var csharpType = TranslateElementTypeToCSharp(element);
-                // CSharpTypeName.FullyQualifiedName returns "System.IntPtr" while P/Invoke uses bare "IntPtr"
-                if (csharpType != "IntPtr" && csharpType != "System.IntPtr")
-                    return true;
-            }
+            var csharpType = TranslateElementTypeToCSharp(element);
+            // IntPtr mismatch: P/Invoke uses IntPtr but C# uses a different type
+            if (pinvokeType == "IntPtr" &&
+                csharpType != "IntPtr" && csharpType != "System.IntPtr")
+                return true;
+            // Existential mismatch: P/Invoke uses ExistentialContainer but C# uses object/interface
+            if (pinvokeType != csharpType && pinvokeType.Contains("ExistentialContainer"))
+                return true;
         }
         return false;
     }
@@ -336,12 +337,12 @@ public class TupleHandler
     /// </summary>
     private string TranslateElementTypeToCSharp(TypeSpec typeSpec)
     {
-        // Handle existential types
+        // Handle existential types — use public type (interface/object), not ExistentialContainer
         if (_existentialHandler.IsExistential(typeSpec))
         {
             var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
             if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
-                return _existentialHandler.GetCSharpExistentialType(protocolList);
+                return _existentialHandler.GetPublicExistentialType(protocolList);
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 
@@ -389,7 +390,10 @@ public class TupleHandler
                 var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
                 if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
                 {
-                    translatedParams.Add(_existentialHandler.GetCSharpExistentialType(protocolList));
+                    if (_existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
+                        translatedParams.Add(wk);
+                    else
+                        translatedParams.Add(_existentialHandler.GetPublicExistentialType(protocolList));
                     continue;
                 }
             }

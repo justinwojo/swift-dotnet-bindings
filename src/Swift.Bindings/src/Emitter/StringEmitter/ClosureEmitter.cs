@@ -79,6 +79,18 @@ public static partial class ClosureEmitter
         {
             returnStatement = $"return del({invokeArgsString}).GetExistentialContainer();";
         }
+        else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out _))
+        {
+            // Known protocol: delegate returns IProtocol, extract container for P/Invoke
+            var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
+            returnStatement = $"return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)del({invokeArgsString})).GetExistentialContainer();";
+        }
+        else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
+        {
+            // Unknown protocol: delegate returns object, unbox for P/Invoke
+            var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
+            returnStatement = $"return ({ct})del({invokeArgsString});";
+        }
         else
         {
             returnStatement = $"return del({invokeArgsString});";
@@ -228,6 +240,14 @@ public static partial class ClosureEmitter
         {
             returnExpr = $"return new {wrapReturnType}({invokeExpr});";
         }
+        else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var returnProxy))
+        {
+            returnExpr = $"return new {returnProxy}({invokeExpr});";
+        }
+        else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
+        {
+            returnExpr = $"return (object){invokeExpr};";
+        }
         else
         {
             returnExpr = $"return {invokeExpr};";
@@ -317,6 +337,10 @@ public static partial class ClosureEmitter
         // but delegate type is now the protocol interface. Wrap with proxy constructor.
         if (closureHandler.NeedsProxyWrapping(typeSpec, out var proxyName))
             return $"new {proxyName}(arg{argIndex})";
+
+        // Unknown protocol: box ExistentialContainer to object for delegate
+        if (closureHandler.IsExistentialParam(typeSpec))
+            return $"(object)arg{argIndex}";
 
         return $"arg{argIndex}";
     }
@@ -449,6 +473,20 @@ public static partial class ClosureEmitter
         // Well-known protocol types: unwrap to ExistentialContainer for function pointer
         if (closureHandler != null && closureHandler.NeedsWellKnownProtocolWrapping(typeSpec, out _))
             return $"_arg{argIndex}.GetExistentialContainer()";
+
+        // Known protocol: extract container from interface for function pointer
+        if (closureHandler != null && closureHandler.NeedsProxyWrapping(typeSpec, out _))
+        {
+            var ct = closureHandler.GetPInvokeExistentialType(typeSpec);
+            return $"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{argIndex}).GetExistentialContainer()";
+        }
+
+        // Unknown protocol: unbox object to container for function pointer
+        if (closureHandler != null && closureHandler.IsExistentialParam(typeSpec))
+        {
+            var ct = closureHandler.GetPInvokeExistentialType(typeSpec);
+            return $"({ct})_arg{argIndex}";
+        }
 
         return $"_arg{argIndex}";
     }

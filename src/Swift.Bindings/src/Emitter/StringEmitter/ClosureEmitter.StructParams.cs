@@ -84,6 +84,18 @@ public static partial class ClosureEmitter
                 // Well-known protocol types: unwrap to ExistentialContainer for function pointer
                 invokeArgs.Add($"_arg{i}.GetExistentialContainer()");
             }
+            else if (closureHandler.NeedsProxyWrapping(arg, out _))
+            {
+                // Known protocol: extract container from interface for function pointer
+                var ct = closureHandler.GetPInvokeExistentialType(arg);
+                invokeArgs.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{i}).GetExistentialContainer()");
+            }
+            else if (closureHandler.IsExistentialParam(arg))
+            {
+                // Unknown protocol: unbox object to container for function pointer
+                var ct = closureHandler.GetPInvokeExistentialType(arg);
+                invokeArgs.Add($"({ct})_arg{i}");
+            }
             else
             {
                 // Direct pass
@@ -95,7 +107,6 @@ public static partial class ClosureEmitter
         var invokeArgsString = string.Join(", ", invokeArgs);
 
         // Generate the invoke and return
-        // For well-known protocol returns, wrap ExistentialContainer1 → AnyError
         string invokeExpr = $"_fp({invokeArgsString})";
         if (!hasReturn)
         {
@@ -108,6 +119,14 @@ public static partial class ClosureEmitter
         else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapFrozenReturn))
         {
             csWriter.WriteLine($"return new {wrapFrozenReturn}({invokeExpr});");
+        }
+        else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var frozenProxy))
+        {
+            csWriter.WriteLine($"return new {frozenProxy}({invokeExpr});");
+        }
+        else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
+        {
+            csWriter.WriteLine($"return (object){invokeExpr};");
         }
         else
         {
@@ -220,6 +239,18 @@ public static partial class ClosureEmitter
                 // Well-known protocol types: unwrap to ExistentialContainer for function pointer
                 invokeArgs.Add($"_arg{i}.GetExistentialContainer()");
             }
+            else if (closureHandler.NeedsProxyWrapping(arg, out _))
+            {
+                // Known protocol: extract container from interface for function pointer
+                var ct = closureHandler.GetPInvokeExistentialType(arg);
+                invokeArgs.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{i}).GetExistentialContainer()");
+            }
+            else if (closureHandler.IsExistentialParam(arg))
+            {
+                // Unknown protocol: unbox object to container for function pointer
+                var ct = closureHandler.GetPInvokeExistentialType(arg);
+                invokeArgs.Add($"({ct})_arg{i}");
+            }
             else
             {
                 // Direct pass
@@ -239,7 +270,6 @@ public static partial class ClosureEmitter
         }
 
         // Generate the invoke and return
-        // For well-known protocol returns, wrap ExistentialContainer1 → AnyError
         string invokeExpr = $"_fp({invokeArgsString})";
         if (!hasReturn)
         {
@@ -252,6 +282,14 @@ public static partial class ClosureEmitter
         else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapNonFrozenReturn))
         {
             csWriter.WriteLine($"return new {wrapNonFrozenReturn}({invokeExpr});");
+        }
+        else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var nonFrozenProxy))
+        {
+            csWriter.WriteLine($"return new {nonFrozenProxy}({invokeExpr});");
+        }
+        else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
+        {
+            csWriter.WriteLine($"return (object){invokeExpr};");
         }
         else
         {

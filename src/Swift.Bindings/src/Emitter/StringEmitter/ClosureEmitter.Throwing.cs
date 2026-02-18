@@ -111,6 +111,16 @@ public static partial class ClosureEmitter
             {
                 csWriter.WriteLine("        return swiftResult.Success.GetExistentialContainer();");
             }
+            else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out _))
+            {
+                var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
+                csWriter.WriteLine($"        return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)swiftResult.Success).GetExistentialContainer();");
+            }
+            else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
+            {
+                var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
+                csWriter.WriteLine($"        return ({ct})swiftResult.Success;");
+            }
             else
             {
                 csWriter.WriteLine("        return swiftResult.Success;");
@@ -228,6 +238,14 @@ public static partial class ClosureEmitter
             else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapThrowingReturn))
             {
                 csWriter.WriteLine($"                return {resultType}.FromSuccess(new {wrapThrowingReturn}(_rawResult));");
+            }
+            else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var throwingProxy))
+            {
+                csWriter.WriteLine($"                return {resultType}.FromSuccess(new {throwingProxy}(_rawResult));");
+            }
+            else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
+            {
+                csWriter.WriteLine($"                return {resultType}.FromSuccess((object)_rawResult);");
             }
             else
             {

@@ -371,6 +371,11 @@ public class ClosureHandler
                 if (!IsSupportedClosureReturnType(element))
                     return false;
             }
+            // Closure-specific: reject tuples where P/Invoke element type differs from C# type.
+            // The callback returns ValueTuple<PInvokeType,...> but del() returns ValueTuple<CSharpType,...>.
+            // Existential elements cause mismatches (ExistentialContainer vs object/interface).
+            if (_tupleHandler.HasClosureUnsafeTupleElements(tuple))
+                return false;
             return true;
         }
 
@@ -785,13 +790,13 @@ public class ClosureHandler
 
     /// <summary>
     /// Translates a TypeSpec to its C# equivalent for delegate type parameters.
-    /// When isReturnType is true, existential types keep using ExistentialContainer
-    /// because the callback/invoker code paths don't yet handle interface↔container
-    /// conversion for return types.
+    /// Existential types use protocol interfaces for known protocols (with proxy),
+    /// well-known runtime types (e.g., AnyError for Swift.Error), or "object" for
+    /// unknown protocols. The P/Invoke layer still uses ExistentialContainer.
     /// </summary>
     public string TranslateTypeSpecToCSharp(TypeSpec typeSpec, bool isReturnType = false)
     {
-        // Handle existential types — use protocol interface for known protocols (params only)
+        // Handle existential types — use protocol interface or object (never ExistentialContainer)
         if (_existentialHandler.IsExistential(typeSpec))
         {
             var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
@@ -804,11 +809,10 @@ public class ClosureHandler
                 // Use public interface (e.g., IImageProcessing) when all protocols have TypeRecords
                 // AND a proxy class exists (TryGetFilteredProxyClassName filters ObjC protocols).
                 // Without a proxy class, the callback can't convert ExistentialContainer → interface.
-                // Return types are excluded — the callback/invoker don't have conversion logic yet.
                 // P1 fix: Also exclude mixed compositions where ObjC filtering drops protocols,
                 // because the proxy constructor accepts ExistentialContainer{filteredCount}
                 // but P/Invoke passes ExistentialContainer{originalCount}.
-                if (!isReturnType && _existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
+                if (_existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 {
                     var publicType = _existentialHandler.GetPublicExistentialType(protocolList);
                     var filteredCount = protocolList.Protocols.Keys
@@ -818,7 +822,8 @@ public class ClosureHandler
                         _existentialHandler.TryGetFilteredProxyClassName(protocolList, out _))
                         return publicType;
                 }
-                return _existentialHandler.GetCSharpExistentialType(protocolList);
+                // Both params and returns: unknown protocols → "object" instead of ExistentialContainer
+                return "object";
             }
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
@@ -925,13 +930,16 @@ public class ClosureHandler
                 continue;
             }
 
-            // Handle existential generic parameters (e.g., Optional<any Protocol>)
+            // Handle existential generic parameters (e.g., Array<any Protocol>)
             if (_existentialHandler.IsExistential(genericParam))
             {
                 var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParam);
                 if (protocolList != null && _existentialHandler.IsSupportedExistential(protocolList))
                 {
-                    translatedParams.Add(_existentialHandler.GetCSharpExistentialType(protocolList));
+                    if (_existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
+                        translatedParams.Add(wk);
+                    else
+                        translatedParams.Add(_existentialHandler.GetPublicExistentialType(protocolList));
                     continue;
                 }
             }
@@ -1243,13 +1251,40 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Determines whether a direct existential type spec in a closure parameter needs proxy wrapping
-    /// when converting from the blittable ExistentialContainer to the protocol interface type.
-    /// Only applies to direct existentials (not Optional-wrapped ones).
+    /// Determines whether a type spec is an existential that requires boxing/unboxing
+    /// between <c>object</c> and <c>ExistentialContainer</c> in callback/invoker code.
+    /// Returns true for unknown protocols (no proxy, no well-known mapping).
+    /// Returns false for well-known protocols (AnyError), known protocols with proxies,
+    /// and non-existential types.
     /// </summary>
-    /// <param name="typeSpec">The type specification of the closure parameter.</param>
-    /// <param name="proxyClassName">The proxy class name to use for wrapping, if applicable.</param>
-    /// <returns>True if the parameter needs proxy construction; false otherwise.</returns>
+    /// <param name="typeSpec">The type specification.</param>
+    /// <returns>True if the type needs object boxing/unboxing.</returns>
+    public bool IsExistentialParam(TypeSpec typeSpec)
+    {
+        if (!_existentialHandler.IsExistential(typeSpec)) return false;
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList)) return false;
+        // Well-known protocols (Swift.Error → AnyError) handled by NeedsWellKnownProtocolWrapping
+        if (_existentialHandler.TryGetWellKnownProtocolType(protocolList, out _)) return false;
+        // Known protocols with proxy classes handled by NeedsProxyWrapping
+        if (NeedsProxyWrapping(typeSpec, out _)) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Gets the P/Invoke existential container type for a given existential type spec.
+    /// Returns the appropriate <c>ExistentialContainer{N}</c> string.
+    /// </summary>
+    /// <param name="typeSpec">The type specification (must be an existential).</param>
+    /// <returns>The ExistentialContainer type name, or "void*" if not an existential.</returns>
+    public string GetPInvokeExistentialType(TypeSpec typeSpec)
+    {
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList != null)
+            return _existentialHandler.GetPInvokeExistentialType(protocolList);
+        return "void*";
+    }
+
     /// <summary>
     /// Determines whether a type spec is a well-known protocol existential that needs
     /// wrapping/unwrapping between the runtime type (e.g., AnyError) and the raw

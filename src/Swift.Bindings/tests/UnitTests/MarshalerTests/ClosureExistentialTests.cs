@@ -29,20 +29,20 @@ public class ClosureExistentialTests
     }
 
     [Fact]
-    public void TranslateTypeSpecToCSharp_ExistentialParam_UnknownProtocol_ReturnsContainer()
+    public void TranslateTypeSpecToCSharp_ExistentialParam_UnknownProtocol_ReturnsObject()
     {
         var typeDatabase = CreateTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // any UnknownProtocol → no TypeRecord → falls back to ExistentialContainer1
+        // any UnknownProtocol → no TypeRecord → falls back to "object"
         var existentialSpec = new NamedTypeSpec("TestModule.UnknownProtocol") { IsAny = true };
         var result = handler.TranslateTypeSpecToCSharp(existentialSpec);
 
-        Assert.Contains("ExistentialContainer", result);
+        Assert.Equal("object", result);
     }
 
     [Fact]
-    public void TranslateTypeSpecToCSharp_ExistentialParam_ObjectFallback_ReturnsContainer()
+    public void TranslateTypeSpecToCSharp_ExistentialParam_ObjectFallback_ReturnsObject()
     {
         // A composition where ObjC filtering removes all non-ObjC protocols → "object" fallback.
         // Use UIKit.UIViewControllerTransitioningDelegate (in AppleObjCFrameworkModules)
@@ -51,11 +51,11 @@ public class ClosureExistentialTests
         var handler = new ClosureHandler(typeDatabase);
 
         // Single protocol from Apple framework module: GetPublicExistentialType returns
-        // the interface name, but TryGetFilteredProxyClassName filters it → container fallback.
+        // the interface name, but TryGetFilteredProxyClassName filters it → "object" fallback.
         var existentialSpec = new NamedTypeSpec("UIKit.UIViewControllerTransitioningDelegate") { IsAny = true };
         var result = handler.TranslateTypeSpecToCSharp(existentialSpec);
 
-        Assert.Contains("ExistentialContainer", result);
+        Assert.Equal("object", result);
     }
 
     [Fact]
@@ -200,10 +200,10 @@ public class ClosureExistentialTests
     }
 
     [Fact]
-    public void TranslateTypeSpecToCSharp_MixedComposition_ReturnsContainer()
+    public void TranslateTypeSpecToCSharp_MixedComposition_ReturnsObject()
     {
         // P1 fix: Mixed ObjC + non-ObjC composition in closure params
-        // should keep ExistentialContainer (not collapse to single-protocol interface).
+        // should return "object" (not ExistentialContainer or collapse to single-protocol interface).
         var typeDatabase = CreateTypeDatabaseWithMixedComposition();
         var handler = new ClosureHandler(typeDatabase);
 
@@ -213,7 +213,190 @@ public class ClosureExistentialTests
 
         var result = handler.TranslateTypeSpecToCSharp(protocolList);
 
-        Assert.Contains("ExistentialContainer", result);
+        Assert.Equal("object", result);
+    }
+
+    #endregion
+
+    #region Return type existentials (Step 2b)
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_ExistentialReturn_KnownProtocol_ReturnsInterface()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var handler = new ClosureHandler(typeDatabase);
+
+        // any ImageProcessing as return type → should return IImageProcessing (not ExistentialContainer1)
+        var existentialSpec = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var result = handler.TranslateTypeSpecToCSharp(existentialSpec, isReturnType: true);
+
+        Assert.Equal("IImageProcessing", result);
+    }
+
+    [Fact]
+    public void TranslateTypeSpecToCSharp_ExistentialReturn_UnknownProtocol_ReturnsObject()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // any UnknownProtocol as return type → "object"
+        var existentialSpec = new NamedTypeSpec("TestModule.UnknownProtocol") { IsAny = true };
+        var result = handler.TranslateTypeSpecToCSharp(existentialSpec, isReturnType: true);
+
+        Assert.Equal("object", result);
+    }
+
+    #endregion
+
+    #region Bound generic existentials (Step 2d)
+
+    [Fact]
+    public void BoundGenericParam_Existential_KnownProtocol_ReturnsInterface()
+    {
+        // SwiftArray<any ImageProcessing> → SwiftArray<IImageProcessing> (not ExistentialContainer1)
+        var typeDatabase = CreateTypeDatabaseWithProtocolAndArray("TestModule.ImageProcessing");
+        var handler = new ClosureHandler(typeDatabase);
+
+        var existentialInner = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var arraySpec = new NamedTypeSpec("Swift.Array");
+        arraySpec.GenericParameters.Add(existentialInner);
+
+        var result = handler.TranslateTypeSpecToCSharp(arraySpec);
+
+        Assert.Contains("SwiftArray", result);
+        Assert.Contains("IImageProcessing", result);
+        Assert.DoesNotContain("ExistentialContainer", result);
+    }
+
+    [Fact]
+    public void BoundGenericParam_Existential_UnknownProtocol_ReturnsObject()
+    {
+        // SwiftArray<any UnknownProtocol> → SwiftArray<object>
+        var typeDatabase = CreateTypeDatabaseWithArray();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var existentialInner = new NamedTypeSpec("TestModule.UnknownProtocol") { IsAny = true };
+        var arraySpec = new NamedTypeSpec("Swift.Array");
+        arraySpec.GenericParameters.Add(existentialInner);
+
+        var result = handler.TranslateTypeSpecToCSharp(arraySpec);
+
+        Assert.Contains("SwiftArray", result);
+        Assert.Contains("object", result);
+        Assert.DoesNotContain("ExistentialContainer", result);
+    }
+
+    #endregion
+
+    #region IsExistentialParam and GetPInvokeExistentialType helpers
+
+    [Fact]
+    public void IsExistentialParam_UnknownProtocol_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var existentialSpec = new NamedTypeSpec("TestModule.UnknownProtocol") { IsAny = true };
+        Assert.True(handler.IsExistentialParam(existentialSpec));
+    }
+
+    [Fact]
+    public void IsExistentialParam_KnownProtocol_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var handler = new ClosureHandler(typeDatabase);
+
+        var existentialSpec = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        Assert.False(handler.IsExistentialParam(existentialSpec));
+    }
+
+    [Fact]
+    public void IsExistentialParam_WellKnownProtocol_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Swift.Error → AnyError is well-known, not unknown
+        var existentialSpec = new NamedTypeSpec("Swift.Error") { IsAny = true };
+        Assert.False(handler.IsExistentialParam(existentialSpec));
+    }
+
+    [Fact]
+    public void IsExistentialParam_NonExistential_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var intSpec = new NamedTypeSpec("Swift.Int");
+        Assert.False(handler.IsExistentialParam(intSpec));
+    }
+
+    [Fact]
+    public void GetPInvokeExistentialType_SingleProtocol_ReturnsContainer1()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var handler = new ClosureHandler(typeDatabase);
+
+        var existentialSpec = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var result = handler.GetPInvokeExistentialType(existentialSpec);
+
+        Assert.Equal("Swift.Runtime.ExistentialContainer1", result);
+    }
+
+    #endregion
+
+    #region Tuple existential safety gate (Step 2d)
+
+    [Fact]
+    public void HasClosureUnsafeTupleElements_WithExistentialElement_ReturnsTrue()
+    {
+        // Existential in tuple: P/Invoke uses ExistentialContainer1 but C# uses object/IProtocol
+        // → HasClosureUnsafeTupleElements must return true (blocks the closure)
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var tupleHandler = new TupleHandler(typeDatabase);
+
+        var existentialElement = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var intElement = new NamedTypeSpec("Swift.Int");
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec> { existentialElement, intElement });
+
+        var result = tupleHandler.HasClosureUnsafeTupleElements(tupleSpec);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void HasClosureUnsafeTupleElements_WithPrimitivesOnly_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithDoublePrimitive();
+        var tupleHandler = new TupleHandler(typeDatabase);
+
+        var intElement = new NamedTypeSpec("Swift.Int");
+        var doubleElement = new NamedTypeSpec("Swift.Double");
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec> { intElement, doubleElement });
+
+        var result = tupleHandler.HasClosureUnsafeTupleElements(tupleSpec);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsSupportedClosure_TupleReturnWithExistential_IsBlocked()
+    {
+        // A closure returning (any Protocol, Int) would generate a callback with
+        // ValueTuple<ExistentialContainer1, nint> return type but del() returns
+        // (object, long) — type mismatch. The closure must be rejected.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var handler = new ClosureHandler(typeDatabase);
+
+        var existentialElement = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var intElement = new NamedTypeSpec("Swift.Int");
+        var tupleReturn = new TupleTypeSpec(new List<TypeSpec> { existentialElement, intElement });
+
+        // Build closure: () -> (any ImageProcessing, Int)
+        var closureSpec = new ClosureTypeSpec(null, tupleReturn);
+
+        // The closure must be rejected because the tuple return has an existential mismatch
+        Assert.False(handler.IsSupportedClosure(closureSpec));
     }
 
     #endregion
@@ -352,6 +535,81 @@ public class ClosureExistentialTests
                 MetadataAccessor = "$sSqMa",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var parts = protocolName.Split('.');
+        var moduleName = parts[0];
+        var shortName = parts[1];
+
+        var testModule = new ModuleTypeDatabase(moduleName, $"/tmp/{moduleName}.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(protocolName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, $"I{shortName}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithDoublePrimitive()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = CreateSwiftModule();
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+                MetadataAccessor = "$sSdMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithArray()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = CreateSwiftModule();
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithProtocolAndArray(string protocolName)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = CreateSwiftModule();
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(swiftModule);
 
