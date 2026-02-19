@@ -430,6 +430,7 @@ public static class ArraySliceNormalizationEmitter
 
         // Build parameter list for the wrapper function
         var swiftParams = new List<string>();
+        var derefLines = new List<string>();
         var originalArgs = originalMethodDecl.CSSignature.Skip(1).ToList();
         var normalizedArgs = normalizedMethodDecl.CSSignature.Skip(1).ToList();
         for (int i = 0; i < normalizedArgs.Count; i++)
@@ -437,12 +438,27 @@ public static class ArraySliceNormalizationEmitter
             var arg = normalizedArgs[i];
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
 
-            // Render param as native Swift type — @_silgen_name forces original function type
+            // Large Optional params: accept UnsafeRawPointer, dereference in body
+            if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
+                swiftParams.Add($"_ {label}: UnsafeRawPointer");
+                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label));
+            }
+            else
+            {
+                // Render param as native Swift type — @_silgen_name forces original function type
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
                 swiftParams.Add($"_ {label}: {swiftType}");
             }
         }
+
+        // Check if the return type is a large Optional that needs an out-buffer
+        bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(normalizedMethodDecl);
+        if (hasLargeOptionalReturn)
+        {
+            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+        }
+
         var swiftParamString = string.Join(", ", swiftParams);
 
         // Build call arguments with ArraySlice conversion
@@ -452,6 +468,10 @@ public static class ArraySliceNormalizationEmitter
             var origArg = originalArgs[i];
             var normArg = normalizedArgs[i];
             var privateName = !string.IsNullOrEmpty(normArg.PrivateName) ? normArg.PrivateName : normArg.Name;
+
+            // Use dereferenced value for large Optional params
+            var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(normArg, env.BoundGenericsHandler)
+                ? $"{privateName}Val" : privateName;
 
             // Determine label using same convention as ExistentialBypassEmitter
             var argStr = origArg.Name switch
@@ -465,11 +485,11 @@ public static class ArraySliceNormalizationEmitter
             // If this param was normalized (ArraySlice → Array), wrap with ArraySlice()
             if (ContainsArraySlice(origArg.SwiftTypeSpec))
             {
-                argStr += $"Swift.ArraySlice({privateName})";
+                argStr += $"Swift.ArraySlice({valueRef})";
             }
             else
             {
-                argStr += privateName;
+                argStr += valueRef;
             }
 
             callArgs.Add(argStr);
@@ -484,7 +504,7 @@ public static class ArraySliceNormalizationEmitter
 
         var originalMethodName = originalMethodDecl.Name;
         var throwsClause = throws ? " throws" : "";
-        var returnClause = isVoid ? "" : $" -> {returnType}";
+        var returnClause = (isVoid || hasLargeOptionalReturn) ? "" : $" -> {returnType}";
         var tryPrefix = throws ? "try " : "";
         var swiftFuncName = $"_sbw_{originalMethodName}_{DeterministicHash8(originalMethodDecl.MangledName)}";
 
@@ -503,9 +523,20 @@ public static class ArraySliceNormalizationEmitter
             swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
 
+            foreach (var line in derefLines)
+                swiftWriter.WriteLine(line);
 
             var callExpr = $"{tryPrefix}{callPrefix}{originalMethodName}({callArgString})";
-            swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            if (hasLargeOptionalReturn)
+            {
+                var bufferLines = OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnType);
+                foreach (var bufLine in bufferLines)
+                    swiftWriter.WriteLine(bufLine);
+            }
+            else
+            {
+                swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            }
 
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
@@ -525,9 +556,20 @@ public static class ArraySliceNormalizationEmitter
             swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
 
+            foreach (var line in derefLines)
+                swiftWriter.WriteLine(line);
 
             var callExpr = $"{tryPrefix}{selfPrefix}.{originalMethodName}({callArgString})";
-            swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            if (hasLargeOptionalReturn)
+            {
+                var bufferLines = OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnType);
+                foreach (var bufLine in bufferLines)
+                    swiftWriter.WriteLine(bufLine);
+            }
+            else
+            {
+                swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            }
 
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");

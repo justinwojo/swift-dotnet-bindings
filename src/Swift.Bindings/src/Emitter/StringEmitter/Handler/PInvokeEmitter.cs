@@ -31,6 +31,15 @@ namespace BindingsGeneration
             // since failable initializers return Optional<Self> which can't be assigned to 'this'.
             if (!_env.MethodDecl.IsConstructor && _env.BoundGenericsHandler.IsBoundGeneric(returnType))
             {
+                // Large Optional returns use out-buffer pattern — PInvoke returns void
+                // Guard: only when a Swift wrapper exists to handle the buffer
+                if (_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
+                    (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
+                {
+                    SetReturnType("void");
+                    return;
+                }
+
                 var csTypeParam = _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType) switch
                 {
                     true => _env.BoundGenericsHandler.GetBufferType(returnType),
@@ -372,6 +381,13 @@ namespace BindingsGeneration
                     AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName + ".Buffer", csName, inoutModifier);
                 else
                     AddParameter(argumentTypeRecord.CSharpTypeName.FullyQualifiedName, csName, inoutModifier);
+            }
+
+            // Large Optional returns use out-buffer pattern — add result buffer parameter
+            if (_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
+                (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
+            {
+                AddParameter("IntPtr", "_optRetPtr");
             }
         }
 

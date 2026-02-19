@@ -87,6 +87,14 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Large Optional return via out-buffer — result is in _optRetPtr, not 'result' variable
+            if (_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
+                (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
+            {
+                EmitOptionalReturnBufferRead(csWriter, returnArg);
+                return;
+            }
+
             // Handle type conversion for return values
             if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.IsConvertibleType(returnArg.SwiftTypeSpec))
             {
@@ -409,6 +417,48 @@ namespace BindingsGeneration
                         return swiftResult.ToNullable();
                         """);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Emits return handling for large Optional return values read from an out-buffer.
+        /// The Swift wrapper wrote the result to _optRetPtr; we read it via MarshalFromSwift.
+        /// </summary>
+        private void EmitOptionalReturnBufferRead(CSharpWriter csWriter, ArgumentDecl returnArg)
+        {
+            var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
+
+            // Check if the Optional wraps an existential — needs proxy wrapping
+            if (_env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))
+            {
+                var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec)!;
+                var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
+                var marshalType = $"Swift.SwiftOptional<{containerType}>";
+                if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownType))
+                {
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(_optRetPtr);
+                        if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                        return new {{wellKnownType}}(swiftResult.Some);
+                        """);
+                }
+                else
+                {
+                    var proxyName = _env.ExistentialHandler.GetProxyClassName(innerProtocolList);
+                    csWriter.WriteLines($$"""
+                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(_optRetPtr);
+                        if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
+                        return new {{proxyName}}(swiftResult.Some);
+                        """);
+                }
+            }
+            else
+            {
+                // Standard optional from buffer
+                csWriter.WriteLines($$"""
+                    var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(_optRetPtr);
+                    return swiftResult.ToNullable();
+                    """);
             }
         }
 

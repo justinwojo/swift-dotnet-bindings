@@ -829,6 +829,19 @@ public class BoundGenericsHandler
             .Any(p => IsLargeOptionalParam(p.SwiftTypeSpec));
     }
 
+    /// <summary>
+    /// Returns true if the method's return type is a large Optional (Optional&lt;T&gt; where T ≥ 8B).
+    /// Async methods and constructors are excluded — async returns go through heap-allocated callbacks,
+    /// and constructors return Self (not Optional) in normal path.
+    /// </summary>
+    public bool IsLargeOptionalReturn(MethodDecl methodDecl)
+    {
+        if (methodDecl.IsAsync || methodDecl.IsConstructor)
+            return false;
+        var returnType = methodDecl.CSSignature.FirstOrDefault();
+        return returnType != null && IsLargeOptionalParam(returnType.SwiftTypeSpec);
+    }
+
     private static bool IsBareStdlibGeneric(NamedTypeSpec typeSpec) => s_stdlibGenerics.Contains(typeSpec.Name);
 
     private static bool HasConformance(TypeDecl typeDecl, SwiftTypeName protocolType) =>

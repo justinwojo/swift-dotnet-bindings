@@ -234,9 +234,10 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
-    public void Emit_Accessor_Getter_DoesNotSetOptionalWrapper()
+    public void Emit_Accessor_Getter_SetsOptionalWrapperForLargeReturn()
     {
-        // Getters have no params beyond return type, so HasLargeOptionalParams returns false
+        // Getters returning large Optional types trigger HasOptionalPointerWrapper
+        // via IsLargeOptionalReturn — the wrapper uses _resultBuf for the return value
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Foo", moduleDecl);
@@ -250,7 +251,7 @@ public class OptionalPointerWrapperTests
         method.IsAccessor = true;
 
         EmitMethod(method, typeDatabase);
-        Assert.False(method.HasOptionalPointerWrapper);
+        Assert.True(method.HasOptionalPointerWrapper);
     }
 
     [Fact]
@@ -909,6 +910,96 @@ public class OptionalPointerWrapperTests
         Assert.Contains("`protocol`.assumingMemoryBound", swiftOutput);
         // LHS of let uses suffixed name (protocolVal) — no backticks needed
         Assert.Contains("let protocolVal = ", swiftOutput);
+    }
+
+    #endregion
+
+    #region Closure Cdecl + Large Optional Return Tests
+
+    [Fact]
+    public void Emit_ClosureCdecl_WithLargeOptionalReturn_SetsClosureWrapper()
+    {
+        // When a method has both a closure param (triggering Cdecl wrapper) and a large Optional
+        // return, the Cdecl wrapper is set first (wins) and the _optbuf wrapper is not set.
+        // But the Cdecl Swift wrapper must still handle the large Optional return via _resultBuf.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringReturn = new NamedTypeSpec("Swift.Optional");
+        optStringReturn.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        // Closure param: (Int) -> Void — Cdecl-compatible (primitive args, void return)
+        var closureType = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+
+        var method = CreateMethodDecl("process", parentDecl, moduleDecl,
+            returnType: optStringReturn, isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        EmitMethod(method, typeDatabase);
+
+        // Closure Cdecl wins (checked first), so HasClosureCdeclWrapper is true
+        Assert.True(method.HasClosureCdeclWrapper);
+        Assert.True(method.UsesWrapperLibrary);
+        // HasOptionalPointerWrapper is NOT set because UsesWrapperLibrary was already true
+        Assert.False(method.HasOptionalPointerWrapper);
+    }
+
+    [Fact]
+    public void Emit_ClosureCdecl_WithLargeOptionalReturn_SwiftWrapperHasResultBuf()
+    {
+        // The Cdecl Swift wrapper must include _resultBuf param for the large Optional return
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringReturn = new NamedTypeSpec("Swift.Optional");
+        optStringReturn.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var closureType = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+
+        var method = CreateMethodDecl("process", parentDecl, moduleDecl,
+            returnType: optStringReturn, isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Swift wrapper must have _resultBuf parameter
+        Assert.Contains("_resultBuf: UnsafeMutableRawPointer", swiftOutput);
+        // Swift wrapper must NOT have a direct return type (writes to buffer instead)
+        Assert.DoesNotContain("-> (Swift.String)?", swiftOutput);
+        Assert.DoesNotContain("-> Swift.Optional", swiftOutput);
+        // Swift wrapper must write result to buffer via copyMemory
+        Assert.Contains("copyMemory", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_ClosureCdecl_WithLargeOptionalReturn_CSharpHasReturnBuffer()
+    {
+        // The C# side must allocate a return buffer and pass _optRetPtr
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringReturn = new NamedTypeSpec("Swift.Optional");
+        optStringReturn.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var closureType = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+
+        var method = CreateMethodDecl("process", parentDecl, moduleDecl,
+            returnType: optStringReturn, isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // C# must allocate stack buffer for the result
+        Assert.Contains("_optRetBuf", csOutput);
+        Assert.Contains("_optRetPtr", csOutput);
+        // C# must read back from buffer
+        Assert.Contains("MarshalFromSwift", csOutput);
     }
 
     #endregion

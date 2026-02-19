@@ -13,7 +13,7 @@ External review: `/Users/wojo/Dev/swift-dotnet-packages/binding-analysis-v2.md` 
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 3,416 passing |
+| Unit tests | 3,419 passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 181 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
@@ -126,21 +126,23 @@ The generator already emits native `enum` for frozen, non-generic enums with int
 
 ---
 
-### 4. Optional<T> P/Invoke Truncation (Correctness)
+### 4. Optional<T> P/Invoke Truncation (Correctness) — COMPLETE
 
-**Priority**: P1 | **Effort**: Medium (1-2 sessions) | **Risk**: Medium
+**Priority**: P1 | **Effort**: Medium (2 sessions) | **Risk**: Medium | **Status**: Complete
 
-`Optional<T>` for `T.Size > 8` silently truncates data through P/Invoke. The `_optbuf` wrapper fixes standalone methods, frozen struct constructors, property setters, and mutating methods. **Still broken for**: async methods, wrapper-owned methods, and Optional return values.
+`Optional<T>` for `T.Size > 8` no longer truncates through P/Invoke. The `_optbuf` wrapper now covers all paths: standalone methods, frozen struct constructors, property setters/getters, mutating methods, wrapper-owned methods (ArraySlice, DefaultParam, ClosureCdecl, opaque return), async methods, and sync Optional return values.
 
-This is a data corruption bug, not a cosmetic issue. Elevated from "tracked bugs" because silent truncation is worse than a crash.
+| Step | Description | Status |
+|------|-------------|--------|
+| **4a. Audit remaining truncation paths** | Enumerated every `PayloadBuffer<IntPtr>` emission for Optional types where inner size > 8B. Categorized by fix strategy: params (wrapper-owned, async) and returns (sync). | **COMPLETE** |
+| **4b. Fix parameter truncation for wrapper-owned + async methods** | Broadened C# `DangerousGetHandle()` gate to fire when `IsLargeOptionalParam` AND any Swift wrapper exists (`HasOptionalPointerWrapper \|\| UsesWrapperLibrary \|\| IsAsync \|\| opaqueReturn`). Added shared helpers to `OptionalPointerWrapperEmitter` (`ShouldWidenParam`, `GetDerefCode`, `GetReturnBufferCode`). Modified 5 Swift wrapper emitters (ArraySlice, DefaultParam, ClosureCdecl, opaque return, async) to accept `UnsafeRawPointer` for large Optional params with `.assumingMemoryBound(to:).pointee` dereference. | **COMPLETE** |
+| **4c. Fix sync Optional return value truncation** | P/Invoke returns void + `_optRetPtr` out-buffer instead of `IntPtr` register return. Swift wrappers write result to `_resultBuf` via `copyMemory`. C# allocates `stackalloc` buffer, passes as `_optRetPtr`, reads back via `MarshalFromSwift`. Applied to all wrapper paths (standalone, ArraySlice, DefaultParam, ClosureCdecl). Getter returns also handled. Guard: only activates when `HasOptionalPointerWrapper \|\| UsesWrapperLibrary` ensures Swift wrapper exists. | **COMPLETE** |
 
-| Step | Description | Effort | Files |
-|------|-------------|--------|-------|
-| **4a. Audit remaining truncation paths** | Enumerate every P/Invoke signature emitting `PayloadBuffer<IntPtr>` for Optional types where inner size > 8. Categorize by fix strategy. | Low | `PInvokeEmitter.cs`, `WrapperEmitter.cs` |
-| **4b. Extend _optbuf to wrapper-owned methods** | Apply the same buffer-widening pattern used in standalone methods. | Medium | `PInvokeEmitter.cs`, `WrapperEmitter.Marshalling.cs` |
-| **4c. Fix Optional return values** | Optional returns via `SwiftIndirectResult` may also truncate. Verify and fix. | Medium | `WrapperEmitter.Return.cs` |
+**Step 4b key files**: `OptionalPointerWrapperEmitter.cs` (shared helpers), `WrapperEmitter.Marshalling.cs` (broadened gate + opaque return), `ArraySliceNormalizationEmitter.cs`, `DefaultParameterOverloadEmitter.cs`, `ClosureEmitter.SwiftWrapper.cs`, `WrapperEmitter.Async.cs`.
 
-**Acceptance gate**: Zero `PayloadBuffer<IntPtr>` emissions where inner type size exceeds 8 bytes. Add unit tests for each path with `Optional<String>` (16 bytes) and `Optional<LargeStruct>`.
+**Step 4c key files**: `BoundGenericsHandler.cs` (`IsLargeOptionalReturn`), `MethodHandler.cs` (extended gate), `OptionalPointerWrapperEmitter.cs` (return buffer + getter support), `PInvokeEmitter.cs` (void return + `_optRetPtr` param), `WrapperEmitter.cs` (`EmitOptionalReturnBuffer`, return prefix), `WrapperEmitter.Return.cs` (`EmitOptionalReturnBufferRead`).
+
+**Acceptance gate**: Passed. All 25 libraries compile with 0 errors. 3,419 unit tests passing (0 failures). Unit tests cover each path: standalone param/return, wrapper-owned param/return, getter return, Closure Cdecl + large Optional return interaction.
 
 ---
 

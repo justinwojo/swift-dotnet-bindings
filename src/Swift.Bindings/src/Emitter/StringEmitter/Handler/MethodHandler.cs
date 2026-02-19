@@ -566,7 +566,8 @@ namespace BindingsGeneration
                 ClosureEmitter.EmitClosureCdeclSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl);
             }
 
-            // Optional pointer wrapper for methods with large Optional params (e.g., Optional<String>).
+            // Optional pointer wrapper for methods with large Optional params (e.g., Optional<String>)
+            // or large Optional returns (e.g., Optional<String> → 16 bytes, exceeds IntPtr capacity).
             // Excluded: async (own wrapper), already-wrapped methods,
             // opaque returns (their own _opaque wrapper doesn't handle Optional param rewriting).
             // Accessors: getters have no params beyond return so HasLargeOptionalParams returns false;
@@ -577,7 +578,8 @@ namespace BindingsGeneration
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsAsync &&
                 !_requiresOpaqueReturn(methodEnv) &&
-                methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl))
+                (methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl) ||
+                 methodEnv.BoundGenericsHandler.IsLargeOptionalReturn(methodEnv.MethodDecl)))
             {
                 methodEnv.MethodDecl.HasOptionalPointerWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;

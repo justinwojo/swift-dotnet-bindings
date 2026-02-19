@@ -420,6 +420,14 @@ public static partial class ClosureEmitter
                 var label = GetSwiftArgLabel(arg);
                 callArgs.Add($"{label}{adapterName}");
             }
+            else if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
+            {
+                // Large Optional param: accept UnsafeRawPointer, dereference in body
+                swiftParams.Add($"_ {swiftName}: UnsafeRawPointer");
+                adapterCode.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, csName, swiftName));
+                var label = GetSwiftArgLabel(arg);
+                callArgs.Add($"{label}{csName}Val");
+            }
             else
             {
                 // Non-closure param: pass through with original Swift type
@@ -428,6 +436,15 @@ public static partial class ClosureEmitter
                 var label = GetSwiftArgLabel(arg);
                 callArgs.Add($"{label}{swiftName}");
             }
+        }
+
+        // Check if the return type is a large Optional that needs an out-buffer
+        bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(methodDecl);
+
+        // Add result buffer parameter before self (if large Optional return)
+        if (hasLargeOptionalReturn)
+        {
+            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
         }
 
         // For instance methods, add self as last param
@@ -442,8 +459,9 @@ public static partial class ClosureEmitter
 
         // Build return type
         var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
-        var hasReturn = !returnTypeSpec.IsEmptyTuple;
-        var returnTypeStr = hasReturn ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)}" : "";
+        var hasReturn = !returnTypeSpec.IsEmptyTuple && !hasLargeOptionalReturn;
+        var returnSwiftTypeName = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+        var returnTypeStr = hasReturn ? $" -> {returnSwiftTypeName}" : "";
         var throwsStr = methodDecl.Throws ? " throws" : "";
 
         // Determine how to call the original method
@@ -505,8 +523,18 @@ public static partial class ClosureEmitter
         }
 
         // Emit the call
-        var returnPrefix = hasReturn || methodDecl.IsConstructor ? "return " : "";
-        swiftWriter.WriteLine($"    {returnPrefix}{tryPrefix}{callPrefix}{callArgsStr}{callSuffix}");
+        if (hasLargeOptionalReturn)
+        {
+            var callExpr = $"{tryPrefix}{callPrefix}{callArgsStr}{callSuffix}";
+            var bufferLines = OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnSwiftTypeName);
+            foreach (var bufLine in bufferLines)
+                swiftWriter.WriteLine($"    {bufLine}");
+        }
+        else
+        {
+            var returnPrefix = hasReturn || methodDecl.IsConstructor ? "return " : "";
+            swiftWriter.WriteLine($"    {returnPrefix}{tryPrefix}{callPrefix}{callArgsStr}{callSuffix}");
+        }
         swiftWriter.WriteLine("}");
         swiftWriter.WriteLine();
     }

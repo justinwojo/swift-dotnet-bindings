@@ -354,6 +354,7 @@ namespace BindingsGeneration
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
             EmitProtocolWitnessTables(csWriter);
+            EmitOptionalReturnBuffer(csWriter);
             EmitPInvokeCall(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
@@ -517,13 +518,34 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits stack-allocated buffer for large Optional return values.
+        /// The Swift wrapper writes the result into this buffer via UnsafeMutableRawPointer.
+        /// </summary>
+        private void EmitOptionalReturnBuffer(CSharpWriter csWriter)
+        {
+            if (!_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) ||
+                (!_env.MethodDecl.HasOptionalPointerWrapper && !_env.MethodDecl.UsesWrapperLibrary))
+                return;
+
+            var returnArg = _env.MethodDecl.CSSignature.First();
+            var swiftType = _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnArg, _genericContext);
+            csWriter.WriteLines($$"""
+                var _optRetSize = (int)TypeMetadata.GetTypeMetadataOrThrow<{{swiftType}}>().Size;
+                byte* _optRetBuf = stackalloc byte[_optRetSize];
+                IntPtr _optRetPtr = (IntPtr)_optRetBuf;
+                """);
+        }
+
+        /// <summary>
         /// Emits the PInvoke call.
         /// </summary>
         /// <param name="writer">The IndentedTextWriter instance.</param>
         private void EmitPInvokeCall(CSharpWriter csWriter)
         {
             var voidReturn = _env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
-            var returnPrefix = (_requiresIndirectResult || _requiresSwiftAsync || voidReturn) ? "" : "var result = ";
+            bool hasOptionalReturnBuffer = _env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
+                (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary);
+            var returnPrefix = (_requiresIndirectResult || _requiresSwiftAsync || voidReturn || hasOptionalReturnBuffer) ? "" : "var result = ";
             var pInvokeName = NameProvider.GetPInvokeName(_env.MethodDecl);
             var callArgs = _pInvokeSignature.CallArgumentsString();
 

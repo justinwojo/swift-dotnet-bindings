@@ -30,19 +30,33 @@ namespace BindingsGeneration
             bool isAccessor = _env.MethodDecl.IsAccessor;
 
             // Build Swift parameter list (matching the original function's signature)
+            var opaqueDerefLines = new List<string>();
             var methodParams = _env.MethodDecl.CSSignature
                 .Skip(1)
-                .Select(p => $"{p.Name}: {(p.IsGeneric ? _env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName : p.SwiftTypeSpec)}");
+                .Select(p =>
+                {
+                    if (OptionalPointerWrapperEmitter.ShouldWidenParam(p, _env.BoundGenericsHandler))
+                    {
+                        opaqueDerefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(p, p.Name, p.Name));
+                        return $"{p.Name}: UnsafeRawPointer";
+                    }
+                    return $"{p.Name}: {(p.IsGeneric ? _env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName : p.SwiftTypeSpec)}";
+                });
 
             string parameters = string.Join(", ", methodParams);
 
             // Build the argument forwarding list
             var methodCallArgs = string.Join(", ", _env.MethodDecl.CSSignature.Skip(1)
-                .Select(p => p.Name switch
+                .Select(p =>
                 {
-                    var n when n.StartsWith("arg") => n,
-                    var n when n.StartsWith("_") => $"{n.Substring(1)}: {n}",
-                    var n => $"{n}: {n}"
+                    var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(p, _env.BoundGenericsHandler)
+                        ? $"{p.Name}Val" : p.Name;
+                    return p.Name switch
+                    {
+                        var n when n.StartsWith("arg") => valueRef,
+                        var n when n.StartsWith("_") => $"{n.Substring(1)}: {valueRef}",
+                        _ => $"{p.Name}: {valueRef}"
+                    };
                 }));
 
             var genericParams = _env.MethodDecl.IsGeneric
@@ -58,6 +72,14 @@ namespace BindingsGeneration
                         .Select(tc => $"{p.SugaredTypeName}.{string.Join(".", tc.Path.Skip(1))} == {tc.ConformanceTarget.Name}");
                     return string.Join(", ", genericConformances.Concat(typeConformances));
                 }))
+                : "";
+
+            // Pre-format deref lines for insertion into raw string templates
+            var extDerefCode = opaqueDerefLines.Count > 0
+                ? string.Join("\n                    ", opaqueDerefLines) + "\n                    "
+                : "";
+            var freeDerefCode = opaqueDerefLines.Count > 0
+                ? string.Join("\n                ", opaqueDerefLines) + "\n                "
                 : "";
 
             if (parentTypeName != null)
@@ -87,7 +109,7 @@ namespace BindingsGeneration
             extension {{parentTypeName.ModuleQualifiedName}} {
                 @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
-                    return {{callPrefix}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
+                    {{extDerefCode}}return {{callPrefix}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
                 }
             }
             """);
@@ -100,7 +122,7 @@ namespace BindingsGeneration
                 swiftWriter.WriteLine($$"""
             @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
             public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
-                return {{(moduleName.Length > 0 ? moduleName + "." : "")}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
+                {{freeDerefCode}}return {{(moduleName.Length > 0 ? moduleName + "." : "")}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
             }
             """);
             }
@@ -385,8 +407,11 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"using var {csName}Swift = {csName} is {{}} {csName}Value ? {swiftType}.NewSome({csName}Value) : {swiftType}.NewNone();");
                     }
                     // Create payload for P/Invoke
-                    if (_env.MethodDecl.HasOptionalPointerWrapper &&
-                        _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec))
+                    // Use DangerousGetHandle for any method with a Swift wrapper that has large Optional params.
+                    // The wrapper accepts UnsafeRawPointer and dereferences via .pointee, avoiding truncation.
+                    if (_env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec) &&
+                        (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary ||
+                         _env.MethodDecl.IsAsync || _requiresOpaqueReturnWrapper))
                     {
                         // Pass pointer to the full Optional buffer — Swift wrapper dereferences via .pointee
                         var bufferName = NameProvider.GetBoundGenericBufferName(csName);

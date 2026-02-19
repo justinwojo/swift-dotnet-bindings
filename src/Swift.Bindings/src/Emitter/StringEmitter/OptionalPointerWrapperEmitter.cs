@@ -25,6 +25,7 @@ public static class OptionalPointerWrapperEmitter
         var wrapperSymbol = NameProvider.GetMangledName(methodDecl);
 
         bool isSetter = methodDecl.IsAccessor && MarshallingHelpers.MethodIsSetter(methodDecl);
+        bool isGetter = methodDecl.IsAccessor && !isSetter;
 
         // Build Swift parameter list
         var swiftParams = new List<string>();
@@ -61,6 +62,15 @@ public static class OptionalPointerWrapperEmitter
             }
         }
 
+        // Check if the return type is a large Optional that needs an out-buffer
+        bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(methodDecl);
+
+        // Add result buffer parameter before self (if large Optional return)
+        if (hasLargeOptionalReturn)
+        {
+            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+        }
+
         // For instance methods, add self as last param
         bool isInstance = methodDecl.MethodType != MethodType.Static && parentDecl != null && !methodDecl.IsConstructor;
         if (isInstance)
@@ -73,10 +83,11 @@ public static class OptionalPointerWrapperEmitter
         // Setter RHS: typically one value, no labels needed
         var setterValueStr = string.Join(", ", valueArgs);
 
-        // Build return type
+        // Build return type — void when using result buffer
         var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
-        var hasReturn = !returnTypeSpec.IsEmptyTuple;
-        var returnTypeStr = hasReturn ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)}" : "";
+        var hasReturn = !returnTypeSpec.IsEmptyTuple && !hasLargeOptionalReturn;
+        var returnSwiftTypeName = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+        var returnTypeStr = hasReturn ? $" -> {returnSwiftTypeName}" : "";
         var throwsStr = methodDecl.Throws ? " throws" : "";
 
         // Determine whether we need through-pointer self access (mutations preserved)
@@ -96,7 +107,7 @@ public static class OptionalPointerWrapperEmitter
         else if (isSetter && isInstance)
         {
             // Property setter: emit assignment syntax (no argument labels on RHS)
-            var propertyName = GetPropertyNameFromSetter(methodDecl.Name);
+            var propertyName = GetPropertyNameFromAccessor(methodDecl.Name);
             if (isClass)
             {
                 selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
@@ -111,8 +122,29 @@ public static class OptionalPointerWrapperEmitter
         else if (isSetter && !isInstance && parentDecl != null)
         {
             // Static setter
-            var propertyName = GetPropertyNameFromSetter(methodDecl.Name);
+            var propertyName = GetPropertyNameFromAccessor(methodDecl.Name);
             callLine = $"{typeName}.{propertyName} = {setterValueStr}";
+        }
+        else if (isGetter && isInstance)
+        {
+            // Property getter: access as property (no parentheses)
+            var propertyName = GetPropertyNameFromAccessor(methodDecl.Name);
+            if (isClass)
+            {
+                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+                callLine = $"__self.{propertyName}";
+            }
+            else
+            {
+                selfConversion = $"let __self = _self.assumingMemoryBound(to: {typeName}.self).pointee";
+                callLine = $"__self.{propertyName}";
+            }
+        }
+        else if (isGetter && !isInstance && parentDecl != null)
+        {
+            // Static getter
+            var propertyName = GetPropertyNameFromAccessor(methodDecl.Name);
+            callLine = $"{typeName}.{propertyName}";
         }
         else if (isInstance)
         {
@@ -164,21 +196,65 @@ public static class OptionalPointerWrapperEmitter
             swiftWriter.WriteLine($"    {line}");
         }
 
-        // Emit the call
-        var returnPrefix = hasReturn || methodDecl.IsConstructor ? "return " : "";
-        swiftWriter.WriteLine($"    {returnPrefix}{tryPrefix}{callLine}");
+        // Emit the call — write to result buffer for large Optional returns
+        if (hasLargeOptionalReturn)
+        {
+            var bufferLines = GetReturnBufferCode($"{tryPrefix}{callLine}", returnSwiftTypeName);
+            foreach (var line in bufferLines)
+            {
+                swiftWriter.WriteLine($"    {line}");
+            }
+        }
+        else
+        {
+            var returnPrefix = hasReturn || methodDecl.IsConstructor ? "return " : "";
+            swiftWriter.WriteLine($"    {returnPrefix}{tryPrefix}{callLine}");
+        }
         swiftWriter.WriteLine("}");
         swiftWriter.WriteLine();
     }
 
     /// <summary>
-    /// Gets the Swift property name from a setter method name by stripping the _Set suffix.
+    /// Returns true if the argument is a large Optional parameter that needs UnsafeRawPointer widening.
+    /// Shared by all Swift wrapper emitters (ArraySlice, DefaultParam, ClosureCdecl, opaque return, async).
     /// </summary>
-    private static string GetPropertyNameFromSetter(string methodName)
+    public static bool ShouldWidenParam(ArgumentDecl arg, BoundGenericsHandler bgHandler)
+        => bgHandler.IsLargeOptionalParam(arg.SwiftTypeSpec);
+
+    /// <summary>
+    /// Returns the Swift code to dereference an UnsafeRawPointer parameter to its original Optional type.
+    /// </summary>
+    public static string GetDerefCode(ArgumentDecl arg, string csName, string swiftName)
     {
-        const string suffix = "_Set";
-        if (methodName.EndsWith(suffix))
-            return methodName.Substring(0, methodName.Length - suffix.Length);
+        var swiftType = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(arg.SwiftTypeSpec);
+        return $"let {csName}Val = {swiftName}.assumingMemoryBound(to: {swiftType}.self).pointee";
+    }
+
+    /// <summary>
+    /// Returns the Swift code to write a result value to an UnsafeMutableRawPointer result buffer.
+    /// Used when the return type is a large Optional (e.g., Optional&lt;String&gt; which is 16 bytes).
+    /// </summary>
+    public static List<string> GetReturnBufferCode(string callLine, string returnSwiftType)
+    {
+        return new List<string>
+        {
+            $"let _result = {callLine}",
+            $"withUnsafePointer(to: _result) {{ _srcPtr in",
+            $"    _resultBuf.copyMemory(from: UnsafeRawPointer(_srcPtr),",
+            $"        byteCount: MemoryLayout<{returnSwiftType}>.size)",
+            $"}}"
+        };
+    }
+
+    /// <summary>
+    /// Gets the Swift property name from an accessor method name by stripping the _Get or _Set suffix.
+    /// </summary>
+    private static string GetPropertyNameFromAccessor(string methodName)
+    {
+        if (methodName.EndsWith("_Set"))
+            return methodName.Substring(0, methodName.Length - 4);
+        if (methodName.EndsWith("_Get"))
+            return methodName.Substring(0, methodName.Length - 4);
         return methodName;
     }
 

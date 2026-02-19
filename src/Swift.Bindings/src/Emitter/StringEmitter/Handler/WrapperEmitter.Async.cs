@@ -54,6 +54,12 @@ namespace BindingsGeneration
                 })
                 .ToList();
 
+            // Identify large Optional params that need UnsafeRawPointer widening (separate from non-frozen)
+            var largeOptionalParams = _env.MethodDecl.CSSignature.Skip(1)
+                .Where(p => _env.BoundGenericsHandler.IsLargeOptionalParam(p.SwiftTypeSpec))
+                .ToList();
+            bool hasReadCode = nonFrozenParams.Count > 0 || largeOptionalParams.Count > 0;
+
             // For non-frozen parameters, create proper copies using InitializeWithCopy FIRST
             // (before the holder is created), so the copy buffer pointers can be stored in the holder.
             // Swift reads via .pointee (bitwise copy). Original params kept alive to maintain ref count.
@@ -450,6 +456,11 @@ namespace BindingsGeneration
                         }
                         return $"{p.Name}: {swiftType}";
                     }
+                    // Large Optional params: accept UnsafeRawPointer, dereference before Task {}
+                    if (largeOptionalParams.Any(lop => lop.Name == p.Name))
+                    {
+                        return $"{p.Name}: UnsafeRawPointer";
+                    }
                     return $"{p.Name}: {p.SwiftTypeSpec}";
                 });
 
@@ -507,6 +518,16 @@ namespace BindingsGeneration
                 }))
                 : "";
 
+            // Append large optional param deref lines (read before Task {} for async safety)
+            if (largeOptionalParams.Count > 0)
+            {
+                var optDeref = string.Join("\n        ", largeOptionalParams.Select(p =>
+                    OptionalPointerWrapperEmitter.GetDerefCode(p, p.Name, p.Name)));
+                readCode = readCode.Length > 0
+                    ? readCode + "\n        " + optDeref
+                    : optDeref;
+            }
+
             // Generate argument list for the actual Swift method call
             var methodCallArgs = string.Join(", ", _env.MethodDecl.CSSignature.Skip(1)
                 .Select(p =>
@@ -528,6 +549,17 @@ namespace BindingsGeneration
                             var n => $"{n}: "
                         };
                         return $"{label}{p.Name}Value";
+                    }
+                    // For large optional params, use the deref'd value
+                    if (largeOptionalParams.Any(lop => lop.Name == p.Name))
+                    {
+                        var label = p.Name switch
+                        {
+                            var n when n.StartsWith("arg") => "",
+                            var n when n.StartsWith("_") => $"{n.Substring(1)}: ",
+                            var n => $"{n}: "
+                        };
+                        return $"{label}{p.Name}Val";
                     }
                     return argName;
                 }));
@@ -593,7 +625,7 @@ namespace BindingsGeneration
             if (isAsyncInstanceMethod)
             {
                 // Free function for async instance methods (marked public to ensure export)
-                if (nonFrozenParams.Count > 0)
+                if (hasReadCode)
                 {
                     swiftWriter.WriteLine($$"""
             @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
@@ -662,7 +694,7 @@ namespace BindingsGeneration
             {
                 // Extension method for static methods, async constructors, and non-async methods on types
                 var staticModifier = (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
-                if (nonFrozenParams.Count > 0)
+                if (hasReadCode)
                 {
                     swiftWriter.WriteLine($$"""
             extension {{parentTypeName.ModuleQualifiedName}} {
@@ -732,7 +764,7 @@ namespace BindingsGeneration
             else
             {
                 // Free function for top-level async functions (no parent type to extend)
-                if (nonFrozenParams.Count > 0)
+                if (hasReadCode)
                 {
                     swiftWriter.WriteLine($$"""
             @_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")

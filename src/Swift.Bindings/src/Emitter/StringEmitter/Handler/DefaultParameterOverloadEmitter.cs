@@ -233,14 +233,22 @@ public static class DefaultParameterOverloadEmitter
 
         // Build parameter list for the wrapper function (only kept params)
         var swiftParams = new List<string>();
+        var derefLines = new List<string>();
         var keptArgs = overloadDecl.CSSignature.Skip(1).ToList();
         for (int i = 0; i < keptArgs.Count; i++)
         {
             var arg = keptArgs[i];
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
 
-            // Render param as native Swift type — @_silgen_name forces original function type
+            // Large Optional params: accept UnsafeRawPointer, dereference in body
+            if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
+                swiftParams.Add($"_ {label}: UnsafeRawPointer");
+                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label));
+            }
+            else
+            {
+                // Render param as native Swift type — @_silgen_name forces original function type
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
                 // Wrapper functions always need @escaping on closure parameters because
                 // the closure is passed to the original method which may require it.
@@ -262,6 +270,14 @@ public static class DefaultParameterOverloadEmitter
                 swiftParams.Add($"_ {label}: {swiftType}");
             }
         }
+
+        // Check if the return type is a large Optional that needs an out-buffer
+        bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(overloadDecl);
+        if (hasLargeOptionalReturn)
+        {
+            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+        }
+
         var swiftParamString = string.Join(", ", swiftParams);
 
         // Build call arguments — use kept params with their original labels
@@ -270,6 +286,10 @@ public static class DefaultParameterOverloadEmitter
         {
             var arg = keptArgs[i];
             var privateName = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+
+            // Use dereferenced value for large Optional params
+            var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler)
+                ? $"{privateName}Val" : privateName;
 
             // Reconstruct Swift argument label from external name
             var argStr = arg.Name switch
@@ -281,7 +301,7 @@ public static class DefaultParameterOverloadEmitter
             };
 
             // Call args use native param names — @_silgen_name preserves original ABI
-            callArgs.Add(argStr + privateName);
+            callArgs.Add(argStr + valueRef);
         }
         var callArgString = string.Join(", ", callArgs);
 
@@ -295,7 +315,7 @@ public static class DefaultParameterOverloadEmitter
         var asyncKeyword = originalMethodDecl.IsAsync ? " async" : "";
         var awaitPrefix = originalMethodDecl.IsAsync ? "await " : "";
         var throwsClause = throws ? " throws" : "";
-        var returnClause = isVoid ? "" : $" -> {returnType}";
+        var returnClause = (isVoid || hasLargeOptionalReturn) ? "" : $" -> {returnType}";
         var tryPrefix = throws ? "try " : "";
         var trimCount = originalMethodDecl.CSSignature.Count - overloadDecl.CSSignature.Count;
         var swiftFuncName = $"_dbw_{originalMethodName}_{DeterministicHash8(originalMethodDecl.MangledName)}_{trimCount}";
@@ -312,9 +332,20 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
 
+            foreach (var line in derefLines)
+                swiftWriter.WriteLine(line);
 
             var callExpr = $"{tryPrefix}{awaitPrefix}{callPrefix}{originalMethodName}({callArgString})";
-            swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            if (hasLargeOptionalReturn)
+            {
+                var bufferLines = OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnType);
+                foreach (var bufLine in bufferLines)
+                    swiftWriter.WriteLine(bufLine);
+            }
+            else
+            {
+                swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            }
 
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
@@ -337,6 +368,8 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"public static func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause} {{");
             swiftWriter.Indent++;
 
+            foreach (var line in derefLines)
+                swiftWriter.WriteLine(line);
 
             var callExpr = $"{tryPrefix}{awaitPrefix}{swiftModuleQualifiedName}({callArgString})";
             swiftWriter.WriteLine($"return {callExpr}");
@@ -361,9 +394,20 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
 
+            foreach (var line in derefLines)
+                swiftWriter.WriteLine(line);
 
             var callExpr = $"{tryPrefix}{awaitPrefix}{selfPrefix}.{originalMethodName}({callArgString})";
-            swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            if (hasLargeOptionalReturn)
+            {
+                var bufferLines = OptionalPointerWrapperEmitter.GetReturnBufferCode(callExpr, returnType);
+                foreach (var bufLine in bufferLines)
+                    swiftWriter.WriteLine(bufLine);
+            }
+            else
+            {
+                swiftWriter.WriteLine(isVoid ? callExpr : $"return {callExpr}");
+            }
 
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
