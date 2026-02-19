@@ -13,12 +13,12 @@ External review: `/Users/wojo/Dev/swift-dotnet-packages/binding-analysis-v2.md` 
 
 | Metric | Value |
 |--------|-------|
-| Unit tests | 3,419 passing |
+| Unit tests | 3,439 passing |
 | Integration tests | 700 passing (11 skipped, pre-existing) |
 | Runtime library tests | 207 passing |
 | Runtime tests | 188 passing at Tier 2 (28 pre-existing failures, allowlist-based crash tolerance) |
 | TestFramework must-pass | 94/94 passing, 0 degraded |
-| Libraries validated | 25 clean (0 generator errors) + 5 environmental-only |
+| Libraries validated | 31 passing (28 clean + 3 known errors) |
 | External review score | 6.5/10 (up from 5.5) |
 
 ---

@@ -1,5 +1,12 @@
 # Emission redesign proposal
 
+> **Status Note (February 2026)**: This proposal was written by the original Microsoft team. Parts of it have been superseded by subsequent work:
+>
+> - **Phase 1** (type pre-processing, MarshallingLabel, graph traversal) — implemented as `ModuleProcessor` + `TypeDatabase` + `TypeRecord` flags.
+> - **TypeRepresentation with `List<string>`** and **Group 2/3 handlers** (return type, argument) — superseded by the `TypeProjectionFactory` + `ITypeProjection` + `MarshalPlan` architecture described in the [architecture roadmap](../architecture-roadmap.md). Per-type marshalling is now handled by composable projections, not per-argument handler classes.
+>
+> **Still relevant**: The **Group 1 method-level handlers** (Constructor, Instance, Static, SwiftError, GenericParameter, Async) and the **8-phase `MethodRepresentation`** concept. These address method-level orchestration (SwiftSelf, SwiftError, generic metadata, async Task wrapping) which is independent of type conversion. This is a natural follow-up to the TypeProjectionFactory work — decomposing the monolithic `MethodHandler.cs` (896 lines) + `WrapperEmitter.cs` (978 lines) into composable handlers that each contribute to a `MethodMarshalPlan`.
+
 ## Introduction
 
 The purpose of this document is to outline the new emission process and the changes that need to be made to the current codebase.

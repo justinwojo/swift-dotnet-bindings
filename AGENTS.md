@@ -18,6 +18,10 @@ Instructions for Codex in this repository.
 - Follow project conventions and workflows documented in `CLAUDE.md`.
 - If guidance conflicts, this file takes precedence for Codex execution constraints.
 
+## Claude Memory.md references
+- Mentions of `MEMORY.md` in plans/reviews refer to Claude's external system tracking document, not a repository file.
+- Codex should not flag missing `MEMORY.md` in this workspace as an issue.
+
 ## Scoped Rules Loading (`.claude/rules`)
 - Scoped rules live in `.claude/rules/*.md` and use frontmatter `globs` to define applicability.
 - Always read `AGENTS.md` and `CLAUDE.md` first, then load only scoped rule files whose `globs` match the current task scope.
